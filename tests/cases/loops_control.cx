@@ -1,0 +1,51 @@
+// break stops the loop; continue skips to the next iteration.
+for (let i = 0; i < 10; i++) {
+  if (i === 5) {
+    break;
+  }
+  if (i % 2 === 0) {
+    continue;
+  }
+  console.log(i);
+}
+
+// continue in a for-loop still runs the increment, or it would never finish.
+let seen = 0;
+for (let i = 0; i < 5; i++) {
+  if (i === 2) {
+    continue;
+  }
+  seen = seen + 1;
+}
+console.log(seen);
+
+// while, and a loop that only exits through break.
+let w = 0;
+while (true) {
+  w++;
+  if (w > 3) {
+    break;
+  }
+}
+console.log(w);
+
+// Locals declared inside the body are discarded when jumping out.
+for (let i = 0; i < 3; i++) {
+  let inner = i * 2;
+  if (inner === 2) {
+    continue;
+  }
+  console.log(inner);
+}
+
+// break only leaves the innermost loop.
+let pairs = "";
+for (let i = 0; i < 3; i++) {
+  for (let j = 0; j < 3; j++) {
+    if (j === 1) {
+      break;
+    }
+    pairs = pairs + i + j + " ";
+  }
+}
+console.log(pairs);

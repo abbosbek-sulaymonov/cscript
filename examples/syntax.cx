@@ -1,0 +1,34 @@
+// The remaining everyday JavaScript syntax: template literals, the conditional
+// operator, break/continue, and switch.
+
+const name = "cscript";
+const version = 6;
+console.log(`${name} v${version} — ${version > 5 ? "current" : "old"}`);
+
+// break and continue.
+for (let i = 1; i <= 10; i++) {
+  if (i % 3 !== 0) {
+    continue;
+  }
+  if (i > 6) {
+    break;
+  }
+  console.log(`divisible by three: ${i}`);
+}
+
+// switch. Arms do not fall through, so a missing `break` cannot leak into the
+// next case — the single most common switch bug, designed out.
+function describe(n) {
+  switch (n) {
+    case 0:
+      return "zero";
+    case 1:
+      return "one";
+    default:
+      return `some number (${n})`;
+  }
+}
+
+console.log(describe(0));
+console.log(describe(1));
+console.log(describe(42));

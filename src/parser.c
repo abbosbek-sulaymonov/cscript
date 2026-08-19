@@ -9,7 +9,8 @@
  * functions, because binary parsing is driven by this table. */
 typedef enum {
   PREC_NONE,
-  PREC_ASSIGNMENT, /* = += -= *= /= %=  (right-associative) */
+  PREC_ASSIGNMENT,  /* = += -= *= /= %=  (right-associative) */
+  PREC_CONDITIONAL, /* ?:                (right-associative) */
   PREC_OR,         /* ||               */
   PREC_AND,        /* &&               */
   PREC_EQUALITY,   /* === !==          */
@@ -125,6 +126,10 @@ static AstNode *parseExpression(Parser *parser);
 static AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence);
 static AstNode *parsePrimary(Parser *parser);
 static AstNode *parseFunction(Parser *parser, bool requireName);
+static AstNode *parseSwitch(Parser *parser);
+static AstNode *parseTemplate(Parser *parser, const char *start, int length, int line);
+static AstNode *parseStatement(Parser *parser);
+static void synchronize(Parser *parser);
 
 /* Decodes a string literal's escape sequences into a fresh arena buffer.
  * `start`/`length` cover the lexeme including both quotes. */
@@ -263,6 +268,12 @@ static AstNode *parsePrimary(Parser *parser) {
     return parseCallSuffixes(
         parser, makeStringLiteral(parser, parser->previous.start,
                                   parser->previous.length, line));
+  }
+  if (matchToken(parser, TOKEN_TEMPLATE)) {
+    AstNode *template = parseTemplate(parser, parser->previous.start,
+                                      parser->previous.length, line);
+    if (template == NULL) return NULL;
+    return parseCallSuffixes(parser, template);
   }
   if (matchToken(parser, TOKEN_TRUE)) {
     return csAstBool(parser->arena, line, true);
@@ -429,6 +440,23 @@ static AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence) {
       continue;
     }
 
+    /* `?:` is right-associative and binds looser than everything except
+     * assignment, so both arms parse at the conditional level. */
+    if (check(parser, TOKEN_QUESTION) && minPrecedence <= PREC_CONDITIONAL) {
+      int line = parser->current.line;
+      advanceToken(parser);
+
+      AstNode *thenValue = parsePrecedence(parser, PREC_ASSIGNMENT);
+      if (thenValue == NULL) return NULL;
+      consume(parser, TOKEN_COLON, "expected ':' in a conditional expression");
+      if (parser->diag->panicMode) return NULL;
+      AstNode *elseValue = parsePrecedence(parser, PREC_CONDITIONAL);
+      if (elseValue == NULL) return NULL;
+
+      left = csAstConditional(parser->arena, line, left, thenValue, elseValue);
+      continue;
+    }
+
     if (rejectLooseEquality(parser)) return NULL;
 
     Precedence precedence = binaryPrecedence(parser->current.type);
@@ -459,6 +487,98 @@ static AstNode *parseExpression(Parser *parser) {
 }
 
 static AstNode *parseStatement(Parser *parser);
+
+/* Builds the concatenation a template literal desugars to.
+ *
+ * `\`a ${x} b\`` becomes `"a" + x + " b"`, which reuses the existing string
+ * semantics of `+` — including the rule that a string on either side wins — so
+ * interpolating a number needs no extra machinery.
+ *
+ * The whole literal arrived as one token, so each `${...}` is re-lexed here by
+ * a nested parser over a NUL-terminated copy. Its diagnostics share this
+ * parser's, and line numbers are reported relative to the template's own line,
+ * which is exact unless the template spans lines. */
+static AstNode *parseTemplate(Parser *parser, const char *start, int length, int line) {
+  const char *cursor = start + 1;      /* skip the opening backtick */
+  const char *end = start + length - 1; /* and the closing one */
+
+  AstNode *result = NULL;
+  char chunk[1024];
+
+  while (cursor < end) {
+    /* Literal run up to the next interpolation. */
+    int chunkLength = 0;
+    while (cursor < end && !(cursor[0] == '$' && cursor + 1 < end && cursor[1] == '{')) {
+      char c = *cursor++;
+      if (c == '\\' && cursor < end) {
+        char escaped = *cursor++;
+        switch (escaped) {
+          case 'n': c = '\n'; break;
+          case 't': c = '\t'; break;
+          case 'r': c = '\r'; break;
+          case '`': c = '`'; break;
+          case '$': c = '$'; break;
+          case '\\': c = '\\'; break;
+          default: c = escaped; break;
+        }
+      }
+      if (chunkLength < (int)sizeof(chunk) - 1) chunk[chunkLength++] = c;
+    }
+
+    /* An empty leading chunk still matters: it forces the result to be a
+     * string even when the template starts with an interpolation. */
+    if (chunkLength > 0 || result == NULL) {
+      AstNode *piece = csAstString(parser->arena, line, chunk, chunkLength);
+      result = result == NULL
+                   ? piece
+                   : csAstBinary(parser->arena, line, BINARY_ADD, result, piece);
+    }
+
+    if (cursor >= end) break;
+
+    cursor += 2; /* consume "${" */
+    const char *exprStart = cursor;
+    int depth = 1;
+    while (cursor < end && depth > 0) {
+      if (*cursor == '{') depth++;
+      if (*cursor == '}') depth--;
+      if (depth > 0) cursor++;
+    }
+    if (depth != 0) {
+      csDiagnosticError(parser->diag, line, start, length,
+                        "unterminated '${' in template literal");
+      return NULL;
+    }
+
+    int exprLength = (int)(cursor - exprStart);
+    cursor++; /* consume "}" */
+
+    char *source = (char *)csAstArenaAlloc(parser->arena, (size_t)exprLength + 1);
+    if (source == NULL) return NULL;
+    memcpy(source, exprStart, (size_t)exprLength);
+    source[exprLength] = '\0';
+
+    Parser nested;
+    nested.arena = parser->arena;
+    nested.diag = parser->diag;
+    csLexerInit(&nested.lexer, source, parser->diag);
+    nested.lexer.line = line;
+    nested.previous = parser->previous;
+    advanceToken(&nested);
+
+    AstNode *expression = parseExpression(&nested);
+    if (expression == NULL) return NULL;
+    if (!check(&nested, TOKEN_EOF)) {
+      csDiagnosticError(parser->diag, line, start, length,
+                        "unexpected trailing text in a template interpolation");
+      return NULL;
+    }
+
+    result = csAstBinary(parser->arena, line, BINARY_ADD, result, expression);
+  }
+
+  return result != NULL ? result : csAstString(parser->arena, line, "", 0);
+}
 
 /* Parses `: TypeName` if present. Returns false only on a malformed one. */
 static bool parseTypeAnnotation(Parser *parser, TypeKind *type, bool *present) {
@@ -539,6 +659,61 @@ static AstNode *parseFunction(Parser *parser, bool requireName) {
   if (function->as.function.body == NULL) return NULL;
 
   return function;
+}
+
+/* `switch (subject) { case a: ... default: ... }`
+ *
+ * Arms are matched with `===`, so there is no coercion here either. Cases do
+ * not fall through: each arm ends where the next begins, which removes the
+ * single most common switch bug without changing how one is written. */
+static AstNode *parseSwitch(Parser *parser) {
+  int line = parser->previous.line;
+
+  consume(parser, TOKEN_LEFT_PAREN, "expected '(' after 'switch'");
+  AstNode *subject = parseExpression(parser);
+  consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the switch subject");
+  consume(parser, TOKEN_LEFT_BRACE, "expected '{' to open the switch body");
+  if (subject == NULL || parser->diag->panicMode) return NULL;
+
+  AstNode *node = csAstSwitch(parser->arena, line, subject);
+
+  while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
+    bool isDefault = matchToken(parser, TOKEN_DEFAULT);
+    AstNode *test = NULL;
+
+    if (!isDefault) {
+      consume(parser, TOKEN_CASE, "expected 'case' or 'default'");
+      if (parser->diag->panicMode) return NULL;
+      test = parseExpression(parser);
+      if (test == NULL) return NULL;
+    }
+
+    consume(parser, TOKEN_COLON, "expected ':' after the case label");
+    if (parser->diag->panicMode) return NULL;
+
+    /* Statements run until the next label or the closing brace. */
+    AstNode *body = csAstBlock(parser->arena, parser->current.line);
+    while (!check(parser, TOKEN_CASE) && !check(parser, TOKEN_DEFAULT) &&
+           !check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
+      AstNode *statement = parseStatement(parser);
+      if (statement != NULL) csAstProgramAdd(parser->arena, body, statement);
+      if (parser->diag->panicMode) synchronize(parser);
+    }
+
+    if (isDefault) {
+      if (node->as.switchStmt.defaultBody != NULL) {
+        csDiagnosticError(parser->diag, line, NULL, 0,
+                          "a switch can only have one 'default'");
+        return NULL;
+      }
+      node->as.switchStmt.defaultBody = body;
+    } else {
+      csAstSwitchAddCase(parser->arena, node, test, body);
+    }
+  }
+
+  consume(parser, TOKEN_RIGHT_BRACE, "expected '}' to close the switch");
+  return parser->diag->panicMode ? NULL : node;
 }
 
 /* `let x = 1;` / `const y = 2;` — `var` is rejected in parseStatement. */
@@ -695,6 +870,22 @@ static AstNode *parseStatement(Parser *parser) {
     errorAtCurrent(parser, notImplemented);
     return NULL;
   }
+
+  if (matchToken(parser, TOKEN_BREAK)) {
+    int breakLine = parser->previous.line;
+    consume(parser, TOKEN_SEMICOLON, "expected ';' after 'break'");
+    if (parser->diag->panicMode) return NULL;
+    return csAstBreak(parser->arena, breakLine);
+  }
+
+  if (matchToken(parser, TOKEN_CONTINUE)) {
+    int continueLine = parser->previous.line;
+    consume(parser, TOKEN_SEMICOLON, "expected ';' after 'continue'");
+    if (parser->diag->panicMode) return NULL;
+    return csAstContinue(parser->arena, continueLine);
+  }
+
+  if (matchToken(parser, TOKEN_SWITCH)) return parseSwitch(parser);
 
   if (matchToken(parser, TOKEN_FUNCTION)) return parseFunction(parser, true);
 

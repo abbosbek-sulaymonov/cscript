@@ -1,0 +1,18 @@
+const n = 7;
+console.log(n > 5 ? "big" : "small");
+console.log(n % 2 === 0 ? "even" : "odd");
+
+// Right-associative, so this chains the way it reads.
+function grade(score) {
+  return score >= 90 ? "A" : score >= 80 ? "B" : score >= 70 ? "C" : "F";
+}
+console.log(grade(95), grade(85), grade(75), grade(40));
+
+// The arms are only evaluated when chosen.
+let touched = 0;
+function bump() {
+  touched = touched + 1;
+  return 0;
+}
+const unused = true ? 1 : bump();
+console.log(unused, touched);

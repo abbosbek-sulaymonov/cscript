@@ -190,6 +190,30 @@ static void printNode(const AstNode *node, int depth) {
       printf("Return\n");
       printNode(node->as.returnValue, depth + 1);
       break;
+    case AST_CONDITIONAL:
+      printf("Conditional\n");
+      printNode(node->as.conditional.condition, depth + 1);
+      printNode(node->as.conditional.thenValue, depth + 1);
+      printNode(node->as.conditional.elseValue, depth + 1);
+      break;
+    case AST_BREAK_STMT:
+      printf("Break\n");
+      break;
+    case AST_CONTINUE_STMT:
+      printf("Continue\n");
+      break;
+    case AST_SWITCH_STMT:
+      printf("Switch (%d case%s)\n", node->as.switchStmt.caseCount,
+             node->as.switchStmt.caseCount == 1 ? "" : "s");
+      printNode(node->as.switchStmt.subject, depth + 1);
+      for (int i = 0; i < node->as.switchStmt.caseCount; i++) {
+        printNode(node->as.switchStmt.cases[i].test, depth + 1);
+        printNode(node->as.switchStmt.cases[i].body, depth + 2);
+      }
+      if (node->as.switchStmt.defaultBody != NULL) {
+        printNode(node->as.switchStmt.defaultBody, depth + 1);
+      }
+      break;
     case AST_INDEX:
       printf("Index\n");
       printNode(node->as.index.target, depth + 1);

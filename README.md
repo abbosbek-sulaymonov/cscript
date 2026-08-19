@@ -73,13 +73,13 @@ The full list, with the reasoning for each, is in
 
 ## Status
 
-**v0.5.0.** Objects and arrays, functions and closures, gradual typing with
-inference, variables, block scoping, control flow and the `console` / `Math`
-built-ins. The pipeline is lexer → parser → type checker → bytecode compiler →
-stack VM, with a mark-sweep collector underneath.
+**v0.6.0.** The language is feature-complete for everyday code: objects and
+arrays, functions and closures, gradual typing with inference, control flow,
+`switch`, template literals and the conditional operator. The pipeline is lexer
+→ parser → type checker → bytecode compiler → stack VM, with a mark-sweep
+collector underneath.
 
-Not here yet: `switch`, `break`/`continue`, template literals and the ternary
-operator. See the [roadmap](#roadmap).
+What remains is performance — see the [roadmap](#roadmap).
 
 ---
 
@@ -331,7 +331,7 @@ cscript/
 | **3 ✅** | Gradual typing: annotations, inference, checking | — |
 | **4 ✅** | User functions, `return`, closures, typed signatures | — |
 | **5 ✅** | Object literals, arrays, indexing, `.length` | — |
-| 6 | `switch`, `break`/`continue`, template literals, ternary | parser and compiler |
+| **6 ✅** | `switch`, `break`/`continue`, template literals, ternary | — |
 | 7 | Unboxed typed locals — where typing pays off in speed | `Value`, VM, compiler |
 
 ---

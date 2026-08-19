@@ -1,0 +1,10 @@
+hello cscript
+cscript v6
+sum: 3
+nested: yes
+empty: 
+
+no interpolation at all
+a	b
+cost: $5
+2

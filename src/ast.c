@@ -315,6 +315,49 @@ static AstNode **growList(AstArena *arena, AstNode **list, int count) {
   return grown;
 }
 
+AstNode *csAstConditional(AstArena *arena, int line, AstNode *condition,
+                          AstNode *thenValue, AstNode *elseValue) {
+  AstNode *node = newNode(arena, AST_CONDITIONAL, line);
+  if (node == NULL) return NULL;
+  node->as.conditional.condition = condition;
+  node->as.conditional.thenValue = thenValue;
+  node->as.conditional.elseValue = elseValue;
+  return node;
+}
+
+AstNode *csAstBreak(AstArena *arena, int line) {
+  return newNode(arena, AST_BREAK_STMT, line);
+}
+
+AstNode *csAstContinue(AstArena *arena, int line) {
+  return newNode(arena, AST_CONTINUE_STMT, line);
+}
+
+AstNode *csAstSwitch(AstArena *arena, int line, AstNode *subject) {
+  AstNode *node = newNode(arena, AST_SWITCH_STMT, line);
+  if (node == NULL) return NULL;
+  node->as.switchStmt.subject = subject;
+  node->as.switchStmt.cases = NULL;
+  node->as.switchStmt.caseCount = 0;
+  node->as.switchStmt.defaultBody = NULL;
+  return node;
+}
+
+void csAstSwitchAddCase(AstArena *arena, AstNode *node, AstNode *test, AstNode *body) {
+  if (node == NULL) return;
+  int count = node->as.switchStmt.caseCount;
+  AstSwitchCase *grown = (AstSwitchCase *)csAstArenaAlloc(
+      arena, sizeof(AstSwitchCase) * (size_t)(count + 1));
+  if (grown == NULL) return;
+  if (node->as.switchStmt.cases != NULL) {
+    memcpy(grown, node->as.switchStmt.cases, sizeof(AstSwitchCase) * (size_t)count);
+  }
+  grown[count].test = test;
+  grown[count].body = body;
+  node->as.switchStmt.cases = grown;
+  node->as.switchStmt.caseCount = count + 1;
+}
+
 AstNode *csAstIndex(AstArena *arena, int line, AstNode *target, AstNode *index) {
   AstNode *node = newNode(arena, AST_INDEX, line);
   if (node == NULL) return NULL;

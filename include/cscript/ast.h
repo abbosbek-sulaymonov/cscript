@@ -31,6 +31,7 @@ typedef enum {
   AST_INDEX,
   AST_OBJECT_LITERAL,
   AST_ARRAY_LITERAL,
+  AST_CONDITIONAL,
 
   /* Statements. */
   AST_EXPRESSION_STMT,
@@ -40,6 +41,9 @@ typedef enum {
   AST_WHILE_STMT,
   AST_FOR_STMT,
   AST_RETURN_STMT,
+  AST_BREAK_STMT,
+  AST_CONTINUE_STMT,
+  AST_SWITCH_STMT,
   AST_PROGRAM,
 } AstNodeType;
 
@@ -62,6 +66,13 @@ typedef enum {
 } LogicalOp;
 
 typedef struct AstNode AstNode;
+
+/* One `case` arm. The body is a statement list rather than a block, because
+ * cases share a scope in JavaScript. */
+typedef struct AstSwitchCase {
+  AstNode *test;
+  AstNode *body; /* an AST_BLOCK holding the arm's statements */
+} AstSwitchCase;
 
 /* One declared parameter. Stored inline in the function node's array. */
 typedef struct AstParam {
@@ -153,6 +164,17 @@ struct AstNode {
       AstNode *increment;
       AstNode *body;
     } forStmt;
+    struct {                             /* AST_CONDITIONAL — c ? a : b */
+      AstNode *condition;
+      AstNode *thenValue;
+      AstNode *elseValue;
+    } conditional;
+    struct {                             /* AST_SWITCH_STMT */
+      AstNode *subject;
+      struct AstSwitchCase *cases;
+      int caseCount;
+      AstNode *defaultBody;              /*   an AST_BLOCK, or NULL */
+    } switchStmt;
     struct {                             /* AST_INDEX — target[index] */
       AstNode *target;
       AstNode *index;
@@ -231,6 +253,12 @@ AstNode *csAstFor(AstArena *arena, int line, AstNode *initializer, AstNode *cond
 AstNode *csAstFunction(AstArena *arena, int line, const char *name, int nameLength);
 void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name,
                            int length, TypeKind type, bool hasAnnotation);
+AstNode *csAstConditional(AstArena *arena, int line, AstNode *condition,
+                          AstNode *thenValue, AstNode *elseValue);
+AstNode *csAstBreak(AstArena *arena, int line);
+AstNode *csAstContinue(AstArena *arena, int line);
+AstNode *csAstSwitch(AstArena *arena, int line, AstNode *subject);
+void csAstSwitchAddCase(AstArena *arena, AstNode *node, AstNode *test, AstNode *body);
 AstNode *csAstIndex(AstArena *arena, int line, AstNode *target, AstNode *index);
 AstNode *csAstObjectLiteral(AstArena *arena, int line);
 void csAstObjectLiteralAdd(AstArena *arena, AstNode *object, AstNode *key,

@@ -67,8 +67,25 @@ typedef struct {
   int globalCount;
 } Unit;
 
+#define MAX_LOOP_EXITS 64
+
+/* The innermost enclosing loop or switch, so `break` and `continue` know where
+ * to go. Jumps out are recorded here and patched once the exit point is known. */
+typedef struct Loop {
+  struct Loop *enclosing;
+  int scopeDepth;      /* locals above this are discarded when jumping out */
+  int continueTarget;  /* -1 while unknown, e.g. a for-loop's increment */
+  bool allowsContinue; /* false inside a switch */
+
+  int breakJumps[MAX_LOOP_EXITS];
+  int breakCount;
+  int continueJumps[MAX_LOOP_EXITS];
+  int continueCount;
+} Loop;
+
 static Compiler *current = NULL;
 static Unit *currentUnit = NULL;
+static Loop *currentLoop = NULL;
 
 static Chunk *currentChunk(void) { return &current->function->chunk; }
 
@@ -316,6 +333,52 @@ static void addGlobal(const char *name, int length, bool isConst,
   global->isConst = isConst;
 }
 
+/* Emits the pops needed to leave every scope inside `depth` before jumping out
+ * of a loop. The locals stay in the compiler's table, because the code after
+ * the jump is still inside the loop and can still see them. */
+static void discardLocalsAbove(int depth, int line) {
+  int count = 0;
+  for (int i = current->localCount - 1; i >= 0; i--) {
+    if (current->locals[i].depth <= depth) break;
+    /* A captured local has to be closed individually, so the fast path is
+     * abandoned as soon as one appears. */
+    if (current->locals[i].isCaptured) {
+      if (count == 1) {
+        emitByte(OP_POP, line);
+      } else if (count > 1) {
+        emitBytes(OP_POP_N, (uint8_t)count, line);
+      }
+      count = 0;
+      emitByte(OP_CLOSE_UPVALUE, line);
+      continue;
+    }
+    count++;
+  }
+
+  if (count == 1) {
+    emitByte(OP_POP, line);
+  } else if (count > 1) {
+    emitBytes(OP_POP_N, (uint8_t)count, line);
+  }
+}
+
+static void beginLoop(Loop *loop, bool allowsContinue) {
+  loop->enclosing = currentLoop;
+  loop->scopeDepth = current->scopeDepth;
+  loop->continueTarget = -1;
+  loop->allowsContinue = allowsContinue;
+  loop->breakCount = 0;
+  loop->continueCount = 0;
+  currentLoop = loop;
+}
+
+static void endLoop(Loop *loop, int line) {
+  for (int i = 0; i < loop->breakCount; i++) {
+    patchJump(loop->breakJumps[i], line);
+  }
+  currentLoop = loop->enclosing;
+}
+
 /* ---------------- code generation ---------------- */
 
 static void compileNode(const AstNode *node);
@@ -557,12 +620,21 @@ static void compileWhile(const AstNode *node) {
   int line = node->line;
   int loopStart = currentChunk()->count;
 
+  Loop loop;
+  beginLoop(&loop, true);
+
   compileNode(node->as.whileStmt.condition);
   int exitJump = emitJump(OP_POP_JUMP_IF_FALSE, line);
 
   compileNode(node->as.whileStmt.body);
+
+  /* `continue` re-tests the condition. */
+  for (int i = 0; i < loop.continueCount; i++) {
+    patchJump(loop.continueJumps[i], line);
+  }
   emitLoop(loopStart, line);
   patchJump(exitJump, line);
+  endLoop(&loop, line);
 }
 
 /* Desugars to a while loop, with the initialiser scoped to the loop so that
@@ -576,6 +648,10 @@ static void compileFor(const AstNode *node) {
   }
 
   int loopStart = currentChunk()->count;
+
+  Loop loop;
+  beginLoop(&loop, true);
+
   int exitJump = -1;
   if (node->as.forStmt.condition != NULL) {
     compileNode(node->as.forStmt.condition);
@@ -584,12 +660,19 @@ static void compileFor(const AstNode *node) {
 
   compileNode(node->as.forStmt.body);
 
+  /* `continue` in a for-loop must still run the increment, so it lands here
+   * rather than at the condition — skipping it would spin forever. */
+  for (int i = 0; i < loop.continueCount; i++) {
+    patchJump(loop.continueJumps[i], line);
+  }
+
   if (node->as.forStmt.increment != NULL) {
     compileForEffect(node->as.forStmt.increment);
   }
 
   emitLoop(loopStart, line);
   if (exitJump != -1) patchJump(exitJump, line);
+  endLoop(&loop, line);
 
   endScope(line);
 }
@@ -835,6 +918,103 @@ static void compileNode(const AstNode *node) {
         }
       }
       break;
+
+    case AST_CONDITIONAL: {
+      compileNode(node->as.conditional.condition);
+      int elseJump = emitJump(OP_POP_JUMP_IF_FALSE, line);
+      compileNode(node->as.conditional.thenValue);
+      int endJump = emitJump(OP_JUMP, line);
+      patchJump(elseJump, line);
+      compileNode(node->as.conditional.elseValue);
+      patchJump(endJump, line);
+      break;
+    }
+
+    case AST_BREAK_STMT: {
+      if (currentLoop == NULL) {
+        errorAt(line, "'break' outside of a loop or switch");
+        break;
+      }
+      if (currentLoop->breakCount >= MAX_LOOP_EXITS) {
+        errorAt(line, "too many 'break' statements in one loop (limit %d)",
+                MAX_LOOP_EXITS);
+        break;
+      }
+      discardLocalsAbove(currentLoop->scopeDepth, line);
+      currentLoop->breakJumps[currentLoop->breakCount++] = emitJump(OP_JUMP, line);
+      break;
+    }
+
+    case AST_CONTINUE_STMT: {
+      if (currentLoop == NULL || !currentLoop->allowsContinue) {
+        errorAt(line, "'continue' outside of a loop");
+        break;
+      }
+      if (currentLoop->continueCount >= MAX_LOOP_EXITS) {
+        errorAt(line, "too many 'continue' statements in one loop (limit %d)",
+                MAX_LOOP_EXITS);
+        break;
+      }
+      discardLocalsAbove(currentLoop->scopeDepth, line);
+      currentLoop->continueJumps[currentLoop->continueCount++] = emitJump(OP_JUMP, line);
+      break;
+    }
+
+    case AST_SWITCH_STMT: {
+      compileNode(node->as.switchStmt.subject);
+
+      Loop loop;
+      /* A switch catches `break` but not `continue`, which belongs to any
+       * enclosing loop. */
+      beginLoop(&loop, false);
+
+      int bodyJumps[MAX_LOOP_EXITS];
+      int bodyCount = 0;
+      int nextTest = -1;
+
+      for (int i = 0; i < node->as.switchStmt.caseCount; i++) {
+        if (nextTest != -1) patchJump(nextTest, line);
+
+        /* Compare against a copy so the subject survives for the next arm. */
+        emitByte(OP_DUP, line);
+        compileNode(node->as.switchStmt.cases[i].test);
+        emitByte(OP_EQUAL, line);
+        nextTest = emitJump(OP_POP_JUMP_IF_FALSE, line);
+
+        if (bodyCount < MAX_LOOP_EXITS) {
+          bodyJumps[bodyCount++] = emitJump(OP_JUMP, line);
+        }
+      }
+      if (nextTest != -1) patchJump(nextTest, line);
+
+      /* Nothing matched: fall into `default` if there is one. */
+      int afterDefault = -1;
+      emitByte(OP_POP, line); /* the subject */
+      if (node->as.switchStmt.defaultBody != NULL) {
+        beginScope();
+        compileStatements(node->as.switchStmt.defaultBody->as.block.statements,
+                          node->as.switchStmt.defaultBody->as.block.count);
+        endScope(line);
+      }
+      afterDefault = emitJump(OP_JUMP, line);
+
+      for (int i = 0; i < node->as.switchStmt.caseCount && i < bodyCount; i++) {
+        patchJump(bodyJumps[i], line);
+        emitByte(OP_POP, line); /* the subject */
+        beginScope();
+        compileStatements(node->as.switchStmt.cases[i].body->as.block.statements,
+                          node->as.switchStmt.cases[i].body->as.block.count);
+        endScope(line);
+        /* Arms do not fall through, so each one jumps to the end. */
+        if (loop.breakCount < MAX_LOOP_EXITS) {
+          loop.breakJumps[loop.breakCount++] = emitJump(OP_JUMP, line);
+        }
+      }
+
+      patchJump(afterDefault, line);
+      endLoop(&loop, line);
+      break;
+    }
 
     case AST_RETURN_STMT:
       if (current->kind == FUNCTION_SCRIPT) {

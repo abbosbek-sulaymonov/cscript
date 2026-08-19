@@ -1,0 +1,17 @@
+const name = "cscript";
+const version = 6;
+
+console.log(`hello ${name}`);
+console.log(`${name} v${version}`);
+console.log(`sum: ${1 + 2}`);
+console.log(`nested: ${version > 5 ? "yes" : "no"}`);
+console.log(`empty: ${""}`);
+console.log(``);
+console.log(`no interpolation at all`);
+
+// Escapes work, and a lone $ is literal.
+console.log(`a\tb`);
+console.log(`cost: $5`);
+
+// Interpolations can contain braces.
+console.log(`${[1, 2].length}`);

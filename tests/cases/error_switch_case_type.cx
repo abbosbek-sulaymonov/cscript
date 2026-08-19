@@ -1,0 +1,6 @@
+const n = 1;
+switch (n) {
+  case "text":
+    console.log("never");
+    break;
+}

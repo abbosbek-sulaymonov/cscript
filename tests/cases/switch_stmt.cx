@@ -1,0 +1,42 @@
+function name(n) {
+  switch (n) {
+    case 1:
+      return "one";
+    case 2:
+      return "two";
+    default:
+      return "many";
+  }
+}
+console.log(name(1), name(2), name(9));
+
+// Arms do not fall through, so a missing break cannot leak into the next one.
+let out = "";
+for (let i = 0; i < 4; i++) {
+  switch (i) {
+    case 0:
+      out = out + "zero ";
+    case 1:
+      out = out + "one ";
+    default:
+      out = out + "many ";
+  }
+}
+console.log(out);
+
+// Matching uses ===, and a switch with no default simply falls through.
+switch ("b") {
+  case "a":
+    console.log("was a");
+    break;
+  case "b":
+    console.log("was b");
+    break;
+}
+
+switch (99) {
+  case 1:
+    console.log("unreachable");
+    break;
+}
+console.log("done");

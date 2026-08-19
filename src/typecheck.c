@@ -428,6 +428,40 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
       result = TYPE_OBJECT;
       break;
 
+    case AST_CONDITIONAL: {
+      checkNode(checker, node->as.conditional.condition);
+      TypeKind thenType = checkNode(checker, node->as.conditional.thenValue);
+      TypeKind elseType = checkNode(checker, node->as.conditional.elseValue);
+      /* Without union types the result is only known when both arms agree. */
+      result = thenType == elseType ? thenType : TYPE_ANY;
+      break;
+    }
+
+    case AST_BREAK_STMT:
+    case AST_CONTINUE_STMT:
+      /* The compiler reports these when they are out of place, where it knows
+       * the enclosing loop. */
+      result = TYPE_UNDEFINED;
+      break;
+
+    case AST_SWITCH_STMT: {
+      TypeKind subject = checkNode(checker, node->as.switchStmt.subject);
+      for (int i = 0; i < node->as.switchStmt.caseCount; i++) {
+        TypeKind test = checkNode(checker, node->as.switchStmt.cases[i].test);
+        /* Arms are matched with ===, so an arm that can never match is the
+         * same mistake as writing that comparison out by hand. */
+        if (csTypeIsKnown(subject) && csTypeIsKnown(test) && subject != test) {
+          typeError(checker, node->as.switchStmt.cases[i].test->line,
+                    "this case is %s but the switch subject is %s, so it can never match",
+                    csTypeName(test), csTypeName(subject));
+        }
+        checkNode(checker, node->as.switchStmt.cases[i].body);
+      }
+      checkNode(checker, node->as.switchStmt.defaultBody);
+      result = TYPE_UNDEFINED;
+      break;
+    }
+
     case AST_FUNCTION: {
       const Signature *signature = declareFunction(checker, node);
       checkFunctionBody(checker, node, signature);

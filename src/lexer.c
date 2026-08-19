@@ -107,16 +107,34 @@ static TokenType checkKeyword(const Lexer *lexer, int start, int length,
 /* Trie over the keyword set: one switch per shared prefix. */
 static TokenType identifierType(const Lexer *lexer) {
   switch (lexer->start[0]) {
-    case 'c': return checkKeyword(lexer, 1, 4, "onst", TOKEN_CONST);
+    case 'b': return checkKeyword(lexer, 1, 4, "reak", TOKEN_BREAK);
+    case 'd': return checkKeyword(lexer, 1, 6, "efault", TOKEN_DEFAULT);
     case 'e': return checkKeyword(lexer, 1, 3, "lse", TOKEN_ELSE);
     case 'r': return checkKeyword(lexer, 1, 5, "eturn", TOKEN_RETURN);
     case 'w': return checkKeyword(lexer, 1, 4, "hile", TOKEN_WHILE);
+    case 's': return checkKeyword(lexer, 1, 5, "witch", TOKEN_SWITCH);
     case 'l': return checkKeyword(lexer, 1, 2, "et", TOKEN_LET);
     case 'v': return checkKeyword(lexer, 1, 2, "ar", TOKEN_VAR);
     case 'i': return checkKeyword(lexer, 1, 1, "f", TOKEN_IF);
     case 'n': return checkKeyword(lexer, 1, 3, "ull", TOKEN_NULL);
     case 'u': return checkKeyword(lexer, 1, 8, "ndefined", TOKEN_UNDEFINED);
     case 'F': return checkKeyword(lexer, 1, 7, "unction", TOKEN_FUNCTION);
+    case 'c':
+      if (lexer->current - lexer->start > 1) {
+        switch (lexer->start[1]) {
+          case 'o':
+            if (lexer->current - lexer->start > 2 && lexer->start[2] == 'n') {
+              /* const / continue share the "con" prefix. */
+              if (lexer->current - lexer->start > 3 && lexer->start[3] == 's') {
+                return checkKeyword(lexer, 1, 4, "onst", TOKEN_CONST);
+              }
+              return checkKeyword(lexer, 1, 7, "ontinue", TOKEN_CONTINUE);
+            }
+            break;
+          case 'a': return checkKeyword(lexer, 1, 3, "ase", TOKEN_CASE);
+        }
+      }
+      break;
     case 't':
       if (lexer->current - lexer->start > 1) {
         switch (lexer->start[1]) {
@@ -172,6 +190,47 @@ static Token number(Lexer *lexer) {
   }
 
   return makeToken(lexer, TOKEN_NUMBER);
+}
+
+/* Scans a whole template literal, backticks included.
+ *
+ * Interpolations are not tokenised here: the parser re-lexes each `${...}`
+ * separately. Doing it that way keeps the main lexer free of the mode stack a
+ * streaming implementation would need, at the cost of one extra pass over
+ * text that is usually a few characters long. Brace depth is still tracked, so
+ * an interpolation containing an object literal does not end the template
+ * early. */
+static Token templateLiteral(Lexer *lexer) {
+  int braceDepth = 0;
+
+  while (!isAtEnd(lexer)) {
+    char c = peek(lexer);
+
+    if (c == '\\' && peekNext(lexer) != '\0') {
+      advance(lexer);
+      advance(lexer);
+      continue;
+    }
+    if (c == '\n') lexer->line++;
+
+    if (braceDepth == 0 && c == '`') {
+      advance(lexer);
+      return makeToken(lexer, TOKEN_TEMPLATE);
+    }
+    if (c == '$' && peekNext(lexer) == '{') {
+      advance(lexer);
+      advance(lexer);
+      braceDepth++;
+      continue;
+    }
+    if (braceDepth > 0) {
+      if (c == '{') braceDepth++;
+      if (c == '}') braceDepth--;
+    }
+    advance(lexer);
+  }
+
+  return errorToken(lexer, "unterminated template literal");
 }
 
 static Token string(Lexer *lexer, char quote) {
@@ -260,6 +319,9 @@ Token csLexerNext(Lexer *lexer) {
     case '"':
     case '\'':
       return string(lexer, c);
+
+    case '`':
+      return templateLiteral(lexer);
   }
 
   return errorToken(lexer, "unexpected character");
@@ -305,6 +367,12 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_IDENTIFIER:        return "IDENTIFIER";
     case TOKEN_STRING:            return "STRING";
     case TOKEN_NUMBER:            return "NUMBER";
+    case TOKEN_TEMPLATE:          return "TEMPLATE";
+    case TOKEN_SWITCH:            return "SWITCH";
+    case TOKEN_CASE:              return "CASE";
+    case TOKEN_DEFAULT:           return "DEFAULT";
+    case TOKEN_BREAK:             return "BREAK";
+    case TOKEN_CONTINUE:          return "CONTINUE";
     case TOKEN_TRUE:              return "TRUE";
     case TOKEN_FALSE:             return "FALSE";
     case TOKEN_NULL:              return "NULL";
