@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "cscript/memory.h"
 #include "cscript/native.h"
@@ -143,6 +144,309 @@ static bool booleanConvert(Value receiver, int argCount, Value *args, Value *res
   return true;
 }
 
+/* ---------------- Object ---------------- */
+
+/* Walks an object's keys in insertion order, which is exactly why ObjObject
+ * keeps that list alongside its hash table. */
+static bool objectEnumerate(int argCount, Value *args, Value *result, int mode,
+                            const char *method) {
+  if (argCount < 1 || !IS_OBJECT(args[0])) {
+    csVMRuntimeError("Object.%s expects an object, got %s", method,
+                     argCount >= 1 ? csValueTypeName(args[0]) : "no argument");
+    return false;
+  }
+  ObjObject *object = AS_OBJECT(args[0]);
+
+  ObjArray *out = csArrayNew();
+  csPushTempRoot((Obj *)out);
+
+  for (int i = 0; i < object->keyCount; i++) {
+    ObjString *key = object->keys[i];
+    Value value;
+    if (!csTableGet(&object->properties, key, &value)) continue;
+
+    if (mode == 0) {
+      csValueArrayWrite(&out->elements, OBJ_VAL(key));
+    } else if (mode == 1) {
+      if (IS_OBJ(value)) csPushTempRoot(AS_OBJ(value));
+      csValueArrayWrite(&out->elements, value);
+      if (IS_OBJ(value)) csPopTempRoot();
+    } else {
+      /* entries: a two-element array per property. */
+      ObjArray *pair = csArrayNew();
+      csPushTempRoot((Obj *)pair);
+      csValueArrayWrite(&pair->elements, OBJ_VAL(key));
+      csValueArrayWrite(&pair->elements, value);
+      csValueArrayWrite(&out->elements, OBJ_VAL(pair));
+      csPopTempRoot();
+    }
+  }
+
+  csPopTempRoot();
+  *result = OBJ_VAL(out);
+  return true;
+}
+
+static bool objectKeys(Value r, int c, Value *a, Value *out) {
+  (void)r;
+  return objectEnumerate(c, a, out, 0, "keys");
+}
+static bool objectValues(Value r, int c, Value *a, Value *out) {
+  (void)r;
+  return objectEnumerate(c, a, out, 1, "values");
+}
+static bool objectEntries(Value r, int c, Value *a, Value *out) {
+  (void)r;
+  return objectEnumerate(c, a, out, 2, "entries");
+}
+
+static bool objectAssign(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  if (argCount < 1 || !IS_OBJECT(args[0])) {
+    csVMRuntimeError("Object.assign expects a target object");
+    return false;
+  }
+  ObjObject *target = AS_OBJECT(args[0]);
+
+  for (int i = 1; i < argCount; i++) {
+    if (!IS_OBJECT(args[i])) continue;
+    ObjObject *source = AS_OBJECT(args[i]);
+    for (int j = 0; j < source->keyCount; j++) {
+      Value value;
+      if (csTableGet(&source->properties, source->keys[j], &value)) {
+        csObjectPut(target, source->keys[j], value);
+      }
+    }
+  }
+
+  *result = args[0];
+  return true;
+}
+
+static bool objectHasOwn(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  if (argCount < 2 || !IS_OBJECT(args[0]) || !IS_STRING(args[1])) {
+    csVMRuntimeError("Object.hasOwn expects an object and a string");
+    return false;
+  }
+  *result = BOOL_VAL(csTableGet(&AS_OBJECT(args[0])->properties, AS_STRING(args[1]), NULL));
+  return true;
+}
+
+/* ---------------- Array ---------------- */
+
+static bool arrayIsArray(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  *result = BOOL_VAL(argCount >= 1 && IS_ARRAY(args[0]));
+  return true;
+}
+
+static bool arrayOf(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  ObjArray *array = csArrayNew();
+  csPushTempRoot((Obj *)array);
+  for (int i = 0; i < argCount; i++) csValueArrayWrite(&array->elements, args[i]);
+  csPopTempRoot();
+  *result = OBJ_VAL(array);
+  return true;
+}
+
+/* Copies an array, or explodes a string into its characters. */
+static bool arrayFrom(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  if (argCount < 1) {
+    csVMRuntimeError("Array.from expects a value");
+    return false;
+  }
+
+  ObjArray *array = csArrayNew();
+  csPushTempRoot((Obj *)array);
+
+  if (IS_ARRAY(args[0])) {
+    ObjArray *source = AS_ARRAY(args[0]);
+    for (int i = 0; i < source->elements.count; i++) {
+      csValueArrayWrite(&array->elements, source->elements.values[i]);
+    }
+  } else if (IS_STRING(args[0])) {
+    ObjString *source = AS_STRING(args[0]);
+    for (int i = 0; i < source->length; i++) {
+      ObjString *piece = csStringCopy(source->chars + i, 1);
+      csPushTempRoot((Obj *)piece);
+      csValueArrayWrite(&array->elements, OBJ_VAL(piece));
+      csPopTempRoot();
+    }
+  }
+
+  csPopTempRoot();
+  *result = OBJ_VAL(array);
+  return true;
+}
+
+/* ---------------- numeric parsing ---------------- */
+
+/* parseInt stops at the first character that is not a digit, unlike Number(),
+ * which requires the whole string. */
+static bool globalParseInt(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  if (argCount < 1 || !IS_STRING(args[0])) {
+    *result = NUMBER_VAL(argCount >= 1 && IS_NUMBER(args[0])
+                             ? trunc(AS_NUMBER(args[0]))
+                             : NAN);
+    return true;
+  }
+
+  int base = 10;
+  if (argCount >= 2 && IS_NUMBER(args[1]) && AS_NUMBER(args[1]) != 0) {
+    base = (int)AS_NUMBER(args[1]);
+  }
+
+  char *end = NULL;
+  const char *text = AS_CSTRING(args[0]);
+  long long parsed = strtoll(text, &end, base);
+  *result = NUMBER_VAL(end == text ? NAN : (double)parsed);
+  return true;
+}
+
+static bool globalParseFloat(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  if (argCount < 1 || !IS_STRING(args[0])) {
+    *result = NUMBER_VAL(argCount >= 1 && IS_NUMBER(args[0]) ? AS_NUMBER(args[0]) : NAN);
+    return true;
+  }
+  char *end = NULL;
+  const char *text = AS_CSTRING(args[0]);
+  double parsed = strtod(text, &end);
+  *result = NUMBER_VAL(end == text ? NAN : parsed);
+  return true;
+}
+
+static bool globalIsNaN(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  double value = argCount >= 1 ? csValueToNumber(args[0]) : NAN;
+  *result = BOOL_VAL(isnan(value));
+  return true;
+}
+
+static bool globalIsFinite(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  double value = argCount >= 1 ? csValueToNumber(args[0]) : NAN;
+  *result = BOOL_VAL(!isnan(value) && !isinf(value));
+  return true;
+}
+
+static bool numberIsInteger(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  bool ok = argCount >= 1 && IS_NUMBER(args[0]);
+  double value = ok ? AS_NUMBER(args[0]) : NAN;
+  *result = BOOL_VAL(ok && !isnan(value) && !isinf(value) && value == trunc(value));
+  return true;
+}
+
+/* Number.isNaN and Number.isFinite differ from the globals by not coercing. */
+static bool numberIsNaN(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  *result = BOOL_VAL(argCount >= 1 && IS_NUMBER(args[0]) && isnan(AS_NUMBER(args[0])));
+  return true;
+}
+
+static bool numberIsFinite(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  bool ok = argCount >= 1 && IS_NUMBER(args[0]);
+  *result = BOOL_VAL(ok && !isnan(AS_NUMBER(args[0])) && !isinf(AS_NUMBER(args[0])));
+  return true;
+}
+
+/* ---------------- Math ---------------- */
+
+/* One wrapper for every single-argument libm function. */
+#define MATH_UNARY(name, expression)                                       \
+  static bool math##name(Value receiver, int argCount, Value *args,        \
+                         Value *result) {                                  \
+    (void)receiver;                                                        \
+    if (argCount != 1 || !IS_NUMBER(args[0])) {                            \
+      csVMRuntimeError("Math." #name " expects one number");               \
+      return false;                                                        \
+    }                                                                      \
+    double x = AS_NUMBER(args[0]);                                         \
+    (void)x;                                                               \
+    *result = NUMBER_VAL(expression);                                      \
+    return true;                                                           \
+  }
+
+MATH_UNARY(Sqrt, sqrt(x))
+MATH_UNARY(Cbrt, cbrt(x))
+MATH_UNARY(Ceil, ceil(x))
+MATH_UNARY(Trunc, trunc(x))
+MATH_UNARY(Sign, x > 0 ? 1 : (x < 0 ? -1 : x))
+MATH_UNARY(Log, log(x))
+MATH_UNARY(Log2, log2(x))
+MATH_UNARY(Log10, log10(x))
+MATH_UNARY(Exp, exp(x))
+MATH_UNARY(Sin, sin(x))
+MATH_UNARY(Cos, cos(x))
+MATH_UNARY(Tan, tan(x))
+MATH_UNARY(Atan, atan(x))
+MATH_UNARY(Asin, asin(x))
+MATH_UNARY(Acos, acos(x))
+
+#undef MATH_UNARY
+
+/* JavaScript rounds half away from zero for positives but half up overall, so
+ * Math.round(-0.5) is -0 rather than -1. floor(x + 0.5) gives exactly that. */
+static bool mathRound(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  if (argCount != 1 || !IS_NUMBER(args[0])) {
+    csVMRuntimeError("Math.round expects one number");
+    return false;
+  }
+  double x = AS_NUMBER(args[0]);
+  *result = NUMBER_VAL(isnan(x) || isinf(x) ? x : floor(x + 0.5));
+  return true;
+}
+
+static bool mathPow(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  if (argCount != 2 || !IS_NUMBER(args[0]) || !IS_NUMBER(args[1])) {
+    csVMRuntimeError("Math.pow expects two numbers");
+    return false;
+  }
+  *result = NUMBER_VAL(pow(AS_NUMBER(args[0]), AS_NUMBER(args[1])));
+  return true;
+}
+
+static bool mathAtan2(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  if (argCount != 2 || !IS_NUMBER(args[0]) || !IS_NUMBER(args[1])) {
+    csVMRuntimeError("Math.atan2 expects two numbers");
+    return false;
+  }
+  *result = NUMBER_VAL(atan2(AS_NUMBER(args[0]), AS_NUMBER(args[1])));
+  return true;
+}
+
+static bool mathHypot(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  double sum = 0;
+  for (int i = 0; i < argCount; i++) {
+    if (!IS_NUMBER(args[i])) {
+      csVMRuntimeError("Math.hypot expects numbers");
+      return false;
+    }
+    sum += AS_NUMBER(args[i]) * AS_NUMBER(args[i]);
+  }
+  *result = NUMBER_VAL(sqrt(sum));
+  return true;
+}
+
+/* Not cryptographic. Seeded once from the clock at startup. */
+static bool mathRandom(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  (void)argCount;
+  (void)args;
+  *result = NUMBER_VAL((double)rand() / ((double)RAND_MAX + 1.0));
+  return true;
+}
+
 /* Defines a global, keeping the value rooted across the table insert. */
 static void defineGlobal(const char *name, Value value) {
   if (IS_OBJ(value)) csPushTempRoot(AS_OBJ(value));
@@ -181,6 +485,9 @@ static void defineFunction(const char *name, NativeFn function, int arity) {
 }
 
 void csNativesInstall(void) {
+  /* Math.random is not cryptographic; one seed per process is enough. */
+  srand((unsigned)time(NULL));
+
   ObjObject *console = defineNamespace("console");
   defineMethod(console, "log", consoleLog, -1);
   defineMethod(console, "error", consoleError, -1);
@@ -191,11 +498,75 @@ void csNativesInstall(void) {
   defineMethod(mathObject, "abs", mathAbs, 1);
   defineMethod(mathObject, "max", mathMax, -1);
   defineMethod(mathObject, "min", mathMin, -1);
+  defineMethod(mathObject, "sqrt", mathSqrt, 1);
+  defineMethod(mathObject, "cbrt", mathCbrt, 1);
+  defineMethod(mathObject, "ceil", mathCeil, 1);
+  defineMethod(mathObject, "trunc", mathTrunc, 1);
+  defineMethod(mathObject, "sign", mathSign, 1);
+  defineMethod(mathObject, "round", mathRound, 1);
+  defineMethod(mathObject, "pow", mathPow, 2);
+  defineMethod(mathObject, "log", mathLog, 1);
+  defineMethod(mathObject, "log2", mathLog2, 1);
+  defineMethod(mathObject, "log10", mathLog10, 1);
+  defineMethod(mathObject, "exp", mathExp, 1);
+  defineMethod(mathObject, "sin", mathSin, 1);
+  defineMethod(mathObject, "cos", mathCos, 1);
+  defineMethod(mathObject, "tan", mathTan, 1);
+  defineMethod(mathObject, "asin", mathAsin, 1);
+  defineMethod(mathObject, "acos", mathAcos, 1);
+  defineMethod(mathObject, "atan", mathAtan, 1);
+  defineMethod(mathObject, "atan2", mathAtan2, 2);
+  defineMethod(mathObject, "hypot", mathHypot, -1);
+  defineMethod(mathObject, "random", mathRandom, 0);
   csObjectSetProperty(mathObject, "PI", NUMBER_VAL(3.14159265358979323846));
   csObjectSetProperty(mathObject, "E", NUMBER_VAL(2.71828182845904523536));
+  csObjectSetProperty(mathObject, "LN2", NUMBER_VAL(0.693147180559945309417));
+  csObjectSetProperty(mathObject, "LN10", NUMBER_VAL(2.30258509299404568402));
+  csObjectSetProperty(mathObject, "SQRT2", NUMBER_VAL(1.41421356237309504880));
+
+  ObjObject *objectNamespace = defineNamespace("Object");
+  defineMethod(objectNamespace, "keys", objectKeys, 1);
+  defineMethod(objectNamespace, "values", objectValues, 1);
+  defineMethod(objectNamespace, "entries", objectEntries, 1);
+  defineMethod(objectNamespace, "assign", objectAssign, -1);
+  defineMethod(objectNamespace, "hasOwn", objectHasOwn, 2);
+
+  ObjObject *arrayNamespace = defineNamespace("Array");
+  defineMethod(arrayNamespace, "isArray", arrayIsArray, 1);
+  defineMethod(arrayNamespace, "of", arrayOf, -1);
+  defineMethod(arrayNamespace, "from", arrayFrom, -1);
+
+  /* Number is callable *and* a namespace, so it is defined as a function whose
+   * statics carry the rest. */
+  ObjNative *numberFn = csNativeNew(numberConvert, "Number", 1);
+  csPushTempRoot((Obj *)numberFn);
+  ObjObject *numberNamespace = csObjectNew("Number");
+  csPushTempRoot((Obj *)numberNamespace);
+  numberFn->statics = numberNamespace;
+  defineGlobal("Number", OBJ_VAL(numberFn));
+  defineMethod(numberNamespace, "isInteger", numberIsInteger, 1);
+  defineMethod(numberNamespace, "isNaN", numberIsNaN, 1);
+  defineMethod(numberNamespace, "isFinite", numberIsFinite, 1);
+  defineMethod(numberNamespace, "parseInt", globalParseInt, -1);
+  defineMethod(numberNamespace, "parseFloat", globalParseFloat, -1);
+  csObjectSetProperty(numberNamespace, "MAX_SAFE_INTEGER", NUMBER_VAL(9007199254740991.0));
+  csObjectSetProperty(numberNamespace, "MIN_SAFE_INTEGER", NUMBER_VAL(-9007199254740991.0));
+  csObjectSetProperty(numberNamespace, "EPSILON", NUMBER_VAL(2.220446049250313e-16));
+  csObjectSetProperty(numberNamespace, "MAX_VALUE", NUMBER_VAL(1.7976931348623157e308));
+  csObjectSetProperty(numberNamespace, "MIN_VALUE", NUMBER_VAL(5e-324));
+
+  ObjObject *jsonNamespace = defineNamespace("JSON");
+  csJsonInstall(jsonNamespace);
+
+  defineFunction("parseInt", globalParseInt, -1);
+  defineFunction("parseFloat", globalParseFloat, -1);
+  defineFunction("isNaN", globalIsNaN, -1);
+  defineFunction("isFinite", globalIsFinite, -1);
 
   /* Explicit conversions, so nothing has to rely on implicit coercion. */
-  defineFunction("Number", numberConvert, 1);
+  csPopTempRoot();
+  csPopTempRoot();
+
   defineFunction("String", stringConvert, 1);
   defineFunction("Boolean", booleanConvert, 1);
 

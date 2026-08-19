@@ -227,6 +227,17 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
     return false;
   }
 
+  if (IS_NATIVE(receiver) && AS_NATIVE(receiver)->statics != NULL) {
+    Value method;
+    if (csTableGet(&AS_NATIVE(receiver)->statics->properties, name, &method)) {
+      vm.stackTop[-argCount - 1] = method;
+      return callValue(method, argCount);
+    }
+    csVMRuntimeError("'%s' has no method '%s'", AS_NATIVE(receiver)->name->chars,
+                     name->chars);
+    return false;
+  }
+
   Table *methods = methodTableFor(receiver);
   if (methods != NULL) {
     Value method;
@@ -597,6 +608,17 @@ static InterpretResult run(int baseFrame) {
             csVMPush(NUMBER_VAL(AS_STRING(receiver)->length));
             VM_NEXT();
           }
+        }
+
+        /* A callable may carry statics, which is how Number(x) and
+         * Number.isInteger coexist. */
+        if (IS_NATIVE(receiver) && AS_NATIVE(receiver)->statics != NULL) {
+          Value statik;
+          csVMPop();
+          csVMPush(csTableGet(&AS_NATIVE(receiver)->statics->properties, name, &statik)
+                       ? statik
+                       : UNDEFINED_VAL);
+          VM_NEXT();
         }
 
         if (!IS_OBJECT(receiver)) {

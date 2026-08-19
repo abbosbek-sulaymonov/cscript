@@ -43,11 +43,17 @@ struct ObjString {
  * signature for both keeps a single call path in the VM. */
 typedef bool (*NativeFn)(Value receiver, int argCount, Value *args, Value *result);
 
-typedef struct {
+typedef struct ObjNative {
   Obj obj;
   NativeFn function;
   ObjString *name; /* for error messages and disassembly */
   int arity;       /* -1 means variadic */
+
+  /* Static properties hung off a callable, so `Number(x)` and
+   * `Number.isInteger` can both work. In JavaScript functions are objects and
+   * carry properties directly; here that would cost a table on every native,
+   * so the few that need one point at it instead. NULL for almost all. */
+  struct ObjObject *statics;
 } ObjNative;
 
 /* A property bag.
@@ -56,7 +62,7 @@ typedef struct {
  * JavaScript has guaranteed it for string keys since ES2015 and real code
  * depends on it when printing or serialising an object. Keeping both means one
  * extra pointer per property, which is cheaper than an ordered map. */
-typedef struct {
+typedef struct ObjObject {
   Obj obj;
   Table properties;
   ObjString **keys;

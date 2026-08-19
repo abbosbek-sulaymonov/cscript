@@ -414,7 +414,10 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
         break;
       }
 
-      if (csTypeIsKnown(object) && object != TYPE_OBJECT) {
+      /* A callable may carry statics — `Number.isInteger` sits on the same
+       * value `Number(x)` calls — so a property read on a function is allowed
+       * and simply dynamic. */
+      if (csTypeIsKnown(object) && object != TYPE_OBJECT && object != TYPE_FUNCTION) {
         typeError(checker, node->line, "cannot read property '%.*s' of %s",
                   node->as.property.length, node->as.property.name, csTypeName(object));
         result = TYPE_ERROR;

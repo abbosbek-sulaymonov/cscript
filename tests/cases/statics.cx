@@ -1,0 +1,47 @@
+// Object
+const point = { x: 1, y: 2 };
+console.log(Object.keys(point), Object.values(point), Object.entries(point));
+console.log(Object.assign({ a: 1 }, { b: 2 }, { a: 3 }));
+console.log(Object.hasOwn(point, "x"), Object.hasOwn(point, "z"));
+console.log(Object.keys({}), Object.values({}));
+
+// Array
+console.log(Array.isArray([]), Array.isArray({}), Array.isArray("x"));
+console.log(Array.of(1, 2, 3), Array.from("abc"), Array.from([1, 2]));
+
+// Number — callable and a namespace at once.
+console.log(Number("42") + 1, Number("nope"));
+console.log(Number.isInteger(5), Number.isInteger(5.5), Number.isInteger("5"));
+console.log(Number.isNaN(0 / 0), Number.isNaN("x"), isNaN("x"));
+console.log(Number.isFinite(1), Number.isFinite(1 / 0));
+console.log(Number.MAX_SAFE_INTEGER, Number.EPSILON);
+
+// Parsing
+console.log(parseInt("42px"), parseInt("0x1f", 16), parseInt("nope"));
+console.log(parseFloat("3.14abc"), parseFloat("nope"));
+console.log(isFinite(1 / 0), isFinite(5));
+
+// Math
+console.log(Math.sqrt(16), Math.cbrt(27), Math.pow(2, 10), Math.hypot(3, 4));
+console.log(Math.ceil(1.1), Math.floor(1.9), Math.trunc(-1.9), Math.round(2.5));
+console.log(Math.sign(-3), Math.sign(0), Math.sign(7));
+console.log(Math.abs(-2), Math.max(1, 9, 3), Math.min(4, 2));
+console.log(Math.log(1), Math.log2(8), Math.log10(1000), Math.exp(0));
+console.log(Math.PI, Math.E, Math.SQRT2);
+
+// JSON
+console.log(JSON.stringify({ a: 1, b: [1, "x", true, null] }));
+console.log(JSON.stringify([1, [2, [3]]]));
+console.log(JSON.stringify("he said \"hi\""));
+console.log(JSON.stringify({ a: undefined, b: 1 }));
+console.log(JSON.stringify(1 / 0), JSON.stringify(0 / 0));
+
+const parsed = JSON.parse('{"name":"cscript","tags":["fast"],"n":5}');
+console.log(parsed);
+console.log(parsed.tags[0], parsed.n + 1);
+console.log(JSON.parse('{"ok":true,"nil":null}'));
+console.log(JSON.parse("[1,2,3]"), JSON.parse('"text"'), JSON.parse("42"));
+
+// Round-tripping.
+const original = { list: [1, 2], nested: { deep: true } };
+console.log(JSON.parse(JSON.stringify(original)));

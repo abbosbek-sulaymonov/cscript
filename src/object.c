@@ -75,6 +75,7 @@ ObjNative *csNativeNew(NativeFn function, const char *name, int arity) {
   native->function = function;
   native->name = nameString;
   native->arity = arity;
+  native->statics = NULL;
 
   csPopTempRoot();
   return native;
@@ -218,9 +219,12 @@ void csObjectBlacken(Obj *object) {
     case OBJ_STRING:
       break; /* no outgoing references */
 
-    case OBJ_NATIVE:
-      csMarkObject((Obj *)((ObjNative *)object)->name);
+    case OBJ_NATIVE: {
+      ObjNative *native = (ObjNative *)object;
+      csMarkObject((Obj *)native->name);
+      csMarkObject((Obj *)native->statics);
       break;
+    }
 
     case OBJ_OBJECT: {
       ObjObject *instance = (ObjObject *)object;
