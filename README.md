@@ -243,15 +243,15 @@ Measured on an Apple M3 Pro, best of seven, via `bench/run.sh`.
 ```
 benchmark             cscript         node      ratio
 ---------------------------------------------------------
-arrays                   91 ms         67 ms       1.4x
-locals                  198 ms         66 ms       3.0x
-loop_empty              200 ms         66 ms       3.0x
-globals                 222 ms         66 ms       3.4x
-classes                 238 ms         73 ms       3.3x
-branches                241 ms         67 ms       3.6x
-strings                 261 ms         62 ms       4.2x
-loop_arith              280 ms         70 ms       4.0x
-properties              366 ms         70 ms       5.2x
+arrays                   88 ms         62 ms       1.4x
+locals                  168 ms         62 ms       2.7x
+loop_empty              188 ms         62 ms       3.0x
+globals                 214 ms         63 ms       3.4x
+branches                232 ms         63 ms       3.7x
+strings                 235 ms         58 ms       4.1x
+classes                 235 ms         68 ms       3.5x
+loop_arith              262 ms         65 ms       4.0x
+properties              331 ms         65 ms       5.1x
 
 native reference (loop_arith):  Go 27 ms   ·   C -O2 26 ms
 ```
@@ -275,6 +275,25 @@ worth more than the summary:
 - **NaN-boxing turned out to be worth nothing for speed either** — but it
   halves memory, taking a million-element array from 18.9 MB to 11.3 MB. It is
   filed as a memory optimisation for that reason.
+- **Removing an instruction is worth about a third of an instruction.** The
+  most useful number here, and measured rather than assumed. Fusing the three
+  most frequent opcode pairs cut executed instructions by 8.5% on `classes`,
+  17% on `properties` and 19% on `locals` — and cut *time* by 0.5%, 4.6% and
+  9.8%. Instruction count converts to wall clock at roughly 0.25–0.5×, and on
+  the object-heavy benchmark barely at all.
+
+  The reason is that CScript's instructions already do real work each: an
+  inline-cache probe, a shape compare, a NaN-boxed move. Dispatch is a smaller
+  share of the total here than in the naive interpreters the textbook figures
+  come from. It also prices a register VM, which is the same trade at a larger
+  scale — cutting the 35–45% of instructions that exist only to move values on
+  and off the stack should be worth 10–20%, not the 20–40% the technique is
+  usually credited with.
+- **A superinstruction has to keep its own handler.** The first attempt had the
+  fused opcodes jump into the body of the one they specialise, to avoid
+  duplicating forty lines. That made `classes` *slower* despite executing 8.5%
+  fewer instructions: the dispatch table's indirect branch is predicted per
+  opcode, and sharing one body throws that away.
 - **Hidden classes and inline caches gave 11–13%**, not the 2× the technique is
   usually credited with. The reason is worth stating: CScript interns every
   property name and precomputes its hash, so the lookup being replaced was
