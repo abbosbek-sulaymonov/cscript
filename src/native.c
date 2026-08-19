@@ -200,6 +200,7 @@ void csNativesInstall(void) {
   defineFunction("Boolean", booleanConvert, 1);
 
   csArrayMethodsInstall();
+  csStringMethodsInstall();
 
   defineGlobal("NaN", NUMBER_VAL(NAN));
   defineGlobal("Infinity", NUMBER_VAL(INFINITY));

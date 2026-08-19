@@ -1,0 +1,27 @@
+const s = "Hello, World";
+
+console.log(s.toUpperCase(), s.toLowerCase());
+console.log(s.length, s.charAt(0), s.charAt(99), s.charCodeAt(0));
+console.log(s.indexOf("o"), s.indexOf("o", 5), s.lastIndexOf("o"), s.indexOf("zz"));
+console.log(s.includes("World"), s.includes("zz"));
+console.log(s.startsWith("Hello"), s.endsWith("World"), s.startsWith("x"));
+console.log(s.slice(7), s.slice(0, 5), s.slice(-5));
+console.log(s.substring(0, 5), s.substring(5, 0));
+
+console.log("  padded  ".trim() + "|");
+console.log("  padded  ".trimStart() + "|");
+console.log("  padded  ".trimEnd() + "|");
+
+console.log("ab".repeat(3), "x".repeat(0) + "|");
+console.log("a-b-c".split("-"), "abc".split(""), "abc".split("x"));
+console.log("a-b-a".replace("a", "z"), "a-b-a".replaceAll("a", "z"));
+console.log("5".padStart(3, "0"), "5".padEnd(3, "*"), "toolong".padStart(2));
+console.log("a".concat("b", "c", 1));
+
+// Chaining, and interaction with template literals.
+console.log("  MiXeD  ".trim().toLowerCase().split("").reverse().join(""));
+console.log(`${"x".repeat(3)}-${"AB".toLowerCase()}`);
+
+// Empty-string edge cases.
+console.log("".length, "".trim() + "|", "".split(","), "".toUpperCase() + "|");
+console.log("abc".slice(9) + "|", "abc".indexOf(""));

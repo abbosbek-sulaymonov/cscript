@@ -12,4 +12,7 @@ void csNativesInstall(void);
  * csNativesInstall; separated only because there are a lot of them. */
 void csArrayMethodsInstall(void);
 
+/* Registers the built-in string methods into vm.stringMethods. */
+void csStringMethodsInstall(void);
+
 #endif /* CSCRIPT_NATIVE_H */

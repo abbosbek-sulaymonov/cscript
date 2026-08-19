@@ -108,6 +108,76 @@ static void declareBuiltins(Checker *checker) {
   }
 }
 
+/* What the built-in methods return, so `"a".toUpperCase()` is a string rather
+ * than dynamic. Only the return type is modelled; argument checking is left to
+ * the runtime, because several of these are variadic or accept several shapes.
+ *
+ * TYPE_ANY here means "known method, unknown result" — an array method whose
+ * element type the checker cannot see. */
+typedef struct {
+  TypeKind receiver;
+  const char *name;
+  TypeKind returns;
+} MethodSignature;
+
+static const MethodSignature BUILTIN_METHODS[] = {
+    /* strings */
+    {TYPE_STRING, "toUpperCase", TYPE_STRING},
+    {TYPE_STRING, "toLowerCase", TYPE_STRING},
+    {TYPE_STRING, "trim", TYPE_STRING},
+    {TYPE_STRING, "trimStart", TYPE_STRING},
+    {TYPE_STRING, "trimEnd", TYPE_STRING},
+    {TYPE_STRING, "slice", TYPE_STRING},
+    {TYPE_STRING, "substring", TYPE_STRING},
+    {TYPE_STRING, "charAt", TYPE_STRING},
+    {TYPE_STRING, "charCodeAt", TYPE_NUMBER},
+    {TYPE_STRING, "indexOf", TYPE_NUMBER},
+    {TYPE_STRING, "lastIndexOf", TYPE_NUMBER},
+    {TYPE_STRING, "includes", TYPE_BOOLEAN},
+    {TYPE_STRING, "startsWith", TYPE_BOOLEAN},
+    {TYPE_STRING, "endsWith", TYPE_BOOLEAN},
+    {TYPE_STRING, "repeat", TYPE_STRING},
+    {TYPE_STRING, "replace", TYPE_STRING},
+    {TYPE_STRING, "replaceAll", TYPE_STRING},
+    {TYPE_STRING, "split", TYPE_OBJECT},
+    {TYPE_STRING, "padStart", TYPE_STRING},
+    {TYPE_STRING, "padEnd", TYPE_STRING},
+    {TYPE_STRING, "concat", TYPE_STRING},
+
+    /* arrays — the receiver is TYPE_OBJECT until element types exist */
+    {TYPE_OBJECT, "push", TYPE_NUMBER},
+    {TYPE_OBJECT, "unshift", TYPE_NUMBER},
+    {TYPE_OBJECT, "indexOf", TYPE_NUMBER},
+    {TYPE_OBJECT, "lastIndexOf", TYPE_NUMBER},
+    {TYPE_OBJECT, "includes", TYPE_BOOLEAN},
+    {TYPE_OBJECT, "some", TYPE_BOOLEAN},
+    {TYPE_OBJECT, "every", TYPE_BOOLEAN},
+    {TYPE_OBJECT, "findIndex", TYPE_NUMBER},
+    {TYPE_OBJECT, "join", TYPE_STRING},
+    {TYPE_OBJECT, "slice", TYPE_OBJECT},
+    {TYPE_OBJECT, "concat", TYPE_OBJECT},
+    {TYPE_OBJECT, "map", TYPE_OBJECT},
+    {TYPE_OBJECT, "filter", TYPE_OBJECT},
+    {TYPE_OBJECT, "reverse", TYPE_OBJECT},
+    {TYPE_OBJECT, "fill", TYPE_OBJECT},
+    {TYPE_OBJECT, "sort", TYPE_OBJECT},
+    {TYPE_OBJECT, "forEach", TYPE_UNDEFINED},
+};
+
+/* Returns the signature for `name` on `receiver`, or NULL. */
+static const MethodSignature *findMethod(TypeKind receiver, const char *name,
+                                         int length) {
+  for (size_t i = 0; i < sizeof(BUILTIN_METHODS) / sizeof(BUILTIN_METHODS[0]); i++) {
+    const MethodSignature *entry = &BUILTIN_METHODS[i];
+    if (entry->receiver != receiver) continue;
+    if ((int)strlen(entry->name) == length &&
+        memcmp(entry->name, name, (size_t)length) == 0) {
+      return entry;
+    }
+  }
+  return NULL;
+}
+
 static TypeKind checkNode(Checker *checker, AstNode *node);
 
 /* Records a function's shape and binds its name, before the body is walked so
@@ -326,15 +396,21 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
       bool isLength = node->as.property.length == 6 &&
                       memcmp(node->as.property.name, "length", 6) == 0;
 
-      /* Strings carry exactly one property, and it is a number. */
+      /* `length` is a number on every container; a known method name resolves
+       * to a function, and its result type is applied at the call site. */
       if (object == TYPE_STRING) {
-        if (!isLength) {
-          typeError(checker, node->line, "strings have no property '%.*s'",
-                    node->as.property.length, node->as.property.name);
-          result = TYPE_ERROR;
+        if (isLength) {
+          result = TYPE_NUMBER;
           break;
         }
-        result = TYPE_NUMBER;
+        if (findMethod(TYPE_STRING, node->as.property.name,
+                       node->as.property.length) != NULL) {
+          result = TYPE_FUNCTION;
+          break;
+        }
+        typeError(checker, node->line, "strings have no property '%.*s'",
+                  node->as.property.length, node->as.property.name);
+        result = TYPE_ERROR;
         break;
       }
 
@@ -363,6 +439,17 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
       if (csTypeIsKnown(callee) && callee != TYPE_FUNCTION) {
         typeError(checker, node->line, "%s is not a function", csTypeName(callee));
         result = TYPE_ERROR;
+        break;
+      }
+
+      /* A built-in method's result is known even though its receiver's element
+       * types are not. */
+      if (node->as.call.callee->type == AST_PROPERTY) {
+        AstNode *property = node->as.call.callee;
+        const MethodSignature *builtin =
+            findMethod(property->as.property.object->resolvedType,
+                       property->as.property.name, property->as.property.length);
+        result = builtin != NULL ? builtin->returns : TYPE_ANY;
         break;
       }
 
