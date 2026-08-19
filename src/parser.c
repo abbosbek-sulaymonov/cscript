@@ -205,6 +205,15 @@ static AstNode *parseCallSuffixes(Parser *parser, AstNode *expression) {
       continue;
     }
 
+    if (matchToken(parser, TOKEN_LEFT_BRACKET)) {
+      int line = parser->previous.line;
+      AstNode *index = parseExpression(parser);
+      consume(parser, TOKEN_RIGHT_BRACKET, "expected ']' after the index");
+      if (index == NULL || parser->diag->panicMode) return NULL;
+      expression = csAstIndex(parser->arena, line, expression, index);
+      continue;
+    }
+
     if (matchToken(parser, TOKEN_LEFT_PAREN)) {
       int line = parser->previous.line;
       AstNode *call = csAstCall(parser->arena, line, expression);
@@ -274,6 +283,53 @@ static AstNode *parsePrimary(Parser *parser) {
     AstNode *function = parseFunction(parser, false);
     if (function == NULL) return NULL;
     return parseCallSuffixes(parser, function);
+  }
+
+  if (matchToken(parser, TOKEN_LEFT_BRACKET)) {
+    AstNode *array = csAstArrayLiteral(parser->arena, line);
+    if (!check(parser, TOKEN_RIGHT_BRACKET)) {
+      do {
+        /* A trailing comma before ']' is allowed, as in JavaScript. */
+        if (check(parser, TOKEN_RIGHT_BRACKET)) break;
+        AstNode *element = parsePrecedence(parser, PREC_ASSIGNMENT);
+        if (element == NULL) return NULL;
+        csAstArrayLiteralAdd(parser->arena, array, element);
+      } while (matchToken(parser, TOKEN_COMMA));
+    }
+    consume(parser, TOKEN_RIGHT_BRACKET, "expected ']' after the array elements");
+    if (parser->diag->panicMode) return NULL;
+    return parseCallSuffixes(parser, array);
+  }
+
+  if (matchToken(parser, TOKEN_LEFT_BRACE)) {
+    AstNode *object = csAstObjectLiteral(parser->arena, line);
+    if (!check(parser, TOKEN_RIGHT_BRACE)) {
+      do {
+        if (check(parser, TOKEN_RIGHT_BRACE)) break;
+
+        /* Keys may be written bare or quoted; both become string constants. */
+        AstNode *key;
+        if (matchToken(parser, TOKEN_STRING)) {
+          key = makeStringLiteral(parser, parser->previous.start,
+                                  parser->previous.length, parser->previous.line);
+        } else {
+          consume(parser, TOKEN_IDENTIFIER, "expected a property name");
+          if (parser->diag->panicMode) return NULL;
+          key = csAstString(parser->arena, parser->previous.line,
+                            parser->previous.start, parser->previous.length);
+        }
+
+        consume(parser, TOKEN_COLON, "expected ':' after the property name");
+        if (parser->diag->panicMode) return NULL;
+
+        AstNode *value = parsePrecedence(parser, PREC_ASSIGNMENT);
+        if (value == NULL) return NULL;
+        csAstObjectLiteralAdd(parser->arena, object, key, value);
+      } while (matchToken(parser, TOKEN_COMMA));
+    }
+    consume(parser, TOKEN_RIGHT_BRACE, "expected '}' after the object literal");
+    if (parser->diag->panicMode) return NULL;
+    return parseCallSuffixes(parser, object);
   }
 
   if (matchToken(parser, TOKEN_LEFT_PAREN)) {
@@ -357,9 +413,11 @@ static AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence) {
       int line = parser->current.line;
       advanceToken(parser);
 
-      if (left->type != AST_IDENTIFIER) {
+      if (left->type != AST_IDENTIFIER && left->type != AST_PROPERTY &&
+          left->type != AST_INDEX) {
         csDiagnosticError(parser->diag, line, NULL, 0,
-                          "the left side of an assignment must be a variable");
+                          "the left side of an assignment must be a variable, "
+                          "a property or an index");
         return NULL;
       }
 
@@ -615,8 +673,6 @@ static AstNode *parseFor(Parser *parser) {
  * rejected. */
 static const char *notImplementedMessage(TokenType type) {
   switch (type) {
-    case TOKEN_LEFT_BRACKET:
-      return "arrays are not implemented yet (milestone 6)";
     default:
       return NULL;
   }

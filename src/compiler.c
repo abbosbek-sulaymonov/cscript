@@ -383,6 +383,26 @@ static void compileIdentifierLoad(const char *name, int length, int line) {
 
 static void compileAssign(const AstNode *node) {
   const AstNode *target = node->as.assign.target;
+  int assignLine = node->line;
+
+  if (target->type == AST_PROPERTY) {
+    compileNode(target->as.property.object);
+    compileNode(node->as.assign.value);
+    emitBytes(OP_SET_PROPERTY,
+              identifierConstant(target->as.property.name, target->as.property.length,
+                                 assignLine),
+              assignLine);
+    return;
+  }
+
+  if (target->type == AST_INDEX) {
+    compileNode(target->as.index.target);
+    compileNode(target->as.index.index);
+    compileNode(node->as.assign.value);
+    emitByte(OP_SET_INDEX, assignLine);
+    return;
+  }
+
   const char *name = target->as.identifier.name;
   int length = target->as.identifier.length;
   int line = node->line;
@@ -643,7 +663,11 @@ static void compileFunction(const AstNode *node) {
    * locals first would be wasted work. */
   ObjFunction *function = endFunction(line);
 
-  emitBytes(OP_CLOSURE, makeConstant(OBJ_VAL(function), line), line);
+  /* endFunction popped this compiler, so csCompilerMarkRoots no longer reaches
+   * the function. It has to stay rooted until the enclosing chunk owns it. */
+  csPushTempRoot((Obj *)function);
+  emitBytes(OP_CLOSURE, (uint8_t)makeConstant(OBJ_VAL(function), line), line);
+  csPopTempRoot();
 
   /* Each upvalue is described by the pair of bytes following OP_CLOSURE, so the
    * VM can wire it up at run time. */
@@ -696,10 +720,43 @@ static void compileNode(const AstNode *node) {
     case AST_PROPERTY:
       compileNode(node->as.property.object);
       emitBytes(OP_GET_PROPERTY,
-                identifierConstant(node->as.property.name,
-                                   node->as.property.length, line),
+                identifierConstant(node->as.property.name, node->as.property.length,
+                                   line),
                 line);
       break;
+
+    case AST_INDEX:
+      compileNode(node->as.index.target);
+      compileNode(node->as.index.index);
+      emitByte(OP_GET_INDEX, line);
+      break;
+
+    case AST_OBJECT_LITERAL: {
+      if (node->as.objectLiteral.count > UINT8_MAX) {
+        errorAt(line, "too many properties in one object literal (limit %d)",
+                UINT8_MAX);
+        break;
+      }
+      /* Keys and values alternate on the stack; OP_OBJECT consumes the pairs. */
+      for (int i = 0; i < node->as.objectLiteral.count; i++) {
+        compileNode(node->as.objectLiteral.keys[i]);
+        compileNode(node->as.objectLiteral.values[i]);
+      }
+      emitBytes(OP_OBJECT, (uint8_t)node->as.objectLiteral.count, line);
+      break;
+    }
+
+    case AST_ARRAY_LITERAL: {
+      if (node->as.arrayLiteral.count > UINT8_MAX) {
+        errorAt(line, "too many elements in one array literal (limit %d)", UINT8_MAX);
+        break;
+      }
+      for (int i = 0; i < node->as.arrayLiteral.count; i++) {
+        compileNode(node->as.arrayLiteral.elements[i]);
+      }
+      emitBytes(OP_ARRAY, (uint8_t)node->as.arrayLiteral.count, line);
+      break;
+    }
 
     case AST_CALL:
       compileNode(node->as.call.callee);

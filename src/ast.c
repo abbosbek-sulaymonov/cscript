@@ -305,6 +305,67 @@ void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name,
   function->as.function.paramCount = count + 1;
 }
 
+/* Grows an arena-backed pointer list by copying. The lists here are short, so
+ * this costs less than carrying a capacity field on every node. */
+static AstNode **growList(AstArena *arena, AstNode **list, int count) {
+  AstNode **grown =
+      (AstNode **)csAstArenaAlloc(arena, sizeof(AstNode *) * (size_t)(count + 1));
+  if (grown == NULL) return NULL;
+  if (list != NULL) memcpy(grown, list, sizeof(AstNode *) * (size_t)count);
+  return grown;
+}
+
+AstNode *csAstIndex(AstArena *arena, int line, AstNode *target, AstNode *index) {
+  AstNode *node = newNode(arena, AST_INDEX, line);
+  if (node == NULL) return NULL;
+  node->as.index.target = target;
+  node->as.index.index = index;
+  return node;
+}
+
+AstNode *csAstObjectLiteral(AstArena *arena, int line) {
+  AstNode *node = newNode(arena, AST_OBJECT_LITERAL, line);
+  if (node == NULL) return NULL;
+  node->as.objectLiteral.keys = NULL;
+  node->as.objectLiteral.values = NULL;
+  node->as.objectLiteral.count = 0;
+  return node;
+}
+
+void csAstObjectLiteralAdd(AstArena *arena, AstNode *object, AstNode *key,
+                           AstNode *value) {
+  if (object == NULL || key == NULL || value == NULL) return;
+  int count = object->as.objectLiteral.count;
+
+  AstNode **keys = growList(arena, object->as.objectLiteral.keys, count);
+  AstNode **values = growList(arena, object->as.objectLiteral.values, count);
+  if (keys == NULL || values == NULL) return;
+
+  keys[count] = key;
+  values[count] = value;
+  object->as.objectLiteral.keys = keys;
+  object->as.objectLiteral.values = values;
+  object->as.objectLiteral.count = count + 1;
+}
+
+AstNode *csAstArrayLiteral(AstArena *arena, int line) {
+  AstNode *node = newNode(arena, AST_ARRAY_LITERAL, line);
+  if (node == NULL) return NULL;
+  node->as.arrayLiteral.elements = NULL;
+  node->as.arrayLiteral.count = 0;
+  return node;
+}
+
+void csAstArrayLiteralAdd(AstArena *arena, AstNode *array, AstNode *element) {
+  if (array == NULL || element == NULL) return;
+  int count = array->as.arrayLiteral.count;
+  AstNode **grown = growList(arena, array->as.arrayLiteral.elements, count);
+  if (grown == NULL) return;
+  grown[count] = element;
+  array->as.arrayLiteral.elements = grown;
+  array->as.arrayLiteral.count = count + 1;
+}
+
 AstNode *csAstReturn(AstArena *arena, int line, AstNode *value) {
   AstNode *node = newNode(arena, AST_RETURN_STMT, line);
   if (node != NULL) node->as.returnValue = value;

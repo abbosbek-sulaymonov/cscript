@@ -417,19 +417,175 @@ static InterpretResult run(void) {
       VM_CASE(OP_GET_PROPERTY) {
         ObjString *name = READ_STRING();
         Value receiver = peekStack(0);
+
+        /* `length` is intrinsic rather than a stored property, so arrays and
+         * strings answer it without carrying a table. */
+        if (name->length == 6 && memcmp(name->chars, "length", 6) == 0) {
+          if (IS_ARRAY(receiver)) {
+            csVMPop();
+            csVMPush(NUMBER_VAL(AS_ARRAY(receiver)->elements.count));
+            VM_NEXT();
+          }
+          if (IS_STRING(receiver)) {
+            csVMPop();
+            csVMPush(NUMBER_VAL(AS_STRING(receiver)->length));
+            VM_NEXT();
+          }
+        }
+
         if (!IS_OBJECT(receiver)) {
           csVMRuntimeError("cannot read property '%s' of %s", name->chars,
                            csValueTypeName(receiver));
           return CS_RUNTIME_ERROR;
         }
+
         Value value;
         if (!csTableGet(&AS_OBJECT(receiver)->properties, name, &value)) {
-          csVMRuntimeError("'%s' has no property '%s'",
-                           AS_OBJECT(receiver)->name->chars, name->chars);
-          return CS_RUNTIME_ERROR;
+          /* Reading a missing property gives undefined, as in JavaScript —
+           * checking for absence is too common to make it an error. */
+          csVMPop();
+          csVMPush(UNDEFINED_VAL);
+          VM_NEXT();
         }
         csVMPop();
         csVMPush(value);
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_SET_PROPERTY) {
+        ObjString *name = READ_STRING();
+        Value value = peekStack(0);
+        Value receiver = peekStack(1);
+
+        if (!IS_OBJECT(receiver)) {
+          csVMRuntimeError("cannot set property '%s' of %s", name->chars,
+                           csValueTypeName(receiver));
+          return CS_RUNTIME_ERROR;
+        }
+        if (csTableGet(&vm.globalConsts, name, NULL) &&
+            AS_OBJECT(receiver)->properties.count > 0 &&
+            csTableGet(&AS_OBJECT(receiver)->properties, name, NULL)) {
+          /* Namespace members such as console.log stay put. */
+          csVMRuntimeError("'%s' is a built-in and cannot be replaced", name->chars);
+          return CS_RUNTIME_ERROR;
+        }
+
+        csObjectPut(AS_OBJECT(receiver), name, value);
+        /* Leave the assigned value: assignment is an expression. */
+        vm.stackTop -= 2;
+        csVMPush(value);
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_GET_INDEX) {
+        Value index = peekStack(0);
+        Value target = peekStack(1);
+
+        if (IS_ARRAY(target)) {
+          if (!IS_NUMBER(index)) {
+            csVMRuntimeError("array index must be a number, got %s",
+                             csValueTypeName(index));
+            return CS_RUNTIME_ERROR;
+          }
+          ObjArray *array = AS_ARRAY(target);
+          int slot = (int)AS_NUMBER(index);
+          vm.stackTop -= 2;
+          /* Out of range reads as undefined rather than trapping, matching the
+           * property rule above. */
+          csVMPush(slot >= 0 && slot < array->elements.count
+                       ? array->elements.values[slot]
+                       : UNDEFINED_VAL);
+          VM_NEXT();
+        }
+
+        if (IS_OBJECT(target)) {
+          if (!IS_STRING(index)) {
+            csVMRuntimeError("object key must be a string, got %s",
+                             csValueTypeName(index));
+            return CS_RUNTIME_ERROR;
+          }
+          Value value;
+          bool found = csTableGet(&AS_OBJECT(target)->properties, AS_STRING(index), &value);
+          vm.stackTop -= 2;
+          csVMPush(found ? value : UNDEFINED_VAL);
+          VM_NEXT();
+        }
+
+        csVMRuntimeError("cannot index %s", csValueTypeName(target));
+        return CS_RUNTIME_ERROR;
+      }
+
+      VM_CASE(OP_SET_INDEX) {
+        Value value = peekStack(0);
+        Value index = peekStack(1);
+        Value target = peekStack(2);
+
+        if (IS_ARRAY(target)) {
+          if (!IS_NUMBER(index)) {
+            csVMRuntimeError("array index must be a number, got %s",
+                             csValueTypeName(index));
+            return CS_RUNTIME_ERROR;
+          }
+          ObjArray *array = AS_ARRAY(target);
+          int slot = (int)AS_NUMBER(index);
+          if (slot < 0) {
+            csVMRuntimeError("array index %d is out of range", slot);
+            return CS_RUNTIME_ERROR;
+          }
+          /* Writing past the end extends the array with undefined rather than
+           * creating a hole, so it stays dense. */
+          while (array->elements.count <= slot) {
+            csValueArrayWrite(&array->elements, UNDEFINED_VAL);
+          }
+          array->elements.values[slot] = value;
+        } else if (IS_OBJECT(target)) {
+          if (!IS_STRING(index)) {
+            csVMRuntimeError("object key must be a string, got %s",
+                             csValueTypeName(index));
+            return CS_RUNTIME_ERROR;
+          }
+          csObjectPut(AS_OBJECT(target), AS_STRING(index), value);
+        } else {
+          csVMRuntimeError("cannot index %s", csValueTypeName(target));
+          return CS_RUNTIME_ERROR;
+        }
+
+        vm.stackTop -= 3;
+        csVMPush(value);
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_OBJECT) {
+        int count = READ_BYTE();
+        ObjObject *object = csObjectNew("Object");
+        /* The literal's keys and values are still on the stack, so they are
+         * rooted; the new object is not until it is pushed. */
+        csPushTempRoot((Obj *)object);
+
+        Value *entries = vm.stackTop - (count * 2);
+        for (int i = 0; i < count; i++) {
+          csObjectPut(object, AS_STRING(entries[i * 2]), entries[i * 2 + 1]);
+        }
+
+        csPopTempRoot();
+        vm.stackTop = entries;
+        csVMPush(OBJ_VAL(object));
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_ARRAY) {
+        int count = READ_BYTE();
+        ObjArray *array = csArrayNew();
+        csPushTempRoot((Obj *)array);
+
+        Value *elements = vm.stackTop - count;
+        for (int i = 0; i < count; i++) {
+          csValueArrayWrite(&array->elements, elements[i]);
+        }
+
+        csPopTempRoot();
+        vm.stackTop = elements;
+        csVMPush(OBJ_VAL(array));
         VM_NEXT();
       }
 

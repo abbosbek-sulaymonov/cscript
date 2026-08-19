@@ -61,6 +61,15 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_INC_LOCAL:         return byteInstruction("OP_INC_LOCAL", chunk, offset);
     case OP_DEC_LOCAL:         return byteInstruction("OP_DEC_LOCAL", chunk, offset);
     case OP_GET_PROPERTY:      return constantInstruction("OP_GET_PROPERTY", chunk, offset);
+    case OP_SET_PROPERTY:      return constantInstruction("OP_SET_PROPERTY", chunk, offset);
+    case OP_GET_INDEX:         return simpleInstruction("OP_GET_INDEX", offset);
+    case OP_SET_INDEX:         return simpleInstruction("OP_SET_INDEX", offset);
+    case OP_OBJECT:            return byteInstruction("OP_OBJECT", chunk, offset);
+    case OP_ARRAY:             return byteInstruction("OP_ARRAY", chunk, offset);
+    case OP_CLOSURE:           return constantInstruction("OP_CLOSURE", chunk, offset);
+    case OP_GET_UPVALUE:       return byteInstruction("OP_GET_UPVALUE", chunk, offset);
+    case OP_SET_UPVALUE:       return byteInstruction("OP_SET_UPVALUE", chunk, offset);
+    case OP_CLOSE_UPVALUE:     return simpleInstruction("OP_CLOSE_UPVALUE", offset);
     case OP_CALL:              return byteInstruction("OP_CALL", chunk, offset);
     case OP_ADD:               return simpleInstruction("OP_ADD", offset);
     case OP_ADD_NUM:           return simpleInstruction("OP_ADD_NUM", offset);
@@ -168,6 +177,36 @@ static void printNode(const AstNode *node, int depth) {
       printf("Update %s%s\n", node->as.update.isIncrement ? "++" : "--",
              node->as.update.isPrefix ? " (prefix)" : " (postfix)");
       printNode(node->as.update.target, depth + 1);
+      break;
+    case AST_FUNCTION:
+      printf("Function %.*s (%d param%s)\n",
+             node->as.function.name != NULL ? node->as.function.nameLength : 11,
+             node->as.function.name != NULL ? node->as.function.name : "<anonymous>",
+             node->as.function.paramCount,
+             node->as.function.paramCount == 1 ? "" : "s");
+      printNode(node->as.function.body, depth + 1);
+      break;
+    case AST_RETURN_STMT:
+      printf("Return\n");
+      printNode(node->as.returnValue, depth + 1);
+      break;
+    case AST_INDEX:
+      printf("Index\n");
+      printNode(node->as.index.target, depth + 1);
+      printNode(node->as.index.index, depth + 1);
+      break;
+    case AST_OBJECT_LITERAL:
+      printf("ObjectLiteral (%d)\n", node->as.objectLiteral.count);
+      for (int i = 0; i < node->as.objectLiteral.count; i++) {
+        printNode(node->as.objectLiteral.keys[i], depth + 1);
+        printNode(node->as.objectLiteral.values[i], depth + 2);
+      }
+      break;
+    case AST_ARRAY_LITERAL:
+      printf("ArrayLiteral (%d)\n", node->as.arrayLiteral.count);
+      for (int i = 0; i < node->as.arrayLiteral.count; i++) {
+        printNode(node->as.arrayLiteral.elements[i], depth + 1);
+      }
       break;
     case AST_PROPERTY:
       printf("Property .%.*s\n", node->as.property.length, node->as.property.name);

@@ -1,0 +1,26 @@
+const a = [1, 2, 3];
+console.log(a);
+console.log(a.length, a[0], a[2]);
+console.log(a[99]);
+
+let b = [1, 2, 3];
+b[1] = 99;
+console.log(b);
+
+// Writing past the end extends with undefined rather than leaving a hole.
+b[5] = 7;
+console.log(b, b.length);
+
+console.log([]);
+console.log([1, "two", true, null]);
+console.log([[1, 2], [3, 4]]);
+
+// Arrays are values.
+function sum(list) {
+  let total = 0;
+  for (let i = 0; i < list.length; i++) {
+    total += list[i];
+  }
+  return total;
+}
+console.log(sum([1, 2, 3, 4, 5]));

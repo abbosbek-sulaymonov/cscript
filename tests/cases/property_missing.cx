@@ -1,0 +1,8 @@
+// Reading a property that is not there gives undefined, as in JavaScript.
+// Checking for absence is far too common to make it an error.
+console.log(Math.nope);
+console.log(Math.PI);
+
+const o = { a: 1 };
+console.log(o.b);
+console.log(o["b"]);

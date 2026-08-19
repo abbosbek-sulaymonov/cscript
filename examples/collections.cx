@@ -1,0 +1,34 @@
+// Arrays and objects, with the same literal syntax as JavaScript.
+
+const languages = ["C", "JavaScript", "TypeScript"];
+console.log(languages);
+console.log("count:", languages.length);
+
+for (let i = 0; i < languages.length; i++) {
+  console.log(i, languages[i]);
+}
+
+const project = { name: "cscript", milestone: 5, typed: true };
+
+console.log(project);
+console.log(project.name, "is at milestone", project.milestone);
+
+// Properties can be added after the fact, and keep insertion order.
+project.author = "abbosbek";
+console.log(project);
+
+const stages = ["lexer", "parser", "compiler", "vm", "gc"];
+console.log("first stage:", stages[0]);
+
+// Objects and arrays nest freely.
+const matrix = [[1, 2], [3, 4]];
+console.log(matrix[1][0]);
+
+function total(numbers) {
+  let sum = 0;
+  for (let i = 0; i < numbers.length; i++) {
+    sum += numbers[i];
+  }
+  return sum;
+}
+console.log("sum:", total([10, 20, 30]));

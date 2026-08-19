@@ -87,10 +87,26 @@ ObjObject *csObjectNew(const char *name) {
   ObjObject *object = CS_ALLOCATE(ObjObject, 1);
   registerObject((Obj *)object, OBJ_OBJECT);
   object->name = nameString;
+  object->keys = NULL;
+  object->keyCount = 0;
+  object->keyCapacity = 0;
   csTableInit(&object->properties);
 
   csPopTempRoot();
   return object;
+}
+
+void csObjectPut(ObjObject *object, ObjString *key, Value value) {
+  bool isNewKey = csTableSet(&object->properties, key, value);
+  if (!isNewKey) return;
+
+  if (object->keyCapacity < object->keyCount + 1) {
+    int oldCapacity = object->keyCapacity;
+    object->keyCapacity = CS_GROW_CAPACITY(oldCapacity);
+    object->keys =
+        CS_GROW_ARRAY(ObjString *, object->keys, oldCapacity, object->keyCapacity);
+  }
+  object->keys[object->keyCount++] = key;
 }
 
 ObjFunction *csFunctionNew(void) {
@@ -126,6 +142,13 @@ ObjClosure *csClosureNew(ObjFunction *function) {
   return closure;
 }
 
+ObjArray *csArrayNew(void) {
+  ObjArray *array = CS_ALLOCATE(ObjArray, 1);
+  registerObject((Obj *)array, OBJ_ARRAY);
+  csValueArrayInit(&array->elements);
+  return array;
+}
+
 void csObjectSetProperty(ObjObject *object, const char *name, Value value) {
   /* Both the interning and the table insert can allocate, so the receiver and
    * the value have to stay rooted for the whole operation. */
@@ -134,7 +157,7 @@ void csObjectSetProperty(ObjObject *object, const char *name, Value value) {
 
   ObjString *key = csStringCopy(name, (int)strlen(name));
   csPushTempRoot((Obj *)key);
-  csTableSet(&object->properties, key, value);
+  csObjectPut(object, key, value);
   csPopTempRoot();
 
   if (IS_OBJ(value)) csPopTempRoot();
@@ -170,6 +193,23 @@ void csObjectPrint(Value value) {
       /* Never reachable from user code; only the collector sees these. */
       printf("[upvalue]");
       break;
+
+    case OBJ_ARRAY: {
+      ObjArray *array = AS_ARRAY(value);
+      printf("[ ");
+      for (int i = 0; i < array->elements.count; i++) {
+        if (i > 0) printf(", ");
+        /* Strings are quoted inside a container, the way console.log does it,
+         * so `[ "1" ]` and `[ 1 ]` are distinguishable. */
+        if (IS_STRING(array->elements.values[i])) {
+          printf("'%s'", AS_CSTRING(array->elements.values[i]));
+        } else {
+          csValuePrint(array->elements.values[i]);
+        }
+      }
+      printf(" ]");
+      break;
+    }
   }
 }
 
@@ -186,6 +226,11 @@ void csObjectBlacken(Obj *object) {
       ObjObject *instance = (ObjObject *)object;
       csMarkObject((Obj *)instance->name);
       csTableMark(&instance->properties);
+      /* The key list holds the same strings the table does, but marking it too
+       * keeps the two from disagreeing if the table ever drops an entry. */
+      for (int i = 0; i < instance->keyCount; i++) {
+        csMarkObject((Obj *)instance->keys[i]);
+      }
       break;
     }
 
@@ -214,6 +259,14 @@ void csObjectBlacken(Obj *object) {
       }
       break;
     }
+
+    case OBJ_ARRAY: {
+      ObjArray *array = (ObjArray *)object;
+      for (int i = 0; i < array->elements.count; i++) {
+        csMarkValue(array->elements.values[i]);
+      }
+      break;
+    }
   }
 }
 
@@ -230,6 +283,7 @@ void csObjectFree(Obj *object) {
     case OBJ_OBJECT: {
       ObjObject *instance = (ObjObject *)object;
       csTableFree(&instance->properties);
+      CS_FREE_ARRAY(ObjString *, instance->keys, instance->keyCapacity);
       CS_FREE(ObjObject, object);
       break;
     }
@@ -251,6 +305,13 @@ void csObjectFree(Obj *object) {
       ObjClosure *closure = (ObjClosure *)object;
       CS_FREE_ARRAY(ObjUpvalue *, closure->upvalues, closure->upvalueCount);
       CS_FREE(ObjClosure, object);
+      break;
+    }
+
+    case OBJ_ARRAY: {
+      ObjArray *array = (ObjArray *)object;
+      csValueArrayFree(&array->elements);
+      CS_FREE(ObjArray, object);
       break;
     }
   }

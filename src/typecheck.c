@@ -254,6 +254,14 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
     case AST_ASSIGN: {
       AstNode *target = node->as.assign.target;
       TypeKind valueType = checkNode(checker, node->as.assign.value);
+
+      /* Property and index targets have no declared type to check against. */
+      if (target->type != AST_IDENTIFIER) {
+        checkNode(checker, target);
+        result = valueType;
+        break;
+      }
+
       Variable *variable =
           findVariable(checker, target->as.identifier.name, target->as.identifier.length);
 
@@ -315,14 +323,31 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
 
     case AST_PROPERTY: {
       TypeKind object = checkNode(checker, node->as.property.object);
+      bool isLength = node->as.property.length == 6 &&
+                      memcmp(node->as.property.name, "length", 6) == 0;
+
+      /* Strings carry exactly one property, and it is a number. */
+      if (object == TYPE_STRING) {
+        if (!isLength) {
+          typeError(checker, node->line, "strings have no property '%.*s'",
+                    node->as.property.length, node->as.property.name);
+          result = TYPE_ERROR;
+          break;
+        }
+        result = TYPE_NUMBER;
+        break;
+      }
+
       if (csTypeIsKnown(object) && object != TYPE_OBJECT) {
         typeError(checker, node->line, "cannot read property '%.*s' of %s",
                   node->as.property.length, node->as.property.name, csTypeName(object));
         result = TYPE_ERROR;
         break;
       }
-      /* Object shapes are not modelled yet, so a property is dynamic. */
-      result = TYPE_ANY;
+
+      /* Object shapes are not modelled yet, so a property is dynamic — except
+       * `length`, which is a number on every container that has one. */
+      result = isLength ? TYPE_NUMBER : TYPE_ANY;
       break;
     }
 
@@ -374,6 +399,34 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
       result = signature->returnType;
       break;
     }
+
+    case AST_INDEX: {
+      TypeKind target = checkNode(checker, node->as.index.target);
+      checkNode(checker, node->as.index.index);
+      if (csTypeIsKnown(target) && target != TYPE_OBJECT && target != TYPE_STRING) {
+        typeError(checker, node->line, "cannot index %s", csTypeName(target));
+        result = TYPE_ERROR;
+        break;
+      }
+      /* Element types are not modelled, so an index is dynamic. */
+      result = TYPE_ANY;
+      break;
+    }
+
+    case AST_OBJECT_LITERAL:
+      for (int i = 0; i < node->as.objectLiteral.count; i++) {
+        checkNode(checker, node->as.objectLiteral.values[i]);
+      }
+      result = TYPE_OBJECT;
+      break;
+
+    case AST_ARRAY_LITERAL:
+      for (int i = 0; i < node->as.arrayLiteral.count; i++) {
+        checkNode(checker, node->as.arrayLiteral.elements[i]);
+      }
+      /* Arrays are objects for typing purposes until element types exist. */
+      result = TYPE_OBJECT;
+      break;
 
     case AST_FUNCTION: {
       const Signature *signature = declareFunction(checker, node);

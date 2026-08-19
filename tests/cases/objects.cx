@@ -1,0 +1,27 @@
+const user = { name: "abbos", year: 2026 };
+console.log(user);
+console.log(user.name, user.year);
+
+// A missing property reads as undefined rather than raising.
+console.log(user.missing);
+
+// Both dot and bracket access work, and keys keep insertion order.
+let o = {};
+o.first = 1;
+o["second"] = 2;
+o.third = 3;
+console.log(o);
+console.log(o.first, o["second"]);
+
+// Quoted keys, and nesting.
+const config = {
+  "name": "cscript",
+  version: 5,
+  tags: ["fast", "typed"],
+  nested: { deep: true },
+};
+console.log(config);
+console.log(config.tags[1], config.nested.deep);
+
+console.log({});
+console.log(typeof user);

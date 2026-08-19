@@ -14,6 +14,7 @@ typedef enum {
   OBJ_FUNCTION, /* compiled user code: a chunk plus its metadata */
   OBJ_UPVALUE,  /* a local captured by a nested function */
   OBJ_CLOSURE,  /* a function paired with the upvalues it captured */
+  OBJ_ARRAY,    /* a dense, growable list of values */
 } ObjType;
 
 /* Every heap object starts with this header, so the collector can walk the
@@ -45,9 +46,18 @@ typedef struct {
   int arity;       /* -1 means variadic */
 } ObjNative;
 
+/* A property bag.
+ *
+ * The hash table answers lookups; `keys` records insertion order, because
+ * JavaScript has guaranteed it for string keys since ES2015 and real code
+ * depends on it when printing or serialising an object. Keeping both means one
+ * extra pointer per property, which is cheaper than an ordered map. */
 typedef struct {
   Obj obj;
   Table properties;
+  ObjString **keys;
+  int keyCount;
+  int keyCapacity;
   ObjString *name; /* e.g. "console", used when printing the object */
 } ObjObject;
 
@@ -77,6 +87,13 @@ typedef struct ObjUpvalue {
 
 /* A function value. Every user function is called through a closure, even when
  * it captures nothing, so the VM needs only one calling path. */
+/* A dense array. Sparse arrays and holes are deliberately not supported: they
+ * are the reason JavaScript engines need a second, slower representation. */
+typedef struct ObjArray {
+  Obj obj;
+  ValueArray elements;
+} ObjArray;
+
 typedef struct ObjClosure {
   Obj obj;
   ObjFunction *function;
@@ -91,6 +108,7 @@ typedef struct ObjClosure {
 #define IS_OBJECT(v)   csIsObjType(v, OBJ_OBJECT)
 #define IS_FUNCTION(v) csIsObjType(v, OBJ_FUNCTION)
 #define IS_CLOSURE(v)  csIsObjType(v, OBJ_CLOSURE)
+#define IS_ARRAY(v)    csIsObjType(v, OBJ_ARRAY)
 
 #define AS_STRING(v)   ((ObjString *)AS_OBJ(v))
 #define AS_CSTRING(v)  (((ObjString *)AS_OBJ(v))->chars)
@@ -98,6 +116,7 @@ typedef struct ObjClosure {
 #define AS_OBJECT(v)   ((ObjObject *)AS_OBJ(v))
 #define AS_FUNCTION(v) ((ObjFunction *)AS_OBJ(v))
 #define AS_CLOSURE(v)  ((ObjClosure *)AS_OBJ(v))
+#define AS_ARRAY(v)    ((ObjArray *)AS_OBJ(v))
 
 static inline bool csIsObjType(Value value, ObjType type) {
   return IS_OBJ(value) && AS_OBJ(value)->type == type;
@@ -113,9 +132,13 @@ ObjObject *csObjectNew(const char *name);
 ObjFunction *csFunctionNew(void);
 ObjUpvalue *csUpvalueNew(Value *slot);
 ObjClosure *csClosureNew(ObjFunction *function);
+ObjArray *csArrayNew(void);
 
 /* Convenience for building namespace objects during startup. */
 void csObjectSetProperty(ObjObject *object, const char *name, Value value);
+
+/* Sets a property, recording insertion order for a key that is new. */
+void csObjectPut(ObjObject *object, ObjString *key, Value value);
 
 void csObjectPrint(Value value);
 void csObjectFree(Obj *object);

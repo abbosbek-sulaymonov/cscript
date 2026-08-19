@@ -5,6 +5,7 @@
 
 #include "cscript/memory.h"
 #include "cscript/object.h"
+#include "cscript/table.h"
 #include "cscript/value.h"
 
 void csValueArrayInit(ValueArray *array) {
@@ -119,6 +120,14 @@ static int formatNumber(char *buffer, size_t size, double value) {
   if (value == (long long)value && fabs(value) < 1e15) {
     return snprintf(buffer, size, "%lld", (long long)value);
   }
+
+  /* JavaScript prints the shortest decimal that reads back as the same double,
+   * which is why Math.PI shows 15 digits and not 17. Widen the precision until
+   * the text round-trips, then stop. */
+  for (int precision = 1; precision < 17; precision++) {
+    int written = snprintf(buffer, size, "%.*g", precision, value);
+    if (strtod(buffer, NULL) == value) return written;
+  }
   return snprintf(buffer, size, "%.17g", value);
 }
 
@@ -145,6 +154,81 @@ void csValuePrint(Value value) {
   }
 }
 
+/* A small growable buffer, used to render containers. Kept local to this file
+ * because nothing else needs it yet. */
+typedef struct {
+  char *data;
+  size_t length;
+  size_t capacity;
+} StringBuilder;
+
+static bool sbAppend(StringBuilder *builder, const char *text, size_t length) {
+  if (builder->length + length + 1 > builder->capacity) {
+    size_t capacity = builder->capacity < 32 ? 32 : builder->capacity;
+    while (capacity < builder->length + length + 1) capacity *= 2;
+    char *grown = (char *)realloc(builder->data, capacity);
+    if (grown == NULL) return false;
+    builder->data = grown;
+    builder->capacity = capacity;
+  }
+  memcpy(builder->data + builder->length, text, length);
+  builder->length += length;
+  builder->data[builder->length] = '\0';
+  return true;
+}
+
+static bool sbAppendValue(StringBuilder *builder, Value value, bool quoteStrings);
+
+static bool sbAppendArray(StringBuilder *builder, ObjArray *array) {
+  if (!sbAppend(builder, "[ ", array->elements.count > 0 ? 2 : 1)) return false;
+  for (int i = 0; i < array->elements.count; i++) {
+    if (i > 0 && !sbAppend(builder, ", ", 2)) return false;
+    /* Strings are quoted inside a container so `[ '1' ]` and `[ 1 ]` differ. */
+    if (!sbAppendValue(builder, array->elements.values[i], true)) return false;
+  }
+  return sbAppend(builder, array->elements.count > 0 ? " ]" : "]",
+                  array->elements.count > 0 ? 2 : 1);
+}
+
+static bool sbAppendObject(StringBuilder *builder, ObjObject *object) {
+  if (!sbAppend(builder, "{", 1)) return false;
+
+  bool first = true;
+  for (int i = 0; i < object->keyCount; i++) {
+    ObjString *key = object->keys[i];
+    Value value;
+    if (!csTableGet(&object->properties, key, &value)) continue;
+
+    if (!sbAppend(builder, first ? " " : ", ", first ? 1 : 2)) return false;
+    first = false;
+    if (!sbAppend(builder, key->chars, (size_t)key->length)) return false;
+    if (!sbAppend(builder, ": ", 2)) return false;
+    if (!sbAppendValue(builder, value, true)) return false;
+  }
+
+  return sbAppend(builder, first ? "}" : " }", first ? 1 : 2);
+}
+
+static bool sbAppendValue(StringBuilder *builder, Value value, bool quoteStrings) {
+  if (IS_OBJ(value)) {
+    if (IS_ARRAY(value)) return sbAppendArray(builder, AS_ARRAY(value));
+    if (IS_OBJECT(value)) return sbAppendObject(builder, AS_OBJECT(value));
+    if (IS_STRING(value) && quoteStrings) {
+      ObjString *string = AS_STRING(value);
+      return sbAppend(builder, "'", 1) &&
+             sbAppend(builder, string->chars, (size_t)string->length) &&
+             sbAppend(builder, "'", 1);
+    }
+  }
+
+  size_t length = 0;
+  char *text = csValueToCString(value, &length);
+  if (text == NULL) return false;
+  bool ok = sbAppend(builder, text, length);
+  free(text);
+  return ok;
+}
+
 char *csValueToCString(Value value, size_t *lengthOut) {
   char buffer[32];
   const char *text = buffer;
@@ -169,8 +253,15 @@ char *csValueToCString(Value value, size_t *lengthOut) {
         text = "[Function]";
         length = 10;
       } else {
-        text = "[Object]";
-        length = 8;
+        /* Arrays and objects are rendered structurally, so console.log shows
+         * their contents rather than a placeholder. */
+        StringBuilder builder = {NULL, 0, 0};
+        if (!sbAppendValue(&builder, value, false)) {
+          free(builder.data);
+          return NULL;
+        }
+        if (lengthOut != NULL) *lengthOut = builder.length;
+        return builder.data;
       }
       break;
     default:

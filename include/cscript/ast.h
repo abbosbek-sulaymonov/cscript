@@ -28,6 +28,9 @@ typedef enum {
   AST_CALL,
   AST_PROPERTY,
   AST_FUNCTION,
+  AST_INDEX,
+  AST_OBJECT_LITERAL,
+  AST_ARRAY_LITERAL,
 
   /* Statements. */
   AST_EXPRESSION_STMT,
@@ -150,6 +153,19 @@ struct AstNode {
       AstNode *increment;
       AstNode *body;
     } forStmt;
+    struct {                             /* AST_INDEX — target[index] */
+      AstNode *target;
+      AstNode *index;
+    } index;
+    struct {                             /* AST_OBJECT_LITERAL */
+      AstNode **keys;                    /*   string literal nodes */
+      AstNode **values;
+      int count;
+    } objectLiteral;
+    struct {                             /* AST_ARRAY_LITERAL */
+      AstNode **elements;
+      int count;
+    } arrayLiteral;
     struct {                             /* AST_FUNCTION */
       const char *name;                  /*   NULL for a function expression */
       int nameLength;
@@ -215,6 +231,12 @@ AstNode *csAstFor(AstArena *arena, int line, AstNode *initializer, AstNode *cond
 AstNode *csAstFunction(AstArena *arena, int line, const char *name, int nameLength);
 void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name,
                            int length, TypeKind type, bool hasAnnotation);
+AstNode *csAstIndex(AstArena *arena, int line, AstNode *target, AstNode *index);
+AstNode *csAstObjectLiteral(AstArena *arena, int line);
+void csAstObjectLiteralAdd(AstArena *arena, AstNode *object, AstNode *key,
+                           AstNode *value);
+AstNode *csAstArrayLiteral(AstArena *arena, int line);
+void csAstArrayLiteralAdd(AstArena *arena, AstNode *array, AstNode *element);
 AstNode *csAstReturn(AstArena *arena, int line, AstNode *value);
 AstNode *csAstProgram(AstArena *arena, int line);
 

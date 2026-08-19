@@ -38,6 +38,11 @@
   X(OP_DEC_LOCAL)         /* [slot]   stack[slot] -= 1                      */ \
                                                                               \
   X(OP_GET_PROPERTY)      /* [const]  pop object, push its named property   */ \
+  X(OP_SET_PROPERTY)      /* [const]  obj.name = value, leaving the value   */ \
+  X(OP_GET_INDEX)         /*          pop index and target, push element    */ \
+  X(OP_SET_INDEX)         /*          target[index] = value, leaving value  */ \
+  X(OP_OBJECT)            /* [count]  build from `count` key/value pairs    */ \
+  X(OP_ARRAY)             /* [count]  build from the top `count` values     */ \
   X(OP_CALL)              /* [argc]   call the value below the arguments    */ \
                                                                               \
   /* Closures. OP_CLOSURE is followed by one (isLocal, index) pair per         \
