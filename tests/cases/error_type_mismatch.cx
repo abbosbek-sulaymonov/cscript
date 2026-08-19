@@ -1,0 +1,3 @@
+// Caught before the program runs, with no annotation needed — the checker
+// infers that `true` is a boolean.
+console.log(true * 3);

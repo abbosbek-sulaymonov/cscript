@@ -1,0 +1,1 @@
+error_type_reassign.cx:2: error: cannot assign string to 'total', which is number

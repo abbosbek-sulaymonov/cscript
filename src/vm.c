@@ -10,6 +10,7 @@
 #include "cscript/native.h"
 #include "cscript/object.h"
 #include "cscript/parser.h"
+#include "cscript/typecheck.h"
 #include "cscript/vm.h"
 
 VM vm;
@@ -361,6 +362,16 @@ static InterpretResult run(void) {
         VM_NEXT();
       }
 
+      VM_CASE(OP_ADD_NUM) {
+        /* The checker guaranteed both operands are numbers, so there is
+         * nothing to test. */
+        Value b = peekStack(0);
+        Value a = peekStack(1);
+        vm.stackTop -= 2;
+        csVMPush(NUMBER_VAL(AS_NUMBER(a) + AS_NUMBER(b)));
+        VM_NEXT();
+      }
+
       VM_CASE(OP_ADD) {
         /* Adding two numbers is overwhelmingly the common case, and routing it
          * through concatenateOrAdd() costs a call plus two string checks. */
@@ -514,6 +525,13 @@ InterpretResult csInterpret(const char *source, const char *sourceName) {
 
   AstNode *program = csParse(source, &arena, &diag);
   if (program == NULL) {
+    csAstArenaFree(&arena);
+    return CS_COMPILE_ERROR;
+  }
+
+  /* Static checking sits between parsing and code generation: it needs the
+   * whole tree, and the compiler benefits from the types it resolves. */
+  if (!csTypeCheck(program, &diag)) {
     csAstArenaFree(&arena);
     return CS_COMPILE_ERROR;
   }

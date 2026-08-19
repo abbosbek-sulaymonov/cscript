@@ -1,0 +1,12 @@
+// TypeScript-style annotations. Optional everywhere.
+let count: number = 0;
+const name: string = "cscript";
+let flag: boolean = true;
+let nothing: null = null;
+let dynamic: any = 1;
+
+count = count + 5;
+dynamic = "now a string";
+
+console.log(count, name, flag, nothing, dynamic);
+console.log(typeof count, typeof name, typeof flag);

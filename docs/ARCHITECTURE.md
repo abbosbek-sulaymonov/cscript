@@ -17,6 +17,11 @@ in `include/cscript/`, and a debug flag that dumps what it produced.
   └─────────┘
       │
       ▼
+  ┌─────────┐   AST + types         src/typecheck.c    CS_DEBUG_PRINT_AST
+  │ Checker │   annotates every node in place
+  └─────────┘
+      │
+      ▼
   ┌─────────┐   Chunk               src/compiler.c     CS_DEBUG_PRINT_CODE
   │Compiler │   bytecode + constant pool + line table
   └─────────┘
@@ -47,6 +52,49 @@ means rewriting the parser; keeping it now costs one extra traversal.
 The AST is deliberately *not* long-lived. It exists between parsing and code
 generation, and `csInterpret` frees the whole arena the moment `csCompile`
 returns.
+
+## The type checker
+
+A pass between parsing and code generation. It walks the tree, resolves a type
+onto every expression node, and reports mismatches through the same diagnostics
+object every other stage uses.
+
+Two things come out of it. The obvious one is errors the programmer sees before
+the program runs. The less obvious one is that `resolvedType` stays on the AST,
+so the compiler can specialise against it — the types are **consumed, not
+erased**. `a + b` where both sides resolved to `number` emits `OP_ADD_NUM`,
+which does no type dispatch; the same expression on `any` values emits the
+generic `OP_ADD`.
+
+The checker keeps its own scope stack rather than sharing the compiler's. That
+duplication is deliberate: it means the compiler can be changed without silently
+altering what is or is not a type error.
+
+### Why static types are worth ~2% for speed
+
+Before building any of this, a variant was compiled with **every runtime type
+check deleted** — the theoretical maximum a perfect type system could deliver in
+this architecture. It was 2.2% faster in total. `OP_ADD_NUM` subsequently
+measured 2.5%, which matched.
+
+The checks cost almost nothing because they always go the same way, so the
+branch predictor gets them right every time. The bottleneck is dispatch and
+16-byte stack traffic, and an annotation touches neither.
+
+That is the honest case for gradual typing here: it is worth doing **for
+correctness and tooling**, and the speed argument only becomes real one step
+later, when the types are used to change *representation* rather than to skip a
+predictable branch:
+
+- **Unboxing** — a `number` local in a raw 8-byte slot instead of a 16-byte
+  tagged `Value`. This attacks memory traffic, which is the actual bottleneck.
+- **Type-specialised superinstructions** — fusing typed operations.
+- **A JIT emitting native code with no guards**, which is where Go's advantage
+  actually lives.
+
+`OP_ADD_NUM` exists mostly to prove the pipeline end to end: an annotation
+changes what the checker knows, which changes what the compiler emits, which
+changes what the VM runs.
 
 ## Memory
 
@@ -265,6 +313,8 @@ table, then reset the stack.
 | `src/table.c` | Open-addressing hash table |
 | `src/value.c` | Value operations, coercion, formatting |
 | `src/chunk.c` | Bytecode buffer and constant pool |
+| `src/typecheck.c` | Static checking; annotates the AST with types |
+| `src/type.c` | The type lattice and assignability |
 | `src/native.c` | The built-in global environment |
 | `src/debug.c` | Disassembler and AST printer |
 | `src/diagnostic.c` | Error reporting |
@@ -301,7 +351,9 @@ types.
 | Milestone | Adds | Touches |
 | --- | --- | --- |
 | **2 ✅** | **`let`/`const`, scopes, control flow, calls, `console.log`** | — |
-| 3 | User functions, call frames, closures | VM gains a frame stack; GC gains upvalues |
+| **3 ✅** | **Gradual typing: annotations, inference, checking** | — |
+| 4 | Unboxed typed locals — where typing pays off in speed | `Value`, VM, compiler |
+| 5 | User functions, call frames, closures | VM gains a frame stack; GC gains upvalues |
 | 4 | Object literals, arrays, indexing | `ObjObject` already exists; add `ObjArray` |
 | 5 | `switch`, `break`/`continue`, `for...of` | parser and compiler only |
 | 6 | Template literals, ternary, destructuring | parser and compiler only |

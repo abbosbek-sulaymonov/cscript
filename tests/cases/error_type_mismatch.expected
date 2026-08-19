@@ -1,0 +1,1 @@
+error_type_mismatch.cx:3: error: operand of '*' must be a number, got boolean

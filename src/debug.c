@@ -3,6 +3,7 @@
 #include "cscript/debug.h"
 #include "cscript/object.h"
 #include "cscript/opcode.h"
+#include "cscript/type.h"
 #include "cscript/value.h"
 
 static int simpleInstruction(const char *name, int offset) {
@@ -62,6 +63,7 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_GET_PROPERTY:      return constantInstruction("OP_GET_PROPERTY", chunk, offset);
     case OP_CALL:              return byteInstruction("OP_CALL", chunk, offset);
     case OP_ADD:               return simpleInstruction("OP_ADD", offset);
+    case OP_ADD_NUM:           return simpleInstruction("OP_ADD_NUM", offset);
     case OP_SUBTRACT:          return simpleInstruction("OP_SUBTRACT", offset);
     case OP_MULTIPLY:          return simpleInstruction("OP_MULTIPLY", offset);
     case OP_DIVIDE:            return simpleInstruction("OP_DIVIDE", offset);
@@ -99,6 +101,12 @@ static void indent(int depth) {
   for (int i = 0; i < depth; i++) printf("  ");
 }
 
+/* Annotates a dumped node with the type the checker resolved, so `make trace`
+ * shows what the compiler actually knows. */
+static void printType(const AstNode *node) {
+  if (node->resolvedType != TYPE_ANY) printf("  : %s", csTypeName(node->resolvedType));
+}
+
 static void printNode(const AstNode *node, int depth) {
   if (node == NULL) {
     indent(depth);
@@ -111,6 +119,7 @@ static void printNode(const AstNode *node, int depth) {
     case AST_NUMBER_LITERAL:
       printf("Number ");
       csValuePrint(NUMBER_VAL(node->as.number));
+      printType(node);
       printf("\n");
       break;
     case AST_STRING_LITERAL:
@@ -130,7 +139,9 @@ static void printNode(const AstNode *node, int depth) {
       printNode(node->as.unary.operand, depth + 1);
       break;
     case AST_BINARY:
-      printf("Binary %s\n", csBinaryOpName(node->as.binary.op));
+      printf("Binary %s", csBinaryOpName(node->as.binary.op));
+      printType(node);
+      printf("\n");
       printNode(node->as.binary.left, depth + 1);
       printNode(node->as.binary.right, depth + 1);
       break;
@@ -144,7 +155,9 @@ static void printNode(const AstNode *node, int depth) {
       printNode(node->as.grouping, depth + 1);
       break;
     case AST_IDENTIFIER:
-      printf("Identifier %.*s\n", node->as.identifier.length, node->as.identifier.name);
+      printf("Identifier %.*s", node->as.identifier.length, node->as.identifier.name);
+      printType(node);
+      printf("\n");
       break;
     case AST_ASSIGN:
       printf("Assign\n");

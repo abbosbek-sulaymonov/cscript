@@ -6,6 +6,7 @@
 #include "cscript/memory.h"
 #include "cscript/object.h"
 #include "cscript/opcode.h"
+#include "cscript/type.h"
 #include "cscript/vm.h"
 
 #define MAX_LOCALS 256
@@ -229,8 +230,17 @@ static void compileBinary(Compiler *compiler, const AstNode *node) {
   compileNode(compiler, node->as.binary.right);
 
   int line = node->line;
+
+  /* Where the checker resolved both sides to `number`, the generic OP_ADD's
+   * string test is dead weight. This is the hook the rest of the specialisation
+   * work hangs off: the types are consumed, not erased. */
+  bool bothNumbers = node->as.binary.left->resolvedType == TYPE_NUMBER &&
+                     node->as.binary.right->resolvedType == TYPE_NUMBER;
+
   switch (node->as.binary.op) {
-    case BINARY_ADD:           emitByte(compiler, OP_ADD, line); break;
+    case BINARY_ADD:
+      emitByte(compiler, bothNumbers ? OP_ADD_NUM : OP_ADD, line);
+      break;
     case BINARY_SUBTRACT:      emitByte(compiler, OP_SUBTRACT, line); break;
     case BINARY_MULTIPLY:      emitByte(compiler, OP_MULTIPLY, line); break;
     case BINARY_DIVIDE:        emitByte(compiler, OP_DIVIDE, line); break;

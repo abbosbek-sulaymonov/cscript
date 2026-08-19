@@ -1,2 +1,0 @@
-cscript: runtime error: operands of '*' must be numbers, got boolean and number
-  at error_runtime_type.cx:1

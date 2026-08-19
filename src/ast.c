@@ -64,6 +64,7 @@ static AstNode *newNode(AstArena *arena, AstNodeType type, int line) {
   memset(node, 0, sizeof(AstNode));
   node->type = type;
   node->line = line;
+  node->resolvedType = TYPE_ANY; /* until the checker says otherwise */
   return node;
 }
 
@@ -210,12 +211,15 @@ AstNode *csAstProperty(AstArena *arena, int line, AstNode *object, const char *n
 }
 
 AstNode *csAstVarDecl(AstArena *arena, int line, const char *name, int length,
-                      AstNode *initializer, bool isConst) {
+                      AstNode *initializer, bool isConst, TypeKind declaredType,
+                      bool hasAnnotation) {
   AstNode *node = newNode(arena, AST_VAR_DECL, line);
   if (node == NULL) return NULL;
   node->as.varDecl.name = internName(arena, name, length, &node->as.varDecl.length);
   node->as.varDecl.initializer = initializer;
   node->as.varDecl.isConst = isConst;
+  node->as.varDecl.declaredType = declaredType;
+  node->as.varDecl.hasAnnotation = hasAnnotation;
   return node;
 }
 

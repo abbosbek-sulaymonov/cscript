@@ -1,0 +1,30 @@
+// CScript is gradually typed: annotations are optional, and code without them
+// is still checked, because a declaration takes the type of its initialiser.
+
+// Annotated.
+const name: string = "cscript";
+let version: number = 3;
+let stable: boolean = false;
+
+// Inferred — no annotation, but just as checked.
+let greeting = "hello, ";
+let year = 2026;
+
+console.log(greeting + name);
+console.log("milestone", version, "stable:", stable);
+console.log(year + 1);
+
+// `any` opts a value back out of static checking, for the places where a type
+// genuinely is not known until run time.
+let flexible: any = 10;
+flexible = "ten";
+flexible = true;
+console.log(typeof flexible);
+
+// Types follow scope, so an inner declaration can shadow with a different one.
+let value = 100;
+{
+  let value = "one hundred";
+  console.log(value + "!");
+}
+console.log(value * 2);

@@ -41,6 +41,10 @@
   X(OP_CALL)              /* [argc]   call the value below the arguments    */ \
                                                                               \
   X(OP_ADD)               /* numeric add, or string concat if either is a string */ \
+  /* Emitted only where the type checker proved both operands are numbers, so \
+   * it needs no type dispatch at all. This is the first place a type          \
+   * annotation changes the code that runs rather than only what compiles. */  \
+  X(OP_ADD_NUM)           /* both operands statically number                */ \
   X(OP_SUBTRACT)                                                              \
   X(OP_MULTIPLY)                                                              \
   X(OP_DIVIDE)                                                                \

@@ -405,6 +405,29 @@ static AstNode *parseVarDeclaration(Parser *parser, bool isConst) {
   const char *name = parser->previous.start;
   int nameLength = parser->previous.length;
 
+  /* Optional TypeScript-style annotation. Leaving it off is not the same as
+   * writing `: any` — an unannotated declaration takes its initialiser's type,
+   * so most code is checked without being annotated. */
+  TypeKind declaredType = TYPE_ANY;
+  bool hasAnnotation = false;
+  if (matchToken(parser, TOKEN_COLON)) {
+    /* `null` and `undefined` are keywords, so they do not arrive as
+     * identifiers even though they are perfectly good type names. */
+    if (!matchToken(parser, TOKEN_NULL) && !matchToken(parser, TOKEN_UNDEFINED)) {
+      consume(parser, TOKEN_IDENTIFIER, "expected a type name after ':'");
+    }
+    if (parser->diag->panicMode) return NULL;
+
+    if (!csTypeFromName(parser->previous.start, parser->previous.length,
+                        &declaredType)) {
+      csDiagnosticError(parser->diag, parser->previous.line, parser->previous.start,
+                        parser->previous.length, "unknown type '%.*s'",
+                        parser->previous.length, parser->previous.start);
+      return NULL;
+    }
+    hasAnnotation = true;
+  }
+
   AstNode *initializer = NULL;
   if (matchToken(parser, TOKEN_EQUAL)) {
     initializer = parsePrecedence(parser, PREC_ASSIGNMENT);
@@ -419,7 +442,8 @@ static AstNode *parseVarDeclaration(Parser *parser, bool isConst) {
   consume(parser, TOKEN_SEMICOLON, "expected ';' after a variable declaration");
   if (parser->diag->panicMode) return NULL;
 
-  return csAstVarDecl(parser->arena, line, name, nameLength, initializer, isConst);
+  return csAstVarDecl(parser->arena, line, name, nameLength, initializer, isConst,
+                      declaredType, hasAnnotation);
 }
 
 static AstNode *parseBlock(Parser *parser) {

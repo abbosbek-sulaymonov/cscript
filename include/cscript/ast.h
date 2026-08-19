@@ -9,6 +9,7 @@
 #define CSCRIPT_AST_H
 
 #include "cscript/common.h"
+#include "cscript/type.h"
 
 typedef enum {
   /* Expressions. */
@@ -60,6 +61,11 @@ typedef struct AstNode AstNode;
 struct AstNode {
   AstNodeType type;
   int line;
+
+  /* Filled in by the type checker. The compiler reads it to specialise code,
+   * which is why annotations are consumed rather than erased. TYPE_ANY means
+   * "not known statically", not "unchecked". */
+  TypeKind resolvedType;
   union {
     double number;                       /* AST_NUMBER_LITERAL */
     bool boolean;                        /* AST_BOOL_LITERAL */
@@ -111,6 +117,8 @@ struct AstNode {
       int length;
       AstNode *initializer;              /*   NULL for `let x;` */
       bool isConst;
+      TypeKind declaredType;             /*   from `: T`, else TYPE_ANY */
+      bool hasAnnotation;                /*   distinguishes `: any` from none */
     } varDecl;
     struct {                             /* AST_BLOCK */
       AstNode **statements;
@@ -176,7 +184,8 @@ AstNode *csAstProperty(AstArena *arena, int line, AstNode *object, const char *n
 
 AstNode *csAstExpressionStmt(AstArena *arena, int line, AstNode *expression);
 AstNode *csAstVarDecl(AstArena *arena, int line, const char *name, int length,
-                      AstNode *initializer, bool isConst);
+                      AstNode *initializer, bool isConst, TypeKind declaredType,
+                      bool hasAnnotation);
 AstNode *csAstBlock(AstArena *arena, int line);
 AstNode *csAstIf(AstArena *arena, int line, AstNode *condition, AstNode *thenBranch,
                  AstNode *elseBranch);

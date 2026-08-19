@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # Node parity check.
 #
-# CScript's syntax is a subset of JavaScript's, so every example must at least
-# *parse and run* under Node. Most must also produce byte-identical output;
-# the exceptions are the files that exist to demonstrate a deliberate semantic
-# fix, listed in DIVERGENT below.
+# CScript's syntax is a subset of TypeScript's, so every example is handed to
+# Node as a .ts file with --experimental-strip-types, which erases the
+# annotations and runs the JavaScript underneath. That checks two claims at
+# once: the syntax really is TypeScript, and the behaviour really does match
+# once the types are gone.
 #
-# Skips cleanly when Node is not installed — this is a nice-to-have signal, not
-# a build dependency.
+# Most examples must produce byte-identical output. The exceptions are the
+# files that exist to demonstrate a deliberate semantic difference, listed in
+# DIVERGENT below — those are required to differ, so a fix that quietly stops
+# working fails the build too.
+#
+# Skips cleanly when Node is too old or absent — this is a signal, not a build
+# dependency.
 
 set -uo pipefail
 
@@ -21,6 +27,15 @@ if ! command -v node >/dev/null 2>&1; then
   echo "node not installed — skipping parity check"
   exit 0
 fi
+
+# Type stripping landed in Node 22.6. Without it the annotations are syntax
+# errors and the comparison would be meaningless rather than merely absent.
+if ! node --experimental-strip-types --eval 'let x: number = 1;' >/dev/null 2>&1; then
+  echo "node lacks --experimental-strip-types (needs 22.6+) — skipping parity check"
+  exit 0
+fi
+
+run_node() { node --experimental-strip-types --no-warnings "$1" 2>&1; }
 
 if [[ ! -x "$BIN" ]]; then
   echo "parity: '$BIN' not built — run 'make' first" >&2
@@ -40,9 +55,9 @@ for example in "$ROOT"/examples/*.cx; do
     [[ "$name" == "$entry" ]] && is_divergent=1
   done
 
-  cp "$example" "$tmp/$name.js"
+  cp "$example" "$tmp/$name.ts"
   ours="$("$BIN" "$example" 2>&1)"
-  theirs="$(node "$tmp/$name.js" 2>&1)"
+  theirs="$(run_node "$tmp/$name.ts")"
 
   if [[ $is_divergent -eq 1 ]]; then
     if [[ "$ours" == "$theirs" ]]; then

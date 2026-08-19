@@ -1,7 +1,8 @@
 # CScript
 
-A programming language with **JavaScript's syntax and none of its footguns**,
-implemented from scratch in C11 as a bytecode virtual machine.
+A **gradually typed** language with **TypeScript's syntax and none of
+JavaScript's footguns**, implemented from scratch in C11 as a bytecode virtual
+machine.
 
 ```js
 // hello.cx — this is also a valid JavaScript file
@@ -30,10 +31,25 @@ Fizz
 
 ## The idea
 
-**Every CScript program is a valid JavaScript program.** Same keywords, same
-operators, same precedence, same `console.log`. `make test-node` runs the
-examples under Node and diffs the output, so that claim stays honest rather than
+**Every CScript program is a valid TypeScript program.** Same keywords, same
+operators, same precedence, same `console.log`, same `: number` annotations.
+`make test-node` hands each example to Node with `--experimental-strip-types`
+and diffs the output, so that claim stays mechanically enforced rather than
 aspirational.
+
+**Types are optional, and inferred when you leave them off.**
+
+```ts
+const name: string = "cscript";   // annotated
+let year = 2026;                  // inferred as number — just as checked
+let loose: any = 1;               // opted out
+
+let total: number = "text";   // error: cannot assign string to 'total'
+true * 3;                     // error: operand of '*' must be a number
+```
+
+Those are **compile** errors now, not runtime ones — and the last needs no
+annotation at all.
 
 **The semantics are not JavaScript's.** CScript removes the traps that make
 JavaScript hard to get right — and every removal is a **loud error**, never a
@@ -57,10 +73,10 @@ The full list, with the reasoning for each, is in
 
 ## Status
 
-**v0.2.0.** Variables, block scoping, control flow, function calls, property
-access and the `console` / `Math` built-ins all work, on top of the milestone-1
-pipeline: lexer → parser → bytecode compiler → stack VM, with a mark-sweep
-collector underneath.
+**v0.3.0.** Gradual typing with inference, on top of variables, block scoping,
+control flow, calls, property access and the `console` / `Math` built-ins. The
+pipeline is lexer → parser → **type checker** → bytecode compiler → stack VM,
+with a mark-sweep collector underneath.
 
 Not here yet: user-defined functions, object literals and arrays. Each produces
 an error naming the milestone it lands in. See the [roadmap](#roadmap).
@@ -312,11 +328,11 @@ cscript/
 | --- | --- | --- |
 | **1 ✅** | Lexer, parser, compiler, VM, GC, REPL, expressions | — |
 | **2 ✅** | `let`/`const`, scopes, control flow, calls, `console.log` | — |
-| 3 | User functions, `return`, closures | VM gains a frame stack |
-| 4 | Object literals, arrays, indexing | `ObjObject` already exists |
-| 5 | `switch`, `break`/`continue`, `for...of` | parser and compiler |
-| 6 | Template literals, ternary, destructuring | parser and compiler |
-| 7 | NaN-boxing, computed-goto dispatch | `value.h` and the VM loop |
+| **3 ✅** | Gradual typing: annotations, inference, checking | — |
+| 4 | Unboxed typed locals — where typing pays off in speed | `Value`, VM, compiler |
+| 5 | User functions, `return`, closures, typed signatures | VM gains a frame stack |
+| 6 | Object literals, arrays, indexing | `ObjObject` already exists |
+| 7 | `switch`, `break`/`continue`, template literals, ternary | parser and compiler |
 
 ---
 

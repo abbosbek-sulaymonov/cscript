@@ -1,8 +1,11 @@
-# CScript grammar and semantics — v0.2.0
+# CScript grammar and semantics — v0.3.0
 
-CScript's syntax is a **subset of JavaScript's**: every CScript program is a
-valid JavaScript program, and `make test-node` enforces that by running the
-examples under Node and diffing the output.
+CScript's syntax is a **subset of TypeScript's**: every CScript program is a
+valid TypeScript program. `make test-node` enforces that by handing each
+example to Node with `--experimental-strip-types`, which erases the annotations
+and runs the JavaScript underneath, then diffing the output. That checks both
+halves of the claim at once — the syntax really is TypeScript, and the
+behaviour really does match once the types are gone.
 
 The semantics are not a subset. CScript removes several of JavaScript's
 best-known traps. Every divergence is listed in
@@ -24,7 +27,9 @@ statement      = varDeclaration
                | forStatement
                | expressionStatement ;
 
-varDeclaration = ( "let" | "const" ) IDENTIFIER ( "=" expression )? ";" ;
+varDeclaration = ( "let" | "const" ) IDENTIFIER typeAnnotation?
+                 ( "=" expression )? ";" ;
+typeAnnotation = ":" TYPE_NAME ;
 block          = "{" statement* "}" ;
 ifStatement    = "if" "(" expression ")" statement ( "else" statement )? ;
 whileStatement = "while" "(" expression ")" statement ;
@@ -100,6 +105,67 @@ object, so equality is a pointer comparison.
 
 Escapes: `\n` `\t` `\r` `\0` `\\` `\'` `\"`. An unrecognised escape keeps the
 character as written. Template literals are not implemented.
+
+## Types
+
+CScript is **gradually typed**. Annotations are optional; a declaration without
+one takes the type of its initialiser, so unannotated code is still checked.
+
+```js
+const name: string = "cscript";   // annotated
+let year = 2026;                  // inferred as number — just as checked
+let loose: any = 1;               // opted out of static checking
+```
+
+| Type name | Matches |
+| --- | --- |
+| `number` | all numeric values |
+| `string` | |
+| `boolean` | |
+| `null` | |
+| `undefined` | |
+| `object` | `console`, `Math` |
+| `any` | anything — the escape hatch |
+
+`any` is assignable in both directions. It is the one place the checker
+deliberately stops being sound, and it is what makes the system gradual rather
+than static.
+
+### What the checker catches
+
+All of these fail **before the program runs**, and most need no annotation at
+all because the types are inferred from literals:
+
+```js
+let total: number = "text";   // cannot assign string to 'total', declared as number
+let n = 1; n = "text";        // cannot assign string to 'n', which is number
+true * 3;                     // operand of '*' must be a number, got boolean
+let n = 1; let s = "1";
+n === s;                      // the types can never match
+let c = 1; c();               // number is not a function
+let n = 1; n.field;           // cannot read property 'field' of number
+let x: integer = 1;           // unknown type 'integer'
+```
+
+### Deliberate gaps
+
+**Comparing against `null` or `undefined` is always allowed**, even when the
+other side has a known, different type. Those checks are idiomatic, and without
+union types there is no way to write "a string, or null" — so rejecting them
+would punish correct code for a hole in the type system.
+
+**Object properties are dynamic.** `Math.PI` type-checks as `any`, because
+object shapes are not modelled yet.
+
+**Function signatures do not exist yet.** A call's result is `any`. Both arrive
+with user-defined functions.
+
+**The type system is deliberately shallow** — a fixed set of primitives, no
+structural or higher-order types. That is what keeps gradual typing cheap here.
+Sound gradual type systems get expensive at the boundary between typed and
+untyped code, because a function or object crossing it must be wrapped in a
+contract that checks every later use; Typed Racket measured 10–100× slowdowns
+from exactly that. A primitive needs one check, or none.
 
 ## Variables
 

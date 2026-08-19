@@ -1,10 +1,16 @@
 // `===` is the only equality operator; `==` is rejected at compile time.
 console.log(1 === 1);
-console.log(1 === "1");
 console.log("a" === "a");
-console.log(0 === false);
 console.log(null === undefined);
 console.log(null === null);
 console.log(1 !== 2);
-console.log(1 !== "1");
 console.log((0 / 0) === (0 / 0));
+
+// Comparing values of different types is a compile error when the checker can
+// see both types. `any` opts out, which is how the runtime rule is observable.
+let n: any = 1;
+let s: any = "1";
+let f: any = false;
+console.log(n === s);
+console.log(0 === f);
+console.log(n !== s);

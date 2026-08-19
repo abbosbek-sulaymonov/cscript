@@ -1,23 +1,27 @@
-// CScript keeps JavaScript's syntax but removes the traps. Each line below
-// behaves differently here than it would in JavaScript — and every difference
-// is an error you can see, never a silent change of meaning.
+// CScript keeps TypeScript's syntax but removes JavaScript's traps. Every line
+// below behaves differently here than it would in plain JavaScript — and every
+// difference is an error you can see, never a silent change of meaning.
 
 // typeof null is "object" in JavaScript. That is a bug from 1995.
 console.log(typeof null);          // "null"
 
-// Strict equality is the only equality. `==` is rejected at compile time.
-console.log(1 === 1, "a" === "a");
-console.log(0 === false);          // false — no coercion, no surprise
+// Types are checked before the program runs, with or without annotations.
+const count: number = 41;
+console.log(count + 1);
 
-// Arithmetic on non-numbers is an error rather than a silently spreading NaN.
-// Uncomment to see it:
-//   console.log(true * 3);
+// These are all compile errors. Uncomment any of them to see the message:
+//   console.log(1 == "1");        // '==' coerces; use '==='
+//   console.log(true * 3);        // operand of '*' must be a number
+//   console.log(count === "41");  // the types can never match
+//   let bad: number = "text";     // cannot assign string to a number
+//   var old = 1;                  // 'var' is function-scoped and hoisted
 
-// Conversions are explicit.
+// Conversions are explicit rather than implicit.
 console.log(Number("42") + 1);
 console.log(String(42) + "!");
 console.log(Boolean(""));
 
-// Reading a name that was never declared is an error, not `undefined`.
-// Uncomment to see it:
-//   console.log(typo);
+// `any` is the escape hatch back into dynamic typing.
+let loose: any = 1;
+loose = "now a string";
+console.log(typeof loose);

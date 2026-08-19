@@ -1,0 +1,16 @@
+// Unannotated declarations take the type of their initialiser, so code with no
+// annotations at all is still checked.
+let n = 42;
+let s = "text";
+let b = false;
+
+console.log(n * 2);
+console.log(s + "!");
+console.log(!b);
+
+// A block-scoped shadow gets its own inferred type.
+{
+  let n = "shadowed";
+  console.log(n + "?");
+}
+console.log(n + 1);
