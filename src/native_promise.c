@@ -60,29 +60,27 @@ static bool promiseCatch(Value receiver, int argCount, Value *args, Value *resul
   return true;
 }
 
-/* `.finally(f)` runs `f` either way and passes the original outcome along.
- * Registering the same handler for both sides gets the "either way" part; the
- * "passes along" part is what the wrapper below is for. */
-static bool finallyPassThrough(Value receiver, int argCount, Value *args,
-                               Value *result) {
-  (void)receiver;
-  (void)argCount;
-  (void)args;
-  *result = UNDEFINED_VAL;
-  return true;
-}
-
+/* `.finally(f)` runs `f` whichever way the promise went, then passes the
+ * original outcome along untouched — so it observes without participating.
+ * Registering the same handler on both sides gets the "either way" part; the
+ * isFinally flag is what stops the handler's return value from replacing the
+ * value, and what keeps a rejection a rejection. */
 static bool promiseFinally(Value receiver, int argCount, Value *args, Value *result) {
   if (notAPromise(receiver, "finally")) return false;
   Value handler = argCount > 0 ? args[0] : UNDEFINED_VAL;
 
+  ObjPromise *source = AS_PROMISE(receiver);
   ObjPromise *derived = csPromiseNew();
   csPushTempRoot((Obj *)derived);
-  csPromiseAddReaction(AS_PROMISE(receiver), handler, handler, derived);
+  csPromiseAddReaction(source, handler, handler, derived);
+  if (source->state == PROMISE_PENDING) {
+    source->reactions[source->reactionCount - 1].isFinally = true;
+  } else {
+    csVMLastMicrotask()->isFinally = true;
+  }
   csPopTempRoot();
 
   *result = OBJ_VAL(derived);
-  (void)finallyPassThrough;
   return true;
 }
 

@@ -1230,8 +1230,10 @@ static AstNode *parseExport(Parser *parser) {
     return node;
   }
 
-  if (!check(parser, TOKEN_LET) && !check(parser, TOKEN_CONST) &&
-      !check(parser, TOKEN_FUNCTION) && !check(parser, TOKEN_CLASS)) {
+  bool exportsAsyncFunction = checkWord(parser, "async") && nextStartsFunction(parser);
+  if (!exportsAsyncFunction && !check(parser, TOKEN_LET) &&
+      !check(parser, TOKEN_CONST) && !check(parser, TOKEN_FUNCTION) &&
+      !check(parser, TOKEN_CLASS)) {
     errorAtCurrent(parser, "'export' must be followed by a declaration or '{'");
     return NULL;
   }

@@ -42,6 +42,14 @@ const counter = new Counter();
 const detached = counter.increment;
 console.log(detached(), detached());   // in JavaScript: TypeError
 
+// An object put where a string is wanted says what it holds. JavaScript gives
+// "[object Object]", which tells you nothing and is a byword for a bug that
+// got as far as the screen. Arrays match JavaScript exactly — `String([1, 2])`
+// is "1,2" — because that one is useful rather than a wart.
+const point = { x: 1, y: 2 };
+console.log(`point is ${point}`);
+console.log(String([1, [2, 3]]));
+
 // `any` is the escape hatch back into dynamic typing.
 let loose: any = 1;
 loose = "now a string";

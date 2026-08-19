@@ -1,0 +1,6 @@
+// Converting to a string is not the same as printing. Arrays follow
+// JavaScript exactly; objects deliberately do not.
+console.log(String([1, 2]), String([]), String([1, [2, 3]]));
+console.log(String([null, 1, undefined]));
+console.log(`${[1, 2]}`, [1, 2] + "!");
+console.log([1, 2], { a: 1 });

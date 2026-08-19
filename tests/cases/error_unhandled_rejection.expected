@@ -1,2 +1,2 @@
-cscript: unhandled promise rejection: { name: 'Error', message: 'nobody is listening' }
 kept going
+cscript: unhandled promise rejection: { name: 'Error', message: 'nobody is listening' }

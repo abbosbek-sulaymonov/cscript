@@ -1,0 +1,37 @@
+class Shape {
+  static kind() { return "shape"; }
+  area() { return 0; }
+}
+class Circle extends Shape {
+  constructor(r) { super(); this.r = r; }
+  static kind() { return `circle/${super.kind()}`; }
+  area() { return Math.round(Math.PI * this.r ** 2); }
+}
+console.log(Circle.kind(), new Circle(2).area());
+console.log(Object.keys(new Circle(1)).join(","), JSON.stringify(new Circle(3)));
+
+// Destructuring against class instances and nested data.
+const { r } = new Circle(7);
+console.log(r);
+const [first, ...rest] = [1, 2, 3, 4];
+console.log(first, rest.join(""));
+const { a = 1, b: renamed = 2 } = { b: 9 };
+console.log(a, renamed);
+
+// Spread mixing.
+const parts = [1, 2];
+console.log([...parts, 3, ...["x"]].join(","), Math.max(...parts, 10));
+
+// Strings and numbers at the edges.
+console.log([10, 9, 1].sort().join(","), [10, 9, 1].sort((x, y) => x - y).join(","));
+console.log(`${1 + 1}${"x".repeat(3)}`, "a,b".split(",").length);
+console.log(Number("12abc"), parseInt("12abc"), Number(""), [] + "");
+
+// try/finally interactions.
+function f() {
+  for (let i = 0; i < 3; i++) {
+    try { if (i === 1) continue; if (i === 2) break; } finally { console.log("fin", i); }
+  }
+  try { return "r"; } finally { console.log("fin ret"); }
+}
+console.log(f());

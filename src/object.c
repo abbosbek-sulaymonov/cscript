@@ -329,6 +329,8 @@ static void settle(ObjPromise *promise, PromiseState state, Value value) {
         state == PROMISE_FULFILLED ? reaction->onFulfilled : reaction->onRejected;
     csVMQueueMicrotask(handler, value, reaction->result,
                        state == PROMISE_REJECTED);
+    csVMLastMicrotask()->isFinally = reaction->isFinally;
+    csVMLastMicrotask()->extraHops = reaction->extraHops;
   }
 
   CS_FREE_ARRAY(Reaction, promise->reactions, promise->reactionCapacity);
@@ -348,6 +350,13 @@ void csPromiseFulfill(ObjPromise *promise, Value value) {
     ObjPromise *inner = AS_PROMISE(value);
     csPushTempRoot((Obj *)promise);
     csPromiseAddReaction(inner, UNDEFINED_VAL, UNDEFINED_VAL, promise);
+    /* Adopting costs a turn of its own, because the specification resolves a
+     * promise with a promise through a job rather than by copying its state. */
+    if (inner->state == PROMISE_PENDING) {
+      inner->reactions[inner->reactionCount - 1].extraHops = 1;
+    } else {
+      csVMLastMicrotask()->extraHops = 1;
+    }
     csPopTempRoot();
     return;
   }
@@ -383,6 +392,8 @@ void csPromiseAddReaction(ObjPromise *promise, Value onFulfilled, Value onReject
   reaction->combineState = NULL;
   reaction->combineIndex = 0;
   reaction->fiber = NULL;
+  reaction->isFinally = false;
+  reaction->extraHops = 0;
 }
 
 ObjFiber *csFiberNew(void) {

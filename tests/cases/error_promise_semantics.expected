@@ -1,0 +1,9 @@
+C 1
+D 1
+H thrown
+I ok
+F bad
+A v
+B r
+G 2
+cscript: unhandled promise rejection: late

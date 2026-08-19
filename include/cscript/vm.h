@@ -37,6 +37,18 @@ typedef struct {
   /* Set when the waiter is a suspended `await` rather than a callback. */
   struct ObjFiber *fiber;
 
+  /* See Reaction in object.h.
+   *
+   * `extraHops` is how many further microtask turns must pass before this
+   * outcome is delivered. Two places need it, both because the specification
+   * composes them out of promises rather than settling directly: `.finally`,
+   * which waits on its handler's own result before passing the original
+   * outcome along, and resolving a promise *with* a promise, which goes
+   * through a job of its own. A program can observe both in the order its
+   * handlers run, so the turns are counted rather than skipped. */
+  bool isFinally;
+  int extraHops;
+
   /* See Reaction in object.h: set when the waiter is a combinator. */
   struct ObjArray *combineState;
   int combineIndex;
@@ -135,6 +147,11 @@ typedef struct {
   /* Set by OP_AWAIT so run()'s caller can tell a suspension from a return. */
   bool fiberSuspended;
 
+  /* True while something is running that can be handed an escaping throw — a
+   * promise reaction, whose promise becomes the rejection. Without it an
+   * uncaught throw is reported and the program stops. */
+  bool deferUncaught;
+
   /* Modules compiled but not yet run, in dependency order. Kept alive by the
    * registry above; this only records the order. */
   ObjModule *pending[CS_MODULES_MAX];
@@ -221,6 +238,10 @@ InterpretResult csVMRunPendingModules(void);
 /* Queues a reaction to run once the current call finishes. */
 void csVMQueueMicrotask(Value callback, Value argument, ObjPromise *result,
                         bool isRejection);
+
+/* The last queued microtask, so a caller can mark it as a combinator, a
+ * suspended await, or a `.finally`. */
+Microtask *csVMLastMicrotask(void);
 
 /* Queues a Promise.all / Promise.race settlement. */
 void csVMQueueCombine(struct ObjArray *state, int index, Value argument,

@@ -154,6 +154,15 @@ typedef struct {
   /* Set instead of a handler when the waiter is a suspended `await`. */
   struct ObjFiber *fiber;
 
+  /* `.finally` runs its handler either way and then passes the *original*
+   * outcome along, which no combination of the two handlers above can say:
+   * they replace the outcome with whatever they return. */
+  bool isFinally;
+
+  /* Microtask turns this outcome still owes before it is delivered; see
+   * Microtask in vm.h. */
+  int extraHops;
+
   /* Set instead of the handlers when the waiter is Promise.all or .race rather
    * than user code. A combinator has to count settlements and place results by
    * position, which no single-argument callback can do — and building it out

@@ -1,0 +1,14 @@
+circle/shape 13
+r {"r":3}
+7
+1 234
+1 9
+1,2,3,x 10
+1,10,9 1,9,10
+2xxx 2
+NaN 12 0 
+fin 0
+fin 1
+fin 2
+fin ret
+r

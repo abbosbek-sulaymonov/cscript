@@ -399,6 +399,35 @@ char *csValueInspect(Value value, size_t *lengthOut) {
   return builder.data;
 }
 
+/* An array converted to a *string* is its elements joined with commas, and
+ * nested arrays flatten — `String([1, [2, 3]])` is "1,2,3". That is what
+ * JavaScript does, and it is what a template literal or a `+` produces.
+ *
+ * Printing is a different question: console.log shows `[ 1, 2 ]` so a nested
+ * structure stays readable. The two paths deliberately disagree. */
+static bool sbAppendArrayAsString(StringBuilder *builder, ObjArray *array) {
+  for (int i = 0; i < array->elements.count; i++) {
+    if (i > 0 && !sbAppend(builder, ",", 1)) return false;
+
+    Value element = array->elements.values[i];
+    /* null and undefined join as nothing at all, the same as an empty slot. */
+    if (IS_NULL(element) || IS_UNDEFINED(element)) continue;
+
+    if (IS_ARRAY(element)) {
+      if (!sbAppendArrayAsString(builder, AS_ARRAY(element))) return false;
+      continue;
+    }
+
+    size_t length = 0;
+    char *text = csValueToCString(element, &length);
+    if (text == NULL) return false;
+    bool ok = sbAppend(builder, text, length);
+    free(text);
+    if (!ok) return false;
+  }
+  return true;
+}
+
 char *csValueToCString(Value value, size_t *lengthOut) {
   char buffer[32];
   const char *text = buffer;
@@ -423,12 +452,20 @@ char *csValueToCString(Value value, size_t *lengthOut) {
       } else if (IS_CALLABLE(value)) {
         return renderCallable(value, lengthOut);
       } else {
-        /* Arrays and objects are rendered structurally, so console.log shows
-         * their contents rather than a placeholder. */
         StringBuilder builder = {NULL, 0, 0};
-        if (!sbAppendValue(&builder, value, false)) {
+        bool ok = IS_ARRAY(value) ? sbAppendArrayAsString(&builder, AS_ARRAY(value))
+                                  : sbAppendValue(&builder, value, false);
+        if (!ok) {
           free(builder.data);
           return NULL;
+        }
+        /* An empty array joins to an empty string, which writes nothing — so
+         * the builder never allocated and there is no buffer to hand back. */
+        if (builder.data == NULL) {
+          builder.data = (char *)malloc(1);
+          if (builder.data == NULL) return NULL;
+          builder.data[0] = '\0';
+          builder.length = 0;
         }
         if (lengthOut != NULL) *lengthOut = builder.length;
         return builder.data;

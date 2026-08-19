@@ -55,6 +55,7 @@ void csVMInit(void) {
   vm.mainModule = NULL;
   vm.currentFiber = NULL;
   vm.fiberSuspended = false;
+  vm.deferUncaught = false;
   vm.pendingCount = 0;
   csTableInit(&vm.strings);
   csTableInit(&vm.arrayMethods);
@@ -136,6 +137,10 @@ static const char *frameSourceName(const CallFrame *frame) {
 }
 
 void csVMRuntimeError(const char *format, ...) {
+  /* stdout is block-buffered to a pipe and stderr is not, so without this the
+   * error would jump ahead of output the program already produced. */
+  fflush(stdout);
+
   va_list args;
   va_start(args, format);
   fprintf(stderr, "cscript: runtime error: ");
@@ -289,7 +294,25 @@ static bool callValue(Value callee, int argCount) {
  * it. Every other call path overwrites that slot with the callee, which is
  * harmless because nothing else names it — a method is the one case where the
  * body reads it. */
+/* `super.name` in a static method means the superclass's static of that name,
+ * and in an instance method its instance method. Nothing in the bytecode says
+ * which, but the receiver does: a static is called with the class itself. */
+static ObjClosure *findSuperMember(ObjClass *superclass, ObjString *name,
+                                   bool isStatic) {
+  if (!isStatic) return csClassFindMethod(superclass, name);
+  for (ObjClass *klass = superclass; klass != NULL; klass = klass->superclass) {
+    Value member;
+    if (csTableGet(&klass->statics, name, &member)) {
+      return (ObjClosure *)AS_OBJ(member);
+    }
+  }
+  return NULL;
+}
+
 static bool callMethod(ObjClosure *method, int argCount) {
+  /* An async method is still an async call: it needs its own fiber, and the
+   * receiver already sits where that fiber's slot 0 will be. */
+  if (method->function->isAsync) return callAsyncFunction(method, argCount);
   return callClosure(method, argCount);
 }
 
@@ -692,7 +715,7 @@ static bool assignGlobal(ObjModule *module, ObjString *name, GlobalCache *cache,
  * whoever awaits it decides what to do. Anywhere else there is no one left to
  * tell, and it is reported. */
 static InterpretResult uncaught(Value thrown) {
-  if (vm.currentFiber != NULL) {
+  if (vm.currentFiber != NULL || vm.deferUncaught) {
     vm.pendingException = thrown;
     vm.hasPendingException = true;
     return CS_RUNTIME_ERROR;
@@ -1495,9 +1518,10 @@ static InterpretResult run(int baseFrame) {
       VM_CASE(OP_GET_SUPER) {
         ObjString *name = READ_STRING();
         ObjClass *superclass = AS_CLASS(peekStack(0));
-        ObjClosure *method = csClassFindMethod(superclass, name);
+        ObjClosure *method =
+            findSuperMember(superclass, name, IS_CLASS(peekStack(1)));
         if (method == NULL) {
-          csVMRuntimeError("class %s has no method '%s'", superclass->name->chars,
+          csVMRuntimeError("class %s has no member '%s'", superclass->name->chars,
                            name->chars);
           HANDLE_FAILED_CALL();
           VM_NEXT();
@@ -1512,9 +1536,10 @@ static InterpretResult run(int baseFrame) {
         ObjString *name = READ_STRING();
         int argCount = READ_BYTE();
         ObjClass *superclass = AS_CLASS(csVMPop());
-        ObjClosure *method = csClassFindMethod(superclass, name);
+        ObjClosure *method =
+            findSuperMember(superclass, name, IS_CLASS(peekStack(argCount)));
         if (method == NULL) {
-          csVMRuntimeError("class %s has no method '%s'", superclass->name->chars,
+          csVMRuntimeError("class %s has no member '%s'", superclass->name->chars,
                            name->chars);
           HANDLE_FAILED_CALL();
           VM_NEXT();
@@ -2077,7 +2102,11 @@ void csVMQueueMicrotask(Value callback, Value argument, ObjPromise *result,
   task->combineState = NULL;
   task->combineIndex = 0;
   task->fiber = NULL;
+  task->isFinally = false;
+  task->extraHops = 0;
 }
+
+Microtask *csVMLastMicrotask(void) { return &vm.microtasks[vm.microtaskCount - 1]; }
 
 void csVMQueueCombine(ObjArray *state, int index, Value argument, bool isRejection) {
   csVMQueueMicrotask(UNDEFINED_VAL, argument, NULL, isRejection);
@@ -2148,9 +2177,14 @@ static InterpretResult runMicrotask(const Microtask *task) {
   ObjPromise *result = task->result;
   bool isRejection = task->isRejection;
 
+  /* No handler for this outcome: it passes straight through, which is what
+   * makes `.then(f)` forward a rejection and `.catch(g)` forward a value. */
   if (IS_UNDEFINED(callback) || IS_NULL(callback)) {
-    /* No handler for this outcome: it passes straight through, which is what
-     * makes `.then(f)` forward a rejection and `.catch(g)` forward a value. */
+    if (task->extraHops > 0) {
+      csVMQueueMicrotask(UNDEFINED_VAL, argument, result, isRejection);
+      csVMLastMicrotask()->extraHops = task->extraHops - 1;
+      return CS_OK;
+    }
     if (result != NULL) {
       if (isRejection) {
         csPromiseReject(result, argument);
@@ -2167,12 +2201,15 @@ static InterpretResult runMicrotask(const Microtask *task) {
    * ignores the value — `queueMicrotask(() => ...)` — declares none. */
   Value handlerArgs[1] = {argument};
   Value returned;
+  /* A throw that escapes the handler belongs to the promise this feeds, not to
+   * the program: it becomes that promise's rejection. */
+  bool wasDeferring = vm.deferUncaught;
+  vm.deferUncaught = true;
   bool ok = csVMCallAdapted(callback, handlerArgs, 1, &returned);
+  vm.deferUncaught = wasDeferring;
   if (result != NULL) csPopTempRoot();
 
   if (!ok) {
-    /* The call left an exception behind rather than reporting it, which is how
-     * a throw inside a `.then` becomes a rejection of the promise it feeds. */
     if (vm.hasPendingException) {
       Value thrown = vm.pendingException;
       vm.hasPendingException = false;
@@ -2192,7 +2229,17 @@ static InterpretResult runMicrotask(const Microtask *task) {
     /* Settling queues reactions, which can allocate — and `returned` is a bare
      * C local by now. */
     if (IS_OBJ(returned)) csPushTempRoot(AS_OBJ(returned));
-    csPromiseFulfill(result, returned);
+    if (task->isFinally) {
+      /* `.finally` ran for its effect. What it returned is discarded and the
+       * outcome it was told about carries on unchanged — one tick later,
+       * because the specification composes `.finally` out of a `.then` that
+       * waits on the handler's result before passing the outcome along, and a
+       * program can observe the difference in the order its handlers run. */
+      csVMQueueMicrotask(UNDEFINED_VAL, argument, result, isRejection);
+      csVMLastMicrotask()->extraHops = 1;
+    } else {
+      csPromiseFulfill(result, returned);
+    }
     if (IS_OBJ(returned)) csPopTempRoot();
   }
   return CS_OK;
@@ -2222,6 +2269,7 @@ static InterpretResult reportUnhandledRejections(void) {
     ObjPromise *promise = vm.rejected[i];
     if (promise->handled) continue;
 
+    fflush(stdout);
     size_t length = 0;
     char *text = csValueInspect(promise->value, &length);
     fprintf(stderr, "cscript: unhandled promise rejection: %s\n",
@@ -2237,6 +2285,12 @@ static InterpretResult reportUnhandledRejections(void) {
 InterpretResult csVMRunEventLoop(void) {
   for (;;) {
     InterpretResult result = drainMicrotasks();
+    if (result != CS_OK) return result;
+
+    /* Checked at every turn of the loop rather than once at the end: a
+     * rejection that nothing was listening to when the queue ran dry is
+     * already a bug, and waiting would let a later handler hide it. */
+    result = reportUnhandledRejections();
     if (result != CS_OK) return result;
 
     /* Timers are kept sorted, so the next one to run is the first one left. */
@@ -2444,9 +2498,30 @@ bool csVMCallCallback(Value callee, int argCount, Value *result) {
     return true;
   }
 
+  if (IS_BOUND_METHOD(callee)) {
+    /* Unwrap once and re-enter, so a bound method reached through a callback
+     * takes exactly the same path as one called directly. */
+    ObjBoundMethod *bound = AS_BOUND_METHOD(callee);
+    if (bound->method->type == OBJ_NATIVE) {
+      if (!callNative((ObjNative *)bound->method, bound->receiver, argCount)) return false;
+      *result = csVMPop();
+      return true;
+    }
+    vm.stackTop[-argCount - 1] = bound->receiver;
+    return csVMCallCallback(OBJ_VAL(bound->method), argCount, result);
+  }
+
   if (!IS_CLOSURE(callee)) {
     csVMRuntimeError("%s is not a function", csValueTypeName(callee));
     return false;
+  }
+
+  /* An async function returns its promise without pushing a frame, so there is
+   * no nested loop to run — it either finished or is suspended already. */
+  if (AS_CLOSURE(callee)->function->isAsync) {
+    if (!callAsyncFunction(AS_CLOSURE(callee), argCount)) return false;
+    *result = csVMPop();
+    return true;
   }
 
   if (!callClosure(AS_CLOSURE(callee), argCount)) return false;

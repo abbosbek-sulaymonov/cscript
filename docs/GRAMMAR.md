@@ -541,6 +541,21 @@ two ways to name a thing), **`export *`**, **re-exporting** with
 Imported bindings are `any` to the type checker — types do not cross a file
 boundary yet.
 
+## Converting to a string
+
+An array converts the way JavaScript does: its elements joined with commas,
+nested arrays flattened, `null` and `undefined` contributing nothing. So
+`` `${[1, [2, 3]]}` `` is `"1,2,3"` and `String([])` is `""`.
+
+An object does **not**. JavaScript gives `[object Object]`, which says nothing
+about the object and is a byword for a bug that reached the screen; CScript
+gives the same rendering `console.log` would. This is a deliberate divergence
+and the only one in string conversion.
+
+Printing and converting are separate paths on purpose: `console.log([1, 2])`
+shows `[ 1, 2 ]` so nested structure stays readable, while `"" + [1, 2]` is
+`"1,2"`.
+
 ## Asynchrony
 
 ```ts

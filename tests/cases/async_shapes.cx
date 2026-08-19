@@ -1,0 +1,58 @@
+// async inside array callbacks: each async call gets its own fiber.
+async function twice(n) { await Promise.resolve(); return n * 2; }
+Promise.all([1, 2, 3].map(twice)).then((v) => console.log("map", v.join(",")));
+
+// `this` through an async arrow inside an async method.
+class Box {
+  constructor(v) { this.v = v; }
+  async lift() {
+    const inner = async () => { await Promise.resolve(); return this.v + 1; };
+    return await inner();
+  }
+  static async make(v) { await Promise.resolve(); return new Box(v); }
+}
+Box.make(5).then((b) => b.lift()).then((v) => console.log("this", v));
+
+// break and continue crossing an await.
+async function loops() {
+  const seen = [];
+  for (let i = 0; i < 5; i++) {
+    await Promise.resolve();
+    if (i === 1) continue;
+    if (i === 3) break;
+    seen.push(i);
+  }
+  let j = 0;
+  while (true) {
+    await Promise.resolve();
+    j = j + 1;
+    if (j > 2) break;
+  }
+  return `${seen.join("")} ${j}`;
+}
+loops().then((v) => console.log("loops", v));
+
+// return inside try with finally, across an await.
+async function tryReturn() {
+  try {
+    await Promise.resolve();
+    return "from try";
+  } finally {
+    console.log("finally ran");
+  }
+}
+tryReturn().then((v) => console.log("tr", v));
+
+// Recursive async.
+async function count(n) {
+  if (n === 0) return 0;
+  await Promise.resolve();
+  return 1 + (await count(n - 1));
+}
+count(5).then((v) => console.log("recursive", v));
+
+// Many concurrent fibers.
+async function slow(n) { await Promise.resolve(); return n; }
+const many = [];
+for (let i = 0; i < 50; i++) many.push(slow(i));
+Promise.all(many).then((v) => console.log("many", v.length, v[49]));
