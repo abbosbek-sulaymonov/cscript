@@ -119,6 +119,18 @@ static void emitBytes(uint8_t a, uint8_t b, int line) {
   emitByte(b, line);
 }
 
+/* Constant-pool indices are 16-bit, big-endian, matching the jump offsets. */
+static void emitConstantOperand(int index, int line) {
+  emitByte((uint8_t)((index >> 8) & 0xff), line);
+  emitByte((uint8_t)(index & 0xff), line);
+}
+
+/* Emits an opcode whose single operand is a constant index. */
+static void emitConstantOp(uint8_t opcode, int index, int line) {
+  emitByte(opcode, line);
+  emitConstantOperand(index, line);
+}
+
 /* Adds a value to the constant pool and returns its index, reusing an existing
  * entry when one matches. Identifier names repeat constantly, so deduplicating
  * keeps the pool inside the one-byte operand limit for far longer. */
@@ -129,23 +141,21 @@ static int makeConstant(Value value, int line) {
   }
 
   int index = csChunkAddConstant(currentChunk(), value);
-  if (index > UINT8_MAX) {
-    /* A wider OP_CONSTANT_LONG is the fix; not needed at this size yet. */
-    errorAt(line, "too many constants in one chunk (limit %d)", UINT8_MAX + 1);
+  if (index > UINT16_MAX) {
+    errorAt(line, "too many constants in one function (limit %d)", UINT16_MAX + 1);
     return 0;
   }
   return index;
 }
 
 static void emitConstant(Value value, int line) {
-  emitBytes(OP_CONSTANT, (uint8_t)makeConstant(value, line), line);
+  emitConstantOp(OP_CONSTANT, makeConstant(value, line), line);
 }
 
 /* Interns an identifier and returns its constant-pool index. */
-static uint8_t identifierConstant(const char *name, int length,
-                                  int line) {
+static int identifierConstant(const char *name, int length, int line) {
   ObjString *string = csStringCopy(name, length);
-  return (uint8_t)makeConstant(OBJ_VAL(string), line);
+  return makeConstant(OBJ_VAL(string), line);
 }
 
 /* Writes a jump with a placeholder operand and returns the offset to patch. */
@@ -393,7 +403,7 @@ static void compileOperandPair(const AstNode *left, const AstNode *right, int li
     if (slot != -1) {
       emitByte(OP_GET_LOCAL_CONST, line);
       emitByte((uint8_t)slot, line);
-      emitByte((uint8_t)makeConstant(NUMBER_VAL(right->as.number), line), line);
+      emitConstantOperand(makeConstant(NUMBER_VAL(right->as.number), line), line);
       return;
     }
   }
@@ -459,7 +469,7 @@ static void compileIdentifierLoad(const char *name, int length, int line) {
     return;
   }
 
-  emitBytes(OP_GET_GLOBAL, identifierConstant(name, length, line), line);
+  emitConstantOp(OP_GET_GLOBAL, identifierConstant(name, length, line), line);
 }
 
 /* `discard` is set when the assignment's value is thrown away, which lets the
@@ -471,8 +481,7 @@ static void compileAssign(const AstNode *node, bool discard) {
   if (target->type == AST_PROPERTY) {
     compileNode(target->as.property.object);
     compileNode(node->as.assign.value);
-    emitBytes(OP_SET_PROPERTY,
-              identifierConstant(target->as.property.name, target->as.property.length,
+    emitConstantOp(OP_SET_PROPERTY, identifierConstant(target->as.property.name, target->as.property.length,
                                  assignLine),
               assignLine);
     return;
@@ -520,8 +529,7 @@ static void compileAssign(const AstNode *node, bool discard) {
   }
 
   compileNode(node->as.assign.value);
-  emitBytes(discard ? OP_SET_GLOBAL_POP : OP_SET_GLOBAL,
-            identifierConstant(name, length, line), line);
+  emitConstantOp(discard ? OP_SET_GLOBAL_POP : OP_SET_GLOBAL, identifierConstant(name, length, line), line);
 }
 
 /* ++x / x++ / --x / x--
@@ -550,7 +558,7 @@ static void compileUpdate(const AstNode *node) {
   }
 
   int upvalue = slot == -1 ? resolveUpvalue(current, name, length, line) : -1;
-  uint8_t nameConstant = 0;
+  int nameConstant = 0;
   if (slot == -1 && upvalue == -1) nameConstant = identifierConstant(name, length, line);
 
   compileIdentifierLoad(name, length, line);
@@ -564,7 +572,7 @@ static void compileUpdate(const AstNode *node) {
   } else if (upvalue != -1) {
     emitBytes(OP_SET_UPVALUE, (uint8_t)upvalue, line);
   } else {
-    emitBytes(OP_SET_GLOBAL, nameConstant, line);
+    emitConstantOp(OP_SET_GLOBAL, nameConstant, line);
   }
 
   /* The store leaves the new value on top; postfix wants the old one. */
@@ -621,8 +629,8 @@ static void compileVarDecl(const AstNode *node) {
   }
 
   addGlobal(name, length, node->as.varDecl.isConst, line);
-  emitBytes(node->as.varDecl.isConst ? OP_DEFINE_CONST : OP_DEFINE_GLOBAL,
-            identifierConstant(name, length, line), line);
+  emitConstantOp(node->as.varDecl.isConst ? OP_DEFINE_CONST : OP_DEFINE_GLOBAL,
+                 identifierConstant(name, length, line), line);
 }
 
 /* Maps a comparison to the fused jump that tests it directly. The jump is
@@ -802,7 +810,7 @@ static void compileFunction(const AstNode *node) {
   /* endFunction popped this compiler, so csCompilerMarkRoots no longer reaches
    * the function. It has to stay rooted until the enclosing chunk owns it. */
   csPushTempRoot((Obj *)function);
-  emitBytes(OP_CLOSURE, (uint8_t)makeConstant(OBJ_VAL(function), line), line);
+  emitConstantOp(OP_CLOSURE, makeConstant(OBJ_VAL(function), line), line);
   csPopTempRoot();
 
   /* Each upvalue is described by the pair of bytes following OP_CLOSURE, so the
@@ -855,8 +863,7 @@ static void compileNode(const AstNode *node) {
 
     case AST_PROPERTY:
       compileNode(node->as.property.object);
-      emitBytes(OP_GET_PROPERTY,
-                identifierConstant(node->as.property.name, node->as.property.length,
+      emitConstantOp(OP_GET_PROPERTY, identifierConstant(node->as.property.name, node->as.property.length,
                                    line),
                 line);
       break;
@@ -964,8 +971,7 @@ static void compileNode(const AstNode *node) {
           addLocal(node->as.function.name, node->as.function.nameLength, false, line);
         } else {
           addGlobal(node->as.function.name, node->as.function.nameLength, false, line);
-          emitBytes(OP_DEFINE_GLOBAL,
-                    identifierConstant(node->as.function.name,
+          emitConstantOp(OP_DEFINE_GLOBAL, identifierConstant(node->as.function.name,
                                        node->as.function.nameLength, line),
                     line);
         }

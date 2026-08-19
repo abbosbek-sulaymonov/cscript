@@ -93,31 +93,117 @@ const char *csValueTypeName(Value value) {
   return "object";
 }
 
-/* Formats a double the way JS does: integers without a decimal point, and the
- * shortest representation that round-trips otherwise. */
-static int formatNumber(char *buffer, size_t size, double value) {
+/* printf writes an exponent with at least two digits — "1e-07" — while
+ * JavaScript writes the minimum — "1e-7". Rewrites the buffer in place. */
+/* Number-to-string, following ECMA-262's Number::toString rather than C's %g.
+ *
+ * The two disagree about when to use exponent notation. C switches once the
+ * exponent leaves [-4, precision); JavaScript switches once the decimal point
+ * would fall outside (-6, 21]. So 1e20 prints in full and 1e21 does not, and
+ * 1e-6 prints in full while 1e-7 does not. printf also pads the exponent to two
+ * digits, writing "1e-07" where JavaScript writes "1e-7".
+ *
+ * The shape is: take the shortest decimal digit string that reads back as the
+ * same double, then decide where the decimal point goes.
+ */
+
+/* Fills `digits` with the shortest significant digits that round-trip and sets
+ * `pointPosition` to where the decimal point falls within them — so the value
+ * is 0.<digits> x 10^pointPosition. Returns the digit count. */
+static int shortestDigits(double value, char *digits, size_t size,
+                          int *pointPosition) {
+  char scratch[64];
+
+  for (int precision = 0; precision < 17; precision++) {
+    snprintf(scratch, sizeof(scratch), "%.*e", precision, value);
+    if (strtod(scratch, NULL) != value) continue;
+
+    /* scratch looks like "d.ddde+XX" or "de+XX". */
+    char *marker = strchr(scratch, 'e');
+    if (marker == NULL) break;
+    int exponent = (int)strtol(marker + 1, NULL, 10);
+    *marker = '\0';
+
+    int count = 0;
+    for (const char *c = scratch; *c != '\0'; c++) {
+      if (*c >= '0' && *c <= '9' && (size_t)count < size - 1) digits[count++] = *c;
+    }
+
+    /* Once the value round-trips, trailing zeros carry no information. */
+    while (count > 1 && digits[count - 1] == '0') count--;
+    digits[count] = '\0';
+
+    *pointPosition = exponent + 1;
+    return count;
+  }
+
+  digits[0] = '0';
+  digits[1] = '\0';
+  *pointPosition = 1;
+  return 1;
+}
+
+/* `signedZero` controls whether -0 renders as "-0" or as "0". String conversion
+ * gives "0", because that is what String(-0) returns; console.log shows the
+ * sign, because otherwise a negative zero is invisible. JavaScript draws the
+ * same distinction between String() and util.inspect(). */
+static int formatNumberEx(char *buffer, size_t size, double value, bool signedZero) {
   if (isnan(value)) return snprintf(buffer, size, "NaN");
   if (isinf(value)) return snprintf(buffer, size, value > 0 ? "Infinity" : "-Infinity");
-  if (value == 0) return snprintf(buffer, size, "0"); /* prints -0 as 0, like JS */
-
-  if (value == (long long)value && fabs(value) < 1e15) {
-    return snprintf(buffer, size, "%lld", (long long)value);
+  if (value == 0) {
+    return snprintf(buffer, size, signedZero && signbit(value) ? "-0" : "0");
   }
 
-  /* JavaScript prints the shortest decimal that reads back as the same double,
-   * which is why Math.PI shows 15 digits and not 17. Widen the precision until
-   * the text round-trips, then stop. */
-  for (int precision = 1; precision < 17; precision++) {
-    int written = snprintf(buffer, size, "%.*g", precision, value);
-    if (strtod(buffer, NULL) == value) return written;
+  const char *sign = "";
+  if (value < 0) {
+    sign = "-";
+    value = -value;
   }
-  return snprintf(buffer, size, "%.17g", value);
+
+  char digits[32];
+  int point = 0;
+  int count = shortestDigits(value, digits, sizeof(digits), &point);
+
+  /* All the digits, then zeros out to the decimal point: 1e20. */
+  if (count <= point && point <= 21) {
+    int written = snprintf(buffer, size, "%s%s", sign, digits);
+    while (written < (int)size - 1 && written - (int)strlen(sign) < point) {
+      buffer[written++] = '0';
+    }
+    buffer[written] = '\0';
+    return written;
+  }
+
+  /* The point falls inside the digits: 1.5, 123.456. */
+  if (0 < point && point <= 21) {
+    return snprintf(buffer, size, "%s%.*s.%s", sign, point, digits, digits + point);
+  }
+
+  /* Leading zeros, down to 1e-6: 0.000001. */
+  if (-6 < point && point <= 0) {
+    int written = snprintf(buffer, size, "%s0.", sign);
+    for (int i = 0; i < -point && written < (int)size - 1; i++) buffer[written++] = '0';
+    buffer[written] = '\0';
+    return written + snprintf(buffer + written, size - (size_t)written, "%s", digits);
+  }
+
+  /* Everything else is exponential, with the exponent written in the fewest
+   * digits and always carrying a sign. */
+  int exponent = point - 1;
+  if (count == 1) {
+    return snprintf(buffer, size, "%s%se%+d", sign, digits, exponent);
+  }
+  return snprintf(buffer, size, "%s%.1s.%se%+d", sign, digits, digits + 1, exponent);
+}
+
+static int formatNumber(char *buffer, size_t size, double value) {
+  return formatNumberEx(buffer, size, value, false);
 }
 
 void csValuePrint(Value value) {
   if (IS_NUMBER(value)) {
     char buffer[32];
-    formatNumber(buffer, sizeof(buffer), AS_NUMBER(value));
+    formatNumberEx(buffer, sizeof(buffer), AS_NUMBER(value), true);
     printf("%s", buffer);
   } else if (IS_BOOL(value)) {
     printf(AS_BOOL(value) ? "true" : "false");
@@ -186,6 +272,14 @@ static bool sbAppendObject(StringBuilder *builder, ObjObject *object) {
 }
 
 static bool sbAppendValue(StringBuilder *builder, Value value, bool quoteStrings) {
+  /* `quoteStrings` marks the inspect path — inside a container, or a
+   * console.log argument — where -0 is shown with its sign. */
+  if (quoteStrings && IS_NUMBER(value)) {
+    char buffer[32];
+    int length = formatNumberEx(buffer, sizeof(buffer), AS_NUMBER(value), true);
+    return sbAppend(builder, buffer, (size_t)length);
+  }
+
   if (IS_OBJ(value)) {
     if (IS_ARRAY(value)) return sbAppendArray(builder, AS_ARRAY(value));
     if (IS_OBJECT(value)) return sbAppendObject(builder, AS_OBJECT(value));
@@ -205,6 +299,18 @@ static bool sbAppendValue(StringBuilder *builder, Value value, bool quoteStrings
   bool ok = sbAppend(builder, text, length);
   free(text);
   return ok;
+}
+
+char *csValueInspect(Value value, size_t *lengthOut) {
+  StringBuilder builder = {NULL, 0, 0};
+  /* quoteStrings is false at the top level and true inside containers, which
+   * sbAppendArray and sbAppendObject arrange for themselves. */
+  if (!sbAppendValue(&builder, value, IS_NUMBER(value))) {
+    free(builder.data);
+    return NULL;
+  }
+  if (lengthOut != NULL) *lengthOut = builder.length;
+  return builder.data;
 }
 
 char *csValueToCString(Value value, size_t *lengthOut) {

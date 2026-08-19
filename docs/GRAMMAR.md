@@ -95,8 +95,15 @@ All numbers are IEEE 754 doubles; there is no integer type.
 
 - Integral values print without a decimal point: `10 / 2` prints `5`
 - `1 / 0` is `Infinity`, `0 / 0` is `NaN`
-- `-0` prints as `0`, matching `String(-0)` in JavaScript
 - `%` takes the sign of the left operand: `-7 % 3` is `-1`
+- Number-to-string follows ECMA-262 exactly: the shortest decimal that reads
+  back as the same double, switching to exponent notation only once the decimal
+  point falls outside `(-6, 21]`. So `1e20` prints in full and `1e21` does not;
+  `1e-6` prints in full and `1e-7` does not.
+- `console.log(-0)` shows `-0`, while `String(-0)` gives `"0"` — the same split
+  JavaScript makes between `util.inspect` and `String`
+
+At most 65536 distinct constants may appear in one function.
 
 ### Strings
 

@@ -5,16 +5,20 @@
  * what makes it impossible for the table to drift out of step with the enum —
  * a mismatch there would jump to the wrong handler rather than fail to build.
  *
- * Operands are inline bytes following the opcode. Adding an opcode still means
- * adding a case to the disassembler in debug.c, which the compiler will not
- * catch for you.
+ * Operands are inline bytes following the opcode, except constant-pool indices,
+ * which are two bytes. One byte capped a function at 256 literals — reachable
+ * by an ordinary file — and the extra byte costs one more read on instructions
+ * that were already touching memory for the constant itself.
+ *
+ * Adding an opcode still means adding a case to the disassembler in debug.c,
+ * which the compiler will not catch for you.
  */
 #ifndef CSCRIPT_OPCODE_H
 #define CSCRIPT_OPCODE_H
 
 /* clang-format off */
 #define CS_OPCODE_LIST(X)                                                     \
-  X(OP_CONSTANT)          /* [const]  push constants[const]                */ \
+  X(OP_CONSTANT)          /* [const16]  push constants[const16]                */ \
   X(OP_NULL)              /*          push null                            */ \
   X(OP_UNDEFINED)         /*          push undefined                       */ \
   X(OP_TRUE)                                                                  \
@@ -26,10 +30,10 @@
                                                                               \
   /* Variables. Locals live in stack slots resolved at compile time; globals  \
    * go through a hash lookup, which is why locals are the fast path. */       \
-  X(OP_DEFINE_GLOBAL)     /* [const]  pop, bind constants[const] -> value   */ \
-  X(OP_DEFINE_CONST)      /* [const]  same, and refuse later assignment     */ \
-  X(OP_GET_GLOBAL)        /* [const]  push the global named constants[const]*/ \
-  X(OP_SET_GLOBAL)        /* [const]  assign top to that global, leaving it */ \
+  X(OP_DEFINE_GLOBAL)     /* [const16]  pop, bind constants[const16] -> value   */ \
+  X(OP_DEFINE_CONST)      /* [const16]  same, and refuse later assignment     */ \
+  X(OP_GET_GLOBAL)        /* [const16]  push the global named constants[const16]*/ \
+  X(OP_SET_GLOBAL)        /* [const16]  assign top to that global, leaving it */ \
   X(OP_GET_LOCAL)         /* [slot]   push stack[slot]                      */ \
   X(OP_SET_LOCAL)         /* [slot]   stack[slot] = top, leaving it         */ \
   /* In-place ++/-- on a local whose result is discarded. One instruction     \
@@ -41,13 +45,13 @@
    * Fusing the pair halves the dispatches and skips the write-back of a value  \
    * nothing reads. */                                                          \
   X(OP_SET_LOCAL_POP)     /* [slot]   stack[slot] = pop()                   */ \
-  X(OP_SET_GLOBAL_POP)    /* [const]  global = pop()                        */ \
+  X(OP_SET_GLOBAL_POP)    /* [const16]  global = pop()                        */ \
   /* A local followed by a literal is 14-18% of all instructions in loop-heavy \
    * code — `i < n`, `i % 7`, `total + 1` all start this way. */                \
-  X(OP_GET_LOCAL_CONST)   /* [slot][const]  push both                       */ \
+  X(OP_GET_LOCAL_CONST)   /* [slot][const16]  push both                       */ \
                                                                               \
-  X(OP_GET_PROPERTY)      /* [const]  pop object, push its named property   */ \
-  X(OP_SET_PROPERTY)      /* [const]  obj.name = value, leaving the value   */ \
+  X(OP_GET_PROPERTY)      /* [const16]  pop object, push its named property   */ \
+  X(OP_SET_PROPERTY)      /* [const16]  obj.name = value, leaving the value   */ \
   X(OP_GET_INDEX)         /*          pop index and target, push element    */ \
   X(OP_SET_INDEX)         /*          target[index] = value, leaving value  */ \
   X(OP_OBJECT)            /* [count]  build from `count` key/value pairs    */ \
@@ -56,7 +60,7 @@
                                                                               \
   /* Closures. OP_CLOSURE is followed by one (isLocal, index) pair per         \
    * upvalue, describing where each capture comes from. */                     \
-  X(OP_CLOSURE)           /* [const] then 2 bytes per upvalue               */ \
+  X(OP_CLOSURE)           /* [const16] then 2 bytes per upvalue               */ \
   X(OP_GET_UPVALUE)       /* [slot]   push the captured variable            */ \
   X(OP_SET_UPVALUE)       /* [slot]   assign to it, leaving the value       */ \
   X(OP_CLOSE_UPVALUE)     /*          move the top local off the stack      */ \

@@ -8,12 +8,24 @@
 #include "cscript/object.h"
 #include "cscript/vm.h"
 
-/* Writes the arguments separated by spaces, the way console.log does. */
+/* Writes the arguments separated by spaces, the way console.log does.
+ *
+ * This is the inspect path rather than the string-conversion one, so a bare
+ * -0 keeps its sign and strings nested in a container are quoted — matching
+ * what Node prints, which is not the same as what String() returns. */
 static void writeArgs(FILE *out, int argCount, Value *args) {
   for (int i = 0; i < argCount; i++) {
     if (i > 0) fputc(' ', out);
+
+    if (IS_STRING(args[i])) {
+      /* A top-level string argument is printed bare, not quoted. */
+      ObjString *string = AS_STRING(args[i]);
+      fwrite(string->chars, 1, (size_t)string->length, out);
+      continue;
+    }
+
     size_t length = 0;
-    char *text = csValueToCString(args[i], &length);
+    char *text = csValueInspect(args[i], &length);
     if (text == NULL) continue;
     fwrite(text, 1, length, out);
     free(text);

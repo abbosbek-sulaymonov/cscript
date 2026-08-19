@@ -155,7 +155,12 @@ const char *csValueTypeName(Value value);
 /* Writes the value to stdout the way `console.log` renders it. */
 void csValuePrint(Value value);
 
-/* Renders into a freshly allocated C string the caller must free(). */
+/* String conversion, as `String(x)` and `"" + x` produce it. Caller free()s. */
 char *csValueToCString(Value value, size_t *lengthOut);
+
+/* Display form, as console.log prints it. Differs from the above in two ways
+ * that JavaScript also distinguishes between String() and util.inspect():
+ * -0 keeps its sign, and strings inside a container are quoted. */
+char *csValueInspect(Value value, size_t *lengthOut);
 
 #endif /* CSCRIPT_VALUE_H */

@@ -381,6 +381,23 @@ Only the last closes the gap with Go, and it is what makes Node 2.8× rather
 than 12×. It is also a multi-year project. A well-tuned bytecode interpreter
 lands somewhere around 5–10× native, and CScript is now inside that band.
 
+## Number formatting
+
+`Number::toString` is one of the most visible parts of a language, and C's `%g`
+does not implement it. The two disagree about when to use exponent notation —
+C switches once the exponent leaves `[-4, precision)`, JavaScript once the
+decimal point would fall outside `(-6, 21]` — and printf pads the exponent to
+two digits, writing `1e-07` where JavaScript writes `1e-7`.
+
+`src/value.c` implements the ECMA-262 rule directly: find the shortest digit
+string that reads back as the same double, then place the decimal point. It is
+checked against Node over 227 hand-picked forms and 400 random doubles.
+
+The display form and the string-conversion form are kept apart, because
+JavaScript distinguishes them too: `console.log(-0)` prints `-0` while
+`String(-0)` returns `"0"`, and a string nested inside a container is quoted
+while a bare one is not.
+
 ## Values
 
 `Value` is a 16-byte tagged union: a `ValueType` plus a payload of a `bool`, a

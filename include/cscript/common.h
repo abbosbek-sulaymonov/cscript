@@ -8,8 +8,8 @@
 
 #define CS_VERSION_MAJOR 0
 #define CS_VERSION_MINOR 8
-#define CS_VERSION_PATCH 0
-#define CS_VERSION_STRING "0.8.0"
+#define CS_VERSION_PATCH 1
+#define CS_VERSION_STRING "0.8.1"
 
 /* Value stack depth, shared by every active call frame. */
 #define CS_STACK_MAX (64 * 256)

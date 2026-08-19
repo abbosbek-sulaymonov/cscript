@@ -24,12 +24,17 @@ static int simpleInstruction(const char *name, int offset) {
   return offset + 1;
 }
 
+/* Constant indices are two bytes, big-endian. */
+static int readConstantIndex(const Chunk *chunk, int offset) {
+  return (chunk->code[offset] << 8) | chunk->code[offset + 1];
+}
+
 static int constantInstruction(const char *name, const Chunk *chunk, int offset) {
-  uint8_t constant = chunk->code[offset + 1];
+  int constant = readConstantIndex(chunk, offset + 1);
   printf("%-22s %4d '", name, constant);
   csValuePrint(chunk->constants.values[constant]);
   printf("'\n");
-  return offset + 2;
+  return offset + 3;
 }
 
 static int byteInstruction(const char *name, const Chunk *chunk, int offset) {
@@ -41,11 +46,11 @@ static int byteInstruction(const char *name, const Chunk *chunk, int offset) {
 /* Two operands: a stack slot and a constant index. */
 static int slotConstantInstruction(const char *name, const Chunk *chunk, int offset) {
   uint8_t slot = chunk->code[offset + 1];
-  uint8_t constant = chunk->code[offset + 2];
+  int constant = readConstantIndex(chunk, offset + 2);
   printf("%-22s %4d %4d '", name, slot, constant);
   csValuePrint(chunk->constants.values[constant]);
   printf("'\n");
-  return offset + 3;
+  return offset + 4;
 }
 
 static int jumpInstruction(const char *name, int sign, const Chunk *chunk, int offset) {

@@ -1,8 +1,23 @@
 console.log(0);
+// console.log shows the sign of a negative zero; String() does not, and
+// JavaScript draws exactly the same distinction.
 console.log(-0);
+console.log(String(-0));
+console.log("" + -0);
+console.log(1 / -0);
 console.log(1 / 0);
 console.log(-1 / 0);
 console.log(0 / 0);
 console.log(3.25);
 console.log(100000000000);
 console.log(10 / 2);
+
+// JavaScript switches to exponent notation once the decimal point would fall
+// outside (-6, 21] — not where C's %g would switch.
+console.log(1e20);
+console.log(1e21);
+console.log(1e-6);
+console.log(1e-7);
+console.log(1.5e-7);
+console.log(0.1 + 0.2);
+console.log(1 / 3);
