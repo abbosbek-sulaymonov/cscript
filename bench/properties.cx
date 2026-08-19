@@ -1,0 +1,14 @@
+// Property access through objects that all share one layout — the case hidden
+// classes and inline caches exist for. Every `point` here reaches `p.x` with
+// the same shape, so a monomorphic cache should turn the read into an indexed
+// load. Without one, each of the six accesses below is a hash and a probe.
+let total = 0;
+
+for (let i = 0; i < 2000000; i++) {
+  const point = { x: i, y: i + 1, z: i + 2 };
+  total = total + point.x + point.y + point.z;
+  point.x = point.z;
+  total = total + point.x;
+}
+
+console.log(total);

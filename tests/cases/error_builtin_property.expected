@@ -1,0 +1,3 @@
+cscript: runtime error: 'Math.PI' is a built-in and cannot be replaced
+  at error_builtin_property.cx:7
+2

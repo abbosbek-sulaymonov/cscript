@@ -5,8 +5,8 @@
  * what makes it impossible for the table to drift out of step with the enum —
  * a mismatch there would jump to the wrong handler rather than fail to build.
  *
- * Operands are inline bytes following the opcode, except constant-pool indices,
- * which are two bytes. One byte capped a function at 256 literals — reachable
+ * Operands are inline bytes following the opcode, except constant-pool indices
+ * and inline-cache indices, which are two bytes. One byte capped a function at 256 literals — reachable
  * by an ordinary file — and the extra byte costs one more read on instructions
  * that were already touching memory for the constant itself.
  *
@@ -32,8 +32,8 @@
    * go through a hash lookup, which is why locals are the fast path. */       \
   X(OP_DEFINE_GLOBAL)     /* [const16]  pop, bind constants[const16] -> value   */ \
   X(OP_DEFINE_CONST)      /* [const16]  same, and refuse later assignment     */ \
-  X(OP_GET_GLOBAL)        /* [const16]  push the global named constants[const16]*/ \
-  X(OP_SET_GLOBAL)        /* [const16]  assign top to that global, leaving it */ \
+  X(OP_GET_GLOBAL)        /* [const16][cache16]  push that global          */ \
+  X(OP_SET_GLOBAL)        /* [const16][cache16]  assign top, leaving it   */ \
   X(OP_GET_LOCAL)         /* [slot]   push stack[slot]                      */ \
   X(OP_SET_LOCAL)         /* [slot]   stack[slot] = top, leaving it         */ \
   /* In-place ++/-- on a local whose result is discarded. One instruction     \
@@ -45,13 +45,13 @@
    * Fusing the pair halves the dispatches and skips the write-back of a value  \
    * nothing reads. */                                                          \
   X(OP_SET_LOCAL_POP)     /* [slot]   stack[slot] = pop()                   */ \
-  X(OP_SET_GLOBAL_POP)    /* [const16]  global = pop()                        */ \
+  X(OP_SET_GLOBAL_POP)    /* [const16][cache16]  global = pop()            */ \
   /* A local followed by a literal is 14-18% of all instructions in loop-heavy \
    * code — `i < n`, `i % 7`, `total + 1` all start this way. */                \
   X(OP_GET_LOCAL_CONST)   /* [slot][const16]  push both                       */ \
                                                                               \
-  X(OP_GET_PROPERTY)      /* [const16]  pop object, push its named property   */ \
-  X(OP_SET_PROPERTY)      /* [const16]  obj.name = value, leaving the value   */ \
+  X(OP_GET_PROPERTY)      /* [const16][cache16]  pop object, push property */ \
+  X(OP_SET_PROPERTY)      /* [const16][cache16]  obj.name = value, leaves it */ \
   X(OP_GET_INDEX)         /*          pop index and target, push element    */ \
   /* for...of support: replaces the value on top with its element count, so a  \
    * loop can leave [index, length] ready for a fused compare-and-branch. Only \

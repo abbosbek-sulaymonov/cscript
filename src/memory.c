@@ -4,6 +4,7 @@
 #include "cscript/compiler.h"
 #include "cscript/memory.h"
 #include "cscript/object.h"
+#include "cscript/shape.h"
 #include "cscript/table.h"
 #include "cscript/vm.h"
 
@@ -106,6 +107,8 @@ static void markRoots(void) {
    * nothing else while it is in flight. */
   if (vm.hasPendingException) csMarkValue(vm.pendingException);
 
+  csMarkObject((Obj *)vm.emptyShape);
+  csMarkObject((Obj *)vm.absentShape);
   csTableMark(&vm.globals);
   csTableMark(&vm.globalConsts);
   /* Built-in methods live only in these tables, so nothing else keeps them
@@ -121,6 +124,25 @@ static void markRoots(void) {
 static void traceReferences(void) {
   while (vm.grayCount > 0) {
     blackenObject(vm.grayStack[--vm.grayCount]);
+  }
+}
+
+/* Weak references, resolved once marking is final and before anything is
+ * freed. Both kinds exist for the same reason: caching a layout, or recording
+ * a route to one, must not be what keeps it alive.
+ *
+ * Walking every live object to find them costs one extra pass. A dedicated
+ * list of shapes and chunks would avoid it, but at the price of a second
+ * structure to keep in step with the sweep list — and this pass is the same
+ * order as the sweep that immediately follows it. */
+static void pruneWeakReferences(void) {
+  for (Obj *object = vm.objects; object != NULL; object = object->next) {
+    if (!object->isMarked) continue;
+    if (object->type == OBJ_SHAPE) {
+      csShapePruneTransitions((Shape *)object);
+    } else if (object->type == OBJ_FUNCTION) {
+      csChunkPruneCaches(&((ObjFunction *)object)->chunk);
+    }
   }
 }
 
@@ -158,6 +180,7 @@ void csCollectGarbage(void) {
   /* The intern pool holds weak references: drop entries whose string died,
    * before sweeping frees the memory those keys point at. */
   csTableRemoveWhite(&vm.strings);
+  pruneWeakReferences();
   sweep();
 
   vm.nextGC = vm.bytesAllocated * CS_GC_HEAP_GROW_FACTOR;

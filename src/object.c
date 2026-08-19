@@ -3,6 +3,7 @@
 
 #include "cscript/memory.h"
 #include "cscript/object.h"
+#include "cscript/shape.h"
 #include "cscript/table.h"
 #include "cscript/vm.h"
 
@@ -85,29 +86,150 @@ ObjObject *csObjectNew(const char *name) {
   ObjString *nameString = csStringCopy(name, (int)strlen(name));
   csPushTempRoot((Obj *)nameString);
 
+  /* Nothing between the allocation and the last field write may allocate: the
+   * object is on the sweep list from registerObject onward, so a collection
+   * here would walk uninitialised slots. */
   ObjObject *object = CS_ALLOCATE(ObjObject, 1);
   registerObject((Obj *)object, OBJ_OBJECT);
   object->name = nameString;
-  object->keys = NULL;
-  object->keyCount = 0;
-  object->keyCapacity = 0;
-  csTableInit(&object->properties);
+  object->shape = vm.emptyShape;
+  object->frozen = false;
+  object->as.slots.values = NULL;
+  object->as.slots.capacity = 0;
 
   csPopTempRoot();
   return object;
 }
 
-void csObjectPut(ObjObject *object, ObjString *key, Value value) {
-  bool isNewKey = csTableSet(&object->properties, key, value);
-  if (!isNewKey) return;
+static void ensureSlots(ObjObject *object, int needed) {
+  if (object->as.slots.capacity >= needed) return;
+  int oldCapacity = object->as.slots.capacity;
+  int capacity = oldCapacity < 4 ? 4 : oldCapacity;
+  while (capacity < needed) capacity *= 2;
+  object->as.slots.values =
+      CS_GROW_ARRAY(Value, object->as.slots.values, oldCapacity, capacity);
+  object->as.slots.capacity = capacity;
+}
 
-  if (object->keyCapacity < object->keyCount + 1) {
-    int oldCapacity = object->keyCapacity;
-    object->keyCapacity = CS_GROW_CAPACITY(oldCapacity);
-    object->keys =
-        CS_GROW_ARRAY(ObjString *, object->keys, oldCapacity, object->keyCapacity);
+/* Moves an object out of shape mode for good. Called once, when it grows past
+ * the slot limit; see the comment on CS_SHAPE_MAX_SLOTS for why that limit
+ * exists. Every allocation below happens while the object is still a valid
+ * shape-mode object, so a collection in the middle is harmless. */
+static void convertToDictionary(ObjObject *object) {
+  Shape *shape = object->shape;
+  int count = shape->slotCount;
+  int capacity = count < 8 ? 8 : count;
+
+  Table table;
+  csTableInit(&table);
+  ObjString **keys = CS_ALLOCATE(ObjString *, capacity);
+  for (int i = 0; i < count; i++) {
+    keys[i] = shape->keys[i];
+    csTableSet(&table, shape->keys[i], object->as.slots.values[i]);
   }
-  object->keys[object->keyCount++] = key;
+
+  Value *oldValues = object->as.slots.values;
+  int oldCapacity = object->as.slots.capacity;
+
+  object->shape = NULL;
+  object->as.dictionary.table = table;
+  object->as.dictionary.keys = keys;
+  object->as.dictionary.count = count;
+  object->as.dictionary.capacity = capacity;
+
+  CS_FREE_ARRAY(Value, oldValues, oldCapacity);
+}
+
+static void dictionaryPut(ObjObject *object, ObjString *key, Value value) {
+  if (!csTableSet(&object->as.dictionary.table, key, value)) return;
+
+  if (object->as.dictionary.capacity < object->as.dictionary.count + 1) {
+    int oldCapacity = object->as.dictionary.capacity;
+    object->as.dictionary.capacity = CS_GROW_CAPACITY(oldCapacity);
+    object->as.dictionary.keys =
+        CS_GROW_ARRAY(ObjString *, object->as.dictionary.keys, oldCapacity,
+                      object->as.dictionary.capacity);
+  }
+  object->as.dictionary.keys[object->as.dictionary.count++] = key;
+}
+
+void csObjectPut(ObjObject *object, ObjString *key, Value value) {
+  if (object->shape == NULL) {
+    csPushTempRoot((Obj *)object);
+    if (IS_OBJ(value)) csPushTempRoot(AS_OBJ(value));
+    csPushTempRoot((Obj *)key);
+    dictionaryPut(object, key, value);
+    csPopTempRoot();
+    if (IS_OBJ(value)) csPopTempRoot();
+    csPopTempRoot();
+    return;
+  }
+
+  /* Overwriting an existing property is the common case and never allocates,
+   * so it is worth answering before any of the rooting below. */
+  int slot;
+  if (csShapeLookup(object->shape, key, &slot)) {
+    object->as.slots.values[slot] = value;
+    return;
+  }
+
+  csPushTempRoot((Obj *)object);
+  if (IS_OBJ(value)) csPushTempRoot(AS_OBJ(value));
+  csPushTempRoot((Obj *)key);
+
+  Shape *next = csShapeTransition(object->shape, key);
+  if (next == NULL) {
+    convertToDictionary(object);
+    dictionaryPut(object, key, value);
+  } else {
+    /* The new shape is reachable only through its parent's transition edge,
+     * and that edge is weak — so until this object adopts it, a collection
+     * would prune the edge and sweep the shape out from under us. Growing the
+     * slot array is exactly such a collection point. */
+    csPushTempRoot((Obj *)next);
+
+    /* Order matters too. The collector sizes its walk of the slots from the
+     * shape, so the object keeps its old shape until the new slot actually
+     * holds a value. */
+    ensureSlots(object, next->slotCount);
+    object->as.slots.values[next->slotCount - 1] = value;
+    object->shape = next;
+
+    csPopTempRoot();
+  }
+
+  csPopTempRoot();
+  if (IS_OBJ(value)) csPopTempRoot();
+  csPopTempRoot();
+}
+
+bool csObjectGet(ObjObject *object, ObjString *key, Value *out) {
+  if (object->shape == NULL) {
+    return csTableGet(&object->as.dictionary.table, key, out);
+  }
+  int slot;
+  if (!csShapeLookup(object->shape, key, &slot)) return false;
+  if (out != NULL) *out = object->as.slots.values[slot];
+  return true;
+}
+
+int csObjectCount(const ObjObject *object) {
+  return object->shape != NULL ? object->shape->slotCount
+                               : object->as.dictionary.count;
+}
+
+ObjString *csObjectKeyAt(const ObjObject *object, int index) {
+  return object->shape != NULL ? object->shape->keys[index]
+                               : object->as.dictionary.keys[index];
+}
+
+Value csObjectValueAt(ObjObject *object, int index) {
+  if (object->shape != NULL) return object->as.slots.values[index];
+  Value value;
+  return csTableGet(&object->as.dictionary.table,
+                    object->as.dictionary.keys[index], &value)
+             ? value
+             : UNDEFINED_VAL;
 }
 
 ObjFunction *csFunctionNew(void) {
@@ -151,6 +273,8 @@ ObjArray *csArrayNew(void) {
   return array;
 }
 
+void csObjectFreeze(ObjObject *object) { object->frozen = true; }
+
 void csObjectSetProperty(ObjObject *object, const char *name, Value value) {
   /* Both the interning and the table insert can allocate, so the receiver and
    * the value have to stay rooted for the whole operation. */
@@ -192,8 +316,9 @@ void csObjectPrint(Value value) {
       printFunctionName(AS_CLOSURE(value)->function);
       break;
     case OBJ_UPVALUE:
+    case OBJ_SHAPE:
       /* Never reachable from user code; only the collector sees these. */
-      printf("[upvalue]");
+      printf("[internal]");
       break;
 
     case OBJ_ARRAY: {
@@ -230,14 +355,25 @@ void csObjectBlacken(Obj *object) {
     case OBJ_OBJECT: {
       ObjObject *instance = (ObjObject *)object;
       csMarkObject((Obj *)instance->name);
-      csTableMark(&instance->properties);
-      /* The key list holds the same strings the table does, but marking it too
-       * keeps the two from disagreeing if the table ever drops an entry. */
-      for (int i = 0; i < instance->keyCount; i++) {
-        csMarkObject((Obj *)instance->keys[i]);
+      if (instance->shape != NULL) {
+        /* The shape is the authority on how many slots hold a value. Anything
+         * beyond slotCount is capacity the object has not grown into yet. */
+        csMarkObject((Obj *)instance->shape);
+        for (int i = 0; i < instance->shape->slotCount; i++) {
+          csMarkValue(instance->as.slots.values[i]);
+        }
+      } else {
+        csTableMark(&instance->as.dictionary.table);
+        for (int i = 0; i < instance->as.dictionary.count; i++) {
+          csMarkObject((Obj *)instance->as.dictionary.keys[i]);
+        }
       }
       break;
     }
+
+    case OBJ_SHAPE:
+      csShapeBlacken((Shape *)object);
+      break;
 
     case OBJ_FUNCTION: {
       /* A function owns its constant pool, so every literal in its body is
@@ -287,11 +423,20 @@ void csObjectFree(Obj *object) {
       break;
     case OBJ_OBJECT: {
       ObjObject *instance = (ObjObject *)object;
-      csTableFree(&instance->properties);
-      CS_FREE_ARRAY(ObjString *, instance->keys, instance->keyCapacity);
+      if (instance->shape != NULL) {
+        CS_FREE_ARRAY(Value, instance->as.slots.values, instance->as.slots.capacity);
+      } else {
+        csTableFree(&instance->as.dictionary.table);
+        CS_FREE_ARRAY(ObjString *, instance->as.dictionary.keys,
+                      instance->as.dictionary.capacity);
+      }
       CS_FREE(ObjObject, object);
       break;
     }
+
+    case OBJ_SHAPE:
+      csShapeFree((Shape *)object);
+      break;
 
     case OBJ_FUNCTION: {
       ObjFunction *function = (ObjFunction *)object;

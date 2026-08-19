@@ -9,6 +9,7 @@
 #include "cscript/memory.h"
 #include "cscript/native.h"
 #include "cscript/object.h"
+#include "cscript/shape.h"
 #include "cscript/parser.h"
 #include "cscript/typecheck.h"
 #include "cscript/vm.h"
@@ -39,6 +40,13 @@ void csVMInit(void) {
   csTableInit(&vm.strings);
   csTableInit(&vm.arrayMethods);
   csTableInit(&vm.stringMethods);
+
+  /* Before any object exists: csObjectNew reads it, and the collector marks
+   * it. */
+  vm.emptyShape = NULL;
+  vm.absentShape = NULL;
+  vm.emptyShape = csShapeNewRoot();
+  vm.absentShape = csShapeNewRoot();
 
   csNativesInstall();
 }
@@ -218,7 +226,7 @@ static Table *methodTableFor(Value receiver) {
 static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
   if (IS_OBJECT(receiver)) {
     Value method;
-    if (csTableGet(&AS_OBJECT(receiver)->properties, name, &method)) {
+    if (csObjectGet(AS_OBJECT(receiver), name, &method)) {
       /* Overwrite the receiver slot so the callee sits directly below its
        * arguments, which is the shape callValue expects. */
       vm.stackTop[-argCount - 1] = method;
@@ -231,7 +239,7 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
 
   if (IS_NATIVE(receiver) && AS_NATIVE(receiver)->statics != NULL) {
     Value method;
-    if (csTableGet(&AS_NATIVE(receiver)->statics->properties, name, &method)) {
+    if (csObjectGet(AS_NATIVE(receiver)->statics, name, &method)) {
       vm.stackTop[-argCount - 1] = method;
       return callValue(method, argCount);
     }
@@ -446,6 +454,35 @@ static void reportUncaught(Value thrown) {
   free(text);
 }
 
+/* The uncached path for assigning to a global: check that the name exists and
+ * is not a constant, then record where it lives so the site never has to ask
+ * again.
+ *
+ * Filling the cache is what licenses the fast path to skip the constant check.
+ * A name's constness is fixed when it is declared, and a site cannot run
+ * before the declaration it refers to — reaching one would have errored here
+ * with "is not defined" and left the cache empty. */
+static bool assignGlobal(ObjString *name, GlobalCache *cache, Value value) {
+  if (csTableGet(&vm.globalConsts, name, NULL)) {
+    csVMRuntimeError("'%s' is a constant and cannot be reassigned", name->chars);
+    return false;
+  }
+
+  /* Assigning to a name that does not exist would silently create a global in
+   * JavaScript; here it is the typo it almost always is. */
+  Entry *entry = csTableFindEntry(&vm.globals, name);
+  if (entry == NULL) {
+    csVMRuntimeError("'%s' is not defined", name->chars);
+    return false;
+  }
+
+  entry->value = value;
+  cache->entry = entry;
+  cache->version = vm.globals.version;
+  cache->filled = true;
+  return true;
+}
+
 static InterpretResult run(int baseFrame) {
   CallFrame *frame = &vm.frames[vm.frameCount - 1];
 
@@ -457,6 +494,10 @@ static InterpretResult run(int baseFrame) {
 #define READ_CONSTANT() \
   (frame->closure->function->chunk.constants.values[READ_SHORT()])
 #define READ_STRING() AS_STRING(READ_CONSTANT())
+#define READ_PROPERTY_CACHE() \
+  (&frame->closure->function->chunk.propertyCaches[READ_SHORT()])
+#define READ_GLOBAL_CACHE() \
+  (&frame->closure->function->chunk.globalCaches[READ_SHORT()])
 
 /* Arithmetic and comparison share this shape: both operands must be numbers.
  * JavaScript would coerce and often produce NaN; an error at the mistake is
@@ -582,30 +623,39 @@ static InterpretResult run(int baseFrame) {
 
       VM_CASE(OP_GET_GLOBAL) {
         ObjString *name = READ_STRING();
-        Value value;
-        if (!csTableGet(&vm.globals, name, &value)) {
+        GlobalCache *cache = READ_GLOBAL_CACHE();
+
+        /* Globals are declared once and never deleted, so after this site has
+         * run once the entry it wants is fixed. The version check is what
+         * makes holding a pointer into the table safe: only a rehash or a
+         * delete can move an entry, and both bump it. */
+        if (cache->filled && cache->version == vm.globals.version) {
+          csVMPush(cache->entry->value);
+          VM_NEXT();
+        }
+
+        Entry *entry = csTableFindEntry(&vm.globals, name);
+        if (entry == NULL) {
           /* JavaScript would return undefined for a bare read in sloppy mode.
            * Reading a name that was never declared is a typo, not an intent. */
           csVMRuntimeError("'%s' is not defined", name->chars);
           return CS_RUNTIME_ERROR;
         }
-        csVMPush(value);
+        cache->entry = entry;
+        cache->version = vm.globals.version;
+        cache->filled = true;
+        csVMPush(entry->value);
         VM_NEXT();
       }
 
       VM_CASE(OP_SET_GLOBAL) {
         ObjString *name = READ_STRING();
-        if (csTableGet(&vm.globalConsts, name, NULL)) {
-          csVMRuntimeError("'%s' is a constant and cannot be reassigned", name->chars);
-          return CS_RUNTIME_ERROR;
+        GlobalCache *cache = READ_GLOBAL_CACHE();
+        if (cache->filled && cache->version == vm.globals.version) {
+          cache->entry->value = peekStack(0);
+          VM_NEXT();
         }
-        /* csTableSet reports whether the key was new; assigning to a name that
-         * does not exist would silently create a global in JavaScript. */
-        if (csTableSet(&vm.globals, name, peekStack(0))) {
-          csTableDelete(&vm.globals, name);
-          csVMRuntimeError("'%s' is not defined", name->chars);
-          return CS_RUNTIME_ERROR;
-        }
+        if (!assignGlobal(name, cache, peekStack(0))) return CS_RUNTIME_ERROR;
         VM_NEXT();
       }
 
@@ -632,15 +682,12 @@ static InterpretResult run(int baseFrame) {
 
       VM_CASE(OP_SET_GLOBAL_POP) {
         ObjString *name = READ_STRING();
-        if (csTableGet(&vm.globalConsts, name, NULL)) {
-          csVMRuntimeError("'%s' is a constant and cannot be reassigned", name->chars);
-          return CS_RUNTIME_ERROR;
+        GlobalCache *cache = READ_GLOBAL_CACHE();
+        if (cache->filled && cache->version == vm.globals.version) {
+          cache->entry->value = csVMPop();
+          VM_NEXT();
         }
-        if (csTableSet(&vm.globals, name, peekStack(0))) {
-          csTableDelete(&vm.globals, name);
-          csVMRuntimeError("'%s' is not defined", name->chars);
-          return CS_RUNTIME_ERROR;
-        }
+        if (!assignGlobal(name, cache, peekStack(0))) return CS_RUNTIME_ERROR;
         csVMPop();
         VM_NEXT();
       }
@@ -664,7 +711,43 @@ static InterpretResult run(int baseFrame) {
 
       VM_CASE(OP_GET_PROPERTY) {
         ObjString *name = READ_STRING();
+        PropertyCache *cache = READ_PROPERTY_CACHE();
         Value receiver = peekStack(0);
+
+        /* Objects first, and the cache before anything else. Every other case
+         * below costs at least a comparison, and reading a field off an object
+         * is what the overwhelming majority of these instructions do. */
+        if (IS_OBJECT(receiver)) {
+          ObjObject *object = AS_OBJECT(receiver);
+
+          /* The point of the whole shape machinery: when this site sees the
+           * layout it saw last time — which is what happens when every object
+           * reaching it came from the same literal — reading a property is a
+           * pointer compare and an indexed load. */
+          if (object->shape == cache->shape) {
+            csVMPop();
+            csVMPush(object->as.slots.values[cache->slot]);
+            VM_NEXT();
+          }
+
+          int slot;
+          if (object->shape != NULL && csShapeLookup(object->shape, name, &slot)) {
+            cache->shape = object->shape;
+            cache->slot = slot;
+            csVMPop();
+            csVMPush(object->as.slots.values[slot]);
+            VM_NEXT();
+          }
+
+          /* Dictionary mode, or a genuinely absent property. Reading a missing
+           * property gives undefined, as in JavaScript — checking for absence
+           * is too common to make it an error. */
+          Value value;
+          if (!csObjectGet(object, name, &value)) value = UNDEFINED_VAL;
+          csVMPop();
+          csVMPush(value);
+          VM_NEXT();
+        }
 
         /* `length` is intrinsic rather than a stored property, so arrays and
          * strings answer it without carrying a table. */
@@ -686,50 +769,57 @@ static InterpretResult run(int baseFrame) {
         if (IS_NATIVE(receiver) && AS_NATIVE(receiver)->statics != NULL) {
           Value statik;
           csVMPop();
-          csVMPush(csTableGet(&AS_NATIVE(receiver)->statics->properties, name, &statik)
+          csVMPush(csObjectGet(AS_NATIVE(receiver)->statics, name, &statik)
                        ? statik
                        : UNDEFINED_VAL);
           VM_NEXT();
         }
 
-        if (!IS_OBJECT(receiver)) {
-          csVMRuntimeError("cannot read property '%s' of %s", name->chars,
-                           csValueTypeName(receiver));
-          return CS_RUNTIME_ERROR;
-        }
-
-        Value value;
-        if (!csTableGet(&AS_OBJECT(receiver)->properties, name, &value)) {
-          /* Reading a missing property gives undefined, as in JavaScript —
-           * checking for absence is too common to make it an error. */
-          csVMPop();
-          csVMPush(UNDEFINED_VAL);
-          VM_NEXT();
-        }
-        csVMPop();
-        csVMPush(value);
-        VM_NEXT();
+        csVMRuntimeError("cannot read property '%s' of %s", name->chars,
+                         csValueTypeName(receiver));
+        return CS_RUNTIME_ERROR;
       }
 
       VM_CASE(OP_SET_PROPERTY) {
         ObjString *name = READ_STRING();
+        PropertyCache *cache = READ_PROPERTY_CACHE();
         Value value = peekStack(0);
         Value receiver = peekStack(1);
+
+        /* Overwriting a property that already exists cannot change the shape
+         * and cannot allocate. It also cannot be a built-in namespace member:
+         * that case errors out below, so such a site never fills its cache. */
+        if (IS_OBJECT(receiver) && AS_OBJECT(receiver)->shape == cache->shape) {
+          AS_OBJECT(receiver)->as.slots.values[cache->slot] = value;
+          vm.stackTop -= 2;
+          csVMPush(value);
+          VM_NEXT();
+        }
 
         if (!IS_OBJECT(receiver)) {
           csVMRuntimeError("cannot set property '%s' of %s", name->chars,
                            csValueTypeName(receiver));
           return CS_RUNTIME_ERROR;
         }
-        if (csTableGet(&vm.globalConsts, name, NULL) &&
-            AS_OBJECT(receiver)->properties.count > 0 &&
-            csTableGet(&AS_OBJECT(receiver)->properties, name, NULL)) {
-          /* Namespace members such as console.log stay put. */
-          csVMRuntimeError("'%s' is a built-in and cannot be replaced", name->chars);
+        if (AS_OBJECT(receiver)->frozen) {
+          csVMRuntimeError("'%s.%s' is a built-in and cannot be replaced",
+                           AS_OBJECT(receiver)->name->chars, name->chars);
           return CS_RUNTIME_ERROR;
         }
 
         csObjectPut(AS_OBJECT(receiver), name, value);
+
+        /* Cache the resulting layout, not the one on the way in. A site that
+         * keeps adding fresh properties fills the cache with a shape it has
+         * already left, but a site that assigns to the same field of many
+         * like-shaped objects — the common one — hits from then on. */
+        ObjObject *target = AS_OBJECT(receiver);
+        int targetSlot;
+        if (target->shape != NULL && csShapeLookup(target->shape, name, &targetSlot)) {
+          cache->shape = target->shape;
+          cache->slot = targetSlot;
+        }
+
         /* Leave the assigned value: assignment is an expression. */
         vm.stackTop -= 2;
         csVMPush(value);
@@ -783,7 +873,7 @@ static InterpretResult run(int baseFrame) {
             return CS_RUNTIME_ERROR;
           }
           Value value;
-          bool found = csTableGet(&AS_OBJECT(target)->properties, AS_STRING(index), &value);
+          bool found = csObjectGet(AS_OBJECT(target), AS_STRING(index), &value);
           vm.stackTop -= 2;
           csVMPush(found ? value : UNDEFINED_VAL);
           VM_NEXT();
@@ -834,6 +924,12 @@ static InterpretResult run(int baseFrame) {
           if (!IS_STRING(index)) {
             csVMRuntimeError("object key must be a string, got %s",
                              csValueTypeName(index));
+            return CS_RUNTIME_ERROR;
+          }
+          /* `console["log"] = f` is the same act as `console.log = f`. */
+          if (AS_OBJECT(target)->frozen) {
+            csVMRuntimeError("'%s.%s' is a built-in and cannot be replaced",
+                             AS_OBJECT(target)->name->chars, AS_STRING(index)->chars);
             return CS_RUNTIME_ERROR;
           }
           csObjectPut(AS_OBJECT(target), AS_STRING(index), value);

@@ -1,0 +1,71 @@
+// Objects must behave identically whichever representation they end up in.
+// Nothing here is about speed — it is about the two representations being
+// indistinguishable from the outside.
+
+// Insertion order is slot order, and survives overwriting.
+const a = { x: 1, y: 2, z: 3 };
+a.y = 20;
+console.log(Object.keys(a).join(","), JSON.stringify(a));
+
+// Adding a property after the fact extends the layout.
+const b = { x: 1 };
+b.y = 2;
+b.z = 3;
+console.log(Object.keys(b).join(","), b.x + b.y + b.z);
+
+// Two objects built the same way share a layout; one built differently does
+// not. Both must read back the same.
+const c = { x: 1, y: 2 };
+const d = { y: 2, x: 1 };
+console.log(c.x === d.x, c.y === d.y, Object.keys(c).join(""), Object.keys(d).join(""));
+
+// A site that sees many different layouts still has to be right.
+function first(o) {
+  return o.x;
+}
+console.log(first({ x: "a" }), first({ y: 0, x: "b" }), first({ p: 1, q: 2, x: "c" }));
+
+// A missing property is undefined, not an error — including on an object whose
+// layout has never held it.
+console.log(a.missing, first({ y: 1 }));
+
+// Past 64 properties an object changes representation. Everything about it
+// must stay the same: order, values, count, serialisation.
+const big = {};
+for (let i = 0; i < 100; i++) {
+  big["k" + i] = i * 2;
+}
+const keys = Object.keys(big);
+console.log(keys.length, keys[0], keys[63], keys[64], keys[99]);
+console.log(big.k0, big.k63, big.k64, big.k99, big.k100);
+
+// Overwriting and re-reading after the conversion.
+big.k0 = -1;
+big.k99 = -2;
+console.log(big.k0, big.k99, Object.values(big).length);
+
+// The conversion must not disturb order.
+console.log(Object.keys(big).slice(62, 67).join(","));
+
+// Objects that reached 64 properties by different routes still compare equal
+// property by property.
+const grown = {};
+for (let i = 0; i < 100; i++) {
+  grown["k" + i] = i * 2;
+}
+grown.k0 = -1;
+grown.k99 = -2;
+console.log(JSON.stringify(grown) === JSON.stringify(big));
+
+// Exactly at the boundary.
+const edge = {};
+for (let i = 0; i < 64; i++) {
+  edge["p" + i] = i;
+}
+console.log(Object.keys(edge).length, edge.p0, edge.p63, edge.p64);
+edge.p64 = 64;
+console.log(Object.keys(edge).length, edge.p64, Object.keys(edge)[64]);
+
+// Nested objects, each with its own layout.
+const outer = { inner: { deep: { value: 42 } }, tag: "t" };
+console.log(outer.inner.deep.value, outer.tag, JSON.stringify(outer));

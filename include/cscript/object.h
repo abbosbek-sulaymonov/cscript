@@ -15,6 +15,7 @@ typedef enum {
   OBJ_UPVALUE,  /* a local captured by a nested function */
   OBJ_CLOSURE,  /* a function paired with the upvalues it captured */
   OBJ_ARRAY,    /* a dense, growable list of values */
+  OBJ_SHAPE,    /* an object layout; never visible from CScript */
 } ObjType;
 
 /* Every heap object starts with this header, so the collector can walk the
@@ -56,19 +57,44 @@ typedef struct ObjNative {
   struct ObjObject *statics;
 } ObjNative;
 
-/* A property bag.
+/* A property bag, in one of two representations.
  *
- * The hash table answers lookups; `keys` records insertion order, because
- * JavaScript has guaranteed it for string keys since ES2015 and real code
- * depends on it when printing or serialising an object. Keeping both means one
- * extra pointer per property, which is cheaper than an ordered map. */
+ * **Shape mode**, the normal one: the layout lives in a shared Shape and the
+ * object holds nothing but a flat array of values. `o.x` on a known shape is a
+ * pointer compare and an indexed load, which is what makes inline caching
+ * worth doing. Insertion order — guaranteed for string keys since ES2015, and
+ * relied on by anything that prints or serialises an object — is slot order,
+ * so it costs nothing to preserve.
+ *
+ * **Dictionary mode**, for objects with more than CS_SHAPE_MAX_SLOTS
+ * properties: a hash table plus a key list, which is what every object used to
+ * be. An object that crosses the threshold converts once and stays converted.
+ *
+ * `shape == NULL` is the discriminator. */
 typedef struct ObjObject {
   Obj obj;
-  Table properties;
-  ObjString **keys;
-  int keyCount;
-  int keyCapacity;
+  Shape *shape;
   ObjString *name; /* e.g. "console", used when printing the object */
+
+  /* Built-in namespaces refuse to be modified.
+   *
+   * JavaScript lets you write `Math.PI = 3` or replace `console.log`, and the
+   * failures that causes are remote from the line that caused them. CScript
+   * treats the standard library as part of the language rather than as an
+   * object that happens to be lying around. User objects are never frozen. */
+  bool frozen;
+  union {
+    struct {
+      Value *values;
+      int capacity;
+    } slots;
+    struct {
+      Table table;
+      ObjString **keys;
+      int count;
+      int capacity;
+    } dictionary;
+  } as;
 } ObjObject;
 
 /* Compiled user code. Every function body is its own chunk, and the top level
@@ -151,8 +177,22 @@ ObjArray *csArrayNew(void);
 /* Convenience for building namespace objects during startup. */
 void csObjectSetProperty(ObjObject *object, const char *name, Value value);
 
+/* Marks a namespace as immutable. Called once, after it is fully built. */
+void csObjectFreeze(ObjObject *object);
+
 /* Sets a property, recording insertion order for a key that is new. */
 void csObjectPut(ObjObject *object, ObjString *key, Value value);
+
+/* Reads a property. Everything outside object.c goes through these three
+ * rather than touching the union, so the two representations stay an
+ * implementation detail. */
+bool csObjectGet(ObjObject *object, ObjString *key, Value *out);
+
+/* Enumeration in insertion order — what Object.keys, JSON.stringify and
+ * printing all need. `index` must be below csObjectCount(). */
+int csObjectCount(const ObjObject *object);
+ObjString *csObjectKeyAt(const ObjObject *object, int index);
+Value csObjectValueAt(ObjObject *object, int index);
 
 void csObjectPrint(Value value);
 void csObjectFree(Obj *object);

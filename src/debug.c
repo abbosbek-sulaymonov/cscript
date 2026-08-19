@@ -38,6 +38,18 @@ static int constantInstruction(const char *name, const Chunk *chunk, int offset)
   return offset + 3;
 }
 
+/* A constant index followed by an inline-cache index. The cache index is
+ * printed because a site that is not hitting is usually easiest to find by
+ * matching it back to the entry in the chunk's cache array. */
+static int cachedInstruction(const char *name, const Chunk *chunk, int offset) {
+  int constant = readConstantIndex(chunk, offset + 1);
+  int cache = readConstantIndex(chunk, offset + 3);
+  printf("%-22s %4d '", name, constant);
+  csValuePrint(chunk->constants.values[constant]);
+  printf("'  cache %d\n", cache);
+  return offset + 5;
+}
+
 static int byteInstruction(const char *name, const Chunk *chunk, int offset) {
   uint8_t operand = chunk->code[offset + 1];
   printf("%-22s %4d\n", name, operand);
@@ -83,17 +95,17 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_DUP:               return simpleInstruction("OP_DUP", offset);
     case OP_DEFINE_GLOBAL:     return constantInstruction("OP_DEFINE_GLOBAL", chunk, offset);
     case OP_DEFINE_CONST:      return constantInstruction("OP_DEFINE_CONST", chunk, offset);
-    case OP_GET_GLOBAL:        return constantInstruction("OP_GET_GLOBAL", chunk, offset);
-    case OP_SET_GLOBAL:        return constantInstruction("OP_SET_GLOBAL", chunk, offset);
+    case OP_GET_GLOBAL:        return cachedInstruction("OP_GET_GLOBAL", chunk, offset);
+    case OP_SET_GLOBAL:        return cachedInstruction("OP_SET_GLOBAL", chunk, offset);
     case OP_GET_LOCAL:         return byteInstruction("OP_GET_LOCAL", chunk, offset);
     case OP_SET_LOCAL:         return byteInstruction("OP_SET_LOCAL", chunk, offset);
     case OP_GET_LOCAL_CONST:   return slotConstantInstruction("OP_GET_LOCAL_CONST", chunk, offset);
     case OP_SET_LOCAL_POP:     return byteInstruction("OP_SET_LOCAL_POP", chunk, offset);
-    case OP_SET_GLOBAL_POP:    return constantInstruction("OP_SET_GLOBAL_POP", chunk, offset);
+    case OP_SET_GLOBAL_POP:    return cachedInstruction("OP_SET_GLOBAL_POP", chunk, offset);
     case OP_INC_LOCAL:         return byteInstruction("OP_INC_LOCAL", chunk, offset);
     case OP_DEC_LOCAL:         return byteInstruction("OP_DEC_LOCAL", chunk, offset);
-    case OP_GET_PROPERTY:      return constantInstruction("OP_GET_PROPERTY", chunk, offset);
-    case OP_SET_PROPERTY:      return constantInstruction("OP_SET_PROPERTY", chunk, offset);
+    case OP_GET_PROPERTY:      return cachedInstruction("OP_GET_PROPERTY", chunk, offset);
+    case OP_SET_PROPERTY:      return cachedInstruction("OP_SET_PROPERTY", chunk, offset);
     case OP_GET_INDEX:         return simpleInstruction("OP_GET_INDEX", offset);
     case OP_ITER_LENGTH:       return simpleInstruction("OP_ITER_LENGTH", offset);
     case OP_SET_INDEX:         return simpleInstruction("OP_SET_INDEX", offset);

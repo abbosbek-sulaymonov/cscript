@@ -21,6 +21,16 @@ console.log(Number("42") + 1);
 console.log(String(42) + "!");
 console.log(Boolean(""));
 
+// The standard library is part of the language, not an object lying around.
+// JavaScript lets you write `Math.PI = 3` or replace `console.log`, and the
+// damage shows up somewhere else entirely. Both are errors here:
+//   Math.PI = 3;                  // 'Math.PI' is a built-in
+//   console.log = null;           // 'console.log' is a built-in
+// A user object with the same key is untouched.
+const mine = { PI: 3 };
+mine.PI = 3.14159;
+console.log(mine.PI);
+
 // `any` is the escape hatch back into dynamic typing.
 let loose: any = 1;
 loose = "now a string";

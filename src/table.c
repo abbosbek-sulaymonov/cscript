@@ -11,6 +11,7 @@ void csTableInit(Table *table) {
   table->count = 0;
   table->capacity = 0;
   table->entries = NULL;
+  table->version = 0;
 }
 
 void csTableFree(Table *table) {
@@ -42,6 +43,7 @@ static Entry *findEntry(Entry *entries, int capacity, ObjString *key) {
 }
 
 static void adjustCapacity(Table *table, int capacity) {
+  table->version++;
   Entry *entries = CS_ALLOCATE(Entry, capacity);
   for (int i = 0; i < capacity; i++) {
     entries[i].key = NULL;
@@ -75,6 +77,12 @@ bool csTableGet(Table *table, ObjString *key, Value *out) {
   return true;
 }
 
+Entry *csTableFindEntry(Table *table, ObjString *key) {
+  if (table->count == 0) return NULL;
+  Entry *entry = findEntry(table->entries, table->capacity, key);
+  return entry->key == NULL ? NULL : entry;
+}
+
 bool csTableSet(Table *table, ObjString *key, Value value) {
   if ((double)(table->count + 1) > (double)table->capacity * TABLE_MAX_LOAD) {
     adjustCapacity(table, CS_GROW_CAPACITY(table->capacity));
@@ -99,6 +107,7 @@ bool csTableDelete(Table *table, ObjString *key) {
   /* Tombstone: NULL key with a non-null value, so probes keep walking. */
   entry->key = NULL;
   entry->value = BOOL_VAL(true);
+  table->version++;
   return true;
 }
 

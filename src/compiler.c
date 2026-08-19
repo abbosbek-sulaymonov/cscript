@@ -147,6 +147,23 @@ static void emitConstantOp(uint8_t opcode, int index, int line) {
   emitConstantOperand(index, line);
 }
 
+/* Opcodes that carry an inline cache take a second 16-bit operand: the index
+ * of this site's entry in the chunk's cache array. Every site gets its own, so
+ * one `o.x` in a loop never fights with a different `o.x` elsewhere. */
+static void emitPropertyOp(uint8_t opcode, int index, int line) {
+  emitConstantOp(opcode, index, line);
+  int cache = csChunkAddPropertyCache(currentChunk());
+  if (cache > UINT16_MAX) errorAt(line, "too many property sites in one function");
+  emitConstantOperand(cache, line);
+}
+
+static void emitGlobalOp(uint8_t opcode, int index, int line) {
+  emitConstantOp(opcode, index, line);
+  int cache = csChunkAddGlobalCache(currentChunk());
+  if (cache > UINT16_MAX) errorAt(line, "too many global sites in one function");
+  emitConstantOperand(cache, line);
+}
+
 /* Adds a value to the constant pool and returns its index, reusing an existing
  * entry when one matches. Identifier names repeat constantly, so deduplicating
  * keeps the pool inside the one-byte operand limit for far longer. */
@@ -511,7 +528,7 @@ static void compileIdentifierLoad(const char *name, int length, int line) {
     return;
   }
 
-  emitConstantOp(OP_GET_GLOBAL, identifierConstant(name, length, line), line);
+  emitGlobalOp(OP_GET_GLOBAL, identifierConstant(name, length, line), line);
 }
 
 /* `discard` is set when the assignment's value is thrown away, which lets the
@@ -523,7 +540,7 @@ static void compileAssign(const AstNode *node, bool discard) {
   if (target->type == AST_PROPERTY) {
     compileNode(target->as.property.object);
     compileNode(node->as.assign.value);
-    emitConstantOp(OP_SET_PROPERTY, identifierConstant(target->as.property.name, target->as.property.length,
+    emitPropertyOp(OP_SET_PROPERTY, identifierConstant(target->as.property.name, target->as.property.length,
                                  assignLine),
               assignLine);
     return;
@@ -571,7 +588,7 @@ static void compileAssign(const AstNode *node, bool discard) {
   }
 
   compileNode(node->as.assign.value);
-  emitConstantOp(discard ? OP_SET_GLOBAL_POP : OP_SET_GLOBAL, identifierConstant(name, length, line), line);
+  emitGlobalOp(discard ? OP_SET_GLOBAL_POP : OP_SET_GLOBAL, identifierConstant(name, length, line), line);
 }
 
 /* ++x / x++ / --x / x--
@@ -614,7 +631,7 @@ static void compileUpdate(const AstNode *node) {
   } else if (upvalue != -1) {
     emitBytes(OP_SET_UPVALUE, (uint8_t)upvalue, line);
   } else {
-    emitConstantOp(OP_SET_GLOBAL, nameConstant, line);
+    emitGlobalOp(OP_SET_GLOBAL, nameConstant, line);
   }
 
   /* The store leaves the new value on top; postfix wants the old one. */
@@ -675,7 +692,7 @@ static void compileDestructure(const AstNode *node) {
     } else {
       emitBytes(OP_GET_LOCAL, (uint8_t)sourceSlot, line);
       if (isObject) {
-        emitConstantOp(OP_GET_PROPERTY,
+        emitPropertyOp(OP_GET_PROPERTY,
                        identifierConstant(binding->key, binding->keyLength, line),
                        line);
       } else {
@@ -1240,7 +1257,7 @@ static void compileNode(const AstNode *node) {
 
     case AST_PROPERTY:
       compileNode(node->as.property.object);
-      emitConstantOp(OP_GET_PROPERTY, identifierConstant(node->as.property.name, node->as.property.length,
+      emitPropertyOp(OP_GET_PROPERTY, identifierConstant(node->as.property.name, node->as.property.length,
                                    line),
                 line);
       break;
@@ -1312,7 +1329,7 @@ static void compileNode(const AstNode *node) {
       if (hasSpread) {
         if (callee->type == AST_PROPERTY) {
           compileNode(callee->as.property.object);
-          emitConstantOp(OP_GET_PROPERTY,
+          emitPropertyOp(OP_GET_PROPERTY,
                          identifierConstant(callee->as.property.name,
                                             callee->as.property.length, line),
                          line);

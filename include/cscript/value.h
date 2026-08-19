@@ -27,6 +27,7 @@
 
 typedef struct Obj Obj;
 typedef struct ObjString ObjString;
+typedef struct Shape Shape;
 
 /* NaN-boxing assumes 64-bit doubles and pointers that fit in 48 bits, which is
  * true of x86-64 and arm64 but not of every target. */

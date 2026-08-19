@@ -256,10 +256,9 @@ static bool sbAppendObject(StringBuilder *builder, ObjObject *object) {
   if (!sbAppend(builder, "{", 1)) return false;
 
   bool first = true;
-  for (int i = 0; i < object->keyCount; i++) {
-    ObjString *key = object->keys[i];
-    Value value;
-    if (!csTableGet(&object->properties, key, &value)) continue;
+  for (int i = 0; i < csObjectCount(object); i++) {
+    ObjString *key = csObjectKeyAt(object, i);
+    Value value = csObjectValueAt(object, i);
 
     if (!sbAppend(builder, first ? " " : ", ", first ? 1 : 2)) return false;
     first = false;

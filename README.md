@@ -73,7 +73,7 @@ The full list, with the reasoning for each, is in
 
 ## Status
 
-**v0.12.0.** The language is feature-complete for everyday code: objects and
+**v0.13.0.** The language is feature-complete for everyday code: objects and
 arrays, functions and closures, gradual typing with inference, control flow,
 `switch`, template literals and the conditional operator. The pipeline is lexer
 → parser → type checker → bytecode compiler → stack VM, with a mark-sweep
@@ -217,13 +217,14 @@ Measured on an Apple M3 Pro, best of seven, via `bench/run.sh`.
 ```
 benchmark             cscript         node      ratio
 ---------------------------------------------------------
-arrays                   91 ms         68 ms       1.3x
-loop_empty              194 ms         65 ms       3.0x
-locals                  191 ms         67 ms       2.9x
-globals                 246 ms         66 ms       3.7x
-strings                 259 ms         61 ms       4.2x
-loop_arith              265 ms         69 ms       3.8x
-branches                319 ms         68 ms       4.7x
+arrays                   89 ms         66 ms       1.3x
+locals                  191 ms         66 ms       2.9x
+loop_empty              196 ms         65 ms       3.0x
+globals                 228 ms         66 ms       3.5x
+strings                 259 ms         62 ms       4.2x
+loop_arith              279 ms         69 ms       4.0x
+branches                233 ms         67 ms       3.5x
+properties              364 ms         69 ms       5.3x
 
 native reference (loop_arith):  Go 27 ms   ·   C -O2 26 ms
 ```
@@ -247,6 +248,13 @@ worth more than the summary:
 - **NaN-boxing turned out to be worth nothing for speed either** — but it
   halves memory, taking a million-element array from 18.9 MB to 11.3 MB. It is
   filed as a memory optimisation for that reason.
+- **Hidden classes and inline caches gave 11–13%**, not the 2× the technique is
+  usually credited with. The reason is worth stating: CScript interns every
+  property name and precomputes its hash, so the lookup being replaced was
+  already one masked index and one pointer compare. The cache removes real
+  work, but there was less of it there than the technique assumes. Property
+  reads are also only about a fifth of the instructions in a property-heavy
+  loop, which bounds what any change to them can do.
 
 - **Superinstructions worked**, and were the first optimisation picked from a
   profile rather than from intuition. Fusing the three hottest opcode pairs cut
@@ -367,7 +375,8 @@ cscript/
 | **11 ✅** | `**`, arrow functions, `for...of` | — |
 | **12 ✅** | `try` / `catch` / `finally` / `throw` | — |
 | **13 ✅** | Destructuring and spread | — |
-| next | Classes and modules, or inline caches for globals | — |
+| **14 ✅** | Hidden classes and inline caches for properties and globals | — |
+| next | Classes and `new`, then modules | — |
 
 ---
 

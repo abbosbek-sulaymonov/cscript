@@ -152,10 +152,18 @@ backwards — which is also what makes an inner declaration shadow an outer one 
 and emits `OP_GET_LOCAL` with the stack slot number. At run time that is a
 single array index.
 
-Globals still go through a hash lookup, because a global's binding can be
-created by code the compiler has not seen yet. That asymmetry is deliberate and
-worth knowing when writing hot code: **loop counters and accumulators should be
-`let` inside the loop, not globals.**
+Globals cannot be resolved that way, because a global's binding can be created
+by code the compiler has not seen yet. They are instead resolved *once* and
+then remembered: each global site carries an inline cache holding the table
+entry it found, alongside the version the table had at the time. A rehash or a
+delete bumps the version and the site looks the name up again; nothing else
+can move an entry, so in the ordinary case — a global declared before it is
+used and never removed — the cache holds for the life of the program and the
+instruction is a version compare and a load.
+
+That still leaves globals behind locals, because a local is an array index with
+nothing to compare. The advice stands, if less strongly than before: **loop
+counters and accumulators should be `let` inside the loop.**
 
 Two details fall out of the design:
 
@@ -173,18 +181,94 @@ That is why `typeof console` is `"object"` and `typeof Math.floor` is
 `"function"`, and why the same machinery will carry user-defined objects in the
 next milestone without redesign.
 
-Three heap types exist today:
+`blackenObject` gained real work here. When it did, the temporary-root
+discipline described above stopped being theoretical: `csObjectSetProperty`
+allocates twice (interning the key, then possibly growing the storage), and both
+the receiver and the value have to stay rooted across it.
+
+The standard library is **frozen** once it is built. `Math.PI = 3` and
+`console.log = f` are errors at the line that writes them. This is a deliberate
+divergence: in JavaScript both succeed, and the failure surfaces somewhere else
+entirely. User objects are never frozen, including one whose key happens to
+match a built-in name.
+
+## Shapes: how an object stores a property
+
+An object could be a hash table, and was one until v0.13.0. But the same
+literal written inside a loop produces a million objects with identical
+layouts, and the name being looked up was known when the code was compiled.
+
+A **shape** captures the layout once and shares it. The object holds nothing
+but a flat array of values; the shape says which index each name lives at.
+Shapes form a transition tree, and adding the same key to the same parent
+always finds the same child, so `{}`, `{x}` and `{x, y}` are three nodes no
+matter how many objects walk the path:
+
+```
+root ──x──▶ {x} ──y──▶ {x,y}
+     └──a──▶ {a}
+```
+
+Insertion order — which JavaScript guarantees for string keys, and which
+anything that prints or serialises an object depends on — is slot order, so it
+costs nothing to preserve.
+
+Three things had to be got right, and each is a place the design could have
+quietly failed:
+
+- **The transition edges are weak.** A parent does not keep a child alive.
+  Otherwise the root, which is a permanent VM root, would pin every layout any
+  program ever built. The collector prunes edges to shapes nothing else
+  references — which in turn means a shape freshly returned from a transition
+  is held by nothing until an object adopts it, and must be rooted across any
+  allocation in between. Missing that is a use-after-free that only `test-gc`
+  finds.
+- **Publication order.** The collector sizes its walk of an object's slots from
+  the shape, so an object keeps its old shape until the new slot actually holds
+  a value; and a shape keeps `slotCount` at zero until its key array exists.
+  Every line in between can collect.
+- **Dictionary mode.** A shape chain costs O(n²): each node copies its parent's
+  index map and key list to gain one entry. That is right for the handful of
+  fields a record has and a disaster for an object filled key by key in a loop.
+  Past 64 properties an object converts to a plain hash table, once, for good.
+  Inline caches simply miss on it.
+
+## Inline caches
+
+Both property and global sites carry a cache, stored in a side array on the
+chunk rather than patched into the bytecode. The collector has to find every
+cached shape, and walking a flat array is much safer than decoding instructions
+to locate operands.
+
+A property cache holds a shape and a slot. The hit test is one pointer compare;
+on a hit the property is an indexed load.
+
+The caches are **monomorphic** — one entry per site, replaced whenever a
+different shape arrives. A site that genuinely sees many shapes falls back to
+the hash lookup, which is exactly what it cost before caches existed, so the
+worst case is no worse.
+
+Two details that are not optional:
+
+- An empty cache cannot be represented by a null shape, because that is what a
+  dictionary-mode object's shape is — an unfilled cache would report a hit on
+  the first dictionary object to reach it and then index a slot array that no
+  longer exists. A sentinel shape that no object is ever given keeps the hit
+  test at a single compare.
+- The fast path for assigning to a property skips the frozen check, which is
+  sound only because a write to a frozen object errors before that site ever
+  gets to fill its cache.
+
+Three heap types became six:
 
 | Type | Holds | Marked by the collector as |
 | --- | --- | --- |
 | `ObjString` | interned characters, stored inline | a leaf — no outgoing references |
-| `ObjNative` | a C function pointer and its name | its name |
-| `ObjObject` | a property table and a name | its name and every property |
-
-`blackenObject` gained real work here. When it did, the temporary-root discipline
-described above stopped being theoretical: `csObjectSetProperty` allocates twice
-(interning the key, then possibly growing the table), and both the receiver and
-the value have to stay rooted across it.
+| `ObjNative` | a C function pointer, its name, optional statics | its name and statics |
+| `ObjObject` | a shape and a flat slot array, or a table | its name, shape and live slots |
+| `Shape` | a layout: parent, key, index map, transitions | parent, key and keys — *not* transitions |
+| `ObjArray` | a dense `ValueArray` | every element |
+| `ObjFunction` | a chunk, its constants and its caches | its name and constant pool |
 
 ## Performance
 

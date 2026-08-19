@@ -1,0 +1,7 @@
+// The standard library is part of the language, not an object lying around.
+// A user object whose key happens to match a built-in name is unaffected.
+const o = { PI: 1 };
+o.PI = 2;
+console.log(o.PI);
+
+Math.PI = 3;

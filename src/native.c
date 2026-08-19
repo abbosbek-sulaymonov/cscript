@@ -160,10 +160,9 @@ static bool objectEnumerate(int argCount, Value *args, Value *result, int mode,
   ObjArray *out = csArrayNew();
   csPushTempRoot((Obj *)out);
 
-  for (int i = 0; i < object->keyCount; i++) {
-    ObjString *key = object->keys[i];
-    Value value;
-    if (!csTableGet(&object->properties, key, &value)) continue;
+  for (int i = 0; i < csObjectCount(object); i++) {
+    ObjString *key = csObjectKeyAt(object, i);
+    Value value = csObjectValueAt(object, i);
 
     if (mode == 0) {
       csValueArrayWrite(&out->elements, OBJ_VAL(key));
@@ -211,11 +210,8 @@ static bool objectAssign(Value receiver, int argCount, Value *args, Value *resul
   for (int i = 1; i < argCount; i++) {
     if (!IS_OBJECT(args[i])) continue;
     ObjObject *source = AS_OBJECT(args[i]);
-    for (int j = 0; j < source->keyCount; j++) {
-      Value value;
-      if (csTableGet(&source->properties, source->keys[j], &value)) {
-        csObjectPut(target, source->keys[j], value);
-      }
+    for (int j = 0; j < csObjectCount(source); j++) {
+      csObjectPut(target, csObjectKeyAt(source, j), csObjectValueAt(source, j));
     }
   }
 
@@ -229,7 +225,7 @@ static bool objectHasOwn(Value receiver, int argCount, Value *args, Value *resul
     csVMRuntimeError("Object.hasOwn expects an object and a string");
     return false;
   }
-  *result = BOOL_VAL(csTableGet(&AS_OBJECT(args[0])->properties, AS_STRING(args[1]), NULL));
+  *result = BOOL_VAL(csObjectGet(AS_OBJECT(args[0]), AS_STRING(args[1]), NULL));
   return true;
 }
 
@@ -484,6 +480,8 @@ static void defineGlobal(const char *name, Value value) {
 }
 
 /* Builds a namespace object and installs it as a global. */
+/* Namespaces are frozen at the end of csNativesInstall rather than here,
+ * because they have no members yet. */
 static ObjObject *defineNamespace(const char *name) {
   ObjObject *object = csObjectNew(name);
   csPushTempRoot((Obj *)object);
@@ -599,4 +597,14 @@ void csNativesInstall(void) {
 
   defineGlobal("NaN", NUMBER_VAL(NAN));
   defineGlobal("Infinity", NUMBER_VAL(INFINITY));
+
+  /* Sealed only now that every member is in place. From here the standard
+   * library is read-only: `Math.PI = 3` and `console.log = f` are errors at
+   * the line that writes them rather than mysteries somewhere later. */
+  csObjectFreeze(console);
+  csObjectFreeze(mathObject);
+  csObjectFreeze(objectNamespace);
+  csObjectFreeze(arrayNamespace);
+  csObjectFreeze(numberNamespace);
+  csObjectFreeze(jsonNamespace);
 }

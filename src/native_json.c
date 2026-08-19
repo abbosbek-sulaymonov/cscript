@@ -117,10 +117,9 @@ static bool jsonWrite(JsonBuffer *out, Value value) {
     ObjObject *object = AS_OBJECT(value);
     jsonAppend(out, "{", 1);
     bool first = true;
-    for (int i = 0; i < object->keyCount; i++) {
-      ObjString *key = object->keys[i];
-      Value property;
-      if (!csTableGet(&object->properties, key, &property)) continue;
+    for (int i = 0; i < csObjectCount(object); i++) {
+      ObjString *key = csObjectKeyAt(object, i);
+      Value property = csObjectValueAt(object, i);
 
       /* A property with no JSON form is omitted entirely. */
       JsonBuffer probe = {NULL, 0, 0, false};

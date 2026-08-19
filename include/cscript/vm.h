@@ -81,6 +81,20 @@ typedef struct {
   Table arrayMethods;
   Table stringMethods;
 
+  /* The layout every object starts from. Permanently rooted, so the shape
+   * tree hanging off it is only as large as the layouts still in use — the
+   * transition edges are weak and get pruned. */
+  Shape *emptyShape;
+
+  /* A shape deliberately given to no object, used as the "never filled" value
+   * in an inline cache.
+   *
+   * NULL cannot serve: that is what a dictionary-mode object's shape is, so an
+   * empty cache would report a hit on the first dictionary object to reach it
+   * and then index a slot array that no longer exists. A sentinel keeps the
+   * hit test at a single compare. */
+  Shape *absentShape;
+
   Obj *objects; /* head of the intrusive list of every live object */
 
   /* Tri-colour marking worklist. Deliberately allocated with raw realloc so a
