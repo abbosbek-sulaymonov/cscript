@@ -124,6 +124,7 @@ static BinaryOp binaryOpFor(TokenType type) {
 static AstNode *parseExpression(Parser *parser);
 static AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence);
 static AstNode *parsePrimary(Parser *parser);
+static AstNode *parseFunction(Parser *parser, bool requireName);
 
 /* Decodes a string literal's escape sequences into a fresh arena buffer.
  * `start`/`length` cover the lexeme including both quotes. */
@@ -269,6 +270,12 @@ static AstNode *parsePrimary(Parser *parser) {
     return parseCallSuffixes(parser, identifier);
   }
 
+  if (matchToken(parser, TOKEN_FUNCTION)) {
+    AstNode *function = parseFunction(parser, false);
+    if (function == NULL) return NULL;
+    return parseCallSuffixes(parser, function);
+  }
+
   if (matchToken(parser, TOKEN_LEFT_PAREN)) {
     AstNode *inner = parseExpression(parser);
     consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after expression");
@@ -395,6 +402,87 @@ static AstNode *parseExpression(Parser *parser) {
 
 static AstNode *parseStatement(Parser *parser);
 
+/* Parses `: TypeName` if present. Returns false only on a malformed one. */
+static bool parseTypeAnnotation(Parser *parser, TypeKind *type, bool *present) {
+  *present = false;
+  *type = TYPE_ANY;
+  if (!matchToken(parser, TOKEN_COLON)) return true;
+
+  /* `null` and `undefined` are keywords, so they do not arrive as identifiers
+   * even though they are perfectly good type names. */
+  if (!matchToken(parser, TOKEN_NULL) && !matchToken(parser, TOKEN_UNDEFINED)) {
+    consume(parser, TOKEN_IDENTIFIER, "expected a type name after ':'");
+  }
+  if (parser->diag->panicMode) return false;
+
+  if (!csTypeFromName(parser->previous.start, parser->previous.length, type)) {
+    csDiagnosticError(parser->diag, parser->previous.line, parser->previous.start,
+                      parser->previous.length, "unknown type '%.*s'",
+                      parser->previous.length, parser->previous.start);
+    return false;
+  }
+  *present = true;
+  return true;
+}
+
+static AstNode *parseBlock(Parser *parser);
+
+/* `function name(a: number, b): number { ... }`
+ *
+ * A named declaration binds the closure; an anonymous one is an expression. */
+static AstNode *parseFunction(Parser *parser, bool requireName) {
+  int line = parser->previous.line;
+
+  const char *name = NULL;
+  int nameLength = 0;
+  if (check(parser, TOKEN_IDENTIFIER)) {
+    advanceToken(parser);
+    name = parser->previous.start;
+    nameLength = parser->previous.length;
+  } else if (requireName) {
+    errorAtCurrent(parser, "expected a function name");
+    return NULL;
+  }
+
+  AstNode *function = csAstFunction(parser->arena, line, name, nameLength);
+
+  consume(parser, TOKEN_LEFT_PAREN, "expected '(' after the function name");
+  if (parser->diag->panicMode) return NULL;
+
+  if (!check(parser, TOKEN_RIGHT_PAREN)) {
+    do {
+      consume(parser, TOKEN_IDENTIFIER, "expected a parameter name");
+      if (parser->diag->panicMode) return NULL;
+
+      const char *paramName = parser->previous.start;
+      int paramLength = parser->previous.length;
+
+      TypeKind paramType;
+      bool annotated;
+      if (!parseTypeAnnotation(parser, &paramType, &annotated)) return NULL;
+
+      csAstFunctionAddParam(parser->arena, function, paramName, paramLength, paramType,
+                            annotated);
+    } while (matchToken(parser, TOKEN_COMMA));
+  }
+  consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the parameters");
+  if (parser->diag->panicMode) return NULL;
+
+  TypeKind returnType;
+  bool hasReturnAnnotation;
+  if (!parseTypeAnnotation(parser, &returnType, &hasReturnAnnotation)) return NULL;
+  function->as.function.returnType = returnType;
+  function->as.function.hasReturnAnnotation = hasReturnAnnotation;
+
+  consume(parser, TOKEN_LEFT_BRACE, "expected '{' to open the function body");
+  if (parser->diag->panicMode) return NULL;
+
+  function->as.function.body = parseBlock(parser);
+  if (function->as.function.body == NULL) return NULL;
+
+  return function;
+}
+
 /* `let x = 1;` / `const y = 2;` — `var` is rejected in parseStatement. */
 static AstNode *parseVarDeclaration(Parser *parser, bool isConst) {
   int line = parser->previous.line;
@@ -408,25 +496,9 @@ static AstNode *parseVarDeclaration(Parser *parser, bool isConst) {
   /* Optional TypeScript-style annotation. Leaving it off is not the same as
    * writing `: any` — an unannotated declaration takes its initialiser's type,
    * so most code is checked without being annotated. */
-  TypeKind declaredType = TYPE_ANY;
-  bool hasAnnotation = false;
-  if (matchToken(parser, TOKEN_COLON)) {
-    /* `null` and `undefined` are keywords, so they do not arrive as
-     * identifiers even though they are perfectly good type names. */
-    if (!matchToken(parser, TOKEN_NULL) && !matchToken(parser, TOKEN_UNDEFINED)) {
-      consume(parser, TOKEN_IDENTIFIER, "expected a type name after ':'");
-    }
-    if (parser->diag->panicMode) return NULL;
-
-    if (!csTypeFromName(parser->previous.start, parser->previous.length,
-                        &declaredType)) {
-      csDiagnosticError(parser->diag, parser->previous.line, parser->previous.start,
-                        parser->previous.length, "unknown type '%.*s'",
-                        parser->previous.length, parser->previous.start);
-      return NULL;
-    }
-    hasAnnotation = true;
-  }
+  TypeKind declaredType;
+  bool hasAnnotation;
+  if (!parseTypeAnnotation(parser, &declaredType, &hasAnnotation)) return NULL;
 
   AstNode *initializer = NULL;
   if (matchToken(parser, TOKEN_EQUAL)) {
@@ -543,11 +615,8 @@ static AstNode *parseFor(Parser *parser) {
  * rejected. */
 static const char *notImplementedMessage(TokenType type) {
   switch (type) {
-    case TOKEN_FUNCTION:
-    case TOKEN_RETURN:
-      return "functions are not implemented yet (milestone 3)";
     case TOKEN_LEFT_BRACKET:
-      return "arrays are not implemented yet (milestone 4)";
+      return "arrays are not implemented yet (milestone 6)";
     default:
       return NULL;
   }
@@ -569,6 +638,20 @@ static AstNode *parseStatement(Parser *parser) {
   if (notImplemented != NULL) {
     errorAtCurrent(parser, notImplemented);
     return NULL;
+  }
+
+  if (matchToken(parser, TOKEN_FUNCTION)) return parseFunction(parser, true);
+
+  if (matchToken(parser, TOKEN_RETURN)) {
+    int returnLine = parser->previous.line;
+    AstNode *value = NULL;
+    if (!check(parser, TOKEN_SEMICOLON)) {
+      value = parseExpression(parser);
+      if (value == NULL) return NULL;
+    }
+    consume(parser, TOKEN_SEMICOLON, "expected ';' after return");
+    if (parser->diag->panicMode) return NULL;
+    return csAstReturn(parser->arena, returnLine, value);
   }
 
   if (matchToken(parser, TOKEN_LET)) return parseVarDeclaration(parser, false);

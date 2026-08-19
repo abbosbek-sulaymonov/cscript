@@ -18,13 +18,31 @@ typedef enum {
 } InterpretResult;
 
 #define CS_TEMP_ROOTS_MAX 64
+#define CS_FRAMES_MAX 64
+
+/* Defined in object.h, which includes this header for Value. */
+struct ObjClosure;
+struct ObjUpvalue;
+
+/* One active call. `slots` points at the callee's window into the value stack:
+ * slot 0 is the function itself, then the arguments, then its locals. That is
+ * why a local's compile-time slot index is all the VM needs. */
+typedef struct {
+  struct ObjClosure *closure;
+  const uint8_t *ip;
+  Value *slots;
+} CallFrame;
 
 typedef struct {
-  const Chunk *chunk;
-  const uint8_t *ip; /* next instruction to read */
+  CallFrame frames[CS_FRAMES_MAX];
+  int frameCount;
 
   Value stack[CS_STACK_MAX];
   Value *stackTop;
+
+  /* Upvalues pointing at slots that are still live on the stack, kept sorted
+   * by descending slot so closing a scope can stop early. */
+  struct ObjUpvalue *openUpvalues;
 
   Table globals;
   /* Names bound by `const` or by a built-in. Used as a set; the values are

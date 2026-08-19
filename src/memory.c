@@ -88,13 +88,18 @@ static void markRoots(void) {
     csMarkValue(*slot);
   }
 
-  /* The chunk being executed owns its constant pool, and OP_CONSTANT can push
-   * any of those literals at any point, so every one of them is live for the
-   * whole run — not just the ones currently on the stack. */
-  if (vm.chunk != NULL) {
-    for (int i = 0; i < vm.chunk->constants.count; i++) {
-      csMarkValue(vm.chunk->constants.values[i]);
-    }
+  /* Every active call keeps its closure alive, and a closure keeps its function
+   * and therefore its whole constant pool alive — OP_CONSTANT can push any
+   * literal at any point, so all of them are live for the length of the call. */
+  for (int i = 0; i < vm.frameCount; i++) {
+    csMarkObject((Obj *)vm.frames[i].closure);
+  }
+
+  /* Upvalues still pointing into the stack. Their `closed` field is empty while
+   * they are open, but the object itself must survive. */
+  for (ObjUpvalue *upvalue = vm.openUpvalues; upvalue != NULL;
+       upvalue = upvalue->next) {
+    csMarkObject((Obj *)upvalue);
   }
 
   csTableMark(&vm.globals);

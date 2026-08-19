@@ -40,6 +40,13 @@
   X(OP_GET_PROPERTY)      /* [const]  pop object, push its named property   */ \
   X(OP_CALL)              /* [argc]   call the value below the arguments    */ \
                                                                               \
+  /* Closures. OP_CLOSURE is followed by one (isLocal, index) pair per         \
+   * upvalue, describing where each capture comes from. */                     \
+  X(OP_CLOSURE)           /* [const] then 2 bytes per upvalue               */ \
+  X(OP_GET_UPVALUE)       /* [slot]   push the captured variable            */ \
+  X(OP_SET_UPVALUE)       /* [slot]   assign to it, leaving the value       */ \
+  X(OP_CLOSE_UPVALUE)     /*          move the top local off the stack      */ \
+                                                                              \
   X(OP_ADD)               /* numeric add, or string concat if either is a string */ \
   /* Emitted only where the type checker proved both operands are numbers, so \
    * it needs no type dispatch at all. This is the first place a type          \

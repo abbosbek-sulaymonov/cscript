@@ -99,7 +99,11 @@ const char *csValueTypeName(Value value) {
     case VAL_NUMBER:    return "number";
     case VAL_OBJ:
       if (IS_STRING(value)) return "string";
-      if (IS_NATIVE(value)) return "function";
+      /* Natives, user functions and closures are all callable, so `typeof`
+       * cannot tell them apart — which matches JavaScript. */
+      if (IS_NATIVE(value) || IS_FUNCTION(value) || IS_CLOSURE(value)) {
+        return "function";
+      }
       return "object";
   }
   return "undefined";
@@ -161,7 +165,7 @@ char *csValueToCString(Value value, size_t *lengthOut) {
         ObjString *string = AS_STRING(value);
         text = string->chars;
         length = (size_t)string->length;
-      } else if (IS_NATIVE(value)) {
+      } else if (IS_NATIVE(value) || IS_FUNCTION(value) || IS_CLOSURE(value)) {
         text = "[Function]";
         length = 10;
       } else {

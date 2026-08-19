@@ -93,6 +93,39 @@ ObjObject *csObjectNew(const char *name) {
   return object;
 }
 
+ObjFunction *csFunctionNew(void) {
+  ObjFunction *function = CS_ALLOCATE(ObjFunction, 1);
+  registerObject((Obj *)function, OBJ_FUNCTION);
+  function->arity = 0;
+  function->upvalueCount = 0;
+  function->name = NULL;
+  csChunkInit(&function->chunk);
+  return function;
+}
+
+ObjUpvalue *csUpvalueNew(Value *slot) {
+  ObjUpvalue *upvalue = CS_ALLOCATE(ObjUpvalue, 1);
+  registerObject((Obj *)upvalue, OBJ_UPVALUE);
+  upvalue->location = slot;
+  upvalue->closed = NULL_VAL;
+  upvalue->next = NULL;
+  return upvalue;
+}
+
+ObjClosure *csClosureNew(ObjFunction *function) {
+  /* Allocate the upvalue array first and clear it: if the closure allocation
+   * triggers a collection, the collector must not walk uninitialised slots. */
+  ObjUpvalue **upvalues = CS_ALLOCATE(ObjUpvalue *, function->upvalueCount);
+  for (int i = 0; i < function->upvalueCount; i++) upvalues[i] = NULL;
+
+  ObjClosure *closure = CS_ALLOCATE(ObjClosure, 1);
+  registerObject((Obj *)closure, OBJ_CLOSURE);
+  closure->function = function;
+  closure->upvalues = upvalues;
+  closure->upvalueCount = function->upvalueCount;
+  return closure;
+}
+
 void csObjectSetProperty(ObjObject *object, const char *name, Value value) {
   /* Both the interning and the table insert can allocate, so the receiver and
    * the value have to stay rooted for the whole operation. */
@@ -108,6 +141,14 @@ void csObjectSetProperty(ObjObject *object, const char *name, Value value) {
   csPopTempRoot();
 }
 
+static void printFunctionName(const ObjFunction *function) {
+  if (function->name == NULL) {
+    printf("[Function: <script>]");
+  } else {
+    printf("[Function: %s]", function->name->chars);
+  }
+}
+
 void csObjectPrint(Value value) {
   switch (OBJ_TYPE(value)) {
     case OBJ_STRING:
@@ -119,6 +160,16 @@ void csObjectPrint(Value value) {
     case OBJ_OBJECT:
       printf("[Object: %s]", AS_OBJECT(value)->name->chars);
       break;
+    case OBJ_FUNCTION:
+      printFunctionName((ObjFunction *)AS_OBJ(value));
+      break;
+    case OBJ_CLOSURE:
+      printFunctionName(AS_CLOSURE(value)->function);
+      break;
+    case OBJ_UPVALUE:
+      /* Never reachable from user code; only the collector sees these. */
+      printf("[upvalue]");
+      break;
   }
 }
 
@@ -126,13 +177,41 @@ void csObjectBlacken(Obj *object) {
   switch (object->type) {
     case OBJ_STRING:
       break; /* no outgoing references */
+
     case OBJ_NATIVE:
       csMarkObject((Obj *)((ObjNative *)object)->name);
       break;
+
     case OBJ_OBJECT: {
       ObjObject *instance = (ObjObject *)object;
       csMarkObject((Obj *)instance->name);
       csTableMark(&instance->properties);
+      break;
+    }
+
+    case OBJ_FUNCTION: {
+      /* A function owns its constant pool, so every literal in its body is
+       * live for as long as the function is. */
+      ObjFunction *function = (ObjFunction *)object;
+      csMarkObject((Obj *)function->name);
+      for (int i = 0; i < function->chunk.constants.count; i++) {
+        csMarkValue(function->chunk.constants.values[i]);
+      }
+      break;
+    }
+
+    case OBJ_UPVALUE:
+      /* `closed` holds the value once the variable has left the stack. While
+       * the upvalue is still open it is empty, and the stack root covers it. */
+      csMarkValue(((ObjUpvalue *)object)->closed);
+      break;
+
+    case OBJ_CLOSURE: {
+      ObjClosure *closure = (ObjClosure *)object;
+      csMarkObject((Obj *)closure->function);
+      for (int i = 0; i < closure->upvalueCount; i++) {
+        csMarkObject((Obj *)closure->upvalues[i]);
+      }
       break;
     }
   }
@@ -152,6 +231,26 @@ void csObjectFree(Obj *object) {
       ObjObject *instance = (ObjObject *)object;
       csTableFree(&instance->properties);
       CS_FREE(ObjObject, object);
+      break;
+    }
+
+    case OBJ_FUNCTION: {
+      ObjFunction *function = (ObjFunction *)object;
+      csChunkFree(&function->chunk);
+      CS_FREE(ObjFunction, object);
+      break;
+    }
+
+    case OBJ_UPVALUE:
+      /* The captured value belongs to whoever else still references it. */
+      CS_FREE(ObjUpvalue, object);
+      break;
+
+    case OBJ_CLOSURE: {
+      /* The function is shared between closures, so only the array goes. */
+      ObjClosure *closure = (ObjClosure *)object;
+      CS_FREE_ARRAY(ObjUpvalue *, closure->upvalues, closure->upvalueCount);
+      CS_FREE(ObjClosure, object);
       break;
     }
   }

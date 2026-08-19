@@ -1,0 +1,30 @@
+function add(a, b) {
+  return a + b;
+}
+console.log(add(2, 3));
+
+// Recursion.
+function fib(n) {
+  if (n < 2) {
+    return n;
+  }
+  return fib(n - 1) + fib(n - 2);
+}
+console.log(fib(15));
+
+// Falling off the end returns undefined.
+function nothing() {
+  let unused = 1;
+}
+console.log(nothing());
+
+// A function is a value.
+const alias = add;
+console.log(alias(10, 5));
+console.log(typeof add);
+
+// Function expressions.
+const square = function (n) {
+  return n * n;
+};
+console.log(square(7));

@@ -9,18 +9,41 @@
 /* A variable the checker knows about. The scope stack mirrors the compiler's,
  * deliberately: keeping the two passes independent means the compiler can be
  * changed without silently altering what is or is not an error. */
+/* A function's declared shape. Parameter and return types are kept here rather
+ * than in TypeKind, which stays a flat enum: a full type tree is only worth
+ * building once object shapes and generics need one. */
+typedef struct {
+  TypeKind returnType;
+  bool hasReturnAnnotation;
+  int paramCount;
+  TypeKind paramTypes[UINT8_MAX];
+} Signature;
+
 typedef struct {
   const char *name;
   int length;
   TypeKind type;
   int depth;
+  const Signature *signature; /* NULL unless the variable is a function */
 } Variable;
+
+#define MAX_FUNCTIONS 128
 
 typedef struct {
   Diagnostics *diag;
   Variable variables[MAX_SCOPED_VARIABLES];
   int count;
   int scopeDepth;
+
+  /* Signatures are owned here so they outlive the scope that declared them. */
+  Signature signatures[MAX_FUNCTIONS];
+  int signatureCount;
+
+  /* The return type expected by the function currently being checked, so a
+   * `return` can be validated against its own declaration. */
+  TypeKind currentReturn;
+  bool currentReturnAnnotated;
+  int functionDepth;
 } Checker;
 
 static void typeError(Checker *checker, int line, const char *format, ...) {
@@ -66,6 +89,7 @@ static void declareVariable(Checker *checker, const char *name, int length,
   variable->length = length;
   variable->type = type;
   variable->depth = checker->scopeDepth;
+  variable->signature = NULL;
 }
 
 /* The built-in globals, so `console.log(...)` and `Math.PI` check out. */
@@ -85,6 +109,56 @@ static void declareBuiltins(Checker *checker) {
 }
 
 static TypeKind checkNode(Checker *checker, AstNode *node);
+
+/* Records a function's shape and binds its name, before the body is walked so
+ * that recursive calls resolve. */
+static const Signature *declareFunction(Checker *checker, AstNode *node) {
+  if (checker->signatureCount >= MAX_FUNCTIONS) return NULL;
+
+  Signature *signature = &checker->signatures[checker->signatureCount++];
+  signature->returnType =
+      node->as.function.hasReturnAnnotation ? node->as.function.returnType : TYPE_ANY;
+  signature->hasReturnAnnotation = node->as.function.hasReturnAnnotation;
+  signature->paramCount = node->as.function.paramCount;
+  for (int i = 0; i < node->as.function.paramCount && i < UINT8_MAX; i++) {
+    const AstParam *param = &node->as.function.params[i];
+    signature->paramTypes[i] = param->hasAnnotation ? param->type : TYPE_ANY;
+  }
+
+  if (node->as.function.name != NULL) {
+    declareVariable(checker, node->as.function.name, node->as.function.nameLength,
+                    TYPE_FUNCTION);
+    checker->variables[checker->count - 1].signature = signature;
+  }
+  return signature;
+}
+
+static void checkFunctionBody(Checker *checker, AstNode *node,
+                              const Signature *signature) {
+  TypeKind savedReturn = checker->currentReturn;
+  bool savedAnnotated = checker->currentReturnAnnotated;
+  checker->currentReturn = signature != NULL ? signature->returnType : TYPE_ANY;
+  checker->currentReturnAnnotated =
+      signature != NULL && signature->hasReturnAnnotation;
+  checker->functionDepth++;
+
+  beginScope(checker);
+  for (int i = 0; i < node->as.function.paramCount; i++) {
+    const AstParam *param = &node->as.function.params[i];
+    declareVariable(checker, param->name, param->length,
+                    param->hasAnnotation ? param->type : TYPE_ANY);
+  }
+  /* The body is an AST_BLOCK, but its statements are checked in the scope that
+   * already holds the parameters rather than in one nested inside it. */
+  for (int i = 0; i < node->as.function.body->as.block.count; i++) {
+    checkNode(checker, node->as.function.body->as.block.statements[i]);
+  }
+  endScope(checker);
+
+  checker->functionDepth--;
+  checker->currentReturn = savedReturn;
+  checker->currentReturnAnnotated = savedAnnotated;
+}
 
 /* Requires a number, reporting against the operator that wanted one. */
 static TypeKind requireNumber(Checker *checker, TypeKind type, int line,
@@ -254,15 +328,75 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
 
     case AST_CALL: {
       TypeKind callee = checkNode(checker, node->as.call.callee);
+
+      TypeKind argTypes[UINT8_MAX];
       for (int i = 0; i < node->as.call.argCount; i++) {
-        checkNode(checker, node->as.call.arguments[i]);
+        TypeKind argType = checkNode(checker, node->as.call.arguments[i]);
+        if (i < UINT8_MAX) argTypes[i] = argType;
       }
+
       if (csTypeIsKnown(callee) && callee != TYPE_FUNCTION) {
         typeError(checker, node->line, "%s is not a function", csTypeName(callee));
         result = TYPE_ERROR;
         break;
       }
-      result = TYPE_ANY; /* signatures arrive with user functions */
+
+      /* Only a directly-named callee has a signature the checker can see; a
+       * function reached through a property or a parameter stays dynamic. */
+      const Signature *signature = NULL;
+      if (node->as.call.callee->type == AST_IDENTIFIER) {
+        Variable *variable = findVariable(checker, node->as.call.callee->as.identifier.name,
+                                          node->as.call.callee->as.identifier.length);
+        if (variable != NULL) signature = variable->signature;
+      }
+
+      if (signature == NULL) {
+        result = TYPE_ANY;
+        break;
+      }
+
+      if (node->as.call.argCount != signature->paramCount) {
+        typeError(checker, node->line, "expected %d argument%s but got %d",
+                  signature->paramCount, signature->paramCount == 1 ? "" : "s",
+                  node->as.call.argCount);
+        result = TYPE_ERROR;
+        break;
+      }
+
+      for (int i = 0; i < node->as.call.argCount && i < UINT8_MAX; i++) {
+        if (!csTypeAssignable(argTypes[i], signature->paramTypes[i])) {
+          typeError(checker, node->line,
+                    "argument %d is %s but the parameter is %s", i + 1,
+                    csTypeName(argTypes[i]), csTypeName(signature->paramTypes[i]));
+        }
+      }
+
+      result = signature->returnType;
+      break;
+    }
+
+    case AST_FUNCTION: {
+      const Signature *signature = declareFunction(checker, node);
+      checkFunctionBody(checker, node, signature);
+      result = TYPE_FUNCTION;
+      break;
+    }
+
+    case AST_RETURN_STMT: {
+      TypeKind returned = node->as.returnValue != NULL
+                              ? checkNode(checker, node->as.returnValue)
+                              : TYPE_UNDEFINED;
+      if (checker->functionDepth == 0) {
+        /* The compiler reports this with better placement. */
+        result = TYPE_UNDEFINED;
+        break;
+      }
+      if (checker->currentReturnAnnotated &&
+          !csTypeAssignable(returned, checker->currentReturn)) {
+        typeError(checker, node->line, "cannot return %s from a function declared %s",
+                  csTypeName(returned), csTypeName(checker->currentReturn));
+      }
+      result = TYPE_UNDEFINED;
       break;
     }
 
@@ -347,6 +481,10 @@ bool csTypeCheck(AstNode *program, Diagnostics *diag) {
   checker.diag = diag;
   checker.count = 0;
   checker.scopeDepth = 0;
+  checker.signatureCount = 0;
+  checker.currentReturn = TYPE_ANY;
+  checker.currentReturnAnnotated = false;
+  checker.functionDepth = 0;
 
   declareBuiltins(&checker);
   checkNode(&checker, program);

@@ -267,6 +267,50 @@ AstNode *csAstExpressionStmt(AstArena *arena, int line, AstNode *expression) {
   return node;
 }
 
+AstNode *csAstFunction(AstArena *arena, int line, const char *name, int nameLength) {
+  AstNode *node = newNode(arena, AST_FUNCTION, line);
+  if (node == NULL) return NULL;
+  node->as.function.name =
+      name != NULL ? internName(arena, name, nameLength, &node->as.function.nameLength)
+                   : NULL;
+  if (name == NULL) node->as.function.nameLength = 0;
+  node->as.function.params = NULL;
+  node->as.function.paramCount = 0;
+  node->as.function.body = NULL;
+  node->as.function.returnType = TYPE_ANY;
+  node->as.function.hasReturnAnnotation = false;
+  return node;
+}
+
+void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name,
+                           int length, TypeKind type, bool hasAnnotation) {
+  if (function == NULL) return;
+
+  /* Parameter lists are short, so growing by copy costs less than carrying a
+   * capacity field on every function node. */
+  int count = function->as.function.paramCount;
+  AstParam *grown = (AstParam *)csAstArenaAlloc(arena, sizeof(AstParam) * (size_t)(count + 1));
+  if (grown == NULL) return;
+  if (function->as.function.params != NULL) {
+    memcpy(grown, function->as.function.params, sizeof(AstParam) * (size_t)count);
+  }
+
+  int stored = 0;
+  grown[count].name = internName(arena, name, length, &stored);
+  grown[count].length = stored;
+  grown[count].type = type;
+  grown[count].hasAnnotation = hasAnnotation;
+
+  function->as.function.params = grown;
+  function->as.function.paramCount = count + 1;
+}
+
+AstNode *csAstReturn(AstArena *arena, int line, AstNode *value) {
+  AstNode *node = newNode(arena, AST_RETURN_STMT, line);
+  if (node != NULL) node->as.returnValue = value;
+  return node;
+}
+
 AstNode *csAstProgram(AstArena *arena, int line) {
   AstNode *node = newNode(arena, AST_PROGRAM, line);
   if (node == NULL) return NULL;

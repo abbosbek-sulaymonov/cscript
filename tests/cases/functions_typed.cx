@@ -1,0 +1,15 @@
+function add(a: number, b: number): number {
+  return a + b;
+}
+console.log(add(20, 22));
+
+function greet(name: string): string {
+  return "hello, " + name;
+}
+console.log(greet("cscript"));
+
+// An unannotated parameter is dynamic.
+function echo(value) {
+  return value;
+}
+console.log(echo(1), echo("two"), echo(true));

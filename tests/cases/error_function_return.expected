@@ -1,0 +1,1 @@
+error_function_return.cx:2: error: cannot return number from a function declared string

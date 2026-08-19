@@ -1,0 +1,38 @@
+// Functions are values: they can be named, passed around, returned and
+// captured. Annotations on parameters and the return type are optional.
+
+function add(a: number, b: number): number {
+  return a + b;
+}
+
+function applyTwice(f, value) {
+  return f(f(value));
+}
+
+function increment(n) {
+  return n + 1;
+}
+
+console.log(add(20, 22));
+console.log(applyTwice(increment, 0));
+
+// A closure keeps its captured variable alive after the enclosing call returns.
+function makeCounter() {
+  let count = 0;
+  return function () {
+    count = count + 1;
+    return count;
+  };
+}
+
+const next = makeCounter();
+console.log(next(), next(), next());
+
+// Recursion.
+function factorial(n: number): number {
+  if (n <= 1) {
+    return 1;
+  }
+  return n * factorial(n - 1);
+}
+console.log(factorial(10));

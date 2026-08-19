@@ -27,6 +27,7 @@ typedef enum {
   AST_UPDATE,
   AST_CALL,
   AST_PROPERTY,
+  AST_FUNCTION,
 
   /* Statements. */
   AST_EXPRESSION_STMT,
@@ -35,6 +36,7 @@ typedef enum {
   AST_IF_STMT,
   AST_WHILE_STMT,
   AST_FOR_STMT,
+  AST_RETURN_STMT,
   AST_PROGRAM,
 } AstNodeType;
 
@@ -57,6 +59,14 @@ typedef enum {
 } LogicalOp;
 
 typedef struct AstNode AstNode;
+
+/* One declared parameter. Stored inline in the function node's array. */
+typedef struct AstParam {
+  const char *name;
+  int length;
+  TypeKind type;
+  bool hasAnnotation;
+} AstParam;
 
 struct AstNode {
   AstNodeType type;
@@ -140,6 +150,16 @@ struct AstNode {
       AstNode *increment;
       AstNode *body;
     } forStmt;
+    struct {                             /* AST_FUNCTION */
+      const char *name;                  /*   NULL for a function expression */
+      int nameLength;
+      struct AstParam *params;
+      int paramCount;
+      AstNode *body;                     /*   an AST_BLOCK */
+      TypeKind returnType;
+      bool hasReturnAnnotation;
+    } function;
+    AstNode *returnValue;                /* AST_RETURN_STMT, may be NULL */
     struct {                             /* AST_PROGRAM */
       AstNode **statements;
       int count;
@@ -192,6 +212,10 @@ AstNode *csAstIf(AstArena *arena, int line, AstNode *condition, AstNode *thenBra
 AstNode *csAstWhile(AstArena *arena, int line, AstNode *condition, AstNode *body);
 AstNode *csAstFor(AstArena *arena, int line, AstNode *initializer, AstNode *condition,
                   AstNode *increment, AstNode *body);
+AstNode *csAstFunction(AstArena *arena, int line, const char *name, int nameLength);
+void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name,
+                           int length, TypeKind type, bool hasAnnotation);
+AstNode *csAstReturn(AstArena *arena, int line, AstNode *value);
 AstNode *csAstProgram(AstArena *arena, int line);
 
 /* Appends to a AST_PROGRAM or AST_BLOCK statement list. */

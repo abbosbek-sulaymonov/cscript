@@ -7,12 +7,12 @@
 #include <stdint.h>
 
 #define CS_VERSION_MAJOR 0
-#define CS_VERSION_MINOR 3
+#define CS_VERSION_MINOR 4
 #define CS_VERSION_PATCH 0
-#define CS_VERSION_STRING "0.3.0"
+#define CS_VERSION_STRING "0.4.0"
 
-/* Value stack depth. Grows with call frames once functions land. */
-#define CS_STACK_MAX 256
+/* Value stack depth, shared by every active call frame. */
+#define CS_STACK_MAX (64 * 256)
 
 /* Heap growth factor: collect once allocation doubles since the last GC. */
 #define CS_GC_HEAP_GROW_FACTOR 2

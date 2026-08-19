@@ -1,0 +1,46 @@
+// A closure keeps its variable alive after the scope that declared it is gone.
+function makeMultiplier(factor) {
+  return function (n) {
+    return n * factor;
+  };
+}
+const triple = makeMultiplier(3);
+console.log(triple(14));
+
+// Each call captures its own variable.
+function counter() {
+  let count = 0;
+  return function () {
+    count = count + 1;
+    return count;
+  };
+}
+const a = counter();
+const b = counter();
+console.log(a(), a(), a());
+console.log(b());
+
+// Two closures over the same variable share it.
+function shared() {
+  let n = 0;
+  function bump() {
+    n = n + 10;
+  }
+  function read() {
+    return n;
+  }
+  bump();
+  bump();
+  return read();
+}
+console.log(shared());
+
+// Capture reaches through more than one level of nesting.
+function outer(x) {
+  return function () {
+    return function () {
+      return x;
+    };
+  };
+}
+console.log(outer("deep")()());

@@ -2,14 +2,18 @@
 #ifndef CSCRIPT_OBJECT_H
 #define CSCRIPT_OBJECT_H
 
+#include "cscript/chunk.h"
 #include "cscript/common.h"
 #include "cscript/table.h"
 #include "cscript/value.h"
 
 typedef enum {
   OBJ_STRING,
-  OBJ_NATIVE, /* a function implemented in C */
-  OBJ_OBJECT, /* a property bag, e.g. the `console` namespace */
+  OBJ_NATIVE,   /* a function implemented in C */
+  OBJ_OBJECT,   /* a property bag, e.g. the `console` namespace */
+  OBJ_FUNCTION, /* compiled user code: a chunk plus its metadata */
+  OBJ_UPVALUE,  /* a local captured by a nested function */
+  OBJ_CLOSURE,  /* a function paired with the upvalues it captured */
 } ObjType;
 
 /* Every heap object starts with this header, so the collector can walk the
@@ -47,16 +51,53 @@ typedef struct {
   ObjString *name; /* e.g. "console", used when printing the object */
 } ObjObject;
 
+/* Compiled user code. Every function body is its own chunk, and the top level
+ * of a script is itself a function — which is what lets the VM run scripts and
+ * calls through exactly one mechanism. */
+typedef struct ObjFunction {
+  Obj obj;
+  int arity;
+  int upvalueCount;
+  Chunk chunk;
+  ObjString *name; /* NULL for the implicit top-level function */
+} ObjFunction;
+
+/* A captured variable.
+ *
+ * While the enclosing call is still on the stack, `location` points straight at
+ * that stack slot, so reads and writes are shared with it. When the call
+ * returns, the value is copied into `closed` and `location` is repointed there,
+ * so the closure keeps working after its defining scope is gone. */
+typedef struct ObjUpvalue {
+  Obj obj;
+  Value *location;
+  Value closed;
+  struct ObjUpvalue *next; /* the VM's list of still-open upvalues */
+} ObjUpvalue;
+
+/* A function value. Every user function is called through a closure, even when
+ * it captures nothing, so the VM needs only one calling path. */
+typedef struct ObjClosure {
+  Obj obj;
+  ObjFunction *function;
+  ObjUpvalue **upvalues;
+  int upvalueCount;
+} ObjClosure;
+
 #define OBJ_TYPE(v)   (AS_OBJ(v)->type)
 
-#define IS_STRING(v)  csIsObjType(v, OBJ_STRING)
-#define IS_NATIVE(v)  csIsObjType(v, OBJ_NATIVE)
-#define IS_OBJECT(v)  csIsObjType(v, OBJ_OBJECT)
+#define IS_STRING(v)   csIsObjType(v, OBJ_STRING)
+#define IS_NATIVE(v)   csIsObjType(v, OBJ_NATIVE)
+#define IS_OBJECT(v)   csIsObjType(v, OBJ_OBJECT)
+#define IS_FUNCTION(v) csIsObjType(v, OBJ_FUNCTION)
+#define IS_CLOSURE(v)  csIsObjType(v, OBJ_CLOSURE)
 
-#define AS_STRING(v)  ((ObjString *)AS_OBJ(v))
-#define AS_CSTRING(v) (((ObjString *)AS_OBJ(v))->chars)
-#define AS_NATIVE(v)  ((ObjNative *)AS_OBJ(v))
-#define AS_OBJECT(v)  ((ObjObject *)AS_OBJ(v))
+#define AS_STRING(v)   ((ObjString *)AS_OBJ(v))
+#define AS_CSTRING(v)  (((ObjString *)AS_OBJ(v))->chars)
+#define AS_NATIVE(v)   ((ObjNative *)AS_OBJ(v))
+#define AS_OBJECT(v)   ((ObjObject *)AS_OBJ(v))
+#define AS_FUNCTION(v) ((ObjFunction *)AS_OBJ(v))
+#define AS_CLOSURE(v)  ((ObjClosure *)AS_OBJ(v))
 
 static inline bool csIsObjType(Value value, ObjType type) {
   return IS_OBJ(value) && AS_OBJ(value)->type == type;
@@ -69,6 +110,9 @@ ObjString *csStringTakeOwnership(char *chars, int length);
 
 ObjNative *csNativeNew(NativeFn function, const char *name, int arity);
 ObjObject *csObjectNew(const char *name);
+ObjFunction *csFunctionNew(void);
+ObjUpvalue *csUpvalueNew(Value *slot);
+ObjClosure *csClosureNew(ObjFunction *function);
 
 /* Convenience for building namespace objects during startup. */
 void csObjectSetProperty(ObjObject *object, const char *name, Value value);

@@ -17,6 +17,8 @@ VM vm;
 
 static void resetStack(void) {
   vm.stackTop = vm.stack;
+  vm.frameCount = 0;
+  vm.openUpvalues = NULL;
   vm.tempRootCount = 0;
 }
 
@@ -28,8 +30,6 @@ void csVMInit(void) {
   vm.grayStack = NULL;
   vm.bytesAllocated = 0;
   vm.nextGC = 1024 * 1024;
-  vm.chunk = NULL;
-  vm.ip = NULL;
   vm.sourceName = "<script>";
 
   csTableInit(&vm.globals);
@@ -79,11 +79,19 @@ void csVMRuntimeError(const char *format, ...) {
   va_end(args);
   fprintf(stderr, "\n");
 
-  if (vm.chunk != NULL && vm.ip != NULL) {
+  /* Walk the frames innermost-first so the trace reads like a call stack. */
+  for (int i = vm.frameCount - 1; i >= 0; i--) {
+    CallFrame *frame = &vm.frames[i];
+    ObjFunction *function = frame->closure->function;
     /* `ip` has already advanced past the failing instruction. */
-    size_t instruction = (size_t)(vm.ip - vm.chunk->code - 1);
-    int line = vm.chunk->lines[instruction];
-    fprintf(stderr, "  at %s:%d\n", vm.sourceName, line);
+    size_t instruction = (size_t)(frame->ip - function->chunk.code - 1);
+    int line = function->chunk.lines[instruction];
+
+    if (function->name == NULL) {
+      fprintf(stderr, "  at %s:%d\n", vm.sourceName, line);
+    } else {
+      fprintf(stderr, "  at %s (%s:%d)\n", function->name->chars, vm.sourceName, line);
+    }
   }
 
   resetStack();
@@ -133,14 +141,32 @@ static bool concatenateOrAdd(void) {
   return true;
 }
 
-/* Calls a native function sitting `argCount` slots below the stack top. */
-static bool callValue(Value callee, int argCount) {
-  if (!IS_NATIVE(callee)) {
-    csVMRuntimeError("%s is not a function", csValueTypeName(callee));
+/* Pushes a frame for a user function. The frame's window starts at the callee
+ * itself, so slot 0 is the function and slots 1..arity are the arguments —
+ * exactly where the compiler assigned the parameters. */
+static bool callClosure(ObjClosure *closure, int argCount) {
+  ObjFunction *function = closure->function;
+
+  if (argCount != function->arity) {
+    csVMRuntimeError("%s expects %d argument%s but got %d",
+                     function->name != NULL ? function->name->chars : "<anonymous>",
+                     function->arity, function->arity == 1 ? "" : "s", argCount);
     return false;
   }
 
-  ObjNative *native = AS_NATIVE(callee);
+  if (vm.frameCount == CS_FRAMES_MAX) {
+    csVMRuntimeError("call stack overflow (limit %d frames)", CS_FRAMES_MAX);
+    return false;
+  }
+
+  CallFrame *frame = &vm.frames[vm.frameCount++];
+  frame->closure = closure;
+  frame->ip = function->chunk.code;
+  frame->slots = vm.stackTop - argCount - 1;
+  return true;
+}
+
+static bool callNative(ObjNative *native, int argCount) {
   if (native->arity >= 0 && argCount != native->arity) {
     csVMRuntimeError("%s expects %d argument%s but got %d", native->name->chars,
                      native->arity, native->arity == 1 ? "" : "s", argCount);
@@ -154,6 +180,51 @@ static bool callValue(Value callee, int argCount) {
   vm.stackTop -= argCount + 1;
   csVMPush(result);
   return true;
+}
+
+static bool callValue(Value callee, int argCount) {
+  if (IS_CLOSURE(callee)) return callClosure(AS_CLOSURE(callee), argCount);
+  if (IS_NATIVE(callee)) return callNative(AS_NATIVE(callee), argCount);
+
+  csVMRuntimeError("%s is not a function", csValueTypeName(callee));
+  return false;
+}
+
+/* Finds or creates the upvalue for a stack slot.
+ *
+ * The open list is kept sorted by descending slot address, so two closures
+ * capturing the same variable share one upvalue — which is what makes writes
+ * through one visible to the other. */
+static ObjUpvalue *captureUpvalue(Value *local) {
+  ObjUpvalue *previous = NULL;
+  ObjUpvalue *upvalue = vm.openUpvalues;
+
+  while (upvalue != NULL && upvalue->location > local) {
+    previous = upvalue;
+    upvalue = upvalue->next;
+  }
+
+  if (upvalue != NULL && upvalue->location == local) return upvalue;
+
+  ObjUpvalue *created = csUpvalueNew(local);
+  created->next = upvalue;
+  if (previous == NULL) {
+    vm.openUpvalues = created;
+  } else {
+    previous->next = created;
+  }
+  return created;
+}
+
+/* Moves every upvalue at or above `last` off the stack and onto its own heap
+ * cell, so closures keep working once the frame is gone. */
+static void closeUpvalues(Value *last) {
+  while (vm.openUpvalues != NULL && vm.openUpvalues->location >= last) {
+    ObjUpvalue *upvalue = vm.openUpvalues;
+    upvalue->closed = *upvalue->location;
+    upvalue->location = &upvalue->closed;
+    vm.openUpvalues = upvalue->next;
+  }
 }
 
 /* Dispatch strategy.
@@ -186,9 +257,14 @@ static bool callValue(Value callee, int argCount) {
 #endif
 
 static InterpretResult run(void) {
-#define READ_BYTE() (*vm.ip++)
-#define READ_SHORT() (vm.ip += 2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1]))
-#define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
+  CallFrame *frame = &vm.frames[vm.frameCount - 1];
+
+/* `frame` is cached in a local rather than re-read from vm.frames each time;
+ * it is refreshed on every call and return. */
+#define READ_BYTE() (*frame->ip++)
+#define READ_SHORT() \
+  (frame->ip += 2, (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]))
+#define READ_CONSTANT() (frame->closure->function->chunk.constants.values[READ_BYTE()])
 #define READ_STRING() AS_STRING(READ_CONSTANT())
 
 /* Arithmetic and comparison share this shape: both operands must be numbers.
@@ -217,7 +293,8 @@ static InterpretResult run(void) {
       printf(" ]");                                            \
     }                                                          \
     printf("\n");                                              \
-    csDisassembleInstruction(vm.chunk, (int)(vm.ip - vm.chunk->code)); \
+    csDisassembleInstruction(&frame->closure->function->chunk,                \
+                             (int)(frame->ip - frame->closure->function->chunk.code)); \
   } while (false)
 #else
 #define VM_TRACE_STEP() ((void)0)
@@ -315,18 +392,18 @@ static InterpretResult run(void) {
         VM_NEXT();
       }
 
-      VM_CASE(OP_GET_LOCAL) csVMPush(vm.stack[READ_BYTE()]); VM_NEXT();
+      VM_CASE(OP_GET_LOCAL) csVMPush(frame->slots[READ_BYTE()]); VM_NEXT();
 
       VM_CASE(OP_SET_LOCAL) {
         uint8_t slot = READ_BYTE();
-        vm.stack[slot] = peekStack(0);
+        frame->slots[slot] = peekStack(0);
         VM_NEXT();
       }
 
       VM_CASE(OP_INC_LOCAL)
       VM_CASE(OP_DEC_LOCAL) {
         uint8_t slot = READ_BYTE();
-        Value *target = &vm.stack[slot];
+        Value *target = &frame->slots[slot];
         if (!IS_NUMBER(*target)) {
           csVMRuntimeError("operand of '%s' must be a number, got %s",
                            instruction == OP_INC_LOCAL ? "++" : "--",
@@ -359,8 +436,44 @@ static InterpretResult run(void) {
       VM_CASE(OP_CALL) {
         int argCount = READ_BYTE();
         if (!callValue(peekStack(argCount), argCount)) return CS_RUNTIME_ERROR;
+        /* A user call pushed a frame, so the cached pointer is stale. */
+        frame = &vm.frames[vm.frameCount - 1];
         VM_NEXT();
       }
+
+      VM_CASE(OP_CLOSURE) {
+        ObjFunction *function = AS_FUNCTION(READ_CONSTANT());
+        ObjClosure *closure = csClosureNew(function);
+        csVMPush(OBJ_VAL(closure));
+
+        /* The compiler emitted one (isLocal, index) pair per upvalue. A local
+         * is captured from this frame; anything else is already an upvalue of
+         * the enclosing closure and is simply shared. */
+        for (int i = 0; i < closure->upvalueCount; i++) {
+          uint8_t isLocal = READ_BYTE();
+          uint8_t index = READ_BYTE();
+          closure->upvalues[i] = isLocal ? captureUpvalue(frame->slots + index)
+                                         : frame->closure->upvalues[index];
+        }
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_GET_UPVALUE) {
+        uint8_t slot = READ_BYTE();
+        csVMPush(*frame->closure->upvalues[slot]->location);
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_SET_UPVALUE) {
+        uint8_t slot = READ_BYTE();
+        *frame->closure->upvalues[slot]->location = peekStack(0);
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_CLOSE_UPVALUE)
+        closeUpvalues(vm.stackTop - 1);
+        csVMPop();
+        VM_NEXT();
 
       VM_CASE(OP_ADD_NUM) {
         /* The checker guaranteed both operands are numbers, so there is
@@ -453,32 +566,49 @@ static InterpretResult run(void) {
 
       VM_CASE(OP_JUMP) {
         uint16_t offset = READ_SHORT();
-        vm.ip += offset;
+        frame->ip += offset;
         VM_NEXT();
       }
       VM_CASE(OP_JUMP_IF_FALSE) {
         uint16_t offset = READ_SHORT();
-        if (!csValueIsTruthy(peekStack(0))) vm.ip += offset;
+        if (!csValueIsTruthy(peekStack(0))) frame->ip += offset;
         VM_NEXT();
       }
       VM_CASE(OP_JUMP_IF_TRUE) {
         uint16_t offset = READ_SHORT();
-        if (csValueIsTruthy(peekStack(0))) vm.ip += offset;
+        if (csValueIsTruthy(peekStack(0))) frame->ip += offset;
         VM_NEXT();
       }
       VM_CASE(OP_POP_JUMP_IF_FALSE) {
         uint16_t offset = READ_SHORT();
-        if (!csValueIsTruthy(csVMPop())) vm.ip += offset;
+        if (!csValueIsTruthy(csVMPop())) frame->ip += offset;
         VM_NEXT();
       }
       VM_CASE(OP_LOOP) {
         uint16_t offset = READ_SHORT();
-        vm.ip -= offset;
+        frame->ip -= offset;
         VM_NEXT();
       }
 
-      VM_CASE(OP_RETURN)
-        return CS_OK;
+      VM_CASE(OP_RETURN) {
+        Value result = csVMPop();
+
+        /* Anything this frame's locals were captured into has to move to the
+         * heap before the slots are reused. */
+        closeUpvalues(frame->slots);
+        vm.frameCount--;
+
+        if (vm.frameCount == 0) {
+          csVMPop(); /* the script function itself */
+          return CS_OK;
+        }
+
+        /* Discard the whole window, then leave the result where the callee was. */
+        vm.stackTop = frame->slots;
+        csVMPush(result);
+        frame = &vm.frames[vm.frameCount - 1];
+        VM_NEXT();
+      }
 
 #ifndef CS_COMPUTED_GOTO
       default:
@@ -540,28 +670,26 @@ InterpretResult csInterpret(const char *source, const char *sourceName) {
   csAstPrint(program);
 #endif
 
-  Chunk chunk;
-  csChunkInit(&chunk);
-
-  bool compiled = csCompile(program, &chunk, &diag);
+  ObjFunction *script = csCompile(program, &diag);
   /* The AST is only needed to produce bytecode, so it goes as soon as it has. */
   csAstArenaFree(&arena);
-
-  if (!compiled) {
-    csChunkFree(&chunk);
-    return CS_COMPILE_ERROR;
-  }
+  if (script == NULL) return CS_COMPILE_ERROR;
 
 #ifdef CS_DEBUG_PRINT_CODE
-  csDisassembleChunk(&chunk, sourceName);
+  csDisassembleChunk(&script->chunk, sourceName);
 #endif
 
-  vm.chunk = &chunk;
-  vm.ip = chunk.code;
-  InterpretResult result = run();
+  /* The script is itself a function, so running it is just a call. Pushing the
+   * closure first keeps it reachable while callClosure allocates nothing but
+   * still leaves it rooted through the frame. */
+  csPushTempRoot((Obj *)script);
+  ObjClosure *closure = csClosureNew(script);
+  csPopTempRoot();
 
-  vm.chunk = NULL;
-  vm.ip = NULL;
-  csChunkFree(&chunk);
+  csVMPush(OBJ_VAL(closure));
+  callClosure(closure, 0);
+
+  InterpretResult result = run();
+  resetStack();
   return result;
 }

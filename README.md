@@ -73,13 +73,12 @@ The full list, with the reasoning for each, is in
 
 ## Status
 
-**v0.3.0.** Gradual typing with inference, on top of variables, block scoping,
-control flow, calls, property access and the `console` / `Math` built-ins. The
-pipeline is lexer → parser → **type checker** → bytecode compiler → stack VM,
-with a mark-sweep collector underneath.
+**v0.4.0.** Functions and closures, gradual typing with inference, variables,
+block scoping, control flow and the `console` / `Math` built-ins. The pipeline
+is lexer → parser → type checker → bytecode compiler → stack VM, with a
+mark-sweep collector underneath.
 
-Not here yet: user-defined functions, object literals and arrays. Each produces
-an error naming the milestone it lands in. See the [roadmap](#roadmap).
+Not here yet: object literals and arrays. See the [roadmap](#roadmap).
 
 ---
 
@@ -329,10 +328,10 @@ cscript/
 | **1 ✅** | Lexer, parser, compiler, VM, GC, REPL, expressions | — |
 | **2 ✅** | `let`/`const`, scopes, control flow, calls, `console.log` | — |
 | **3 ✅** | Gradual typing: annotations, inference, checking | — |
-| 4 | Unboxed typed locals — where typing pays off in speed | `Value`, VM, compiler |
-| 5 | User functions, `return`, closures, typed signatures | VM gains a frame stack |
-| 6 | Object literals, arrays, indexing | `ObjObject` already exists |
-| 7 | `switch`, `break`/`continue`, template literals, ternary | parser and compiler |
+| **4 ✅** | User functions, `return`, closures, typed signatures | — |
+| 5 | Object literals, arrays, indexing | `ObjObject` already exists |
+| 6 | `switch`, `break`/`continue`, template literals, ternary | parser and compiler |
+| 7 | Unboxed typed locals — where typing pays off in speed | `Value`, VM, compiler |
 
 ---
 
