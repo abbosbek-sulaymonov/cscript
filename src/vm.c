@@ -724,6 +724,112 @@ static InterpretResult uncaught(Value thrown) {
   return CS_RUNTIME_ERROR;
 }
 
+/* The part of a property read that is not a cache hit. Kept out of line so
+ * each of the opcodes that reads a property can have its own tight handler:
+ * sharing one body between them costs more than the instruction it saves,
+ * because the dispatch table's indirect jump is predicted per opcode. */
+static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiver,
+                             Value *out) {
+  if (IS_OBJECT(receiver)) {
+    ObjObject *object = AS_OBJECT(receiver);
+
+    int slot;
+    if (object->shape != NULL && csShapeLookup(object->shape, name, &slot)) {
+      cache->shape = object->shape;
+      cache->slot = slot;
+      *out = object->as.slots.values[slot];
+      return true;
+    }
+
+    /* Dictionary mode, an inherited method, or a genuinely absent property.
+     * Reading a missing property gives undefined, as in JavaScript — checking
+     * for absence is too common to make it an error. */
+    if (csObjectGet(object, name, out)) return true;
+
+    if (object->klass != NULL) {
+      ObjClosure *method = csClassFindMethod(object->klass, name);
+      if (method != NULL) {
+        /* Reading a method without calling it is the one case that has to
+         * allocate, because the receiver has to travel with it. */
+        *out = OBJ_VAL(csBoundMethodNew(receiver, (Obj *)method));
+        return true;
+      }
+    }
+
+    *out = UNDEFINED_VAL;
+    return true;
+  }
+
+  /* `length` is intrinsic rather than a stored property, so arrays and strings
+   * answer it without carrying a table. */
+  if (name->length == 6 && memcmp(name->chars, "length", 6) == 0) {
+    if (IS_ARRAY(receiver)) {
+      *out = NUMBER_VAL(AS_ARRAY(receiver)->elements.count);
+      return true;
+    }
+    if (IS_STRING(receiver)) {
+      *out = NUMBER_VAL(AS_STRING(receiver)->length);
+      return true;
+    }
+  }
+
+  /* A callable may carry statics, which is how Number(x) and Number.isInteger
+   * coexist. */
+  if (IS_NATIVE(receiver) && AS_NATIVE(receiver)->statics != NULL) {
+    Value statik;
+    *out = csObjectGet(AS_NATIVE(receiver)->statics, name, &statik) ? statik
+                                                                   : UNDEFINED_VAL;
+    return true;
+  }
+
+  /* A class carries its statics, and inherits its parent's. */
+  if (IS_CLASS(receiver)) {
+    for (ObjClass *klass = AS_CLASS(receiver); klass != NULL;
+         klass = klass->superclass) {
+      Value statik;
+      if (csTableGet(&klass->statics, name, &statik)) {
+        *out = statik;
+        return true;
+      }
+    }
+    *out = UNDEFINED_VAL;
+    return true;
+  }
+
+  csVMRuntimeError("cannot read property '%s' of %s", name->chars,
+                   csValueTypeName(receiver));
+  return false;
+}
+
+/* The part of a property write that is not a cache hit. */
+static bool propertyWriteSlow(ObjString *name, PropertyCache *cache, Value receiver,
+                              Value value) {
+  if (!IS_OBJECT(receiver)) {
+    csVMRuntimeError("cannot set property '%s' of %s", name->chars,
+                     csValueTypeName(receiver));
+    return false;
+  }
+  if (AS_OBJECT(receiver)->frozen) {
+    csVMRuntimeError("'%s.%s' is a built-in and cannot be replaced",
+                     AS_OBJECT(receiver)->name->chars, name->chars);
+    return false;
+  }
+
+  csObjectPut(AS_OBJECT(receiver), name, value);
+
+  /* Cache the resulting layout, not the one on the way in. A site that keeps
+   * adding fresh properties fills the cache with a shape it has already left,
+   * but a site that assigns to the same field of many like-shaped objects —
+   * the common one — hits from then on. */
+  ObjObject *target = AS_OBJECT(receiver);
+  int slot;
+  if (target->shape != NULL && csShapeLookup(target->shape, name, &slot)) {
+    cache->shape = target->shape;
+    cache->slot = slot;
+  }
+  return true;
+}
+
 static InterpretResult run(int baseFrame) {
   CallFrame *frame = &vm.frames[vm.frameCount - 1];
 
@@ -912,6 +1018,15 @@ static InterpretResult run(int baseFrame) {
         VM_NEXT();
       }
 
+      VM_CASE(OP_GET_LOCAL_LOCAL) {
+        Value *slots = frame->slots;
+        uint8_t a = READ_BYTE();
+        uint8_t b = READ_BYTE();
+        csVMPush(slots[a]);
+        csVMPush(slots[b]);
+        VM_NEXT();
+      }
+
       VM_CASE(OP_GET_LOCAL_CONST) {
         uint8_t slot = READ_BYTE();
         csVMPush(frame->slots[slot]);
@@ -956,109 +1071,44 @@ static InterpretResult run(int baseFrame) {
         VM_NEXT();
       }
 
+      VM_CASE(OP_GET_LOCAL_PROPERTY) {
+        /* `this.x` and `local.x`: the receiver is read straight out of its slot
+         * rather than pushed and popped. Its own handler rather than a jump
+         * into OP_GET_PROPERTY, because the dispatch table's indirect branch is
+         * predicted per opcode and sharing one body loses that. */
+        Value receiver = frame->slots[READ_BYTE()];
+        ObjString *name = READ_STRING();
+        PropertyCache *cache = READ_PROPERTY_CACHE();
+
+        if (IS_OBJECT(receiver) && AS_OBJECT(receiver)->shape == cache->shape) {
+          csVMPush(AS_OBJECT(receiver)->as.slots.values[cache->slot]);
+          VM_NEXT();
+        }
+
+        Value value;
+        if (!propertyReadSlow(name, cache, receiver, &value)) return CS_RUNTIME_ERROR;
+        csVMPush(value);
+        VM_NEXT();
+      }
+
       VM_CASE(OP_GET_PROPERTY) {
         ObjString *name = READ_STRING();
         PropertyCache *cache = READ_PROPERTY_CACHE();
         Value receiver = peekStack(0);
 
-        /* Objects first, and the cache before anything else. Every other case
-         * below costs at least a comparison, and reading a field off an object
-         * is what the overwhelming majority of these instructions do. */
-        if (IS_OBJECT(receiver)) {
-          ObjObject *object = AS_OBJECT(receiver);
-
-          /* The point of the whole shape machinery: when this site sees the
-           * layout it saw last time — which is what happens when every object
-           * reaching it came from the same literal — reading a property is a
-           * pointer compare and an indexed load. */
-          if (object->shape == cache->shape) {
-            csVMPop();
-            csVMPush(object->as.slots.values[cache->slot]);
-            VM_NEXT();
-          }
-
-          int slot;
-          if (object->shape != NULL && csShapeLookup(object->shape, name, &slot)) {
-            cache->shape = object->shape;
-            cache->slot = slot;
-            csVMPop();
-            csVMPush(object->as.slots.values[slot]);
-            VM_NEXT();
-          }
-
-          /* Dictionary mode, an inherited method, or a genuinely absent
-           * property. Reading a missing property gives undefined, as in
-           * JavaScript — checking for absence is too common to make it an
-           * error. */
-          Value value;
-          if (csObjectGet(object, name, &value)) {
-            csVMPop();
-            csVMPush(value);
-            VM_NEXT();
-          }
-
-          if (object->klass != NULL) {
-            ObjClosure *method = csClassFindMethod(object->klass, name);
-            if (method != NULL) {
-              /* Reading a method without calling it is the one case that has
-               * to allocate, because the receiver has to travel with it. */
-              ObjBoundMethod *bound = csBoundMethodNew(receiver, (Obj *)method);
-              csVMPop();
-              csVMPush(OBJ_VAL(bound));
-              VM_NEXT();
-            }
-          }
-
-          csVMPop();
-          csVMPush(UNDEFINED_VAL);
+        /* The point of the whole shape machinery: when this site sees the
+         * layout it saw last time — which is what happens when every object
+         * reaching it came from the same literal — reading a property is a
+         * pointer compare and an indexed load. */
+        if (IS_OBJECT(receiver) && AS_OBJECT(receiver)->shape == cache->shape) {
+          vm.stackTop[-1] = AS_OBJECT(receiver)->as.slots.values[cache->slot];
           VM_NEXT();
         }
 
-        /* A class carries its statics, and inherits its parent's. */
-        if (IS_CLASS(receiver)) {
-          for (ObjClass *klass = AS_CLASS(receiver); klass != NULL;
-               klass = klass->superclass) {
-            Value statik;
-            if (csTableGet(&klass->statics, name, &statik)) {
-              csVMPop();
-              csVMPush(statik);
-              VM_NEXT();
-            }
-          }
-          csVMPop();
-          csVMPush(UNDEFINED_VAL);
-          VM_NEXT();
-        }
-
-        /* `length` is intrinsic rather than a stored property, so arrays and
-         * strings answer it without carrying a table. */
-        if (name->length == 6 && memcmp(name->chars, "length", 6) == 0) {
-          if (IS_ARRAY(receiver)) {
-            csVMPop();
-            csVMPush(NUMBER_VAL(AS_ARRAY(receiver)->elements.count));
-            VM_NEXT();
-          }
-          if (IS_STRING(receiver)) {
-            csVMPop();
-            csVMPush(NUMBER_VAL(AS_STRING(receiver)->length));
-            VM_NEXT();
-          }
-        }
-
-        /* A callable may carry statics, which is how Number(x) and
-         * Number.isInteger coexist. */
-        if (IS_NATIVE(receiver) && AS_NATIVE(receiver)->statics != NULL) {
-          Value statik;
-          csVMPop();
-          csVMPush(csObjectGet(AS_NATIVE(receiver)->statics, name, &statik)
-                       ? statik
-                       : UNDEFINED_VAL);
-          VM_NEXT();
-        }
-
-        csVMRuntimeError("cannot read property '%s' of %s", name->chars,
-                         csValueTypeName(receiver));
-        return CS_RUNTIME_ERROR;
+        Value value;
+        if (!propertyReadSlow(name, cache, receiver, &value)) return CS_RUNTIME_ERROR;
+        vm.stackTop[-1] = value;
+        VM_NEXT();
       }
 
       VM_CASE(OP_SET_PROPERTY) {
@@ -1077,33 +1127,29 @@ static InterpretResult run(int baseFrame) {
           VM_NEXT();
         }
 
-        if (!IS_OBJECT(receiver)) {
-          csVMRuntimeError("cannot set property '%s' of %s", name->chars,
-                           csValueTypeName(receiver));
-          return CS_RUNTIME_ERROR;
-        }
-        if (AS_OBJECT(receiver)->frozen) {
-          csVMRuntimeError("'%s.%s' is a built-in and cannot be replaced",
-                           AS_OBJECT(receiver)->name->chars, name->chars);
-          return CS_RUNTIME_ERROR;
-        }
-
-        csObjectPut(AS_OBJECT(receiver), name, value);
-
-        /* Cache the resulting layout, not the one on the way in. A site that
-         * keeps adding fresh properties fills the cache with a shape it has
-         * already left, but a site that assigns to the same field of many
-         * like-shaped objects — the common one — hits from then on. */
-        ObjObject *target = AS_OBJECT(receiver);
-        int targetSlot;
-        if (target->shape != NULL && csShapeLookup(target->shape, name, &targetSlot)) {
-          cache->shape = target->shape;
-          cache->slot = targetSlot;
-        }
-
+        if (!propertyWriteSlow(name, cache, receiver, value)) return CS_RUNTIME_ERROR;
         /* Leave the assigned value: assignment is an expression. */
         vm.stackTop -= 2;
         csVMPush(value);
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_SET_PROPERTY_POP) {
+        /* The same store, in statement position: the value nothing reads is
+         * never written back. */
+        ObjString *name = READ_STRING();
+        PropertyCache *cache = READ_PROPERTY_CACHE();
+        Value value = peekStack(0);
+        Value receiver = peekStack(1);
+
+        if (IS_OBJECT(receiver) && AS_OBJECT(receiver)->shape == cache->shape) {
+          AS_OBJECT(receiver)->as.slots.values[cache->slot] = value;
+          vm.stackTop -= 2;
+          VM_NEXT();
+        }
+
+        if (!propertyWriteSlow(name, cache, receiver, value)) return CS_RUNTIME_ERROR;
+        vm.stackTop -= 2;
         VM_NEXT();
       }
 

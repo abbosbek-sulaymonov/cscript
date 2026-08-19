@@ -49,9 +49,18 @@
   /* A local followed by a literal is 14-18% of all instructions in loop-heavy \
    * code — `i < n`, `i % 7`, `total + 1` all start this way. */                \
   X(OP_GET_LOCAL_CONST)   /* [slot][const16]  push both                       */ \
+  /* Two locals feeding one binary operator, which the pair profile puts at    \
+   * 7.5% of everything a class-heavy program executes. */                      \
+  X(OP_GET_LOCAL_LOCAL)   /* [slotA][slotB]  push both                      */ \
                                                                               \
   X(OP_GET_PROPERTY)      /* [const16][cache16]  pop object, push property */ \
   X(OP_SET_PROPERTY)      /* [const16][cache16]  obj.name = value, leaves it */ \
+  /* Assigning to a property in statement position: the value nothing reads     \
+   * never has to be written back. 8.5% of the instructions in `bench/classes`  \
+   * were an OP_SET_PROPERTY immediately followed by an OP_POP. */              \
+  X(OP_SET_PROPERTY_POP)  /* [const16][cache16]  obj.name = pop()           */ \
+  /* `this.x` and `local.x`, the most frequent pair in class-heavy code. */     \
+  X(OP_GET_LOCAL_PROPERTY) /* [slot][const16][cache16]  push local.name     */ \
   X(OP_GET_INDEX)         /*          pop index and target, push element    */ \
   /* for...of support: replaces the value on top with its element count, so a  \
    * loop can leave [index, length] ready for a fused compare-and-branch. Only \

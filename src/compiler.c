@@ -480,6 +480,19 @@ static void compileOperandPair(const AstNode *left, const AstNode *right, int li
     }
   }
 
+  if (left->type == AST_IDENTIFIER && right->type == AST_IDENTIFIER) {
+    int leftSlot = resolveLocal(current, left->as.identifier.name,
+                                left->as.identifier.length);
+    int rightSlot = resolveLocal(current, right->as.identifier.name,
+                                 right->as.identifier.length);
+    if (leftSlot != -1 && rightSlot != -1) {
+      emitByte(OP_GET_LOCAL_LOCAL, line);
+      emitByte((uint8_t)leftSlot, line);
+      emitByte((uint8_t)rightSlot, line);
+      return;
+    }
+  }
+
   compileNode(left);
   compileNode(right);
 }
@@ -555,9 +568,10 @@ static void compileAssign(const AstNode *node, bool discard) {
   if (target->type == AST_PROPERTY) {
     compileNode(target->as.property.object);
     compileNode(node->as.assign.value);
-    emitPropertyOp(OP_SET_PROPERTY, identifierConstant(target->as.property.name, target->as.property.length,
-                                 assignLine),
-              assignLine);
+    emitPropertyOp(discard ? OP_SET_PROPERTY_POP : OP_SET_PROPERTY,
+                   identifierConstant(target->as.property.name,
+                                      target->as.property.length, assignLine),
+                   assignLine);
     return;
   }
 
@@ -675,7 +689,8 @@ static void compileForEffect(const AstNode *node) {
 
   /* An assignment whose value is discarded fuses its store with the pop. */
   if (node != NULL && node->type == AST_ASSIGN &&
-      node->as.assign.target->type == AST_IDENTIFIER) {
+      (node->as.assign.target->type == AST_IDENTIFIER ||
+       node->as.assign.target->type == AST_PROPERTY)) {
     compileAssign(node, true);
     return;
   }
@@ -1605,12 +1620,32 @@ static void compileNode(const AstNode *node) {
       compileUpdate(node);
       break;
 
-    case AST_PROPERTY:
-      compileNode(node->as.property.object);
-      emitPropertyOp(OP_GET_PROPERTY, identifierConstant(node->as.property.name, node->as.property.length,
-                                   line),
-                line);
+    case AST_PROPERTY: {
+      /* `this.x` and `local.x` fuse the load of the receiver into the read.
+       * The pair profile puts this at 8.5% of a class-heavy program. */
+      const AstNode *object = node->as.property.object;
+      int slot = object->type == AST_IDENTIFIER
+                     ? resolveLocal(current, object->as.identifier.name,
+                                    object->as.identifier.length)
+                     : -1;
+      if (slot != -1) {
+        emitByte(OP_GET_LOCAL_PROPERTY, line);
+        emitByte((uint8_t)slot, line);
+        emitConstantOperand(
+            identifierConstant(node->as.property.name, node->as.property.length, line),
+            line);
+        int cache = csChunkAddPropertyCache(currentChunk());
+        if (cache > UINT16_MAX) errorAt(line, "too many property sites in one function");
+        emitConstantOperand(cache, line);
+        break;
+      }
+      compileNode(object);
+      emitPropertyOp(OP_GET_PROPERTY,
+                     identifierConstant(node->as.property.name,
+                                        node->as.property.length, line),
+                     line);
       break;
+    }
 
     case AST_INDEX:
       compileNode(node->as.index.target);

@@ -115,6 +115,20 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_INC_LOCAL:         return byteInstruction("OP_INC_LOCAL", chunk, offset);
     case OP_DEC_LOCAL:         return byteInstruction("OP_DEC_LOCAL", chunk, offset);
     case OP_GET_PROPERTY:      return cachedInstruction("OP_GET_PROPERTY", chunk, offset);
+    case OP_SET_PROPERTY_POP:  return cachedInstruction("OP_SET_PROPERTY_POP", chunk, offset);
+    case OP_GET_LOCAL_LOCAL: {
+      printf("%-22s %4d %d\n", "OP_GET_LOCAL_LOCAL", chunk->code[offset + 1],
+             chunk->code[offset + 2]);
+      return offset + 3;
+    }
+    case OP_GET_LOCAL_PROPERTY: {
+      /* A slot, then the same constant-and-cache pair OP_GET_PROPERTY takes. */
+      int constant = readConstantIndex(chunk, offset + 2);
+      printf("%-22s %4d '", "OP_GET_LOCAL_PROPERTY", chunk->code[offset + 1]);
+      csValuePrint(chunk->constants.values[constant]);
+      printf("'  cache %d\n", readConstantIndex(chunk, offset + 4));
+      return offset + 6;
+    }
     case OP_SET_PROPERTY:      return cachedInstruction("OP_SET_PROPERTY", chunk, offset);
     case OP_GET_INDEX:         return simpleInstruction("OP_GET_INDEX", offset);
     case OP_ITER_LENGTH:       return simpleInstruction("OP_ITER_LENGTH", offset);
