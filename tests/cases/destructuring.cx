@@ -1,0 +1,65 @@
+// Array patterns.
+const [first, second] = [1, 2];
+console.log(first, second);
+
+const [head, ...tail] = [1, 2, 3, 4];
+console.log(head, tail);
+
+// A short array leaves the extra names undefined, and defaults fill them in.
+const [a, b, c] = [1];
+console.log(a, b, c);
+
+const [p, q = 7] = [1];
+console.log(p, q);
+
+// Object patterns, with renaming and defaults.
+const { x, y } = { x: 1, y: 2 };
+console.log(x, y);
+
+const { x: renamed } = { x: 5 };
+console.log(renamed);
+
+const { present, missing = "fallback" } = { present: 1 };
+console.log(present, missing);
+
+// Patterns work at block scope too.
+{
+  const [m, n] = [3, 4];
+  const { k } = { k: 5 };
+  console.log(m + n + k);
+}
+
+// Spread in array literals.
+console.log([...[1, 2], 3, ...[4, 5]]);
+console.log([...[1, 2]]);
+console.log([..."abc"]);
+console.log([0, ...[]]);
+
+// Spread as call arguments.
+function sum3(one, two, three) {
+  return one + two + three;
+}
+console.log(sum3(...[1, 2, 3]));
+console.log(sum3(1, ...[2, 3]));
+console.log(Math.max(...[3, 9, 4]), Math.min(...[3, 9, 4]));
+
+// Destructuring what a function returned.
+function pair() {
+  return [10, 20];
+}
+const [left, right] = pair();
+console.log(left, right);
+
+// Destructuring inside a loop body.
+for (const entry of [[1, "one"], [2, "two"]]) {
+  const [number, word] = entry;
+  console.log(number, word);
+}
+
+// Combining with the rest of the language.
+const values = [5, 3, 8, 1];
+const [smallest] = values.slice().sort((i, j) => i - j);
+console.log(smallest);
+
+const { length } = "hello";
+console.log(length);

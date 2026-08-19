@@ -318,8 +318,14 @@ static void addLocal(const char *name, int length, bool isConst,
     return;
   }
 
+  /* Compiler-generated locals are named with a leading space, which no source
+   * can produce. They are only ever referenced by slot, so two of them in one
+   * scope is normal — two destructuring declarations in the same block, say —
+   * and the redeclaration check does not apply. */
+  bool isInternal = length > 0 && name[0] == ' ';
+
   /* Redeclaring a name in the same scope is a mistake, not shadowing. */
-  for (int i = current->localCount - 1; i >= 0; i--) {
+  for (int i = current->localCount - 1; !isInternal && i >= 0; i--) {
     Local *local = &current->locals[i];
     if (local->depth < current->scopeDepth) break;
     if (identifiersEqual(local, name, length)) {
@@ -644,6 +650,70 @@ static void compileForEffect(const AstNode *node) {
 
   compileNode(node);
   emitByte(OP_POP, node != NULL ? node->line : 0);
+}
+
+/* `const [a, b] = xs;` and `const { x, y } = o;`
+ *
+ * Compiles to the loads and stores the pattern stands for, so nothing new
+ * exists at run time. The source is evaluated once into a hidden local, then
+ * each binding reads its own piece out of it. */
+static void compileDestructure(const AstNode *node) {
+  int line = node->line;
+  bool isObject = node->as.destructure.isObject;
+
+  /* The source, held in a slot the body cannot name. */
+  compileNode(node->as.destructure.initializer);
+  addLocal(" source", 7, true, line);
+  int sourceSlot = current->localCount - 1;
+
+  for (int i = 0; i < node->as.destructure.count; i++) {
+    const AstBinding *binding = &node->as.destructure.bindings[i];
+
+    if (binding->isRest) {
+      emitBytes(OP_GET_LOCAL, (uint8_t)sourceSlot, line);
+      emitBytes(OP_ARRAY_REST, (uint8_t)i, line);
+    } else {
+      emitBytes(OP_GET_LOCAL, (uint8_t)sourceSlot, line);
+      if (isObject) {
+        emitConstantOp(OP_GET_PROPERTY,
+                       identifierConstant(binding->key, binding->keyLength, line),
+                       line);
+      } else {
+        emitConstant(NUMBER_VAL(i), line);
+        emitByte(OP_GET_INDEX, line);
+      }
+
+      /* A default applies when the piece is missing, which is what undefined
+       * means for both a short array and an absent property. */
+      if (binding->defaultValue != NULL) {
+        emitByte(OP_DUP, line);
+        emitByte(OP_UNDEFINED, line);
+        emitByte(OP_NOT_EQUAL, line);
+        int keepJump = emitJump(OP_POP_JUMP_IF_FALSE, line);
+        int doneJump = emitJump(OP_JUMP, line);
+        patchJump(keepJump, line);
+        emitByte(OP_POP, line); /* the undefined */
+        compileNode(binding->defaultValue);
+        patchJump(doneJump, line);
+      }
+    }
+
+    /* The value is already sitting where the binding's slot will be. */
+    if (current->scopeDepth > 0) {
+      addLocal(binding->name, binding->nameLength, node->as.destructure.isConst, line);
+    } else {
+      addGlobal(binding->name, binding->nameLength, node->as.destructure.isConst, line);
+      emitConstantOp(node->as.destructure.isConst ? OP_DEFINE_CONST : OP_DEFINE_GLOBAL,
+                     identifierConstant(binding->name, binding->nameLength, line), line);
+    }
+  }
+
+  /* At global scope the hidden source local is the only thing still on the
+   * stack; inside a block it stays put and the enclosing scope discards it. */
+  if (current->scopeDepth == 0) {
+    current->localCount--;
+    emitByte(OP_POP, line);
+  }
 }
 
 static void compileVarDecl(const AstNode *node) {
@@ -1201,12 +1271,27 @@ static void compileNode(const AstNode *node) {
         errorAt(line, "too many elements in one array literal (limit %d)", UINT8_MAX);
         break;
       }
+
+      /* A literal with no spread uses the cheaper builder that copies straight
+       * across without inspecting each element. */
+      bool hasSpread = false;
       for (int i = 0; i < node->as.arrayLiteral.count; i++) {
+        if (node->as.arrayLiteral.elements[i]->type == AST_SPREAD) hasSpread = true;
         compileNode(node->as.arrayLiteral.elements[i]);
       }
-      emitBytes(OP_ARRAY, (uint8_t)node->as.arrayLiteral.count, line);
+      emitBytes(hasSpread ? OP_ARRAY_SPREAD : OP_ARRAY,
+                (uint8_t)node->as.arrayLiteral.count, line);
       break;
     }
+
+    case AST_SPREAD:
+      compileNode(node->as.spread);
+      emitByte(OP_SPREAD_MARK, line);
+      break;
+
+    case AST_DESTRUCTURE:
+      compileDestructure(node);
+      break;
 
     case AST_CALL: {
       if (node->as.call.argCount > UINT8_MAX) {
@@ -1214,6 +1299,34 @@ static void compileNode(const AstNode *node) {
         break;
       }
       const AstNode *callee = node->as.call.callee;
+
+      bool hasSpread = false;
+      for (int i = 0; i < node->as.call.argCount; i++) {
+        if (node->as.call.arguments[i]->type == AST_SPREAD) hasSpread = true;
+      }
+
+      /* Spread arguments are packed into one array, because how many there are
+       * is only known at run time. That costs the receiver, so a built-in
+       * method cannot be called this way — `Math.max(...xs)` works because it
+       * ignores its receiver, while `xs.push(...ys)` reports that it cannot. */
+      if (hasSpread) {
+        if (callee->type == AST_PROPERTY) {
+          compileNode(callee->as.property.object);
+          emitConstantOp(OP_GET_PROPERTY,
+                         identifierConstant(callee->as.property.name,
+                                            callee->as.property.length, line),
+                         line);
+        } else {
+          compileNode(callee);
+        }
+
+        for (int i = 0; i < node->as.call.argCount; i++) {
+          compileNode(node->as.call.arguments[i]);
+        }
+        emitBytes(OP_ARRAY_SPREAD, (uint8_t)node->as.call.argCount, line);
+        emitByte(OP_CALL_SPREAD, line);
+        break;
+      }
 
       /* `x.name(...)` becomes one instruction instead of a property load
        * followed by a call, which also keeps the receiver available so a

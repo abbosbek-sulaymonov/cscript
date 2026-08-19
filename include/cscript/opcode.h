@@ -61,6 +61,17 @@
   X(OP_SET_INDEX)         /*          target[index] = value, leaving value  */ \
   X(OP_OBJECT)            /* [count]  build from `count` key/value pairs    */ \
   X(OP_ARRAY)             /* [count]  build from the top `count` values     */ \
+  /* Spread. OP_ARRAY_SPREAD builds an array from `count` stack values where    \
+   * any of them may itself be an array to splice in; the marker distinguishes  \
+   * a spread element from a plain one at run time. */                           \
+  X(OP_SPREAD_MARK)       /*          tag the value on top as spread        */ \
+  X(OP_ARRAY_SPREAD)      /* [count]  build, splicing any marked elements   */ \
+  /* Slices `count` elements off an array from a starting index — the rest      \
+   * element of an array pattern. */                                            \
+  X(OP_ARRAY_REST)        /* [index]  push a copy from `index` onward       */ \
+  /* A call whose arguments were spread: they arrive as one array, because      \
+   * their number is only known at run time. Unpacks it and calls. */            \
+  X(OP_CALL_SPREAD)       /*          call with the argument array on top    */ \
   X(OP_CALL)              /* [argc]   call the value below the arguments    */ \
   /* Method call: looks the name up on the receiver and calls it in one step.  \
    * The receiver stays on the stack below the arguments, so no bound-method   \

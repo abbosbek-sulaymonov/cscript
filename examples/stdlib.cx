@@ -1,0 +1,60 @@
+// A tour of the built-in library, written the way JavaScript actually is.
+
+const people = [
+  { name: "Ada", born: 1815 },
+  { name: "Alan", born: 1912 },
+  { name: "Grace", born: 1906 },
+];
+
+// Array methods, chained, with arrow functions.
+const names = people
+  .map(person => person.name)
+  .filter(name => name.length > 3)
+  .sort();
+console.log(names);
+
+const earliest = people.reduce((oldest, person) =>
+  person.born < oldest.born ? person : oldest
+);
+console.log(`earliest: ${earliest.name} (${earliest.born})`);
+
+// String methods.
+const title = "  the analytical engine  ";
+console.log(title.trim().toUpperCase());
+console.log(title.trim().split(" ").length, "words");
+console.log(title.includes("engine"), title.trim().startsWith("the"));
+console.log("cscript".padStart(10, "-").padEnd(13, "-"));
+
+// Object statics, which see properties in insertion order.
+const config = { host: "localhost", port: 8080, secure: false };
+console.log(Object.keys(config));
+console.log(Object.entries(config).map(entry => {
+  const [key, value] = entry;
+  return `${key}=${value}`;
+}).join(" "));
+
+// Math and numeric parsing.
+console.log(Math.max(...people.map(p => p.born)));
+console.log(Math.round(Math.sqrt(2) * 100) / 100);
+console.log(parseInt("42px"), Number.isInteger(7), Number("3.5"));
+
+// JSON round-trips.
+const encoded = JSON.stringify(config);
+console.log(encoded);
+const decoded = JSON.parse(encoded);
+console.log(decoded.host, decoded.port);
+
+// Destructuring and spread.
+const { host, port } = config;
+console.log(`${host}:${port}`);
+
+const [firstPerson, ...others] = people;
+console.log(firstPerson.name, "and", others.length, "others");
+
+const merged = [...names, "Edsger"];
+console.log(merged);
+
+// for...of over what all of that produced.
+for (const name of merged) {
+  console.log("-", name);
+}

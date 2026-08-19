@@ -102,6 +102,10 @@ typedef struct ObjUpvalue {
 typedef struct ObjArray {
   Obj obj;
   ValueArray elements;
+  /* Set only on the throwaway array a spread element produces, so the literal
+   * being built knows to splice it rather than nest it. Never observable from
+   * CScript: the marked array exists for exactly one instruction. */
+  bool isSpreadMarker;
 } ObjArray;
 
 typedef struct ObjClosure {

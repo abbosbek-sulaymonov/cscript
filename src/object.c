@@ -147,6 +147,7 @@ ObjArray *csArrayNew(void) {
   ObjArray *array = CS_ALLOCATE(ObjArray, 1);
   registerObject((Obj *)array, OBJ_ARRAY);
   csValueArrayInit(&array->elements);
+  array->isSpreadMarker = false;
   return array;
 }
 

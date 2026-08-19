@@ -131,6 +131,7 @@ static AstNode *parsePrimary(Parser *parser);
 static AstNode *parseFunction(Parser *parser, bool requireName);
 static AstNode *parseSwitch(Parser *parser);
 static AstNode *parseTry(Parser *parser);
+static AstNode *parseDestructuring(Parser *parser, bool isObject, bool isConst);
 static AstNode *parseBlock(Parser *parser);
 static AstNode *finishVarDeclaration(Parser *parser, int line, const char *name,
                                      int nameLength, bool isConst);
@@ -234,8 +235,10 @@ static AstNode *parseCallSuffixes(Parser *parser, AstNode *expression) {
       AstNode *call = csAstCall(parser->arena, line, expression);
       if (!check(parser, TOKEN_RIGHT_PAREN)) {
         do {
+          bool isSpread = matchToken(parser, TOKEN_ELLIPSIS);
           AstNode *argument = parsePrecedence(parser, PREC_ASSIGNMENT);
           if (argument == NULL) return NULL;
+          if (isSpread) argument = csAstSpread(parser->arena, line, argument);
           csAstCallAddArgument(parser->arena, call, argument);
         } while (matchToken(parser, TOKEN_COMMA));
       }
@@ -322,8 +325,11 @@ static AstNode *parsePrimary(Parser *parser) {
       do {
         /* A trailing comma before ']' is allowed, as in JavaScript. */
         if (check(parser, TOKEN_RIGHT_BRACKET)) break;
+
+        bool isSpread = matchToken(parser, TOKEN_ELLIPSIS);
         AstNode *element = parsePrecedence(parser, PREC_ASSIGNMENT);
         if (element == NULL) return NULL;
+        if (isSpread) element = csAstSpread(parser->arena, line, element);
         csAstArrayLiteralAdd(parser->arena, array, element);
       } while (matchToken(parser, TOKEN_COMMA));
     }
@@ -369,6 +375,12 @@ static AstNode *parsePrimary(Parser *parser) {
 
       if (!check(parser, TOKEN_RIGHT_PAREN)) {
         do {
+          if (check(parser, TOKEN_LEFT_BRACKET) || check(parser, TOKEN_LEFT_BRACE)) {
+            errorAtCurrent(parser,
+                           "destructuring a parameter is not supported yet; "
+                           "destructure inside the body instead");
+            return NULL;
+          }
           consume(parser, TOKEN_IDENTIFIER, "expected a parameter name");
           if (parser->diag->panicMode) return NULL;
           const char *paramName = parser->previous.start;
@@ -738,6 +750,11 @@ static AstNode *parseFunction(Parser *parser, bool requireName) {
 
   if (!check(parser, TOKEN_RIGHT_PAREN)) {
     do {
+      if (check(parser, TOKEN_LEFT_BRACKET) || check(parser, TOKEN_LEFT_BRACE)) {
+        errorAtCurrent(parser, "destructuring a parameter is not supported yet; "
+                               "destructure inside the body instead");
+        return NULL;
+      }
       consume(parser, TOKEN_IDENTIFIER, "expected a parameter name");
       if (parser->diag->panicMode) return NULL;
 
@@ -905,9 +922,83 @@ static AstNode *finishVarDeclaration(Parser *parser, int line, const char *name,
                       declaredType, hasAnnotation);
 }
 
+/* `const [a, b, ...rest] = xs;` and `const { x, y: alias, z = 1 } = o;`
+ *
+ * Both forms compile to the loads and stores they stand for, so nothing new
+ * exists at run time. Nested patterns are not supported and say so. */
+static AstNode *parseDestructuring(Parser *parser, bool isObject, bool isConst) {
+  int line = parser->previous.line;
+  AstNode *pattern = csAstDestructure(parser->arena, line, isObject, isConst);
+  TokenType closer = isObject ? TOKEN_RIGHT_BRACE : TOKEN_RIGHT_BRACKET;
+
+  if (!check(parser, closer)) {
+    do {
+      if (check(parser, closer)) break; /* a trailing comma */
+
+      bool isRest = matchToken(parser, TOKEN_ELLIPSIS);
+      if (isRest && isObject) {
+        errorAtCurrent(parser, "rest properties are not supported in object patterns");
+        return NULL;
+      }
+
+      if (check(parser, TOKEN_LEFT_BRACKET) || check(parser, TOKEN_LEFT_BRACE)) {
+        errorAtCurrent(parser, "nested destructuring patterns are not supported yet");
+        return NULL;
+      }
+
+      consume(parser, TOKEN_IDENTIFIER, "expected a name in the pattern");
+      if (parser->diag->panicMode) return NULL;
+
+      const char *key = parser->previous.start;
+      int keyLength = parser->previous.length;
+      const char *name = key;
+      int nameLength = keyLength;
+
+      /* `{ key: localName }` renames on the way in. */
+      if (isObject && matchToken(parser, TOKEN_COLON)) {
+        consume(parser, TOKEN_IDENTIFIER, "expected a name after ':'");
+        if (parser->diag->panicMode) return NULL;
+        name = parser->previous.start;
+        nameLength = parser->previous.length;
+      }
+
+      AstNode *defaultValue = NULL;
+      if (matchToken(parser, TOKEN_EQUAL)) {
+        defaultValue = parsePrecedence(parser, PREC_ASSIGNMENT);
+        if (defaultValue == NULL) return NULL;
+      }
+
+      csAstDestructureAdd(parser->arena, pattern, isObject ? key : NULL, keyLength,
+                          name, nameLength, defaultValue, isRest);
+
+      if (isRest) break; /* nothing may follow a rest element */
+    } while (matchToken(parser, TOKEN_COMMA));
+  }
+
+  consume(parser, closer, isObject ? "expected '}' to close the pattern"
+                                   : "expected ']' to close the pattern");
+  consume(parser, TOKEN_EQUAL, "a destructuring declaration needs an initialiser");
+  if (parser->diag->panicMode) return NULL;
+
+  pattern->as.destructure.initializer = parsePrecedence(parser, PREC_ASSIGNMENT);
+  if (pattern->as.destructure.initializer == NULL) return NULL;
+
+  consume(parser, TOKEN_SEMICOLON, "expected ';' after the declaration");
+  return parser->diag->panicMode ? NULL : pattern;
+}
+
 /* `let x = 1;` / `const y = 2;` — `var` is rejected in parseStatement. */
 static AstNode *parseVarDeclaration(Parser *parser, bool isConst) {
   int line = parser->previous.line;
+  (void)line;
+
+  /* A pattern rather than a name means this is a destructuring declaration. */
+  if (matchToken(parser, TOKEN_LEFT_BRACKET)) {
+    return parseDestructuring(parser, false, isConst);
+  }
+  if (matchToken(parser, TOKEN_LEFT_BRACE)) {
+    return parseDestructuring(parser, true, isConst);
+  }
 
   consume(parser, TOKEN_IDENTIFIER, "expected a variable name");
   if (parser->diag->panicMode) return NULL;

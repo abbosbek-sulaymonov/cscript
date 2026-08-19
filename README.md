@@ -73,13 +73,28 @@ The full list, with the reasoning for each, is in
 
 ## Status
 
-**v0.7.0.** The language is feature-complete for everyday code: objects and
+**v0.12.0.** The language is feature-complete for everyday code: objects and
 arrays, functions and closures, gradual typing with inference, control flow,
 `switch`, template literals and the conditional operator. The pipeline is lexer
 → parser → type checker → bytecode compiler → stack VM, with a mark-sweep
 collector underneath.
 
-What remains is performance — see the [roadmap](#roadmap).
+```ts
+const people = [{ name: "Ada", born: 1815 }, { name: "Alan", born: 1912 }];
+
+const names = people.map(p => p.name).filter(n => n.length > 3).sort();
+const { name, born } = people[0];
+
+try {
+  console.log(JSON.stringify({ names, first: `${name} (${born})` }));
+} catch (e) {
+  console.log(e.message);
+}
+```
+
+Functions, closures, objects, arrays, a standard library, gradual typing,
+exceptions, destructuring and spread. What remains is classes, modules and
+async — see the [roadmap](#roadmap).
 
 ---
 
@@ -347,7 +362,12 @@ cscript/
 | **6 ✅** | `switch`, `break`/`continue`, template literals, ternary | — |
 | **7 ✅** | NaN-boxed values — halves memory, measured | — |
 | **8 ✅** | Superinstructions chosen from an opcode profile | — |
-| next | Inline caches for globals, then a register VM | VM and compiler |
+| **9 ✅** | Method dispatch, array and string methods | — |
+| **10 ✅** | `Object`, `Array`, `Number`, `JSON`, full `Math` | — |
+| **11 ✅** | `**`, arrow functions, `for...of` | — |
+| **12 ✅** | `try` / `catch` / `finally` / `throw` | — |
+| **13 ✅** | Destructuring and spread | — |
+| next | Classes and modules, or inline caches for globals | — |
 
 ---
 

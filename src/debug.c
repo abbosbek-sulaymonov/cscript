@@ -99,6 +99,10 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_SET_INDEX:         return simpleInstruction("OP_SET_INDEX", offset);
     case OP_OBJECT:            return byteInstruction("OP_OBJECT", chunk, offset);
     case OP_ARRAY:             return byteInstruction("OP_ARRAY", chunk, offset);
+    case OP_SPREAD_MARK:       return simpleInstruction("OP_SPREAD_MARK", offset);
+    case OP_ARRAY_SPREAD:      return byteInstruction("OP_ARRAY_SPREAD", chunk, offset);
+    case OP_ARRAY_REST:        return byteInstruction("OP_ARRAY_REST", chunk, offset);
+    case OP_CALL_SPREAD:       return simpleInstruction("OP_CALL_SPREAD", offset);
     case OP_CLOSURE: {
       /* Followed by one (isLocal, index) pair per upvalue, which are operands
        * rather than instructions. */
@@ -297,6 +301,17 @@ static void printNode(const AstNode *node, int depth) {
     case AST_THROW_STMT:
       printf("Throw\n");
       printNode(node->as.thrown, depth + 1);
+      break;
+    case AST_SPREAD:
+      printf("Spread\n");
+      printNode(node->as.spread, depth + 1);
+      break;
+    case AST_DESTRUCTURE:
+      printf("Destructure %s (%d binding%s)\n",
+             node->as.destructure.isObject ? "object" : "array",
+             node->as.destructure.count,
+             node->as.destructure.count == 1 ? "" : "s");
+      printNode(node->as.destructure.initializer, depth + 1);
       break;
     case AST_INDEX:
       printf("Index\n");

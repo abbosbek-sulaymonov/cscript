@@ -285,7 +285,14 @@ Token csLexerNext(Lexer *lexer) {
     case '[': return makeToken(lexer, TOKEN_LEFT_BRACKET);
     case ']': return makeToken(lexer, TOKEN_RIGHT_BRACKET);
     case ',': return makeToken(lexer, TOKEN_COMMA);
-    case '.': return makeToken(lexer, TOKEN_DOT);
+    case '.':
+      /* `...` for spread and rest; a lone '.' is property access. */
+      if (peek(lexer) == '.' && peekNext(lexer) == '.') {
+        advance(lexer);
+        advance(lexer);
+        return makeToken(lexer, TOKEN_ELLIPSIS);
+      }
+      return makeToken(lexer, TOKEN_DOT);
     case ';': return makeToken(lexer, TOKEN_SEMICOLON);
     case ':': return makeToken(lexer, TOKEN_COLON);
     case '?': return makeToken(lexer, TOKEN_QUESTION);
@@ -359,6 +366,7 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_RIGHT_BRACKET:     return "RIGHT_BRACKET";
     case TOKEN_COMMA:             return "COMMA";
     case TOKEN_DOT:               return "DOT";
+    case TOKEN_ELLIPSIS:          return "ELLIPSIS";
     case TOKEN_SEMICOLON:         return "SEMICOLON";
     case TOKEN_COLON:             return "COLON";
     case TOKEN_QUESTION:          return "QUESTION";

@@ -31,11 +31,13 @@ typedef enum {
   AST_INDEX,
   AST_OBJECT_LITERAL,
   AST_ARRAY_LITERAL,
+  AST_SPREAD,
   AST_CONDITIONAL,
 
   /* Statements. */
   AST_EXPRESSION_STMT,
   AST_VAR_DECL,
+  AST_DESTRUCTURE,
   AST_BLOCK,
   AST_IF_STMT,
   AST_WHILE_STMT,
@@ -77,6 +79,20 @@ typedef struct AstSwitchCase {
   AstNode *test;
   AstNode *body; /* an AST_BLOCK holding the arm's statements */
 } AstSwitchCase;
+
+/* One name bound by a destructuring pattern.
+ *
+ * `key` is what to read from the source — an array index is implied by
+ * position, an object property by name. `name` is what the binding is called,
+ * which differs when the pattern renames: `{ x: a }`. */
+typedef struct AstBinding {
+  const char *key;
+  int keyLength;
+  const char *name;
+  int nameLength;
+  AstNode *defaultValue; /* NULL when the pattern has no default */
+  bool isRest;           /* ...rest, only valid last in an array pattern */
+} AstBinding;
 
 /* One declared parameter. Stored inline in the function node's array. */
 typedef struct AstParam {
@@ -168,6 +184,14 @@ struct AstNode {
       AstNode *increment;
       AstNode *body;
     } forStmt;
+    AstNode *spread;                     /* AST_SPREAD — ...expr */
+    struct {                             /* AST_DESTRUCTURE */
+      struct AstBinding *bindings;
+      int count;
+      bool isObject;                     /*   {a, b} rather than [a, b] */
+      bool isConst;
+      AstNode *initializer;
+    } destructure;
     struct {                             /* AST_CONDITIONAL — c ? a : b */
       AstNode *condition;
       AstNode *thenValue;
@@ -289,6 +313,11 @@ AstNode *csAstForOf(AstArena *arena, int line, const char *name, int nameLength,
 AstNode *csAstTry(AstArena *arena, int line, AstNode *body, const char *catchName,
                   int catchNameLength, AstNode *catchBody, AstNode *finallyBody);
 AstNode *csAstThrow(AstArena *arena, int line, AstNode *thrown);
+AstNode *csAstSpread(AstArena *arena, int line, AstNode *expression);
+AstNode *csAstDestructure(AstArena *arena, int line, bool isObject, bool isConst);
+void csAstDestructureAdd(AstArena *arena, AstNode *node, const char *key,
+                         int keyLength, const char *name, int nameLength,
+                         AstNode *defaultValue, bool isRest);
 AstNode *csAstReturn(AstArena *arena, int line, AstNode *value);
 AstNode *csAstProgram(AstArena *arena, int line);
 

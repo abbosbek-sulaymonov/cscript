@@ -865,6 +865,87 @@ static InterpretResult run(int baseFrame) {
         VM_NEXT();
       }
 
+      VM_CASE(OP_SPREAD_MARK) {
+        Value value = peekStack(0);
+        if (!IS_ARRAY(value) && !IS_STRING(value)) {
+          csVMRuntimeError("only arrays and strings can be spread, got %s",
+                           csValueTypeName(value));
+          return CS_RUNTIME_ERROR;
+        }
+
+        /* Wrap in a marked array so the builder below can tell a spread
+         * element from a plain array element. A string spreads to characters. */
+        ObjArray *marker = csArrayNew();
+        marker->isSpreadMarker = true;
+        csPushTempRoot((Obj *)marker);
+
+        if (IS_ARRAY(value)) {
+          ObjArray *source = AS_ARRAY(value);
+          for (int i = 0; i < source->elements.count; i++) {
+            csValueArrayWrite(&marker->elements, source->elements.values[i]);
+          }
+        } else {
+          ObjString *source = AS_STRING(value);
+          for (int i = 0; i < source->length; i++) {
+            ObjString *piece = csStringCopy(source->chars + i, 1);
+            csPushTempRoot((Obj *)piece);
+            csValueArrayWrite(&marker->elements, OBJ_VAL(piece));
+            csPopTempRoot();
+          }
+        }
+
+        csPopTempRoot();
+        csVMPop();
+        csVMPush(OBJ_VAL(marker));
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_ARRAY_SPREAD) {
+        int count = READ_BYTE();
+        ObjArray *array = csArrayNew();
+        csPushTempRoot((Obj *)array);
+
+        Value *elements = vm.stackTop - count;
+        for (int i = 0; i < count; i++) {
+          if (IS_ARRAY(elements[i]) && AS_ARRAY(elements[i])->isSpreadMarker) {
+            ObjArray *spread = AS_ARRAY(elements[i]);
+            for (int j = 0; j < spread->elements.count; j++) {
+              csValueArrayWrite(&array->elements, spread->elements.values[j]);
+            }
+          } else {
+            csValueArrayWrite(&array->elements, elements[i]);
+          }
+        }
+
+        csPopTempRoot();
+        vm.stackTop = elements;
+        csVMPush(OBJ_VAL(array));
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_ARRAY_REST) {
+        uint8_t from = READ_BYTE();
+        /* Replaces the source on top with the slice, the same shape
+         * OP_ITER_LENGTH uses, so no stack fixup is needed afterwards. */
+        Value source = csVMPop();
+        if (!IS_ARRAY(source)) {
+          csVMRuntimeError("cannot destructure %s as an array",
+                           csValueTypeName(source));
+          return CS_RUNTIME_ERROR;
+        }
+
+        ObjArray *rest = csArrayNew();
+        csPushTempRoot((Obj *)rest);
+        ObjArray *array = AS_ARRAY(source);
+        for (int i = from; i < array->elements.count; i++) {
+          csValueArrayWrite(&rest->elements, array->elements.values[i]);
+        }
+        csPopTempRoot();
+
+        csVMPush(OBJ_VAL(rest));
+        VM_NEXT();
+      }
+
       VM_CASE(OP_ARRAY) {
         int count = READ_BYTE();
         ObjArray *array = csArrayNew();
@@ -888,6 +969,34 @@ static InterpretResult run(int baseFrame) {
           VM_NEXT();
         }
         /* A user call pushed a frame, so the cached pointer is stale. */
+        frame = &vm.frames[vm.frameCount - 1];
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_CALL_SPREAD) {
+        Value packed = csVMPop();
+        if (!IS_ARRAY(packed)) {
+          csVMRuntimeError("spread arguments must be an array");
+          return CS_RUNTIME_ERROR;
+        }
+
+        ObjArray *args = AS_ARRAY(packed);
+        int argCount = args->elements.count;
+        if (argCount > UINT8_MAX) {
+          csVMRuntimeError("too many arguments after spreading (limit %d)", UINT8_MAX);
+          return CS_RUNTIME_ERROR;
+        }
+
+        /* The array is unreachable once popped, so root it while its elements
+         * are copied onto the stack. */
+        csPushTempRoot((Obj *)args);
+        for (int i = 0; i < argCount; i++) csVMPush(args->elements.values[i]);
+        csPopTempRoot();
+
+        if (!callValue(peekStack(argCount), argCount)) {
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
+        }
         frame = &vm.frames[vm.frameCount - 1];
         VM_NEXT();
       }

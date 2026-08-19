@@ -471,7 +471,14 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
         break;
       }
 
-      if (node->as.call.argCount != signature->paramCount) {
+      /* A spread hides how many arguments there really are, so the arity check
+       * has to be left to the runtime. */
+      bool hasSpread = false;
+      for (int i = 0; i < node->as.call.argCount; i++) {
+        if (node->as.call.arguments[i]->type == AST_SPREAD) hasSpread = true;
+      }
+
+      if (!hasSpread && node->as.call.argCount != signature->paramCount) {
         typeError(checker, node->line, "expected %d argument%s but got %d",
                   signature->paramCount, signature->paramCount == 1 ? "" : "s",
                   node->as.call.argCount);
@@ -628,6 +635,23 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
     case AST_WHILE_STMT:
       checkNode(checker, node->as.whileStmt.condition);
       checkNode(checker, node->as.whileStmt.body);
+      result = TYPE_UNDEFINED;
+      break;
+
+    case AST_SPREAD:
+      checkNode(checker, node->as.spread);
+      result = TYPE_ANY;
+      break;
+
+    case AST_DESTRUCTURE:
+      checkNode(checker, node->as.destructure.initializer);
+      for (int i = 0; i < node->as.destructure.count; i++) {
+        checkNode(checker, node->as.destructure.bindings[i].defaultValue);
+        /* Element and property types are not modelled, so each binding is
+         * dynamic. */
+        declareVariable(checker, node->as.destructure.bindings[i].name,
+                        node->as.destructure.bindings[i].nameLength, TYPE_ANY);
+      }
       result = TYPE_UNDEFINED;
       break;
 

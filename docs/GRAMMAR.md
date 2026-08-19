@@ -1,4 +1,4 @@
-# CScript grammar and semantics — v0.3.0
+# CScript grammar and semantics — v0.12.0
 
 CScript's syntax is a **subset of TypeScript's**: every CScript program is a
 valid TypeScript program. `make test-node` enforces that by handing each
@@ -358,13 +358,83 @@ All of them are constants and cannot be reassigned.
 
 Block comments do not nest.
 
+## Standard library
+
+Method calls go through one instruction that looks the name up on the receiver,
+so arrays and strings carry methods without being property bags.
+
+**Arrays** — `push` `pop` `shift` `unshift` `slice` `concat` `join` `indexOf`
+`lastIndexOf` `includes` `reverse` `fill` `sort` `forEach` `map` `filter`
+`reduce` `find` `findIndex` `some` `every`
+
+`sort` compares as strings by default, so `[10, 9].sort()` is `[10, 9]`.
+Surprising, but specified, and real code depends on it. Pass a comparator for
+numeric order.
+
+**Strings** — `toUpperCase` `toLowerCase` `trim` `trimStart` `trimEnd` `split`
+`slice` `substring` `charAt` `charCodeAt` `indexOf` `lastIndexOf` `includes`
+`startsWith` `endsWith` `repeat` `replace` `replaceAll` `padStart` `padEnd`
+`concat`
+
+Indexing is by byte, which is correct for ASCII and wrong for multi-byte UTF-8.
+
+**Namespaces** — `console.log` / `.error` / `.warn`; `Object.keys` / `.values` /
+`.entries` / `.assign` / `.hasOwn`; `Array.isArray` / `.of` / `.from`;
+`Number.isInteger` / `.isNaN` / `.isFinite` / `.parseInt` / `.parseFloat` and
+the numeric limits; `JSON.stringify` / `.parse`; twenty-five `Math` functions
+and constants.
+
+**Globals** — `Number` `String` `Boolean` `Error` `parseInt` `parseFloat`
+`isNaN` `isFinite` `NaN` `Infinity`.
+
+`Math.random` is seeded once from the clock and is not cryptographic.
+
+## Error handling
+
+```js
+try {
+  throw Error("something failed");
+} catch (e) {
+  console.log(e.name, e.message);
+} finally {
+  console.log("always runs");
+}
+```
+
+Any value can be thrown. `Error(message)` returns `{ name, message }` — a
+function rather than a constructor, since `new` does not exist yet.
+
+`finally` runs on every path out of the block, including `return`, `break` and
+`continue` leaving it early, and it covers the `catch` as well as the body.
+
+An uncaught throw is reported like a runtime error, with the same call stack.
+
+## Destructuring and spread
+
+```js
+const [first, ...rest] = [1, 2, 3];
+const { x, y: renamed, z = 0 } = point;
+
+console.log([...a, ...b]);
+console.log(Math.max(...numbers));
+```
+
+Array and object patterns, with renaming, defaults and a rest element. Spread
+works in array literals and call arguments, and over strings.
+
+Not supported, each with an error that says so: **nested patterns**,
+**destructuring a parameter** (destructure inside the body instead), **object
+rest**, and spreading into a built-in method call such as `xs.push(...ys)` —
+packing the arguments loses the receiver those need.
+
 ## Not implemented yet
 
 Each of these produces an error that names it:
 
-- Functions, `return`, closures, arrow functions
-- Objects and object literals, arrays, indexing
-- `switch`, `do`/`while`, `break`, `continue`, labels
-- `for...of`, `for...in`
-- Template literals, ternary `?:`, spread, destructuring
-- `try`/`catch`/`throw`, classes, modules, `async`/`await`
+- Classes, `new`, `this`, prototypes
+- Modules — `import` and `export`
+- `async` / `await`, promises, generators
+- Regular expressions
+- `Map`, `Set`, `Symbol`, `BigInt`
+- `do`/`while`, labelled statements, `for...in`
+- Getters and setters, computed property keys

@@ -435,6 +435,48 @@ AstNode *csAstTry(AstArena *arena, int line, AstNode *body, const char *catchNam
   return node;
 }
 
+AstNode *csAstSpread(AstArena *arena, int line, AstNode *expression) {
+  AstNode *node = newNode(arena, AST_SPREAD, line);
+  if (node != NULL) node->as.spread = expression;
+  return node;
+}
+
+AstNode *csAstDestructure(AstArena *arena, int line, bool isObject, bool isConst) {
+  AstNode *node = newNode(arena, AST_DESTRUCTURE, line);
+  if (node == NULL) return NULL;
+  node->as.destructure.bindings = NULL;
+  node->as.destructure.count = 0;
+  node->as.destructure.isObject = isObject;
+  node->as.destructure.isConst = isConst;
+  node->as.destructure.initializer = NULL;
+  return node;
+}
+
+void csAstDestructureAdd(AstArena *arena, AstNode *node, const char *key,
+                         int keyLength, const char *name, int nameLength,
+                         AstNode *defaultValue, bool isRest) {
+  if (node == NULL) return;
+  int count = node->as.destructure.count;
+
+  AstBinding *grown =
+      (AstBinding *)csAstArenaAlloc(arena, sizeof(AstBinding) * (size_t)(count + 1));
+  if (grown == NULL) return;
+  if (node->as.destructure.bindings != NULL) {
+    memcpy(grown, node->as.destructure.bindings, sizeof(AstBinding) * (size_t)count);
+  }
+
+  int stored = 0;
+  grown[count].key = key != NULL ? internName(arena, key, keyLength, &stored) : NULL;
+  grown[count].keyLength = key != NULL ? stored : 0;
+  grown[count].name = internName(arena, name, nameLength, &stored);
+  grown[count].nameLength = stored;
+  grown[count].defaultValue = defaultValue;
+  grown[count].isRest = isRest;
+
+  node->as.destructure.bindings = grown;
+  node->as.destructure.count = count + 1;
+}
+
 AstNode *csAstThrow(AstArena *arena, int line, AstNode *thrown) {
   AstNode *node = newNode(arena, AST_THROW_STMT, line);
   if (node != NULL) node->as.thrown = thrown;
