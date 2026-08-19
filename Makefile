@@ -42,7 +42,7 @@ ASAN          := -fsanitize=address
 TRACE_DEFINES := -DCS_DEBUG_PRINT_TOKENS -DCS_DEBUG_PRINT_AST \
                  -DCS_DEBUG_PRINT_CODE -DCS_DEBUG_TRACE_EXECUTION
 
-.PHONY: all release debug asan gcstress switch tagged trace test test-asan test-gc test-node test-switch test-tagged test-all run clean help
+.PHONY: all release debug asan gcstress switch tagged profile trace test test-asan test-gc test-node test-switch test-tagged test-all run clean help
 .DEFAULT_GOAL := release
 
 all: release
@@ -71,6 +71,7 @@ $(eval $(call BUILD_CONFIG,asan,-O0 -g3 $(ASAN) $(UBSAN) -fno-omit-frame-pointer
 $(eval $(call BUILD_CONFIG,gcstress,-O0 -g3 $(UBSAN) -DCS_DEBUG_STRESS_GC,$(UBSAN)))
 $(eval $(call BUILD_CONFIG,switch,-O2 -DNDEBUG -DCS_NO_COMPUTED_GOTO,))
 $(eval $(call BUILD_CONFIG,tagged,-O2 -DNDEBUG -DCS_NAN_BOXING=0,))
+$(eval $(call BUILD_CONFIG,profile,-O2 -DNDEBUG -DCS_DEBUG_PROFILE_OPCODES,))
 $(eval $(call BUILD_CONFIG,trace,-O0 -g3 $(UBSAN) $(TRACE_DEFINES),$(UBSAN)))
 
 # Run against an instrumented build so undefined behaviour fails the suite.

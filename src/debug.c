@@ -6,6 +6,19 @@
 #include "cscript/type.h"
 #include "cscript/value.h"
 
+const char *csOpcodeName(OpCode opcode) {
+  switch (opcode) {
+#define CS_OPCODE_NAME(name) \
+  case name:                 \
+    return #name;
+    CS_OPCODE_LIST(CS_OPCODE_NAME)
+#undef CS_OPCODE_NAME
+    case OP_COUNT:
+      break;
+  }
+  return "OP_UNKNOWN";
+}
+
 static int simpleInstruction(const char *name, int offset) {
   printf("%s\n", name);
   return offset + 1;
@@ -23,6 +36,16 @@ static int byteInstruction(const char *name, const Chunk *chunk, int offset) {
   uint8_t operand = chunk->code[offset + 1];
   printf("%-22s %4d\n", name, operand);
   return offset + 2;
+}
+
+/* Two operands: a stack slot and a constant index. */
+static int slotConstantInstruction(const char *name, const Chunk *chunk, int offset) {
+  uint8_t slot = chunk->code[offset + 1];
+  uint8_t constant = chunk->code[offset + 2];
+  printf("%-22s %4d %4d '", name, slot, constant);
+  csValuePrint(chunk->constants.values[constant]);
+  printf("'\n");
+  return offset + 3;
 }
 
 static int jumpInstruction(const char *name, int sign, const Chunk *chunk, int offset) {
@@ -58,6 +81,9 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_SET_GLOBAL:        return constantInstruction("OP_SET_GLOBAL", chunk, offset);
     case OP_GET_LOCAL:         return byteInstruction("OP_GET_LOCAL", chunk, offset);
     case OP_SET_LOCAL:         return byteInstruction("OP_SET_LOCAL", chunk, offset);
+    case OP_GET_LOCAL_CONST:   return slotConstantInstruction("OP_GET_LOCAL_CONST", chunk, offset);
+    case OP_SET_LOCAL_POP:     return byteInstruction("OP_SET_LOCAL_POP", chunk, offset);
+    case OP_SET_GLOBAL_POP:    return constantInstruction("OP_SET_GLOBAL_POP", chunk, offset);
     case OP_INC_LOCAL:         return byteInstruction("OP_INC_LOCAL", chunk, offset);
     case OP_DEC_LOCAL:         return byteInstruction("OP_DEC_LOCAL", chunk, offset);
     case OP_GET_PROPERTY:      return constantInstruction("OP_GET_PROPERTY", chunk, offset);
@@ -91,6 +117,12 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_JUMP_IF_TRUE:      return jumpInstruction("OP_JUMP_IF_TRUE", 1, chunk, offset);
     case OP_POP_JUMP_IF_FALSE: return jumpInstruction("OP_POP_JUMP_IF_FALSE", 1, chunk, offset);
     case OP_LOOP:              return jumpInstruction("OP_LOOP", -1, chunk, offset);
+    case OP_JUMP_IF_NOT_LESS:          return jumpInstruction("OP_JUMP_IF_NOT_LESS", 1, chunk, offset);
+    case OP_JUMP_IF_NOT_LESS_EQUAL:    return jumpInstruction("OP_JUMP_IF_NOT_LESS_EQUAL", 1, chunk, offset);
+    case OP_JUMP_IF_NOT_GREATER:       return jumpInstruction("OP_JUMP_IF_NOT_GREATER", 1, chunk, offset);
+    case OP_JUMP_IF_NOT_GREATER_EQUAL: return jumpInstruction("OP_JUMP_IF_NOT_GREATER_EQUAL", 1, chunk, offset);
+    case OP_JUMP_IF_NOT_EQUAL:         return jumpInstruction("OP_JUMP_IF_NOT_EQUAL", 1, chunk, offset);
+    case OP_JUMP_IF_EQUAL:             return jumpInstruction("OP_JUMP_IF_EQUAL", 1, chunk, offset);
     case OP_RETURN:            return simpleInstruction("OP_RETURN", offset);
     default:
       printf("unknown opcode %d\n", instruction);

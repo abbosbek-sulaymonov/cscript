@@ -227,6 +227,69 @@ static void closeUpvalues(Value *last) {
   }
 }
 
+#ifdef CS_DEBUG_PROFILE_OPCODES
+/* Counts how often each opcode follows each other opcode, so superinstruction
+ * candidates are chosen from data rather than from intuition. */
+static uint64_t opcodePairs[OP_COUNT][OP_COUNT];
+static uint64_t opcodeCounts[OP_COUNT];
+static int previousOpcode = -1;
+
+static void recordOpcode(uint8_t opcode) {
+  opcodeCounts[opcode]++;
+  if (previousOpcode >= 0) opcodePairs[previousOpcode][opcode]++;
+  previousOpcode = opcode;
+}
+
+void csVMDumpOpcodeProfile(void);
+
+void csVMDumpOpcodeProfile(void) {
+  uint64_t total = 0;
+  for (int i = 0; i < OP_COUNT; i++) total += opcodeCounts[i];
+  if (total == 0) return;
+
+  fprintf(stderr, "\n== opcode profile: %llu instructions ==\n",
+          (unsigned long long)total);
+
+  /* Top single opcodes. */
+  fprintf(stderr, "\n-- most executed --\n");
+  for (int rank = 0; rank < 10; rank++) {
+    int best = -1;
+    for (int i = 0; i < OP_COUNT; i++) {
+      if (opcodeCounts[i] > 0 && (best < 0 || opcodeCounts[i] > opcodeCounts[best])) {
+        best = i;
+      }
+    }
+    if (best < 0) break;
+    fprintf(stderr, "  %-22s %10llu  %5.1f%%\n", csOpcodeName((OpCode)best),
+            (unsigned long long)opcodeCounts[best],
+            100.0 * (double)opcodeCounts[best] / (double)total);
+    opcodeCounts[best] = 0;
+  }
+
+  /* Top adjacent pairs — each one is a superinstruction candidate. */
+  fprintf(stderr, "\n-- most frequent pairs --\n");
+  for (int rank = 0; rank < 15; rank++) {
+    int bestA = -1, bestB = -1;
+    uint64_t best = 0;
+    for (int a = 0; a < OP_COUNT; a++) {
+      for (int b = 0; b < OP_COUNT; b++) {
+        if (opcodePairs[a][b] > best) {
+          best = opcodePairs[a][b];
+          bestA = a;
+          bestB = b;
+        }
+      }
+    }
+    if (bestA < 0) break;
+    fprintf(stderr, "  %-22s -> %-22s %9llu  %5.1f%%\n", csOpcodeName((OpCode)bestA),
+            csOpcodeName((OpCode)bestB), (unsigned long long)best,
+            100.0 * (double)best / (double)total);
+    opcodePairs[bestA][bestB] = 0;
+  }
+  fprintf(stderr, "\n");
+}
+#endif
+
 /* Dispatch strategy.
  *
  * A switch compiles to one indirect branch shared by every opcode, so the CPU's
@@ -302,6 +365,14 @@ static InterpretResult run(void) {
 
   uint8_t instruction = 0;
 
+/* Defined outside the dispatch fork so both the computed-goto and the switch
+ * path use the same profiling hook. */
+#ifdef CS_DEBUG_PROFILE_OPCODES
+#define VM_PROFILE_STEP() recordOpcode(instruction)
+#else
+#define VM_PROFILE_STEP() ((void)0)
+#endif
+
 #ifdef CS_COMPUTED_GOTO
   /* Generated from the same list as the OpCode enum, so the table can never
    * drift out of order with it. */
@@ -317,6 +388,7 @@ static InterpretResult run(void) {
   do {                                           \
     VM_TRACE_STEP();                             \
     instruction = READ_BYTE();                   \
+    VM_PROFILE_STEP();                           \
     goto *dispatchTable[instruction];            \
   } while (false)
 
@@ -329,6 +401,7 @@ static InterpretResult run(void) {
   for (;;) {             \
     VM_TRACE_STEP();     \
     instruction = READ_BYTE(); \
+    VM_PROFILE_STEP();   \
     switch (instruction) {
 #define VM_CASE(name) case name:
 #define VM_NEXT() break
@@ -397,6 +470,34 @@ static InterpretResult run(void) {
       VM_CASE(OP_SET_LOCAL) {
         uint8_t slot = READ_BYTE();
         frame->slots[slot] = peekStack(0);
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_GET_LOCAL_CONST) {
+        uint8_t slot = READ_BYTE();
+        csVMPush(frame->slots[slot]);
+        csVMPush(READ_CONSTANT());
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_SET_LOCAL_POP) {
+        uint8_t slot = READ_BYTE();
+        frame->slots[slot] = csVMPop();
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_SET_GLOBAL_POP) {
+        ObjString *name = READ_STRING();
+        if (csTableGet(&vm.globalConsts, name, NULL)) {
+          csVMRuntimeError("'%s' is a constant and cannot be reassigned", name->chars);
+          return CS_RUNTIME_ERROR;
+        }
+        if (csTableSet(&vm.globals, name, peekStack(0))) {
+          csTableDelete(&vm.globals, name);
+          csVMRuntimeError("'%s' is not defined", name->chars);
+          return CS_RUNTIME_ERROR;
+        }
+        csVMPop();
         VM_NEXT();
       }
 
@@ -743,6 +844,49 @@ static InterpretResult run(void) {
         if (!csValueIsTruthy(csVMPop())) frame->ip += offset;
         VM_NEXT();
       }
+/* Fused compare-and-branch. The operand check is the same one the standalone
+ * comparison performs, so the error message a program sees does not change. */
+#define COMPARE_JUMP(op)                                                       \
+  do {                                                                         \
+    uint16_t offset = READ_SHORT();                                            \
+    Value b = peekStack(0);                                                    \
+    Value a = peekStack(1);                                                    \
+    if (!IS_NUMBER(a) || !IS_NUMBER(b)) {                                      \
+      csVMRuntimeError("operands of '" #op "' must be numbers, got %s and %s", \
+                       csValueTypeName(a), csValueTypeName(b));                 \
+      return CS_RUNTIME_ERROR;                                                 \
+    }                                                                          \
+    vm.stackTop -= 2;                                                          \
+    if (!(AS_NUMBER(a) op AS_NUMBER(b))) frame->ip += offset;                   \
+  } while (false)
+
+/* VM_NEXT stays outside the macro. Under computed goto it is a goto, but under
+ * switch dispatch it is a `break` — which a do/while(false) would swallow,
+ * falling through to the next case instead of dispatching. */
+      VM_CASE(OP_JUMP_IF_NOT_LESS) COMPARE_JUMP(<); VM_NEXT();
+      VM_CASE(OP_JUMP_IF_NOT_LESS_EQUAL) COMPARE_JUMP(<=); VM_NEXT();
+      VM_CASE(OP_JUMP_IF_NOT_GREATER) COMPARE_JUMP(>); VM_NEXT();
+      VM_CASE(OP_JUMP_IF_NOT_GREATER_EQUAL) COMPARE_JUMP(>=); VM_NEXT();
+
+      /* Equality accepts any types, so it needs no operand check. */
+      VM_CASE(OP_JUMP_IF_NOT_EQUAL) {
+        uint16_t offset = READ_SHORT();
+        Value b = csVMPop();
+        Value a = csVMPop();
+        if (!csValuesStrictEqual(a, b)) frame->ip += offset;
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_JUMP_IF_EQUAL) {
+        uint16_t offset = READ_SHORT();
+        Value b = csVMPop();
+        Value a = csVMPop();
+        if (csValuesStrictEqual(a, b)) frame->ip += offset;
+        VM_NEXT();
+      }
+
+#undef COMPARE_JUMP
+
       VM_CASE(OP_LOOP) {
         uint16_t offset = READ_SHORT();
         frame->ip -= offset;
@@ -785,6 +929,7 @@ static InterpretResult run(void) {
 #undef VM_NEXT
 #undef VM_CASE
 #undef VM_BEGIN
+#undef VM_PROFILE_STEP
 #undef VM_TRACE_STEP
 #undef BINARY_NUMERIC_OP
 #undef READ_STRING

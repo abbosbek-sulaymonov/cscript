@@ -5,6 +5,10 @@
 #include "cscript/common.h"
 #include "cscript/vm.h"
 
+#ifdef CS_DEBUG_PROFILE_OPCODES
+void csVMDumpOpcodeProfile(void);
+#endif
+
 #define REPL_LINE_MAX 1024
 
 static void printUsage(FILE *out) {
@@ -115,6 +119,10 @@ int main(int argc, const char *argv[]) {
       free(source);
     }
   }
+
+#ifdef CS_DEBUG_PROFILE_OPCODES
+  csVMDumpOpcodeProfile();
+#endif
 
   csVMFree();
   return exitCode;

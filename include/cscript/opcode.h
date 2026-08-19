@@ -36,6 +36,15 @@
    * instead of the six a general update needs, and no stack traffic. */       \
   X(OP_INC_LOCAL)         /* [slot]   stack[slot] += 1                      */ \
   X(OP_DEC_LOCAL)         /* [slot]   stack[slot] -= 1                      */ \
+  /* Superinstructions. An assignment used as a statement stores and then       \
+   * discards, which profiling showed to be 14% of all instructions executed.   \
+   * Fusing the pair halves the dispatches and skips the write-back of a value  \
+   * nothing reads. */                                                          \
+  X(OP_SET_LOCAL_POP)     /* [slot]   stack[slot] = pop()                   */ \
+  X(OP_SET_GLOBAL_POP)    /* [const]  global = pop()                        */ \
+  /* A local followed by a literal is 14-18% of all instructions in loop-heavy \
+   * code — `i < n`, `i % 7`, `total + 1` all start this way. */                \
+  X(OP_GET_LOCAL_CONST)   /* [slot][const]  push both                       */ \
                                                                               \
   X(OP_GET_PROPERTY)      /* [const]  pop object, push its named property   */ \
   X(OP_SET_PROPERTY)      /* [const]  obj.name = value, leaving the value   */ \
@@ -79,6 +88,17 @@
   X(OP_POP_JUMP_IF_FALSE) /* [hi][lo] pop, then jump if it was falsy        */ \
   X(OP_LOOP)              /* [hi][lo] jump backward                         */ \
                                                                               \
+  /* Fused compare-and-branch. A loop condition otherwise materialises a       \
+   * boolean only to pop it one instruction later; these test the operands     \
+   * directly and jump when the comparison is false. Each is the negation of   \
+   * its name, because the jump is taken when the branch is *not* entered. */  \
+  X(OP_JUMP_IF_NOT_LESS)          /* [hi][lo] */                              \
+  X(OP_JUMP_IF_NOT_LESS_EQUAL)    /* [hi][lo] */                              \
+  X(OP_JUMP_IF_NOT_GREATER)       /* [hi][lo] */                              \
+  X(OP_JUMP_IF_NOT_GREATER_EQUAL) /* [hi][lo] */                              \
+  X(OP_JUMP_IF_NOT_EQUAL)         /* [hi][lo] */                              \
+  X(OP_JUMP_IF_EQUAL)             /* [hi][lo] */                              \
+                                                                              \
   X(OP_RETURN)
 /* clang-format on */
 
@@ -88,5 +108,8 @@ typedef enum {
 #undef CS_DECLARE_OPCODE
       OP_COUNT /* number of opcodes; not itself an instruction */
 } OpCode;
+
+/* Name of an opcode, generated from the same list as the enum. */
+const char *csOpcodeName(OpCode opcode);
 
 #endif /* CSCRIPT_OPCODE_H */

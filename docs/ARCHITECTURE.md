@@ -221,6 +221,61 @@ went from 16 instructions to 11.
 **An inlined numeric path for `+`**, skipping the call and two string checks
 that the general concatenate-or-add path performs.
 
+### What did help: superinstructions
+
+The first optimisation chosen from a profile rather than from intuition, and the
+first to deliver what it promised.
+
+A build with `CS_DEBUG_PROFILE_OPCODES` counts how often each opcode follows
+each other opcode. Running the benchmark suite through it named the candidates
+directly:
+
+| Pair | Share of instructions | Why it happens |
+| --- | ---: | --- |
+| `OP_GET_LOCAL` → `OP_CONSTANT` | 14–18% | `i < n`, `i % 7`, `total + 1` |
+| `OP_SET_LOCAL/GLOBAL` → `OP_POP` | 14% | an assignment used as a statement |
+| comparison → `OP_POP_JUMP_IF_FALSE` | 8–11% | every loop condition |
+
+Each became one instruction:
+
+- **`OP_SET_LOCAL_POP` / `OP_SET_GLOBAL_POP`** — a statement's assignment stores
+  without writing back a value nothing reads.
+- **Fused compare-and-branch** — `OP_JUMP_IF_NOT_LESS` and its five siblings
+  test the operands directly, so a loop condition no longer materialises a
+  boolean only to pop it one instruction later.
+- **`OP_GET_LOCAL_CONST`** — pushes a local and a literal together.
+
+All three are emitted by pattern-matching the AST, not by a peephole pass over
+finished bytecode. That matters: a peephole pass would have to find and fix
+every jump offset that straddles a fused pair, and getting that wrong produces
+bugs that only appear in branchy code.
+
+The canonical loop body went from 16 instructions to 7:
+
+```
+OP_GET_LOCAL_CONST  i, 1        ; i < 10000000
+OP_JUMP_IF_NOT_LESS -> exit
+OP_GET_GLOBAL       s
+OP_GET_LOCAL_CONST  i, 7        ; i % 7
+OP_MODULO
+OP_ADD_NUM
+OP_SET_GLOBAL_POP   s
+OP_INC_LOCAL        i
+OP_LOOP
+```
+
+| | before | after |
+| --- | ---: | ---: |
+| instructions executed | 130,000,015 | 90,000,013 |
+| `loop_arith` | 335 ms | 265 ms |
+| `locals` | 231 ms | 191 ms |
+| `branches` | 423 ms | 319 ms |
+| **total** | **1835 ms** | **1565 ms** |
+
+31% fewer instructions for 15% less time — which is itself informative. If
+dispatch were free, cutting instructions would buy nothing; if dispatch were
+everything, the two numbers would match. It sits in between.
+
 ### What did not help: NaN-boxing (for speed)
 
 A `Value` is 8 bytes rather than 16 where the platform allows it: IEEE 754
@@ -279,40 +334,45 @@ This is the sort of thing the benchmark suite exists to catch. The optimisation
 was expected to be worth 15–25% and was worth nothing; without measuring, it
 would have been documented as a win.
 
-### What three measurements add up to
+### What the measurements add up to
 
-Computed goto: predicted 15–25%, delivered 0%. NaN-boxing: predicted 10–20%,
-delivered 0% (but halved memory). Removing every type check: predicted a lot,
-delivered 2%.
+| Optimisation | Predicted | Delivered |
+| --- | --- | --- |
+| Computed-goto dispatch | 15–25% | 0% |
+| NaN-boxing | 10–20% | 0% time, 45% memory |
+| Removing every type check | large | 2% |
+| **Superinstructions** | **20–40%** | **15%** |
 
-All three targeted the same thing — the cost of *executing* an instruction —
-and all three found it was already close to free. What is left is the cost of
-*dispatching* one. That is why the two ideas still on the list attack
-instruction **count** rather than instruction cost:
+The first three all attacked the cost of *executing* an instruction, and all
+three found it already close to free — modern branch predictors and caches had
+absorbed it. The fourth attacked the *number* of instructions, and worked.
 
-- **Superinstructions** fuse a hot opcode pair into one, halving dispatches for
-  that pair.
-- **A register VM** removes the push/pop traffic entirely, so a three-address
-  operation is one instruction instead of four.
+The difference between the first three and the fourth is not sophistication. It
+is that the fourth was chosen from a profile. Three guesses cost real work and
+returned nothing; one measurement named the exact pairs worth fusing and the
+result landed inside its predicted range.
 
-Measuring first would have saved building two of the three. It is also why the
-benchmark suite exists.
+That is the argument for `bench/` and for the opcode profiler, and it is why the
+remaining ideas below are hypotheses rather than plans.
 
 ### The interpreter ceiling
 
-Roughly 12× Go, and the remaining distance is architectural. Go compiles the
+Roughly 10× Go, and the remaining distance is architectural. Go compiles the
 benchmark loop to about four machine instructions; CScript executes eleven
 bytecode instructions through a dispatch loop, each with a stack round-trip.
 Nothing removes that floor.
 
 Ideas that would still help, in rough order of value per effort:
 
-| Idea | Expected | Effort |
+| Idea | Hypothesis | Effort |
 | --- | --- | --- |
-| Superinstructions (fuse hot opcode pairs) | 20–40% | medium |
 | Register-based bytecode instead of a stack | 20–40% | large |
-| Inline caches for global and property lookup | 10–20% | medium |
+| Inline caches for globals and properties | 10–20% | medium |
+| More superinstructions from the profile | diminishing | small |
 | A JIT | order of magnitude | very large |
+
+The globals benchmark is still 3.7× Node and every global access is a hash
+lookup, so an inline cache is the next thing worth profiling.
 
 Given the record above, treat those percentages as hypotheses to be measured
 rather than as savings already in hand.

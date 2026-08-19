@@ -202,18 +202,19 @@ Measured on an Apple M3 Pro, best of seven, via `bench/run.sh`.
 ```
 benchmark             cscript         node      ratio
 ---------------------------------------------------------
-locals                  160 ms         67 ms       2.4x
-loop_empty              203 ms         66 ms       3.1x
-strings                 260 ms         62 ms       4.2x
-globals                 273 ms         66 ms       4.1x
-loop_arith              325 ms         70 ms       4.6x
-branches                395 ms         68 ms       5.8x
+arrays                   91 ms         68 ms       1.3x
+loop_empty              194 ms         65 ms       3.0x
+locals                  191 ms         67 ms       2.9x
+globals                 246 ms         66 ms       3.7x
+strings                 259 ms         61 ms       4.2x
+loop_arith              265 ms         69 ms       3.8x
+branches                319 ms         68 ms       4.7x
 
 native reference (loop_arith):  Go 27 ms   ·   C -O2 26 ms
 ```
 
-CScript is **about 12× slower than Go** and 4–6× slower than Node's JIT. It was
-22× slower than Go before this round of work; `bench/` exists so that number is
+CScript is **about 10× slower than Go** and 1.3–4.7× slower than Node's JIT. It
+was 22× slower than Go before this work; `bench/` exists so that number is
 measured rather than asserted.
 
 Three optimisations account for the 32% improvement, and the measurements are
@@ -232,10 +233,16 @@ worth more than the summary:
   halves memory, taking a million-element array from 18.9 MB to 11.3 MB. It is
   filed as a memory optimisation for that reason.
 
-Three optimisations aimed at the cost of *executing* an instruction found it was
-already nearly free; what is left is the cost of *dispatching* one. The reasoning
-is in [ARCHITECTURE.md](docs/ARCHITECTURE.md#what-three-measurements-add-up-to),
-and it is the whole argument for keeping a benchmark suite.
+- **Superinstructions worked**, and were the first optimisation picked from a
+  profile rather than from intuition. Fusing the three hottest opcode pairs cut
+  the canonical loop body from 16 instructions to 7, and total instructions
+  executed by 31%.
+
+Three optimisations aimed at the cost of *executing* an instruction and found it
+already nearly free. The fourth attacked the *number* of instructions and
+landed. The difference was not sophistication — it was measuring first. The
+reasoning is in
+[ARCHITECTURE.md](docs/ARCHITECTURE.md#what-the-measurements-add-up-to).
 
 Closing the gap with Go needs a JIT, not another tweak — the reasoning and the
 remaining ideas are in
@@ -339,7 +346,8 @@ cscript/
 | **5 ✅** | Object literals, arrays, indexing, `.length` | — |
 | **6 ✅** | `switch`, `break`/`continue`, template literals, ternary | — |
 | **7 ✅** | NaN-boxed values — halves memory, measured | — |
-| next | Superinstructions and a register VM — cut dispatch count | VM and compiler |
+| **8 ✅** | Superinstructions chosen from an opcode profile | — |
+| next | Inline caches for globals, then a register VM | VM and compiler |
 
 ---
 
