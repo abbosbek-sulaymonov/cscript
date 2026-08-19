@@ -1,0 +1,72 @@
+// Exponent: right-associative, binding tighter than *.
+console.log(2 ** 3, 2 ** 3 ** 2, (2 ** 3) ** 2);
+console.log(4 ** 0.5, 2 ** -1, 2 * 3 ** 2);
+let power = 3;
+power **= 2;
+console.log(power);
+
+// Arrow functions.
+const double = (x) => x * 2;
+const add = (a, b) => a + b;
+const nothing = () => "nothing";
+const block = (a, b) => {
+  const sum = a + b;
+  return sum * 2;
+};
+console.log(double(21), add(1, 2), nothing(), block(1, 2));
+
+// Single parameter needs no parentheses; arrows nest and close over.
+const bare = x => x + 1;
+const makeAdder = n => m => n + m;
+console.log(bare(1), makeAdder(10)(5));
+
+// With annotations.
+const typed = (a: number, b: number): number => a * b;
+console.log(typed(6, 7));
+
+// Chained over the array methods.
+console.log([1, 2, 3, 4].map(x => x * x).filter(x => x > 4).reduce((a, b) => a + b, 0));
+
+// A parenthesised expression is still a parenthesised expression.
+console.log((1 + 2) * 3);
+
+// for...of over arrays, strings and expressions.
+for (const value of [10, 20]) {
+  console.log(value);
+}
+for (const character of "abc") {
+  console.log(character);
+}
+for (const item of [1, 2, 3].map(x => x * 3)) {
+  console.log(item);
+}
+
+// break and continue work inside it.
+let total = 0;
+for (const n of [1, 2, 3, 4, 5]) {
+  if (n === 2) {
+    continue;
+  }
+  if (n === 5) {
+    break;
+  }
+  total += n;
+}
+console.log(total);
+
+// Each iteration binds afresh, so closures made in the loop differ.
+const fromOf = [];
+for (const x of [1, 2, 3]) {
+  fromOf.push(() => x);
+}
+console.log(fromOf[0](), fromOf[1](), fromOf[2]());
+
+// The same is true of `let` in a classic for loop.
+const fromFor = [];
+for (let i = 0; i < 3; i++) {
+  fromFor.push(() => i);
+}
+console.log(fromFor[0](), fromFor[1](), fromFor[2]());
+
+// Indexing a string yields a one-character string.
+console.log("xyz"[1], "xyz"[9]);

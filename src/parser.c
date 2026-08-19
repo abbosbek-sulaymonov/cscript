@@ -17,6 +17,7 @@ typedef enum {
   PREC_COMPARISON, /* < > <= >=        */
   PREC_TERM,       /* + -              */
   PREC_FACTOR,     /* * / %            */
+  PREC_EXPONENT,   /* **  (right-assoc)*/
   PREC_UNARY,      /* ! - typeof ++ -- */
   PREC_CALL,       /* . ( )            */
 } Precedence;
@@ -101,6 +102,7 @@ static Precedence binaryPrecedence(TokenType type) {
     case TOKEN_STAR:
     case TOKEN_SLASH:
     case TOKEN_PERCENT:             return PREC_FACTOR;
+    case TOKEN_STAR_STAR:           return PREC_EXPONENT;
     default:                        return PREC_NONE;
   }
 }
@@ -112,6 +114,7 @@ static BinaryOp binaryOpFor(TokenType type) {
     case TOKEN_STAR:                return BINARY_MULTIPLY;
     case TOKEN_SLASH:               return BINARY_DIVIDE;
     case TOKEN_PERCENT:             return BINARY_MODULO;
+    case TOKEN_STAR_STAR:           return BINARY_EXPONENT;
     case TOKEN_EQUAL_EQUAL_EQUAL:   return BINARY_EQUAL;
     case TOKEN_BANG_EQUAL_EQUAL:    return BINARY_NOT_EQUAL;
     case TOKEN_GREATER:             return BINARY_GREATER;
@@ -127,9 +130,15 @@ static AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence);
 static AstNode *parsePrimary(Parser *parser);
 static AstNode *parseFunction(Parser *parser, bool requireName);
 static AstNode *parseSwitch(Parser *parser);
+static AstNode *parseBlock(Parser *parser);
+static AstNode *finishVarDeclaration(Parser *parser, int line, const char *name,
+                                     int nameLength, bool isConst);
 static AstNode *parseTemplate(Parser *parser, const char *start, int length, int line);
 static AstNode *parseStatement(Parser *parser);
 static void synchronize(Parser *parser);
+static bool parseTypeAnnotation(Parser *parser, TypeKind *type, bool *present);
+static bool looksLikeArrowParams(Parser *parser);
+static AstNode *finishArrow(Parser *parser, AstNode *function, int line);
 
 /* Decodes a string literal's escape sequences into a fresh arena buffer.
  * `start`/`length` cover the lexeme including both quotes. */
@@ -285,8 +294,18 @@ static AstNode *parsePrimary(Parser *parser) {
   if (matchToken(parser, TOKEN_UNDEFINED)) return csAstUndefined(parser->arena, line);
 
   if (matchToken(parser, TOKEN_IDENTIFIER)) {
-    AstNode *identifier = csAstIdentifier(parser->arena, line, parser->previous.start,
-                                          parser->previous.length);
+    const char *name = parser->previous.start;
+    int nameLength = parser->previous.length;
+
+    /* `x => ...` — a single parameter needs no parentheses. */
+    if (check(parser, TOKEN_ARROW)) {
+      advanceToken(parser);
+      AstNode *arrow = csAstFunction(parser->arena, line, NULL, 0);
+      csAstFunctionAddParam(parser->arena, arrow, name, nameLength, TYPE_ANY, false);
+      return finishArrow(parser, arrow, line);
+    }
+
+    AstNode *identifier = csAstIdentifier(parser->arena, line, name, nameLength);
     return parseCallSuffixes(parser, identifier);
   }
 
@@ -344,6 +363,36 @@ static AstNode *parsePrimary(Parser *parser) {
   }
 
   if (matchToken(parser, TOKEN_LEFT_PAREN)) {
+    if (looksLikeArrowParams(parser)) {
+      AstNode *arrow = csAstFunction(parser->arena, line, NULL, 0);
+
+      if (!check(parser, TOKEN_RIGHT_PAREN)) {
+        do {
+          consume(parser, TOKEN_IDENTIFIER, "expected a parameter name");
+          if (parser->diag->panicMode) return NULL;
+          const char *paramName = parser->previous.start;
+          int paramLength = parser->previous.length;
+
+          TypeKind paramType;
+          bool annotated;
+          if (!parseTypeAnnotation(parser, &paramType, &annotated)) return NULL;
+          csAstFunctionAddParam(parser->arena, arrow, paramName, paramLength,
+                                paramType, annotated);
+        } while (matchToken(parser, TOKEN_COMMA));
+      }
+      consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the parameters");
+
+      TypeKind returnType;
+      bool hasReturnAnnotation;
+      if (!parseTypeAnnotation(parser, &returnType, &hasReturnAnnotation)) return NULL;
+      arrow->as.function.returnType = returnType;
+      arrow->as.function.hasReturnAnnotation = hasReturnAnnotation;
+
+      consume(parser, TOKEN_ARROW, "expected '=>' after the parameters");
+      if (parser->diag->panicMode) return NULL;
+      return finishArrow(parser, arrow, line);
+    }
+
     AstNode *inner = parseExpression(parser);
     consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after expression");
     if (inner == NULL) return NULL;
@@ -401,6 +450,7 @@ static bool compoundAssignOp(TokenType type, BinaryOp *out) {
     case TOKEN_STAR_EQUAL:    *out = BINARY_MULTIPLY; return true;
     case TOKEN_SLASH_EQUAL:   *out = BINARY_DIVIDE; return true;
     case TOKEN_PERCENT_EQUAL: *out = BINARY_MODULO; return true;
+    case TOKEN_STAR_STAR_EQUAL: *out = BINARY_EXPONENT; return true;
     default: return false;
   }
 }
@@ -466,7 +516,12 @@ static AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence) {
     int line = parser->current.line;
     advanceToken(parser);
 
-    AstNode *right = parsePrecedence(parser, (Precedence)(precedence + 1));
+    /* ** is the one right-associative binary operator, so 2 ** 3 ** 2 groups
+     * as 2 ** (3 ** 2). Every other operator parses its right side one level
+     * tighter, which is what makes them left-associative. */
+    Precedence rightPrecedence =
+        operatorType == TOKEN_STAR_STAR ? precedence : (Precedence)(precedence + 1);
+    AstNode *right = parsePrecedence(parser, rightPrecedence);
     if (right == NULL) return NULL;
 
     if (operatorType == TOKEN_AMP_AMP) {
@@ -605,6 +660,59 @@ static bool parseTypeAnnotation(Parser *parser, TypeKind *type, bool *present) {
 
 static AstNode *parseBlock(Parser *parser);
 
+/* Looks past a '(' for the ')' that closes it and reports whether '=>' follows.
+ *
+ * `(a, b)` is a parameter list or a parenthesised expression, and nothing
+ * before the arrow distinguishes them. Rather than backtracking the parser,
+ * this scans the raw token stream with a throwaway lexer — cheap, because the
+ * span is short, and it leaves the real parser's state untouched. */
+static bool looksLikeArrowParams(Parser *parser) {
+  Lexer probe = parser->lexer;
+  Diagnostics quiet;
+  csDiagnosticsInit(&quiet, NULL, parser->diag->sourceName);
+  probe.diag = &quiet;
+
+  /* parser->current is the token after '(', and probe is positioned after it. */
+  int depth = 1;
+  Token token = parser->current;
+  for (;;) {
+    if (token.type == TOKEN_EOF) return false;
+    if (token.type == TOKEN_LEFT_PAREN) depth++;
+    if (token.type == TOKEN_RIGHT_PAREN) {
+      depth--;
+      if (depth == 0) break;
+    }
+    token = csLexerNext(&probe);
+  }
+
+  Token next = csLexerNext(&probe);
+
+  /* A return-type annotation sits between the ')' and the arrow, so skip it
+   * before deciding: `(a: number): number => ...` is still a parameter list. */
+  if (next.type == TOKEN_COLON) {
+    csLexerNext(&probe); /* the type name */
+    next = csLexerNext(&probe);
+  }
+
+  return next.type == TOKEN_ARROW;
+}
+
+/* Parses an arrow function's body: either an expression, which becomes an
+ * implicit return, or a braced block. */
+static AstNode *finishArrow(Parser *parser, AstNode *function, int line) {
+  if (matchToken(parser, TOKEN_LEFT_BRACE)) {
+    function->as.function.body = parseBlock(parser);
+  } else {
+    AstNode *value = parsePrecedence(parser, PREC_ASSIGNMENT);
+    if (value == NULL) return NULL;
+    /* `x => expr` is `x => { return expr; }`. */
+    AstNode *body = csAstBlock(parser->arena, line);
+    csAstProgramAdd(parser->arena, body, csAstReturn(parser->arena, line, value));
+    function->as.function.body = body;
+  }
+  return function->as.function.body != NULL ? function : NULL;
+}
+
 /* `function name(a: number, b): number { ... }`
  *
  * A named declaration binds the closure; an anonymous one is an expression. */
@@ -716,19 +824,14 @@ static AstNode *parseSwitch(Parser *parser) {
   return parser->diag->panicMode ? NULL : node;
 }
 
-/* `let x = 1;` / `const y = 2;` — `var` is rejected in parseStatement. */
-static AstNode *parseVarDeclaration(Parser *parser, bool isConst) {
-  int line = parser->previous.line;
-
-  consume(parser, TOKEN_IDENTIFIER, "expected a variable name");
-  if (parser->diag->panicMode) return NULL;
-
-  const char *name = parser->previous.start;
-  int nameLength = parser->previous.length;
-
-  /* Optional TypeScript-style annotation. Leaving it off is not the same as
-   * writing `: any` — an unannotated declaration takes its initialiser's type,
-   * so most code is checked without being annotated. */
+/* Parses everything after a binding's name: the optional annotation, the
+ * optional initialiser and the semicolon.
+ *
+ * Split out from parseVarDeclaration because `for (const x of xs)` and
+ * `for (let i = 0; ...)` only diverge after the name, so the caller has to read
+ * it before it knows which form it is looking at. */
+static AstNode *finishVarDeclaration(Parser *parser, int line, const char *name,
+                                     int nameLength, bool isConst) {
   TypeKind declaredType;
   bool hasAnnotation;
   if (!parseTypeAnnotation(parser, &declaredType, &hasAnnotation)) return NULL;
@@ -749,6 +852,17 @@ static AstNode *parseVarDeclaration(Parser *parser, bool isConst) {
 
   return csAstVarDecl(parser->arena, line, name, nameLength, initializer, isConst,
                       declaredType, hasAnnotation);
+}
+
+/* `let x = 1;` / `const y = 2;` — `var` is rejected in parseStatement. */
+static AstNode *parseVarDeclaration(Parser *parser, bool isConst) {
+  int line = parser->previous.line;
+
+  consume(parser, TOKEN_IDENTIFIER, "expected a variable name");
+  if (parser->diag->panicMode) return NULL;
+
+  return finishVarDeclaration(parser, line, parser->previous.start,
+                              parser->previous.length, isConst);
 }
 
 static AstNode *parseBlock(Parser *parser) {
@@ -808,11 +922,37 @@ static AstNode *parseFor(Parser *parser) {
   AstNode *initializer = NULL;
   if (matchToken(parser, TOKEN_SEMICOLON)) {
     initializer = NULL;
-  } else if (matchToken(parser, TOKEN_LET)) {
-    initializer = parseVarDeclaration(parser, false);
-    if (initializer == NULL) return NULL;
-  } else if (matchToken(parser, TOKEN_CONST)) {
-    initializer = parseVarDeclaration(parser, true);
+  } else if (check(parser, TOKEN_LET) || check(parser, TOKEN_CONST)) {
+    bool isConst = check(parser, TOKEN_CONST);
+    advanceToken(parser);
+
+    /* `for (const x of xs)` and `for (let i = 0; ...)` diverge right after the
+     * binding name, so the name is read once and the shape decided from what
+     * follows it. */
+    consume(parser, TOKEN_IDENTIFIER, "expected a variable name");
+    if (parser->diag->panicMode) return NULL;
+    const char *bindingName = parser->previous.start;
+    int bindingLength = parser->previous.length;
+
+    /* `of` is contextual, not a keyword: `Array.of` and a variable called `of`
+     * both have to keep working, so it is recognised by its text right here
+     * rather than by the lexer. */
+    bool isForOf = check(parser, TOKEN_IDENTIFIER) && parser->current.length == 2 &&
+                   memcmp(parser->current.start, "of", 2) == 0;
+    if (isForOf) {
+      advanceToken(parser);
+      AstNode *iterable = parseExpression(parser);
+      consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the iterable");
+      if (iterable == NULL || parser->diag->panicMode) return NULL;
+
+      AstNode *body = parseStatement(parser);
+      if (body == NULL) return NULL;
+      return csAstForOf(parser->arena, line, bindingName, bindingLength, isConst,
+                        iterable, body);
+    }
+
+    initializer = finishVarDeclaration(parser, line, bindingName, bindingLength,
+                                       isConst);
     if (initializer == NULL) return NULL;
   } else {
     AstNode *expression = parseExpression(parser);

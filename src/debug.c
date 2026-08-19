@@ -2,6 +2,7 @@
 
 #include "cscript/debug.h"
 #include "cscript/object.h"
+#include "cscript/object.h"
 #include "cscript/opcode.h"
 #include "cscript/type.h"
 #include "cscript/value.h"
@@ -94,10 +95,29 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_GET_PROPERTY:      return constantInstruction("OP_GET_PROPERTY", chunk, offset);
     case OP_SET_PROPERTY:      return constantInstruction("OP_SET_PROPERTY", chunk, offset);
     case OP_GET_INDEX:         return simpleInstruction("OP_GET_INDEX", offset);
+    case OP_ITER_LENGTH:       return simpleInstruction("OP_ITER_LENGTH", offset);
     case OP_SET_INDEX:         return simpleInstruction("OP_SET_INDEX", offset);
     case OP_OBJECT:            return byteInstruction("OP_OBJECT", chunk, offset);
     case OP_ARRAY:             return byteInstruction("OP_ARRAY", chunk, offset);
-    case OP_CLOSURE:           return constantInstruction("OP_CLOSURE", chunk, offset);
+    case OP_CLOSURE: {
+      /* Followed by one (isLocal, index) pair per upvalue, which are operands
+       * rather than instructions. */
+      int constant = readConstantIndex(chunk, offset + 1);
+      printf("%-22s %4d '", "OP_CLOSURE", constant);
+      csValuePrint(chunk->constants.values[constant]);
+      printf("'\n");
+
+      int next = offset + 3;
+      Value function = chunk->constants.values[constant];
+      if (IS_FUNCTION(function)) {
+        for (int i = 0; i < AS_FUNCTION(function)->upvalueCount; i++) {
+          printf("%04d      |                     %s %d\n", next,
+                 chunk->code[next] ? "local" : "upvalue", chunk->code[next + 1]);
+          next += 2;
+        }
+      }
+      return next;
+    }
     case OP_GET_UPVALUE:       return byteInstruction("OP_GET_UPVALUE", chunk, offset);
     case OP_SET_UPVALUE:       return byteInstruction("OP_SET_UPVALUE", chunk, offset);
     case OP_CLOSE_UPVALUE:     return simpleInstruction("OP_CLOSE_UPVALUE", offset);
@@ -117,6 +137,7 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_MULTIPLY:          return simpleInstruction("OP_MULTIPLY", offset);
     case OP_DIVIDE:            return simpleInstruction("OP_DIVIDE", offset);
     case OP_MODULO:            return simpleInstruction("OP_MODULO", offset);
+    case OP_EXPONENT:          return simpleInstruction("OP_EXPONENT", offset);
     case OP_NEGATE:            return simpleInstruction("OP_NEGATE", offset);
     case OP_NOT:               return simpleInstruction("OP_NOT", offset);
     case OP_TYPEOF:            return simpleInstruction("OP_TYPEOF", offset);
@@ -320,6 +341,11 @@ static void printNode(const AstNode *node, int depth) {
       printf("While\n");
       printNode(node->as.whileStmt.condition, depth + 1);
       printNode(node->as.whileStmt.body, depth + 1);
+      break;
+    case AST_FOR_OF_STMT:
+      printf("ForOf %.*s\n", node->as.forOf.nameLength, node->as.forOf.name);
+      printNode(node->as.forOf.iterable, depth + 1);
+      printNode(node->as.forOf.body, depth + 1);
       break;
     case AST_FOR_STMT:
       printf("For\n");

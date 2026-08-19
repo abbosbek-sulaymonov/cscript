@@ -40,6 +40,7 @@ typedef enum {
   AST_IF_STMT,
   AST_WHILE_STMT,
   AST_FOR_STMT,
+  AST_FOR_OF_STMT,
   AST_RETURN_STMT,
   AST_BREAK_STMT,
   AST_CONTINUE_STMT,
@@ -55,6 +56,7 @@ typedef enum {
 
 typedef enum {
   BINARY_ADD, BINARY_SUBTRACT, BINARY_MULTIPLY, BINARY_DIVIDE, BINARY_MODULO,
+  BINARY_EXPONENT,
   BINARY_EQUAL, BINARY_NOT_EQUAL, /* === !== — CScript has no coercing equality */
   BINARY_GREATER, BINARY_GREATER_EQUAL,
   BINARY_LESS, BINARY_LESS_EQUAL,
@@ -198,6 +200,13 @@ struct AstNode {
       bool hasReturnAnnotation;
     } function;
     AstNode *returnValue;                /* AST_RETURN_STMT, may be NULL */
+    struct {                             /* AST_FOR_OF_STMT */
+      const char *name;                  /*   the loop binding */
+      int nameLength;
+      bool isConst;
+      AstNode *iterable;
+      AstNode *body;
+    } forOf;
     struct {                             /* AST_PROGRAM */
       AstNode **statements;
       int count;
@@ -265,6 +274,8 @@ void csAstObjectLiteralAdd(AstArena *arena, AstNode *object, AstNode *key,
                            AstNode *value);
 AstNode *csAstArrayLiteral(AstArena *arena, int line);
 void csAstArrayLiteralAdd(AstArena *arena, AstNode *array, AstNode *element);
+AstNode *csAstForOf(AstArena *arena, int line, const char *name, int nameLength,
+                    bool isConst, AstNode *iterable, AstNode *body);
 AstNode *csAstReturn(AstArena *arena, int line, AstNode *value);
 AstNode *csAstProgram(AstArena *arena, int line);
 

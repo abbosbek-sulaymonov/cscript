@@ -282,6 +282,11 @@ Token csLexerNext(Lexer *lexer) {
       if (match(lexer, '=')) return makeToken(lexer, TOKEN_MINUS_EQUAL);
       return makeToken(lexer, TOKEN_MINUS);
     case '*':
+      if (match(lexer, '*')) {
+        /* ** and **=, checked before the single star so they win. */
+        if (match(lexer, '=')) return makeToken(lexer, TOKEN_STAR_STAR_EQUAL);
+        return makeToken(lexer, TOKEN_STAR_STAR);
+      }
       if (match(lexer, '=')) return makeToken(lexer, TOKEN_STAR_EQUAL);
       return makeToken(lexer, TOKEN_STAR);
     case '/':
@@ -299,6 +304,7 @@ Token csLexerNext(Lexer *lexer) {
       return makeToken(lexer, TOKEN_BANG);
 
     case '=':
+      if (match(lexer, '>')) return makeToken(lexer, TOKEN_ARROW);
       if (match(lexer, '=')) {
         return makeToken(lexer, match(lexer, '=') ? TOKEN_EQUAL_EQUAL_EQUAL
                                                   : TOKEN_EQUAL_EQUAL);
@@ -352,6 +358,10 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_STAR_EQUAL:        return "STAR_EQUAL";
     case TOKEN_SLASH_EQUAL:       return "SLASH_EQUAL";
     case TOKEN_PERCENT_EQUAL:     return "PERCENT_EQUAL";
+    case TOKEN_STAR_STAR:         return "STAR_STAR";
+    case TOKEN_STAR_STAR_EQUAL:   return "STAR_STAR_EQUAL";
+    case TOKEN_ARROW:             return "ARROW";
+    case TOKEN_OF:                return "OF";
     case TOKEN_BANG:              return "BANG";
     case TOKEN_BANG_EQUAL:        return "BANG_EQUAL";
     case TOKEN_BANG_EQUAL_EQUAL:  return "BANG_EQUAL_EQUAL";

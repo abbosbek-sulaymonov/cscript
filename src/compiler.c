@@ -270,6 +270,11 @@ static int resolveUpvalue(Compiler *compiler, const char *name, int length, int 
 
   int local = resolveLocal(compiler->enclosing, name, length);
   if (local != -1) {
+    /* Mark it, so leaving that scope emits OP_CLOSE_UPVALUE instead of a plain
+     * pop. Without this the upvalue is left pointing at a reused stack slot —
+     * which only shows up for a captured *block* local, because a captured
+     * parameter happens to be closed anyway when OP_RETURN discards the frame. */
+    compiler->enclosing->locals[local].isCaptured = true;
     return addUpvalue(compiler, (uint8_t)local, true, line);
   }
 
@@ -431,6 +436,7 @@ static void compileBinary(const AstNode *node) {
     case BINARY_MULTIPLY:      emitByte(OP_MULTIPLY, line); break;
     case BINARY_DIVIDE:        emitByte(OP_DIVIDE, line); break;
     case BINARY_MODULO:        emitByte(OP_MODULO, line); break;
+    case BINARY_EXPONENT:      emitByte(OP_EXPONENT, line); break;
     case BINARY_EQUAL:         emitByte(OP_EQUAL, line); break;
     case BINARY_NOT_EQUAL:     emitByte(OP_NOT_EQUAL, line); break;
     case BINARY_GREATER:       emitByte(OP_GREATER, line); break;
@@ -699,8 +705,110 @@ static void compileWhile(const AstNode *node) {
   endLoop(&loop, line);
 }
 
+/* True when a subtree contains a function, which is the only way a program can
+ * observe whether a loop variable is one binding or one per iteration.
+ *
+ * Used to decide whether a `for` loop needs the per-iteration copy below. A
+ * loop with no closures in it keeps the single-slot form and stays fast. */
+static bool containsFunction(const AstNode *node) {
+  if (node == NULL) return false;
+
+  switch (node->type) {
+    case AST_FUNCTION:
+      return true;
+
+    case AST_UNARY:    return containsFunction(node->as.unary.operand);
+    case AST_GROUPING: return containsFunction(node->as.grouping);
+    case AST_BINARY:
+      return containsFunction(node->as.binary.left) ||
+             containsFunction(node->as.binary.right);
+    case AST_LOGICAL:
+      return containsFunction(node->as.logical.left) ||
+             containsFunction(node->as.logical.right);
+    case AST_ASSIGN:
+      return containsFunction(node->as.assign.target) ||
+             containsFunction(node->as.assign.value);
+    case AST_UPDATE:   return containsFunction(node->as.update.target);
+    case AST_PROPERTY: return containsFunction(node->as.property.object);
+    case AST_INDEX:
+      return containsFunction(node->as.index.target) ||
+             containsFunction(node->as.index.index);
+    case AST_CONDITIONAL:
+      return containsFunction(node->as.conditional.condition) ||
+             containsFunction(node->as.conditional.thenValue) ||
+             containsFunction(node->as.conditional.elseValue);
+
+    case AST_CALL: {
+      if (containsFunction(node->as.call.callee)) return true;
+      for (int i = 0; i < node->as.call.argCount; i++) {
+        if (containsFunction(node->as.call.arguments[i])) return true;
+      }
+      return false;
+    }
+    case AST_ARRAY_LITERAL: {
+      for (int i = 0; i < node->as.arrayLiteral.count; i++) {
+        if (containsFunction(node->as.arrayLiteral.elements[i])) return true;
+      }
+      return false;
+    }
+    case AST_OBJECT_LITERAL: {
+      for (int i = 0; i < node->as.objectLiteral.count; i++) {
+        if (containsFunction(node->as.objectLiteral.values[i])) return true;
+      }
+      return false;
+    }
+
+    case AST_EXPRESSION_STMT: return containsFunction(node->as.expression);
+    case AST_RETURN_STMT:     return containsFunction(node->as.returnValue);
+    case AST_VAR_DECL:        return containsFunction(node->as.varDecl.initializer);
+    case AST_IF_STMT:
+      return containsFunction(node->as.ifStmt.condition) ||
+             containsFunction(node->as.ifStmt.thenBranch) ||
+             containsFunction(node->as.ifStmt.elseBranch);
+    case AST_WHILE_STMT:
+      return containsFunction(node->as.whileStmt.condition) ||
+             containsFunction(node->as.whileStmt.body);
+    case AST_FOR_STMT:
+      return containsFunction(node->as.forStmt.initializer) ||
+             containsFunction(node->as.forStmt.condition) ||
+             containsFunction(node->as.forStmt.increment) ||
+             containsFunction(node->as.forStmt.body);
+    case AST_FOR_OF_STMT:
+      return containsFunction(node->as.forOf.iterable) ||
+             containsFunction(node->as.forOf.body);
+    case AST_SWITCH_STMT: {
+      if (containsFunction(node->as.switchStmt.subject)) return true;
+      for (int i = 0; i < node->as.switchStmt.caseCount; i++) {
+        if (containsFunction(node->as.switchStmt.cases[i].body)) return true;
+      }
+      return containsFunction(node->as.switchStmt.defaultBody);
+    }
+    case AST_BLOCK: {
+      for (int i = 0; i < node->as.block.count; i++) {
+        if (containsFunction(node->as.block.statements[i])) return true;
+      }
+      return false;
+    }
+    case AST_PROGRAM: {
+      for (int i = 0; i < node->as.program.count; i++) {
+        if (containsFunction(node->as.program.statements[i])) return true;
+      }
+      return false;
+    }
+
+    default:
+      return false;
+  }
+}
+
 /* Desugars to a while loop, with the initialiser scoped to the loop so that
- * `for (let i = ...)` cannot leak `i` into the surrounding scope. */
+ * `for (let i = ...)` cannot leak `i` into the surrounding scope.
+ *
+ * When the body contains a closure, each iteration gets its *own* binding of
+ * the loop variable — a shadowing copy made on entry and written back on exit.
+ * JavaScript specifies that for `let`, and it is the difference between
+ * collecting three closures that return 0, 1, 2 and three that all return 3.
+ * The copy is skipped entirely when no closure can observe it. */
 static void compileFor(const AstNode *node) {
   int line = node->line;
   beginScope();
@@ -708,6 +816,18 @@ static void compileFor(const AstNode *node) {
   if (node->as.forStmt.initializer != NULL) {
     compileNode(node->as.forStmt.initializer);
   }
+
+  /* Per-iteration binding is only observable through a closure, so the copy is
+   * emitted only when the loop actually contains one. */
+  bool perIteration = node->as.forStmt.initializer != NULL &&
+                      node->as.forStmt.initializer->type == AST_VAR_DECL &&
+                      !node->as.forStmt.initializer->as.varDecl.isConst &&
+                      containsFunction(node->as.forStmt.body);
+  int outerSlot = perIteration ? current->localCount - 1 : -1;
+  const char *bindingName =
+      perIteration ? node->as.forStmt.initializer->as.varDecl.name : NULL;
+  int bindingLength =
+      perIteration ? node->as.forStmt.initializer->as.varDecl.length : 0;
 
   int loopStart = currentChunk()->count;
 
@@ -719,12 +839,31 @@ static void compileFor(const AstNode *node) {
     exitJump = emitConditionJump(node->as.forStmt.condition, line);
   }
 
+  int innerSlot = -1;
+  if (perIteration) {
+    /* A shadowing copy, so the body — and anything it closes over — sees a
+     * binding that belongs to this iteration alone. */
+    beginScope();
+    emitBytes(OP_GET_LOCAL, (uint8_t)outerSlot, line);
+    addLocal(bindingName, bindingLength, false, line);
+    innerSlot = current->localCount - 1;
+  }
+
   compileNode(node->as.forStmt.body);
 
   /* `continue` in a for-loop must still run the increment, so it lands here
-   * rather than at the condition — skipping it would spin forever. */
+   * rather than at the condition — skipping it would spin forever. It also has
+   * to reach the write-back, or the iteration's changes would be lost. */
   for (int i = 0; i < loop.continueCount; i++) {
     patchJump(loop.continueJumps[i], line);
+  }
+
+  if (perIteration) {
+    /* Copy the iteration's value back before the shared slot is advanced. */
+    emitBytes(OP_GET_LOCAL, (uint8_t)innerSlot, line);
+    emitByte(OP_SET_LOCAL_POP, line);
+    emitByte((uint8_t)outerSlot, line);
+    endScope(line);
   }
 
   if (node->as.forStmt.increment != NULL) {
@@ -735,6 +874,60 @@ static void compileFor(const AstNode *node) {
   if (exitJump != -1) patchJump(exitJump, line);
   endLoop(&loop, line);
 
+  endScope(line);
+}
+
+/* `for (const x of xs) body` becomes an index loop over two hidden locals: the
+ * iterable itself and a counter. They are given names no source can produce, so
+ * the body cannot see or shadow them.
+ *
+ * There is no iterator protocol yet — arrays and strings are the only iterable
+ * things — so this stays a desugaring rather than a runtime mechanism. */
+static void compileForOf(const AstNode *node) {
+  int line = node->line;
+  beginScope();
+
+  /* Slot 1: the iterable, evaluated once. */
+  compileNode(node->as.forOf.iterable);
+  addLocal(" iterable", 9, true, line);
+  int iterableSlot = current->localCount - 1;
+
+  /* Slot 2: the index, starting at zero. */
+  emitConstant(NUMBER_VAL(0), line);
+  addLocal(" index", 6, false, line);
+  int indexSlot = current->localCount - 1;
+
+  int loopStart = currentChunk()->count;
+
+  Loop loop;
+  beginLoop(&loop, true);
+
+  /* index < length(iterable). ITER_LENGTH replaces the iterable with its
+   * length, leaving exactly the two operands the fused compare wants. The
+   * length is recomputed each pass, so a body that appends is seen. */
+  emitBytes(OP_GET_LOCAL, (uint8_t)indexSlot, line);
+  emitBytes(OP_GET_LOCAL, (uint8_t)iterableSlot, line);
+  emitByte(OP_ITER_LENGTH, line);
+  int exitJump = emitJump(OP_JUMP_IF_NOT_LESS, line);
+
+  /* The binding is a fresh local per iteration, so a closure made in the body
+   * captures that iteration's value rather than sharing one cell. */
+  beginScope();
+  emitBytes(OP_GET_LOCAL, (uint8_t)iterableSlot, line);
+  emitBytes(OP_GET_LOCAL, (uint8_t)indexSlot, line);
+  emitByte(OP_GET_INDEX, line);
+  addLocal(node->as.forOf.name, node->as.forOf.nameLength, node->as.forOf.isConst,
+           line);
+
+  compileNode(node->as.forOf.body);
+  endScope(line);
+
+  for (int i = 0; i < loop.continueCount; i++) patchJump(loop.continueJumps[i], line);
+  emitBytes(OP_INC_LOCAL, (uint8_t)indexSlot, line);
+  emitLoop(loopStart, line);
+
+  patchJump(exitJump, line);
+  endLoop(&loop, line);
   endScope(line);
 }
 
@@ -981,6 +1174,10 @@ static void compileNode(const AstNode *node) {
 
     case AST_FOR_STMT:
       compileFor(node);
+      break;
+
+    case AST_FOR_OF_STMT:
+      compileForOf(node);
       break;
 
     case AST_FUNCTION:

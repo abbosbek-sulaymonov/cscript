@@ -260,7 +260,8 @@ static TypeKind checkBinary(Checker *checker, AstNode *node) {
     case BINARY_SUBTRACT:
     case BINARY_MULTIPLY:
     case BINARY_DIVIDE:
-    case BINARY_MODULO: {
+    case BINARY_MODULO:
+    case BINARY_EXPONENT: {
       TypeKind a = requireNumber(checker, left, line, name);
       TypeKind b = requireNumber(checker, right, line, name);
       return (a == TYPE_ERROR || b == TYPE_ERROR) ? TYPE_ERROR : TYPE_NUMBER;
@@ -627,6 +628,17 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
     case AST_WHILE_STMT:
       checkNode(checker, node->as.whileStmt.condition);
       checkNode(checker, node->as.whileStmt.body);
+      result = TYPE_UNDEFINED;
+      break;
+
+    case AST_FOR_OF_STMT:
+      beginScope(checker);
+      checkNode(checker, node->as.forOf.iterable);
+      /* Element types are not modelled, so the binding is dynamic. */
+      declareVariable(checker, node->as.forOf.name, node->as.forOf.nameLength,
+                      TYPE_ANY);
+      checkNode(checker, node->as.forOf.body);
+      endScope(checker);
       result = TYPE_UNDEFINED;
       break;
 

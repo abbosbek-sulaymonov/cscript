@@ -409,6 +409,17 @@ void csAstArrayLiteralAdd(AstArena *arena, AstNode *array, AstNode *element) {
   array->as.arrayLiteral.count = count + 1;
 }
 
+AstNode *csAstForOf(AstArena *arena, int line, const char *name, int nameLength,
+                    bool isConst, AstNode *iterable, AstNode *body) {
+  AstNode *node = newNode(arena, AST_FOR_OF_STMT, line);
+  if (node == NULL) return NULL;
+  node->as.forOf.name = internName(arena, name, nameLength, &node->as.forOf.nameLength);
+  node->as.forOf.isConst = isConst;
+  node->as.forOf.iterable = iterable;
+  node->as.forOf.body = body;
+  return node;
+}
+
 AstNode *csAstReturn(AstArena *arena, int line, AstNode *value) {
   AstNode *node = newNode(arena, AST_RETURN_STMT, line);
   if (node != NULL) node->as.returnValue = value;
@@ -467,6 +478,7 @@ const char *csBinaryOpName(BinaryOp op) {
     case BINARY_MULTIPLY:         return "*";
     case BINARY_DIVIDE:           return "/";
     case BINARY_MODULO:           return "%";
+    case BINARY_EXPONENT:         return "**";
     case BINARY_EQUAL:            return "===";
     case BINARY_NOT_EQUAL:        return "!==";
     case BINARY_GREATER:          return ">";

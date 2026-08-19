@@ -686,6 +686,25 @@ static InterpretResult run(int baseFrame) {
           VM_NEXT();
         }
 
+        if (IS_STRING(target)) {
+          /* Indexing a string yields a one-character string, as in JavaScript,
+           * and out of range is undefined rather than an error. */
+          if (!IS_NUMBER(index)) {
+            csVMRuntimeError("string index must be a number, got %s",
+                             csValueTypeName(index));
+            return CS_RUNTIME_ERROR;
+          }
+          ObjString *string = AS_STRING(target);
+          int slot = (int)AS_NUMBER(index);
+          vm.stackTop -= 2;
+          if (slot < 0 || slot >= string->length) {
+            csVMPush(UNDEFINED_VAL);
+          } else {
+            csVMPush(OBJ_VAL(csStringCopy(string->chars + slot, 1)));
+          }
+          VM_NEXT();
+        }
+
         if (IS_OBJECT(target)) {
           if (!IS_STRING(index)) {
             csVMRuntimeError("object key must be a string, got %s",
@@ -700,6 +719,20 @@ static InterpretResult run(int baseFrame) {
         }
 
         csVMRuntimeError("cannot index %s", csValueTypeName(target));
+        return CS_RUNTIME_ERROR;
+      }
+
+      VM_CASE(OP_ITER_LENGTH) {
+        Value iterable = csVMPop();
+        if (IS_ARRAY(iterable)) {
+          csVMPush(NUMBER_VAL(AS_ARRAY(iterable)->elements.count));
+          VM_NEXT();
+        }
+        if (IS_STRING(iterable)) {
+          csVMPush(NUMBER_VAL(AS_STRING(iterable)->length));
+          VM_NEXT();
+        }
+        csVMRuntimeError("%s is not iterable", csValueTypeName(iterable));
         return CS_RUNTIME_ERROR;
       }
 
@@ -879,6 +912,18 @@ static InterpretResult run(int baseFrame) {
         } else {
           csVMPush(NUMBER_VAL(fmod(a, b)));
         }
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_EXPONENT) {
+        if (!IS_NUMBER(peekStack(0)) || !IS_NUMBER(peekStack(1))) {
+          csVMRuntimeError("operands of '**' must be numbers, got %s and %s",
+                           csValueTypeName(peekStack(1)), csValueTypeName(peekStack(0)));
+          return CS_RUNTIME_ERROR;
+        }
+        double exponent = AS_NUMBER(csVMPop());
+        double base = AS_NUMBER(csVMPop());
+        csVMPush(NUMBER_VAL(pow(base, exponent)));
         VM_NEXT();
       }
 

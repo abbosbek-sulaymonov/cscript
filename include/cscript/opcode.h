@@ -53,6 +53,11 @@
   X(OP_GET_PROPERTY)      /* [const16]  pop object, push its named property   */ \
   X(OP_SET_PROPERTY)      /* [const16]  obj.name = value, leaving the value   */ \
   X(OP_GET_INDEX)         /*          pop index and target, push element    */ \
+  /* for...of support: replaces the value on top with its element count, so a  \
+   * loop can leave [index, length] ready for a fused compare-and-branch. Only \
+   * arrays and strings are iterable today, which is why this is one opcode    \
+   * rather than an iterator protocol. */                                       \
+  X(OP_ITER_LENGTH)       /*          replace top with its length           */ \
   X(OP_SET_INDEX)         /*          target[index] = value, leaving value  */ \
   X(OP_OBJECT)            /* [count]  build from `count` key/value pairs    */ \
   X(OP_ARRAY)             /* [count]  build from the top `count` values     */ \
@@ -78,6 +83,7 @@
   X(OP_MULTIPLY)                                                              \
   X(OP_DIVIDE)                                                                \
   X(OP_MODULO)                                                                \
+  X(OP_EXPONENT)          /* **, right-associative                          */ \
   X(OP_NEGATE)                                                                \
                                                                               \
   X(OP_NOT)               /* logical negation, using JS truthiness         */ \
