@@ -1,0 +1,6 @@
+error_recovery.cs:1: error: expected an expression
+      1 | print 1 +;
+        |          ^
+error_recovery.cs:2: error: expected an expression
+      2 | print 2 * ;
+        |           ^

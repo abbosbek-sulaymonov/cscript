@@ -1,0 +1,68 @@
+/* lexer.h — turns source text into a token stream.
+ *
+ * Tokens borrow from the source buffer rather than copying: `start`/`length`
+ * point into it. The buffer must outlive every token, which the driver
+ * guarantees by freeing the source only after compilation finishes.
+ */
+#ifndef CSCRIPT_LEXER_H
+#define CSCRIPT_LEXER_H
+
+#include "cscript/common.h"
+#include "cscript/diagnostic.h"
+
+typedef enum {
+  /* Single-character punctuation. */
+  TOKEN_LEFT_PAREN, TOKEN_RIGHT_PAREN,
+  TOKEN_LEFT_BRACE, TOKEN_RIGHT_BRACE,
+  TOKEN_LEFT_BRACKET, TOKEN_RIGHT_BRACKET,
+  TOKEN_COMMA, TOKEN_DOT, TOKEN_SEMICOLON, TOKEN_COLON, TOKEN_QUESTION,
+
+  /* Arithmetic. */
+  TOKEN_PLUS, TOKEN_MINUS, TOKEN_STAR, TOKEN_SLASH, TOKEN_PERCENT,
+
+  /* Comparison and assignment. */
+  TOKEN_BANG, TOKEN_BANG_EQUAL, TOKEN_BANG_EQUAL_EQUAL,
+  TOKEN_EQUAL, TOKEN_EQUAL_EQUAL, TOKEN_EQUAL_EQUAL_EQUAL,
+  TOKEN_GREATER, TOKEN_GREATER_EQUAL,
+  TOKEN_LESS, TOKEN_LESS_EQUAL,
+
+  /* Logical. */
+  TOKEN_AMP_AMP, TOKEN_PIPE_PIPE,
+
+  /* Literals. */
+  TOKEN_IDENTIFIER, TOKEN_STRING, TOKEN_NUMBER,
+
+  /* Keywords. */
+  TOKEN_TRUE, TOKEN_FALSE, TOKEN_NULL, TOKEN_UNDEFINED,
+  TOKEN_LET, TOKEN_CONST, TOKEN_VAR, TOKEN_FUNCTION, TOKEN_RETURN,
+  TOKEN_IF, TOKEN_ELSE, TOKEN_WHILE, TOKEN_FOR,
+  TOKEN_TYPEOF, TOKEN_PRINT,
+
+  TOKEN_ERROR,
+  TOKEN_EOF,
+} TokenType;
+
+typedef struct {
+  TokenType type;
+  const char *start; /* points into the source buffer */
+  int length;
+  int line;
+} Token;
+
+typedef struct {
+  const char *start;   /* start of the token being scanned */
+  const char *current; /* read cursor */
+  int line;
+  Diagnostics *diag;
+} Lexer;
+
+void csLexerInit(Lexer *lexer, const char *source, Diagnostics *diag);
+Token csLexerNext(Lexer *lexer);
+
+/* Human-readable token name, for debug dumps and error messages. */
+const char *csTokenTypeName(TokenType type);
+
+/* Dumps the whole token stream to stdout. Consumes a lexer of its own. */
+void csLexerDumpTokens(const char *source, Diagnostics *diag);
+
+#endif /* CSCRIPT_LEXER_H */

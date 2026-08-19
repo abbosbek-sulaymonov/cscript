@@ -1,0 +1,11 @@
+# Matches the style already in src/ and include/.
+BasedOnStyle: Google
+IndentWidth: 2
+ColumnLimit: 90
+PointerAlignment: Right
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortCaseLabelsOnASingleLine: true
+DerivePointerAlignment: false
+SortIncludes: true
+IncludeBlocks: Preserve
