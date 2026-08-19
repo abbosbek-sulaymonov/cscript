@@ -102,6 +102,10 @@ static void markRoots(void) {
     csMarkObject((Obj *)upvalue);
   }
 
+  /* An exception travelling out of a nested interpreter loop is referenced by
+   * nothing else while it is in flight. */
+  if (vm.hasPendingException) csMarkValue(vm.pendingException);
+
   csTableMark(&vm.globals);
   csTableMark(&vm.globalConsts);
   /* Built-in methods live only in these tables, so nothing else keeps them

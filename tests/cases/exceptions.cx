@@ -1,0 +1,130 @@
+// Throwing and catching any value.
+try {
+  throw "a string";
+} catch (e) {
+  console.log("caught:", e);
+}
+
+try {
+  throw 42;
+} catch (e) {
+  console.log("caught:", e + 1);
+}
+
+// The binding is optional.
+try {
+  throw 1;
+} catch {
+  console.log("caught without binding");
+}
+
+// Error() gives a conventional shape.
+try {
+  throw Error("something failed");
+} catch (e) {
+  console.log(e.name, "-", e.message);
+}
+
+// finally runs on the normal path...
+try {
+  console.log("body");
+} finally {
+  console.log("finally");
+}
+
+// ...and on the throwing path, before the outer handler sees it.
+try {
+  try {
+    throw "inner";
+  } finally {
+    console.log("inner finally");
+  }
+} catch (e) {
+  console.log("outer caught:", e);
+}
+
+// catch and finally together.
+try {
+  throw "x";
+} catch (e) {
+  console.log("catch", e);
+} finally {
+  console.log("finally after catch");
+}
+
+// A throw crosses call boundaries, unwinding every frame between.
+function inner() {
+  throw "from inner";
+}
+function middle() {
+  inner();
+}
+try {
+  middle();
+} catch (e) {
+  console.log(e);
+}
+
+// return inside try still runs the finally first.
+function withReturn() {
+  try {
+    return "returned";
+  } finally {
+    console.log("finally before return completes");
+  }
+}
+console.log(withReturn());
+
+// So do break and continue.
+for (const x of [1, 2, 3]) {
+  try {
+    if (x === 2) {
+      continue;
+    }
+    if (x === 3) {
+      break;
+    }
+    console.log("body", x);
+  } finally {
+    console.log("finally", x);
+  }
+}
+
+// Nested finallys run innermost first.
+function nested() {
+  try {
+    try {
+      return "value";
+    } finally {
+      console.log("inner");
+    }
+  } finally {
+    console.log("outer");
+  }
+}
+console.log(nested());
+
+// Recovering and continuing.
+function parse(text) {
+  try {
+    if (text === "bad") {
+      throw Error("cannot parse");
+    }
+    return text.toUpperCase();
+  } catch (e) {
+    return "fallback: " + e.message;
+  }
+}
+console.log(parse("ok"), "|", parse("bad"));
+
+// A throw from inside a callback unwinds through the interpreter's own call.
+try {
+  [1, 2, 3].map(x => {
+    if (x === 2) {
+      throw "from callback";
+    }
+    return x;
+  });
+} catch (e) {
+  console.log("caught:", e);
+}

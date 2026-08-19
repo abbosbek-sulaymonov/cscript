@@ -113,6 +113,14 @@
   X(OP_JUMP_IF_NOT_EQUAL)         /* [hi][lo] */                              \
   X(OP_JUMP_IF_EQUAL)             /* [hi][lo] */                              \
                                                                               \
+  /* Exception handling. OP_TRY installs a handler recording where to resume,   \
+   * how deep the frame stack was and how deep the value stack was; unwinding   \
+   * restores all three, which is what lets a throw cross call boundaries.      \
+   * OP_END_TRY removes it again on the normal path. */                          \
+  X(OP_TRY)               /* [hi][lo] install a handler at this offset      */ \
+  X(OP_END_TRY)           /*          remove the innermost handler          */ \
+  X(OP_THROW)             /*          unwind to the innermost handler       */ \
+                                                                              \
   X(OP_RETURN)
 /* clang-format on */
 

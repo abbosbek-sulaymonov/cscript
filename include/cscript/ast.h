@@ -45,6 +45,8 @@ typedef enum {
   AST_BREAK_STMT,
   AST_CONTINUE_STMT,
   AST_SWITCH_STMT,
+  AST_TRY_STMT,
+  AST_THROW_STMT,
   AST_PROGRAM,
 } AstNodeType;
 
@@ -207,6 +209,14 @@ struct AstNode {
       AstNode *iterable;
       AstNode *body;
     } forOf;
+    struct {                             /* AST_TRY_STMT */
+      AstNode *body;                     /*   an AST_BLOCK */
+      const char *catchName;             /*   NULL for `catch { }` */
+      int catchNameLength;
+      AstNode *catchBody;                /*   NULL when there is no catch */
+      AstNode *finallyBody;              /*   NULL when there is no finally */
+    } tryStmt;
+    AstNode *thrown;                     /* AST_THROW_STMT */
     struct {                             /* AST_PROGRAM */
       AstNode **statements;
       int count;
@@ -276,6 +286,9 @@ AstNode *csAstArrayLiteral(AstArena *arena, int line);
 void csAstArrayLiteralAdd(AstArena *arena, AstNode *array, AstNode *element);
 AstNode *csAstForOf(AstArena *arena, int line, const char *name, int nameLength,
                     bool isConst, AstNode *iterable, AstNode *body);
+AstNode *csAstTry(AstArena *arena, int line, AstNode *body, const char *catchName,
+                  int catchNameLength, AstNode *catchBody, AstNode *finallyBody);
+AstNode *csAstThrow(AstArena *arena, int line, AstNode *thrown);
 AstNode *csAstReturn(AstArena *arena, int line, AstNode *value);
 AstNode *csAstProgram(AstArena *arena, int line);
 

@@ -18,6 +18,8 @@ VM vm;
 static void resetStack(void) {
   vm.stackTop = vm.stack;
   vm.frameCount = 0;
+  vm.handlerCount = 0;
+  vm.hasPendingException = false;
   vm.openUpvalues = NULL;
   vm.tempRootCount = 0;
 }
@@ -391,6 +393,59 @@ void csVMDumpOpcodeProfile(void) {
  * into a nested interpreter that returns control as soon as that one call is
  * finished — without which `map`, `filter` and a `sort` comparator could not
  * run user code at all. */
+/* What a throw could do at this level of the interpreter. */
+typedef enum {
+  THROW_HANDLED,   /* a handler in this loop took it; keep executing */
+  THROW_PROPAGATE, /* the handler belongs to an outer loop */
+  THROW_UNCAUGHT,  /* nothing anywhere will take it */
+} ThrowResult;
+
+/* Unwinds to the innermost handler, if that handler belongs to this loop.
+ *
+ * `baseFrame` is where this interpreter loop started. A handler installed below
+ * it was installed by an outer loop, whose C frame is still on the stack under
+ * this one — so the throw has to travel out through the return path rather than
+ * jump there directly. */
+static ThrowResult performThrow(Value thrown, int baseFrame, CallFrame **frame) {
+  if (vm.handlerCount == 0) return THROW_UNCAUGHT;
+
+  ExceptionHandler *handler = &vm.handlers[vm.handlerCount - 1];
+  /* This loop is entered with frameCount == baseFrame + 1, so a handler
+   * recorded at baseFrame or below was installed before it started and belongs
+   * to an outer loop. Jumping there would resume outer code with this loop's C
+   * frame — and the native that started it — still on the stack. */
+  if (handler->frameCount <= baseFrame) {
+    vm.pendingException = thrown;
+    vm.hasPendingException = true;
+    return THROW_PROPAGATE;
+  }
+
+  vm.handlerCount--;
+
+  /* Discard every frame the throw escaped, closing anything their locals were
+   * captured into before the slots are reused. */
+  while (vm.frameCount > handler->frameCount) {
+    vm.frameCount--;
+    closeUpvalues(vm.frames[vm.frameCount].slots);
+  }
+  closeUpvalues(handler->stackTop);
+
+  vm.stackTop = handler->stackTop;
+  *frame = &vm.frames[vm.frameCount - 1];
+  (*frame)->ip = handler->ip;
+
+  /* The catch block expects the thrown value where its binding lives. */
+  csVMPush(thrown);
+  return THROW_HANDLED;
+}
+
+static void reportUncaught(Value thrown) {
+  size_t length = 0;
+  char *text = csValueInspect(thrown, &length);
+  csVMRuntimeError("uncaught %s", text != NULL ? text : "value");
+  free(text);
+}
+
 static InterpretResult run(int baseFrame) {
   CallFrame *frame = &vm.frames[vm.frameCount - 1];
 
@@ -482,6 +537,22 @@ static InterpretResult run(int baseFrame) {
   }            \
   }
 #endif
+
+/* A call may have failed because something inside it threw to a handler this
+ * loop owns; if so, take the throw here rather than aborting. */
+#define HANDLE_FAILED_CALL()                                            \
+  do {                                                                  \
+    if (!vm.hasPendingException) return CS_RUNTIME_ERROR;               \
+    vm.hasPendingException = false;                                     \
+    Value pending = vm.pendingException;                                \
+    switch (performThrow(pending, baseFrame, &frame)) {                 \
+      case THROW_HANDLED: break;                                        \
+      case THROW_PROPAGATE: return CS_RUNTIME_ERROR;                    \
+      case THROW_UNCAUGHT:                                              \
+        reportUncaught(pending);                                        \
+        return CS_RUNTIME_ERROR;                                        \
+    }                                                                   \
+  } while (false)
 
   VM_BEGIN
       VM_CASE(OP_CONSTANT)  csVMPush(READ_CONSTANT()); VM_NEXT();
@@ -812,7 +883,10 @@ static InterpretResult run(int baseFrame) {
 
       VM_CASE(OP_CALL) {
         int argCount = READ_BYTE();
-        if (!callValue(peekStack(argCount), argCount)) return CS_RUNTIME_ERROR;
+        if (!callValue(peekStack(argCount), argCount)) {
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
+        }
         /* A user call pushed a frame, so the cached pointer is stale. */
         frame = &vm.frames[vm.frameCount - 1];
         VM_NEXT();
@@ -822,7 +896,8 @@ static InterpretResult run(int baseFrame) {
         ObjString *name = READ_STRING();
         int argCount = READ_BYTE();
         if (!invokeMethod(peekStack(argCount), name, argCount)) {
-          return CS_RUNTIME_ERROR;
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
         }
         /* A method that turned out to be user code pushed a frame. */
         frame = &vm.frames[vm.frameCount - 1];
@@ -1033,8 +1108,48 @@ static InterpretResult run(int baseFrame) {
         VM_NEXT();
       }
 
+      VM_CASE(OP_TRY) {
+        uint16_t offset = READ_SHORT();
+        if (vm.handlerCount == CS_HANDLERS_MAX) {
+          csVMRuntimeError("too many nested 'try' blocks (limit %d)",
+                           CS_HANDLERS_MAX);
+          return CS_RUNTIME_ERROR;
+        }
+        ExceptionHandler *handler = &vm.handlers[vm.handlerCount++];
+        handler->frameCount = vm.frameCount;
+        handler->stackTop = vm.stackTop;
+        handler->ip = frame->ip + offset;
+        handler->handlerCount = vm.handlerCount - 1;
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_END_TRY)
+        vm.handlerCount--;
+        VM_NEXT();
+
+      VM_CASE(OP_THROW) {
+        Value thrown = csVMPop();
+        switch (performThrow(thrown, baseFrame, &frame)) {
+          case THROW_HANDLED:
+            VM_NEXT();
+          case THROW_PROPAGATE:
+            return CS_RUNTIME_ERROR;
+          case THROW_UNCAUGHT:
+            reportUncaught(thrown);
+            return CS_RUNTIME_ERROR;
+        }
+        VM_NEXT();
+      }
+
       VM_CASE(OP_RETURN) {
         Value result = csVMPop();
+
+        /* Returning past a `try` abandons its handler; leaving it installed
+         * would send a later throw back into a frame that no longer exists. */
+        while (vm.handlerCount > 0 &&
+               vm.handlers[vm.handlerCount - 1].frameCount >= vm.frameCount) {
+          vm.handlerCount--;
+        }
 
         /* Anything this frame's locals were captured into has to move to the
          * heap before the slots are reused. */
@@ -1073,6 +1188,7 @@ static InterpretResult run(int baseFrame) {
 #undef VM_NEXT
 #undef VM_CASE
 #undef VM_BEGIN
+#undef HANDLE_FAILED_CALL
 #undef VM_PROFILE_STEP
 #undef VM_TRACE_STEP
 #undef BINARY_NUMERIC_OP

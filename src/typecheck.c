@@ -100,7 +100,7 @@ static void declareBuiltins(Checker *checker) {
   } builtins[] = {
       {"console", TYPE_OBJECT}, {"Math", TYPE_OBJECT},   {"Number", TYPE_FUNCTION},
       {"String", TYPE_FUNCTION}, {"Boolean", TYPE_FUNCTION}, {"NaN", TYPE_NUMBER},
-      {"Infinity", TYPE_NUMBER},
+      {"Infinity", TYPE_NUMBER}, {"Error", TYPE_FUNCTION},
   };
   for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
     declareVariable(checker, builtins[i].name, (int)strlen(builtins[i].name),
@@ -628,6 +628,27 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
     case AST_WHILE_STMT:
       checkNode(checker, node->as.whileStmt.condition);
       checkNode(checker, node->as.whileStmt.body);
+      result = TYPE_UNDEFINED;
+      break;
+
+    case AST_TRY_STMT:
+      checkNode(checker, node->as.tryStmt.body);
+      if (node->as.tryStmt.catchBody != NULL) {
+        beginScope(checker);
+        if (node->as.tryStmt.catchName != NULL) {
+          /* Anything can be thrown, so the binding is dynamic. */
+          declareVariable(checker, node->as.tryStmt.catchName,
+                          node->as.tryStmt.catchNameLength, TYPE_ANY);
+        }
+        checkNode(checker, node->as.tryStmt.catchBody);
+        endScope(checker);
+      }
+      checkNode(checker, node->as.tryStmt.finallyBody);
+      result = TYPE_UNDEFINED;
+      break;
+
+    case AST_THROW_STMT:
+      checkNode(checker, node->as.thrown);
       result = TYPE_UNDEFINED;
       break;
 

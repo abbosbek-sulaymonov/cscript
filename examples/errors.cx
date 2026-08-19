@@ -1,0 +1,66 @@
+// Error handling: throw any value, catch it, and let finally clean up.
+
+function parsePort(text) {
+  const port = Number(text);
+  if (isNaN(port)) {
+    throw Error(`"${text}" is not a number`);
+  }
+  if (port < 1 || port > 65535) {
+    throw Error(`port ${port} is out of range`);
+  }
+  return port;
+}
+
+for (const candidate of ["8080", "notaport", "99999"]) {
+  try {
+    console.log("ok:", parsePort(candidate));
+  } catch (e) {
+    console.log("rejected:", e.message);
+  }
+}
+
+// finally runs whichever way the block is left — including a return.
+function withCleanup(shouldFail) {
+  try {
+    if (shouldFail) {
+      throw "failed";
+    }
+    return "succeeded";
+  } catch (e) {
+    return "recovered from " + e;
+  } finally {
+    console.log("cleanup ran");
+  }
+}
+
+console.log(withCleanup(false));
+console.log(withCleanup(true));
+
+// A throw unwinds through every frame between it and the handler.
+function level3() {
+  throw Error("deep failure");
+}
+function level2() {
+  level3();
+}
+function level1() {
+  level2();
+}
+
+try {
+  level1();
+} catch (e) {
+  console.log("caught from three levels down:", e.message);
+}
+
+// It also escapes a callback running inside a built-in method.
+try {
+  [1, 2, 3].forEach(n => {
+    if (n === 2) {
+      throw Error("stopped at " + n);
+    }
+    console.log("visited", n);
+  });
+} catch (e) {
+  console.log(e.message);
+}

@@ -152,6 +152,9 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_JUMP_IF_TRUE:      return jumpInstruction("OP_JUMP_IF_TRUE", 1, chunk, offset);
     case OP_POP_JUMP_IF_FALSE: return jumpInstruction("OP_POP_JUMP_IF_FALSE", 1, chunk, offset);
     case OP_LOOP:              return jumpInstruction("OP_LOOP", -1, chunk, offset);
+    case OP_TRY:               return jumpInstruction("OP_TRY", 1, chunk, offset);
+    case OP_END_TRY:           return simpleInstruction("OP_END_TRY", offset);
+    case OP_THROW:             return simpleInstruction("OP_THROW", offset);
     case OP_JUMP_IF_NOT_LESS:          return jumpInstruction("OP_JUMP_IF_NOT_LESS", 1, chunk, offset);
     case OP_JUMP_IF_NOT_LESS_EQUAL:    return jumpInstruction("OP_JUMP_IF_NOT_LESS_EQUAL", 1, chunk, offset);
     case OP_JUMP_IF_NOT_GREATER:       return jumpInstruction("OP_JUMP_IF_NOT_GREATER", 1, chunk, offset);
@@ -280,6 +283,20 @@ static void printNode(const AstNode *node, int depth) {
       if (node->as.switchStmt.defaultBody != NULL) {
         printNode(node->as.switchStmt.defaultBody, depth + 1);
       }
+      break;
+    case AST_TRY_STMT:
+      printf("Try\n");
+      printNode(node->as.tryStmt.body, depth + 1);
+      if (node->as.tryStmt.catchBody != NULL) {
+        printNode(node->as.tryStmt.catchBody, depth + 1);
+      }
+      if (node->as.tryStmt.finallyBody != NULL) {
+        printNode(node->as.tryStmt.finallyBody, depth + 1);
+      }
+      break;
+    case AST_THROW_STMT:
+      printf("Throw\n");
+      printNode(node->as.thrown, depth + 1);
       break;
     case AST_INDEX:
       printf("Index\n");

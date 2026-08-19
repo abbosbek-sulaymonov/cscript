@@ -447,6 +447,29 @@ static bool mathRandom(Value receiver, int argCount, Value *args, Value *result)
   return true;
 }
 
+/* Error(message) — a plain object with `name` and `message`.
+ *
+ * `new` and classes do not exist yet, so this is a function rather than a
+ * constructor, and `throw` accepts any value regardless. Having a conventional
+ * shape matters mainly so `e.message` works on a caught value. */
+static bool errorConstruct(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  ObjObject *error = csObjectNew("Error");
+  csPushTempRoot((Obj *)error);
+
+  ObjString *name = csStringCopy("Error", 5);
+  csPushTempRoot((Obj *)name);
+  csObjectSetProperty(error, "name", OBJ_VAL(name));
+  csPopTempRoot();
+
+  Value message = argCount >= 1 ? args[0] : OBJ_VAL(csStringCopy("", 0));
+  csObjectSetProperty(error, "message", message);
+
+  csPopTempRoot();
+  *result = OBJ_VAL(error);
+  return true;
+}
+
 /* Defines a global, keeping the value rooted across the table insert. */
 static void defineGlobal(const char *name, Value value) {
   if (IS_OBJ(value)) csPushTempRoot(AS_OBJ(value));
@@ -562,6 +585,7 @@ void csNativesInstall(void) {
   defineFunction("parseFloat", globalParseFloat, -1);
   defineFunction("isNaN", globalIsNaN, -1);
   defineFunction("isFinite", globalIsFinite, -1);
+  defineFunction("Error", errorConstruct, -1);
 
   /* Explicit conversions, so nothing has to rely on implicit coercion. */
   csPopTempRoot();

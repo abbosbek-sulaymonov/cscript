@@ -130,6 +130,7 @@ static AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence);
 static AstNode *parsePrimary(Parser *parser);
 static AstNode *parseFunction(Parser *parser, bool requireName);
 static AstNode *parseSwitch(Parser *parser);
+static AstNode *parseTry(Parser *parser);
 static AstNode *parseBlock(Parser *parser);
 static AstNode *finishVarDeclaration(Parser *parser, int line, const char *name,
                                      int nameLength, bool isConst);
@@ -769,6 +770,56 @@ static AstNode *parseFunction(Parser *parser, bool requireName) {
   return function;
 }
 
+/* `try { } catch (e) { } finally { }`
+ *
+ * At least one of catch and finally must be present, since `try` alone does
+ * nothing. The catch binding is optional, matching modern JavaScript. */
+static AstNode *parseTry(Parser *parser) {
+  int line = parser->previous.line;
+
+  consume(parser, TOKEN_LEFT_BRACE, "expected '{' after 'try'");
+  if (parser->diag->panicMode) return NULL;
+  AstNode *body = parseBlock(parser);
+  if (body == NULL) return NULL;
+
+  const char *catchName = NULL;
+  int catchNameLength = 0;
+  AstNode *catchBody = NULL;
+
+  if (matchToken(parser, TOKEN_CATCH)) {
+    if (matchToken(parser, TOKEN_LEFT_PAREN)) {
+      consume(parser, TOKEN_IDENTIFIER, "expected a name for the caught value");
+      if (parser->diag->panicMode) return NULL;
+      catchName = parser->previous.start;
+      catchNameLength = parser->previous.length;
+      consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the catch binding");
+      if (parser->diag->panicMode) return NULL;
+    }
+
+    consume(parser, TOKEN_LEFT_BRACE, "expected '{' after 'catch'");
+    if (parser->diag->panicMode) return NULL;
+    catchBody = parseBlock(parser);
+    if (catchBody == NULL) return NULL;
+  }
+
+  AstNode *finallyBody = NULL;
+  if (matchToken(parser, TOKEN_FINALLY)) {
+    consume(parser, TOKEN_LEFT_BRACE, "expected '{' after 'finally'");
+    if (parser->diag->panicMode) return NULL;
+    finallyBody = parseBlock(parser);
+    if (finallyBody == NULL) return NULL;
+  }
+
+  if (catchBody == NULL && finallyBody == NULL) {
+    csDiagnosticError(parser->diag, line, NULL, 0,
+                      "a 'try' needs a 'catch' or a 'finally'");
+    return NULL;
+  }
+
+  return csAstTry(parser->arena, line, body, catchName, catchNameLength, catchBody,
+                  finallyBody);
+}
+
 /* `switch (subject) { case a: ... default: ... }`
  *
  * Arms are matched with `===`, so there is no coercion here either. Cases do
@@ -1024,6 +1075,16 @@ static AstNode *parseStatement(Parser *parser) {
     if (parser->diag->panicMode) return NULL;
     return csAstContinue(parser->arena, continueLine);
   }
+
+  if (matchToken(parser, TOKEN_THROW)) {
+    int throwLine = parser->previous.line;
+    AstNode *thrown = parseExpression(parser);
+    consume(parser, TOKEN_SEMICOLON, "expected ';' after throw");
+    if (thrown == NULL || parser->diag->panicMode) return NULL;
+    return csAstThrow(parser->arena, throwLine, thrown);
+  }
+
+  if (matchToken(parser, TOKEN_TRY)) return parseTry(parser);
 
   if (matchToken(parser, TOKEN_SWITCH)) return parseSwitch(parser);
 

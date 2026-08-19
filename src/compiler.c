@@ -83,9 +83,25 @@ typedef struct Loop {
   int continueCount;
 } Loop;
 
+/* An enclosing `try` whose `finally` any jump out of it has to run first.
+ *
+ * `return`, `break` and `continue` all leave a try block without reaching the
+ * end of its body, and JavaScript still runs the finally on each of those
+ * paths. Tracking the open try blocks is what lets the compiler emit it. */
+typedef struct TryContext {
+  struct TryContext *enclosing;
+  const AstNode *finallyBody; /* NULL for a try with only a catch */
+  int scopeDepth;
+  /* False while the catch block is being compiled: the handler was already
+   * removed on entry to the catch, so jumping out of it must run the finally
+   * but must not pop a handler that is no longer installed. */
+  bool handlerActive;
+} TryContext;
+
 static Compiler *current = NULL;
 static Unit *currentUnit = NULL;
 static Loop *currentLoop = NULL;
+static TryContext *currentTry = NULL;
 
 static Chunk *currentChunk(void) { return &current->function->chunk; }
 
@@ -392,6 +408,20 @@ static void endLoop(Loop *loop, int line) {
     patchJump(loop->breakJumps[i], line);
   }
   currentLoop = loop->enclosing;
+}
+
+/* Emits the finally blocks for every open try down to `stopAtDepth`, closing
+ * each handler on the way. Passing -1 means "all of them in this function",
+ * which is what a `return` needs; a `break` stops at the loop's own depth. */
+static void compileNode(const AstNode *node);
+
+static void unwindTryBlocks(int stopAtDepth, int line) {
+  for (TryContext *context = currentTry; context != NULL;
+       context = context->enclosing) {
+    if (context->scopeDepth <= stopAtDepth) break;
+    if (context->handlerActive) emitByte(OP_END_TRY, line);
+    if (context->finallyBody != NULL) compileNode(context->finallyBody);
+  }
 }
 
 /* ---------------- code generation ---------------- */
@@ -931,6 +961,81 @@ static void compileForOf(const AstNode *node) {
   endScope(line);
 }
 
+/* try / catch / finally.
+ *
+ * The shape emitted is:
+ *
+ *     OP_TRY -> catch                install a handler
+ *     <body>
+ *     OP_END_TRY                     normal path: remove it
+ *     <finally>                      run on the way out
+ *     OP_JUMP -> end
+ *   catch:                           the handler resumes here with the thrown
+ *     <bind or discard the value>    value on top of the stack
+ *     <catch body>
+ *     <finally>
+ *   end:
+ *
+ * `finally` is emitted twice rather than jumped to, because the two paths
+ * arrive with different stacks and have to leave differently. Duplicating a
+ * block is the cost of not needing a subroutine-return mechanism the VM does
+ * not otherwise have.
+ *
+ * With no catch, the handler still points at the finally, which runs and then
+ * rethrows so the exception keeps travelling. */
+static void compileTry(const AstNode *node) {
+  int line = node->line;
+  bool hasCatch = node->as.tryStmt.catchBody != NULL;
+  bool hasFinally = node->as.tryStmt.finallyBody != NULL;
+
+  int handlerJump = emitJump(OP_TRY, line);
+
+  TryContext context;
+  context.enclosing = currentTry;
+  context.finallyBody = node->as.tryStmt.finallyBody;
+  context.scopeDepth = current->scopeDepth;
+  context.handlerActive = true;
+  currentTry = &context;
+
+  compileNode(node->as.tryStmt.body);
+
+  currentTry = context.enclosing;
+  emitByte(OP_END_TRY, line);
+
+  if (hasFinally) compileNode(node->as.tryStmt.finallyBody);
+  int endJump = emitJump(OP_JUMP, line);
+
+  /* The handler resumes here with the thrown value on top of the stack. */
+  patchJump(handlerJump, line);
+
+  if (hasCatch) {
+    /* The finally still covers the catch block, so a return out of it has to
+     * run the finally — but the handler is already gone by this point. */
+    context.handlerActive = false;
+    currentTry = &context;
+
+    beginScope();
+    if (node->as.tryStmt.catchName != NULL) {
+      /* The thrown value is already in the slot the binding will occupy. */
+      addLocal(node->as.tryStmt.catchName, node->as.tryStmt.catchNameLength, false,
+               line);
+    } else {
+      emitByte(OP_POP, line); /* `catch { }` ignores the value */
+    }
+    compileNode(node->as.tryStmt.catchBody);
+    endScope(line);
+
+    currentTry = context.enclosing;
+    if (hasFinally) compileNode(node->as.tryStmt.finallyBody);
+  } else {
+    /* finally-only: run the block, then let the exception continue. */
+    compileNode(node->as.tryStmt.finallyBody);
+    emitByte(OP_THROW, line);
+  }
+
+  patchJump(endJump, line);
+}
+
 static void compileStatements(AstNode *const *statements,
                               int count) {
   for (int i = 0; i < count; i++) compileNode(statements[i]);
@@ -949,6 +1054,8 @@ static void beginFunction(Compiler *compiler, FunctionKind kind, const char *nam
 
   /* csFunctionNew allocates, and a collection during it would otherwise see a
    * compiler whose `function` field is garbage. */
+  /* A function body starts with no open try blocks of its own; an enclosing
+   * function's are unreachable from here. */
   compiler->function = csFunctionNew();
   if (kind != FUNCTION_SCRIPT && name != NULL) {
     compiler->function->name = csStringCopy(name, nameLength);
@@ -976,6 +1083,11 @@ static ObjFunction *endFunction(int line) {
 static void compileFunction(const AstNode *node) {
   int line = node->line;
 
+  /* A nested function's `return` must not emit the enclosing function's
+   * finally blocks — they belong to a frame it will never unwind. */
+  TryContext *enclosingTry = currentTry;
+  currentTry = NULL;
+
   Compiler compiler;
   beginFunction(&compiler, FUNCTION_BODY, node->as.function.name,
                 node->as.function.nameLength);
@@ -1002,6 +1114,8 @@ static void compileFunction(const AstNode *node) {
 
   /* endFunction popped this compiler, so csCompilerMarkRoots no longer reaches
    * the function. It has to stay rooted until the enclosing chunk owns it. */
+  currentTry = enclosingTry;
+
   csPushTempRoot((Obj *)function);
   emitConstantOp(OP_CLOSURE, makeConstant(OBJ_VAL(function), line), line);
   csPopTempRoot();
@@ -1216,6 +1330,7 @@ static void compileNode(const AstNode *node) {
                 MAX_LOOP_EXITS);
         break;
       }
+      unwindTryBlocks(currentLoop->scopeDepth, line);
       discardLocalsAbove(currentLoop->scopeDepth, line);
       currentLoop->breakJumps[currentLoop->breakCount++] = emitJump(OP_JUMP, line);
       break;
@@ -1231,6 +1346,7 @@ static void compileNode(const AstNode *node) {
                 MAX_LOOP_EXITS);
         break;
       }
+      unwindTryBlocks(currentLoop->scopeDepth, line);
       discardLocalsAbove(currentLoop->scopeDepth, line);
       currentLoop->continueJumps[currentLoop->continueCount++] = emitJump(OP_JUMP, line);
       break;
@@ -1292,16 +1408,28 @@ static void compileNode(const AstNode *node) {
       break;
     }
 
+    case AST_TRY_STMT:
+      compileTry(node);
+      break;
+
+    case AST_THROW_STMT:
+      compileNode(node->as.thrown);
+      emitByte(OP_THROW, line);
+      break;
+
     case AST_RETURN_STMT:
       if (current->kind == FUNCTION_SCRIPT) {
         errorAt(line, "'return' outside of a function");
         break;
       }
+      /* The value is computed first so the finally blocks run with it already
+       * on the stack — they are balanced, so it survives them. */
       if (node->as.returnValue != NULL) {
         compileNode(node->as.returnValue);
       } else {
         emitByte(OP_UNDEFINED, line);
       }
+      unwindTryBlocks(-1, line);
       emitByte(OP_RETURN, line);
       break;
 

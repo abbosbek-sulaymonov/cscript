@@ -1,0 +1,22 @@
+caught: a string
+caught: 43
+caught without binding
+Error - something failed
+body
+finally
+inner finally
+outer caught: inner
+catch x
+finally after catch
+from inner
+finally before return completes
+returned
+body 1
+finally 1
+finally 2
+finally 3
+inner
+outer
+value
+OK | fallback: cannot parse
+caught: from callback

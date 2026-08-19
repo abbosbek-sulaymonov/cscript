@@ -420,6 +420,27 @@ AstNode *csAstForOf(AstArena *arena, int line, const char *name, int nameLength,
   return node;
 }
 
+AstNode *csAstTry(AstArena *arena, int line, AstNode *body, const char *catchName,
+                  int catchNameLength, AstNode *catchBody, AstNode *finallyBody) {
+  AstNode *node = newNode(arena, AST_TRY_STMT, line);
+  if (node == NULL) return NULL;
+  node->as.tryStmt.body = body;
+  node->as.tryStmt.catchName =
+      catchName != NULL
+          ? internName(arena, catchName, catchNameLength, &node->as.tryStmt.catchNameLength)
+          : NULL;
+  if (catchName == NULL) node->as.tryStmt.catchNameLength = 0;
+  node->as.tryStmt.catchBody = catchBody;
+  node->as.tryStmt.finallyBody = finallyBody;
+  return node;
+}
+
+AstNode *csAstThrow(AstArena *arena, int line, AstNode *thrown) {
+  AstNode *node = newNode(arena, AST_THROW_STMT, line);
+  if (node != NULL) node->as.thrown = thrown;
+  return node;
+}
+
 AstNode *csAstReturn(AstArena *arena, int line, AstNode *value) {
   AstNode *node = newNode(arena, AST_RETURN_STMT, line);
   if (node != NULL) node->as.returnValue = value;

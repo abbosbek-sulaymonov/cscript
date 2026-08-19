@@ -19,6 +19,7 @@ typedef enum {
 
 #define CS_TEMP_ROOTS_MAX 64
 #define CS_FRAMES_MAX 64
+#define CS_HANDLERS_MAX 64
 
 /* Defined in object.h, which includes this header for Value. */
 struct ObjClosure;
@@ -33,9 +34,32 @@ typedef struct {
   Value *slots;
 } CallFrame;
 
+/* An active `try`. Unwinding restores the machine to exactly this state, which
+ * is why all three depths are recorded rather than just the resume point: a
+ * throw may cross any number of calls and leave any amount of stack behind. */
+typedef struct {
+  int frameCount;      /* frames live when the handler was installed */
+  Value *stackTop;     /* value stack depth at the same moment */
+  const uint8_t *ip;   /* where to resume — the catch, or the finally */
+  int handlerCount;    /* handlers below this one, for nested try blocks */
+} ExceptionHandler;
+
 typedef struct {
   CallFrame frames[CS_FRAMES_MAX];
   int frameCount;
+
+  ExceptionHandler handlers[CS_HANDLERS_MAX];
+  int handlerCount;
+
+  /* An exception on its way out of a nested interpreter loop.
+   *
+   * A native that calls back into user code runs its own run() loop. If code
+   * inside that callback throws to a handler installed *outside* it, the inner
+   * loop cannot unwind there — the C stack still has the native on it. So the
+   * value is parked here, the inner loop returns, the native returns false,
+   * and the outer loop picks the throw back up where it can be handled. */
+  Value pendingException;
+  bool hasPendingException;
 
   Value stack[CS_STACK_MAX];
   Value *stackTop;
