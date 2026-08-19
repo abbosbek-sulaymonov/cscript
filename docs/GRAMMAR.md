@@ -1,4 +1,4 @@
-# CScript grammar and semantics — v0.17.0
+# CScript grammar and semantics — v0.18.0
 
 CScript's syntax is a **subset of TypeScript's**: every CScript program is a
 valid TypeScript program. `make test-node` enforces that by handing each

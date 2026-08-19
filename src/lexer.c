@@ -112,7 +112,12 @@ static TokenType identifierType(const Lexer *lexer) {
     case 'd':
       if (lexer->current - lexer->start > 1) {
         switch (lexer->start[1]) {
-          case 'e': return checkKeyword(lexer, 2, 5, "fault", TOKEN_DEFAULT);
+          case 'e':
+            /* default / delete share "de". */
+            if (lexer->current - lexer->start > 2 && lexer->start[2] == 'l') {
+              return checkKeyword(lexer, 2, 4, "lete", TOKEN_DELETE);
+            }
+            return checkKeyword(lexer, 2, 5, "fault", TOKEN_DEFAULT);
           case 'o': return checkKeyword(lexer, 2, 0, "", TOKEN_DO);
         }
       }
@@ -479,6 +484,7 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_TYPEOF:            return "TYPEOF";
     case TOKEN_AWAIT:             return "AWAIT";
     case TOKEN_DO:                return "DO";
+    case TOKEN_DELETE:            return "DELETE";
     case TOKEN_IN:                return "IN";
     case TOKEN_IMPORT:            return "IMPORT";
     case TOKEN_EXPORT:            return "EXPORT";

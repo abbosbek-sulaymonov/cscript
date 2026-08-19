@@ -1,4 +1,4 @@
-# Architecture
+# CScript architecture
 
 CScript runs a script in four stages. Each one has a single job, its own header
 in `include/cscript/`, and a debug flag that dumps what it produced.
@@ -569,131 +569,64 @@ table, then reset the stack.
 
 | Path | Holds |
 | --- | --- |
-| `include/cscript/` | One public header per module |
+| `include/cscript/` | One public header per subsystem |
+| **Front end** | |
 | `src/lexer.c` | Source text to tokens |
-| `src/parser.c` | Tokens to AST, precedence climbing, error recovery |
-| `src/ast.c` | Node constructors and the arena |
-| `src/compiler.c` | AST to bytecode |
-| `src/vm.c` | The interpreter loop |
-| `src/memory.c` | The allocator and the collector |
-| `src/object.c` | Heap object types, string interning |
-| `src/table.c` | Open-addressing hash table |
-| `src/value.c` | Value operations, coercion, formatting |
-| `src/chunk.c` | Bytecode buffer and constant pool |
+| `src/parser.c` | The token plumbing, the precedence table, and `csParse` |
+| `src/parser_expression.c` | Expressions, templates, functions and arrows |
+| `src/parser_declaration.c` | Variables, patterns, classes, imports and exports |
+| `src/parser_statement.c` | Blocks, conditionals, the loop forms, `switch`, `try` |
+| `src/parser_internal.h` | What those four share |
+| `src/ast.c` | Node constructors and the arena they live in |
+| **Checking** | |
 | `src/typecheck.c` | Static checking; annotates the AST with types |
 | `src/type.c` | The type lattice and assignability |
-| `src/native.c` | The built-in global environment |
+| **Back end** | |
+| `src/compiler.c` | Emit helpers, scopes, locals, and the node dispatcher |
+| `src/compiler_expression.c` | Operators, assignment, `this`/`super`, closures |
+| `src/compiler_statement.c` | Control flow and the destructuring a declaration lowers to |
+| `src/compiler_class.c` | Classes: members, accessors, statics, constructors |
+| `src/compiler_module.c` | Imports and exports, resolved at compile time |
+| `src/compiler_internal.h` | The compiler's ambient state and the seams |
+| `src/chunk.c` | Bytecode buffer, constant pool, inline-cache arrays |
+| **Runtime** | |
+| `src/vm.c` | The interpreter loop and everything on its hot path |
+| `src/vm_fiber.c` | Suspendable calls, for `await` |
+| `src/vm_event.c` | Microtasks, timers, and the loop that drains them |
+| `src/vm_internal.h` | The seams between those three |
+| `src/object.c` | Heap object types, string interning, promises |
+| `src/shape.c` | Hidden classes: the layout an object has |
+| `src/memory.c` | The allocator and the collector |
+| `src/table.c` | Open-addressing hash table |
+| `src/value.c` | Value operations, coercion, number formatting |
 | `src/module.c` | Resolving, loading and ordering source files |
-| `src/native_promise.c` | Promises, timers, the microtask queue |
+| **Standard library** | |
+| `src/native.c` | The built-in global environment |
+| `src/native_array.c` | Array methods |
+| `src/native_string.c` | String methods |
+| `src/native_json.c` | `JSON.stringify` and `JSON.parse` |
+| `src/native_promise.c` | Promises and timers |
+| **Tools** | |
 | `src/debug.c` | Disassembler and AST printer |
 | `src/diagnostic.c` | Error reporting |
 | `src/main.c` | CLI, REPL, file runner |
 
-## Modules: one file, one scope
+### How it was split, and what was not
 
-Before v0.15.0 there was a single globals table, so two files could not be
-combined without their top-level names colliding. A module now owns its own
-table, and the built-ins are copied into it when it is created — one uniform
-lookup rather than a lookup with a fallback behind it.
+Three files held 41% of the code: `vm.c`, `compiler.c` and `parser.c`. They
+were split by **what they handle**, not by phase — the pieces of a
+recursive-descent parser are mutually recursive because the grammar is, so
+layering them would have been a fiction. Each group shares an internal header
+that nothing outside it includes.
 
-**The hot path did not get slower.** A global site lives in exactly one
-module's code, so the table it resolves against is fixed for the life of the
-program. The inline cache from v0.13.0 already held an `Entry *` and a version;
-it gained the `Table *` it took them from, so the hit test is still two loads
-and a compare and never touches the running frame. Measured: the `globals`
-benchmark went from 206 ms to 211 ms, about 2.4%, and nothing else moved.
-
-**The loader sits above the compiler**, not inside it, because the compiler is
-a single global `current` and must not be re-entered:
-
-```
-load(path):
-  registry hit, loaded   -> reuse
-  registry hit, loading  -> error: import cycle
-  read, parse
-  for each import specifier: load(resolve(path, specifier))
-  type-check, compile        <- dependencies are already compiled
-  append to the execution list
-```
-
-Post-order, so the execution list is in dependency order and everything a
-module imports has run before it starts. All compilation finishes before any
-execution, which is what lets every compile error in a program surface in one
-pass — and what lets a missing export be a *compile* error, since the importing
-file is compiled only after the exporting one has published its export list.
-
-`exports` is a **set of names**, not a copy of values. An import reads through
-to the exporting module's global, so bindings stay live and nothing has to be
-written back when a module finishes. A namespace object is built at import time
-from the same reads, sorted, and frozen.
-
-Cycles are refused rather than half-run. ES modules answer a cycle with a
-partially initialised namespace and a `ReferenceError` if you touch the wrong
-thing at the wrong moment; naming the import that closed the loop is more use
-than reproducing that.
-
-## Fibers: how `await` suspends a call
-
-`await` has to stop a running function and start it again later. The cheap
-implementation — copy the frame's slots off the value stack and copy them back
-on resume — is wrong here, and the reason is worth stating because it decided
-the whole design: **upvalues hold raw pointers into the value stack**. A
-closure created inside an async function captures a local by address. Move that
-local and the closure reads freed memory, or the function and its closure
-quietly stop sharing a variable.
-
-Two ways out. Heap-allocate every captured local up front, the way V8's context
-allocation does — a compiler change reaching into every closure. Or give each
-suspendable call its own stack, so nothing ever moves. The second is smaller,
-and a stack VM is already shaped for it.
-
-So an async call gets an `ObjFiber`: its own value stack, frames, handlers and
-open-upvalue list, plus the promise it settles. **The active fiber's state
-lives inline in the VM**, which is what keeps `csVMPush` at one store and the
-interpreter loop unchanged; suspending swaps it out and the caller's back in.
-Measured after the extraction, every benchmark was flat.
-
-Calling an async function creates a fiber, moves the arguments onto its stack,
-pushes the promise to the caller, and runs. `OP_AWAIT` registers the fiber on
-the awaited promise and returns out of `run()` with a flag set. When that
-promise settles it queues a microtask holding the fiber; running it swaps the
-fiber back in and either pushes the value or throws inside it — which is why a
-`try`/`catch` around an `await` works, since the handler stack belongs to the
-fiber too.
-
-A throw that escapes an async function is not an error yet: the call already
-handed its caller a promise, so the escaping value becomes that promise's
-rejection.
-
-*Cost:* a suspended call holds its own stack — 1024 values and 64 frames, about
-10 KB per in-flight async call. Growing them on demand is a later change; the
-limit is reported rather than silently hit.
-
-## The event loop
-
-```
-run the entry module and everything it imports
-loop:
-  drain the microtask queue completely
-  run the next timer that is due
-  stop when both are empty
-```
-
-Settling a promise queues its reactions rather than calling them. That one rule
-is what makes `.then` asynchronous even on an already settled promise, and it
-is the difference between a promise and a callback.
-
-Three kinds of thing sit in the microtask queue: a reaction with a handler, a
-`Promise.all` / `.race` settlement, and a suspended `await`. The last two carry
-no user callback — a combinator has to count settlements and place results by
-position, which no single-argument callback can do — so the queue entry names
-what to do rather than always holding a function.
-
-Two rooting rules the collector depends on here, both found by `test-gc`:
-the microtask queue's head does not advance until the task it points at has
-finished, since a running task's handler, value and result promise are
-reachable from nowhere else; and a timer taken off the queue is rooted
-explicitly for the same reason.
+**The interpreter loop was not split, and that is deliberate.** Computed-goto
+dispatch depends on the labels and the cached `ip` and `frame` living in one
+function, and the helpers it calls on every instruction have to stay in the
+same translation unit to be inlined. Splitting it would cost exactly the speed
+the dispatch exists for. What could come out did: fibers, which run only when
+an async call suspends, and the event loop, which runs only after the program
+does. Benchmarks were flat across the whole change, which is what said the line
+was drawn in the right place.
 
 ## Build configurations
 

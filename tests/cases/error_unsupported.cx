@@ -1,0 +1,4 @@
+// Every gap names itself. This case pins that promise for the ones most
+// likely to be reached by accident — each of these is ordinary JavaScript.
+const o = { a: 1 };
+delete o.a;

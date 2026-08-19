@@ -1,0 +1,3 @@
+error_unsupported.cx:4: error: 'delete' is not supported; an object's shape is fixed once it is built
+      4 | delete o.a;
+        | ^^^^^^

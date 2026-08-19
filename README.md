@@ -73,7 +73,7 @@ The full list, with the reasoning for each, is in
 
 ## Status
 
-**v0.17.0.** The language is feature-complete for everyday code: objects and
+**v0.18.0.** The language is feature-complete for everyday code: objects and
 arrays, functions and closures, classes and inheritance, modules, promises and
 `async`/`await`, gradual typing with inference, control flow, `switch`,
 template literals and the conditional operator. The pipeline is lexer → parser → type checker → bytecode
@@ -106,6 +106,15 @@ typing, exceptions, destructuring and spread. What remains is modules and
 async — see the [roadmap](#roadmap).
 
 ---
+
+## Documentation
+
+| | |
+| --- | --- |
+| [docs/GRAMMAR.md](docs/GRAMMAR.md) | The syntax as EBNF, and what each construct means |
+| [docs/JAVASCRIPT.md](docs/JAVASCRIPT.md) | Feature by feature against JavaScript: same, deliberately different, missing |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works, and the measurements behind each decision |
+| [docs/README.md](docs/README.md) | Where to look for what |
 
 ## Build and run
 
@@ -426,6 +435,7 @@ cscript/
 | **16 ✅** | Modules — `import`, `export`, per-file scope | — |
 | **17 ✅** | Promises, timers, the event loop, `async`/`await` | — |
 | **18 ✅** | The rest of the syntax: patterns, accessors, `do`/`for...in` | — |
+| **19 ✅** | Split the three largest files; documented against JavaScript | — |
 | next | `Map` and `Set`, or regular expressions | — |
 
 ---
