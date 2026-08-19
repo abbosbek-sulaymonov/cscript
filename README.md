@@ -73,27 +73,36 @@ The full list, with the reasoning for each, is in
 
 ## Status
 
-**v0.13.0.** The language is feature-complete for everyday code: objects and
+**v0.14.0.** The language is feature-complete for everyday code: objects and
 arrays, functions and closures, gradual typing with inference, control flow,
 `switch`, template literals and the conditional operator. The pipeline is lexer
 → parser → type checker → bytecode compiler → stack VM, with a mark-sweep
 collector underneath.
 
 ```ts
-const people = [{ name: "Ada", born: 1815 }, { name: "Alan", born: 1912 }];
+class Person {
+  constructor(name: string, born: number) {
+    this.name = name;
+    this.born = born;
+  }
 
+  label(): string {
+    return `${this.name} (${this.born})`;
+  }
+}
+
+const people = [new Person("Ada", 1815), new Person("Alan", 1912)];
 const names = people.map(p => p.name).filter(n => n.length > 3).sort();
-const { name, born } = people[0];
 
 try {
-  console.log(JSON.stringify({ names, first: `${name} (${born})` }));
+  console.log(JSON.stringify({ names: names, first: people[0].label() }));
 } catch (e) {
   console.log(e.message);
 }
 ```
 
-Functions, closures, objects, arrays, a standard library, gradual typing,
-exceptions, destructuring and spread. What remains is classes, modules and
+Functions, closures, objects, arrays, classes, a standard library, gradual
+typing, exceptions, destructuring and spread. What remains is modules and
 async — see the [roadmap](#roadmap).
 
 ---
@@ -148,19 +157,36 @@ console.log(0 && "never");         // 0
 // Conversions are explicit.
 console.log(Number("42") + 1);     // 43
 console.log(String(42) + "!");     // 42!
+
+// Classes, with fields, inheritance and `this`.
+class Shape {
+  sides = 0;
+  constructor(name) { this.name = name; }
+  describe() { return `${this.name}: ${this.sides} sides`; }
+}
+
+class Square extends Shape {
+  sides = 4;
+  constructor() { super("square"); }
+}
+
+console.log(new Square().describe());        // square: 4 sides
+console.log(new Square() instanceof Shape);  // true
 ```
 
 | Group | Operators |
 | --- | --- |
-| Assignment | `=` `+=` `-=` `*=` `/=` `%=` |
-| Arithmetic | `+` `-` `*` `/` `%` `++` `--` |
+| Assignment | `=` `+=` `-=` `*=` `/=` `%=` `**=` |
+| Arithmetic | `+` `-` `*` `/` `%` `**` `++` `--` |
 | Comparison | `<` `<=` `>` `>=` |
 | Equality | `===` `!==` |
 | Logical | `&&` `\|\|` `!` |
-| Other | `typeof` `.` `( )` |
+| Other | `typeof` `instanceof` `?:` `...` `.` `[ ]` `( )` `=>` |
 
-Built-ins: `console.log` / `.error` / `.warn`, `Math.floor` / `.abs` / `.max` /
-`.min` / `.PI` / `.E`, and `Number` / `String` / `Boolean`. All are constants.
+Built-ins: `console`, `Math`, `Object`, `Array`, `Number`, `JSON`, plus
+`String` / `Boolean` / `Error` / `parseInt` / `parseFloat` / `isNaN` /
+`isFinite` / `NaN` / `Infinity`. Arrays carry 21 methods and strings 21 more.
+All of it is read-only — `Math.PI = 3` is an error, not a surprise later.
 
 ### Errors point at the problem
 
@@ -217,14 +243,15 @@ Measured on an Apple M3 Pro, best of seven, via `bench/run.sh`.
 ```
 benchmark             cscript         node      ratio
 ---------------------------------------------------------
-arrays                   89 ms         66 ms       1.3x
-locals                  191 ms         66 ms       2.9x
-loop_empty              196 ms         65 ms       3.0x
-globals                 228 ms         66 ms       3.5x
-strings                 259 ms         62 ms       4.2x
-loop_arith              279 ms         69 ms       4.0x
-branches                233 ms         67 ms       3.5x
-properties              364 ms         69 ms       5.3x
+arrays                   91 ms         67 ms       1.4x
+locals                  198 ms         66 ms       3.0x
+loop_empty              200 ms         66 ms       3.0x
+globals                 222 ms         66 ms       3.4x
+classes                 238 ms         73 ms       3.3x
+branches                241 ms         67 ms       3.6x
+strings                 261 ms         62 ms       4.2x
+loop_arith              280 ms         70 ms       4.0x
+properties              366 ms         70 ms       5.2x
 
 native reference (loop_arith):  Go 27 ms   ·   C -O2 26 ms
 ```
@@ -376,7 +403,8 @@ cscript/
 | **12 ✅** | `try` / `catch` / `finally` / `throw` | — |
 | **13 ✅** | Destructuring and spread | — |
 | **14 ✅** | Hidden classes and inline caches for properties and globals | — |
-| next | Classes and `new`, then modules | — |
+| **15 ✅** | `class`, `new`, `this`, `extends`, `super`, `instanceof` | — |
+| next | Modules — `import` and `export` | — |
 
 ---
 

@@ -1,0 +1,1 @@
+error_this_outside_method.cx:2: error: 'this' is only valid inside a class method

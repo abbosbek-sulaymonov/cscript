@@ -50,6 +50,16 @@ static int cachedInstruction(const char *name, const Chunk *chunk, int offset) {
   return offset + 5;
 }
 
+/* Two operands: a method name and an argument count. */
+static int invokeInstruction(const char *name, const Chunk *chunk, int offset) {
+  int constant = readConstantIndex(chunk, offset + 1);
+  uint8_t argCount = chunk->code[offset + 3];
+  printf("%-22s %4d '", name, argCount);
+  csValuePrint(chunk->constants.values[constant]);
+  printf("'\n");
+  return offset + 4;
+}
+
 static int byteInstruction(const char *name, const Chunk *chunk, int offset) {
   uint8_t operand = chunk->code[offset + 1];
   printf("%-22s %4d\n", name, operand);
@@ -138,15 +148,18 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_SET_UPVALUE:       return byteInstruction("OP_SET_UPVALUE", chunk, offset);
     case OP_CLOSE_UPVALUE:     return simpleInstruction("OP_CLOSE_UPVALUE", offset);
     case OP_CALL:              return byteInstruction("OP_CALL", chunk, offset);
-    case OP_INVOKE: {
-      /* Two operands: the method name and the argument count. */
-      int constant = readConstantIndex(chunk, offset + 1);
-      uint8_t argCount = chunk->code[offset + 3];
-      printf("%-22s %4d '", "OP_INVOKE", argCount);
-      csValuePrint(chunk->constants.values[constant]);
-      printf("'\n");
-      return offset + 4;
-    }
+    case OP_CLASS:             return constantInstruction("OP_CLASS", chunk, offset);
+    case OP_INHERIT:           return simpleInstruction("OP_INHERIT", offset);
+    case OP_CONSTRUCTOR:       return simpleInstruction("OP_CONSTRUCTOR", offset);
+    case OP_FIELD_INIT:        return simpleInstruction("OP_FIELD_INIT", offset);
+    case OP_INSTANCEOF:        return simpleInstruction("OP_INSTANCEOF", offset);
+    case OP_NEW:               return byteInstruction("OP_NEW", chunk, offset);
+    case OP_SUPER_CALL:        return byteInstruction("OP_SUPER_CALL", chunk, offset);
+    case OP_METHOD:            return constantInstruction("OP_METHOD", chunk, offset);
+    case OP_STATIC_METHOD:     return constantInstruction("OP_STATIC_METHOD", chunk, offset);
+    case OP_GET_SUPER:         return constantInstruction("OP_GET_SUPER", chunk, offset);
+    case OP_SUPER_INVOKE:      return invokeInstruction("OP_SUPER_INVOKE", chunk, offset);
+    case OP_INVOKE:            return invokeInstruction("OP_INVOKE", chunk, offset);
     case OP_ADD:               return simpleInstruction("OP_ADD", offset);
     case OP_ADD_NUM:           return simpleInstruction("OP_ADD_NUM", offset);
     case OP_SUBTRACT:          return simpleInstruction("OP_SUBTRACT", offset);
@@ -313,6 +326,34 @@ static void printNode(const AstNode *node, int depth) {
     case AST_THROW_STMT:
       printf("Throw\n");
       printNode(node->as.thrown, depth + 1);
+      break;
+    case AST_THIS:
+      printf("This\n");
+      break;
+    case AST_SUPER:
+      if (node->as.super.name != NULL) {
+        printf("Super .%.*s\n", node->as.super.length, node->as.super.name);
+      } else {
+        printf("Super ()\n");
+      }
+      break;
+    case AST_CLASS_DECL:
+      printf("Class %.*s", node->as.classDecl.nameLength, node->as.classDecl.name);
+      if (node->as.classDecl.superName != NULL) {
+        printf(" extends %.*s", node->as.classDecl.superLength,
+               node->as.classDecl.superName);
+      }
+      printf("\n");
+      for (int i = 0; i < node->as.classDecl.fieldCount; i++) {
+        indent(depth + 1);
+        printf("Field %.*s\n", node->as.classDecl.fields[i].length,
+               node->as.classDecl.fields[i].name);
+        printNode(node->as.classDecl.fields[i].initializer, depth + 2);
+      }
+      printNode(node->as.classDecl.constructor, depth + 1);
+      for (int i = 0; i < node->as.classDecl.memberCount; i++) {
+        printNode(node->as.classDecl.members[i].function, depth + 1);
+      }
       break;
     case AST_SPREAD:
       printf("Spread\n");

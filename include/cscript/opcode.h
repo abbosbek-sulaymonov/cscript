@@ -78,6 +78,30 @@
    * object has to be allocated per call. */                                    \
   X(OP_INVOKE)            /* [const16][argc]  receiver.name(args...)        */ \
                                                                               \
+  /* Classes. A class is built once, at the point of declaration: OP_CLASS      \
+   * makes it, OP_INHERIT links it to its base, and the four member opcodes     \
+   * hang closures off it while it sits on the stack.                           \
+   *                                                                            \
+   * Instances are ordinary objects with a class pointer, so fields go in slots \
+   * and every inline cache already works on them. A method that misses the     \
+   * shape falls back to the class chain. */                                    \
+  X(OP_CLASS)             /* [const16]  push a new class                    */ \
+  X(OP_INHERIT)           /*          link peek(0) to peek(1), pop it       */ \
+  X(OP_METHOD)            /* [const16]  pop a closure onto the class        */ \
+  X(OP_STATIC_METHOD)     /* [const16]  ... onto its statics                */ \
+  X(OP_CONSTRUCTOR)       /*          pop a closure as the constructor      */ \
+  /* The field initialisers, kept apart from the constructor so a class with    \
+   * no constructor still runs them and a subclass never has to. */             \
+  X(OP_FIELD_INIT)        /*          pop a closure as the field initialiser*/ \
+  X(OP_NEW)               /* [argc]   construct, leaving the instance       */ \
+  /* `super` is reached through a hidden local holding the superclass, which a  \
+   * method captures as an upvalue — so it is resolved lexically, by the class  \
+   * the method was written in rather than the class of the receiver. */        \
+  X(OP_GET_SUPER)         /* [const16]  bind a superclass method            */ \
+  X(OP_SUPER_INVOKE)      /* [const16][argc]  super.name(args...)           */ \
+  X(OP_SUPER_CALL)        /* [argc]   run the superclass constructor        */ \
+  X(OP_INSTANCEOF)        /*          pop class and value, push a boolean   */ \
+                                                                              \
   /* Closures. OP_CLOSURE is followed by one (isLocal, index) pair per         \
    * upvalue, describing where each capture comes from. */                     \
   X(OP_CLOSURE)           /* [const16] then 2 bytes per upvalue               */ \

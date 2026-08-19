@@ -96,7 +96,8 @@ static Precedence binaryPrecedence(TokenType type) {
     case TOKEN_LESS:
     case TOKEN_LESS_EQUAL:
     case TOKEN_GREATER:
-    case TOKEN_GREATER_EQUAL:       return PREC_COMPARISON;
+    case TOKEN_GREATER_EQUAL:
+    case TOKEN_INSTANCEOF:          return PREC_COMPARISON;
     case TOKEN_PLUS:
     case TOKEN_MINUS:               return PREC_TERM;
     case TOKEN_STAR:
@@ -121,6 +122,7 @@ static BinaryOp binaryOpFor(TokenType type) {
     case TOKEN_GREATER_EQUAL:       return BINARY_GREATER_EQUAL;
     case TOKEN_LESS:                return BINARY_LESS;
     case TOKEN_LESS_EQUAL:          return BINARY_LESS_EQUAL;
+    case TOKEN_INSTANCEOF:          return BINARY_INSTANCEOF;
     default:                        return BINARY_ADD; /* unreachable */
   }
 }
@@ -296,6 +298,60 @@ static AstNode *parsePrimary(Parser *parser) {
   }
   if (matchToken(parser, TOKEN_NULL)) return csAstNull(parser->arena, line);
   if (matchToken(parser, TOKEN_UNDEFINED)) return csAstUndefined(parser->arena, line);
+
+  if (matchToken(parser, TOKEN_THIS)) {
+    return parseCallSuffixes(parser, csAstThis(parser->arena, line));
+  }
+
+  if (matchToken(parser, TOKEN_SUPER)) {
+    if (matchToken(parser, TOKEN_DOT)) {
+      consume(parser, TOKEN_IDENTIFIER, "expected a method name after 'super.'");
+      if (parser->diag->panicMode) return NULL;
+      return parseCallSuffixes(
+          parser, csAstSuper(parser->arena, line, parser->previous.start,
+                             parser->previous.length));
+    }
+    if (check(parser, TOKEN_LEFT_PAREN)) {
+      /* `super(...)` — the call suffix below turns it into the constructor
+       * call. A NULL name is what distinguishes it from `super.m`. */
+      return parseCallSuffixes(parser, csAstSuper(parser->arena, line, NULL, 0));
+    }
+    errorAtCurrent(parser, "'super' must be followed by '(' or '.'");
+    return NULL;
+  }
+
+  if (matchToken(parser, TOKEN_NEW)) {
+    consume(parser, TOKEN_IDENTIFIER, "expected a class name after 'new'");
+    if (parser->diag->panicMode) return NULL;
+
+    AstNode *callee = csAstIdentifier(parser->arena, line, parser->previous.start,
+                                      parser->previous.length);
+    /* `new a.B()` — a class reached through a property. */
+    while (matchToken(parser, TOKEN_DOT)) {
+      consume(parser, TOKEN_IDENTIFIER, "expected a property name after '.'");
+      if (parser->diag->panicMode) return NULL;
+      callee = csAstProperty(parser->arena, line, callee, parser->previous.start,
+                             parser->previous.length);
+    }
+
+    AstNode *node = csAstNew(parser->arena, line, callee);
+    if (matchToken(parser, TOKEN_LEFT_PAREN)) {
+      if (!check(parser, TOKEN_RIGHT_PAREN)) {
+        do {
+          if (check(parser, TOKEN_ELLIPSIS)) {
+            errorAtCurrent(parser, "spreading arguments into 'new' is not supported yet");
+            return NULL;
+          }
+          AstNode *argument = parsePrecedence(parser, PREC_ASSIGNMENT);
+          if (argument == NULL) return NULL;
+          csAstCallAddArgument(parser->arena, node, argument);
+        } while (matchToken(parser, TOKEN_COMMA));
+      }
+      consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the constructor arguments");
+      if (parser->diag->panicMode) return NULL;
+    }
+    return parseCallSuffixes(parser, node);
+  }
 
   if (matchToken(parser, TOKEN_IDENTIFIER)) {
     const char *name = parser->previous.start;
@@ -726,26 +782,16 @@ static AstNode *finishArrow(Parser *parser, AstNode *function, int line) {
   return function->as.function.body != NULL ? function : NULL;
 }
 
-/* `function name(a: number, b): number { ... }`
- *
- * A named declaration binds the closure; an anonymous one is an expression. */
-static AstNode *parseFunction(Parser *parser, bool requireName) {
-  int line = parser->previous.line;
-
-  const char *name = NULL;
-  int nameLength = 0;
-  if (check(parser, TOKEN_IDENTIFIER)) {
-    advanceToken(parser);
-    name = parser->previous.start;
-    nameLength = parser->previous.length;
-  } else if (requireName) {
-    errorAtCurrent(parser, "expected a function name");
-    return NULL;
-  }
-
+/* Everything after the name: the parameter list, the return annotation and the
+ * body. Shared by function declarations and class methods, which differ only
+ * in how their name is introduced. */
+static AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
+                                  int nameLength, bool isMethod) {
   AstNode *function = csAstFunction(parser->arena, line, name, nameLength);
 
-  consume(parser, TOKEN_LEFT_PAREN, "expected '(' after the function name");
+  consume(parser, TOKEN_LEFT_PAREN,
+          isMethod ? "expected '(' after the method name"
+                   : "expected '(' after the function name");
   if (parser->diag->panicMode) return NULL;
 
   if (!check(parser, TOKEN_RIGHT_PAREN)) {
@@ -785,6 +831,146 @@ static AstNode *parseFunction(Parser *parser, bool requireName) {
   if (function->as.function.body == NULL) return NULL;
 
   return function;
+}
+
+/* `function name(a: number, b): number { ... }`
+ *
+ * A named declaration binds the closure; an anonymous one is an expression. */
+static AstNode *parseFunction(Parser *parser, bool requireName) {
+  int line = parser->previous.line;
+
+  const char *name = NULL;
+  int nameLength = 0;
+  if (check(parser, TOKEN_IDENTIFIER)) {
+    advanceToken(parser);
+    name = parser->previous.start;
+    nameLength = parser->previous.length;
+  } else if (requireName) {
+    errorAtCurrent(parser, "expected a function name");
+    return NULL;
+  }
+
+  return parseFunctionRest(parser, line, name, nameLength, false);
+}
+
+static bool nameIs(const char *name, int length, const char *word) {
+  int wordLength = (int)strlen(word);
+  return length == wordLength && memcmp(name, word, (size_t)wordLength) == 0;
+}
+
+/* `class Name extends Base { field; field = init; constructor() {} m() {} static m() {} }`
+ *
+ * Members are separated by nothing at all in JavaScript, so the loop reads one
+ * member at a time and decides what it was from the token after the name: a
+ * '(' means a method, anything else a field. */
+static AstNode *parseClass(Parser *parser) {
+  int line = parser->previous.line;
+
+  consume(parser, TOKEN_IDENTIFIER, "expected a class name");
+  if (parser->diag->panicMode) return NULL;
+  const char *name = parser->previous.start;
+  int nameLength = parser->previous.length;
+
+  const char *superName = NULL;
+  int superLength = 0;
+  if (matchToken(parser, TOKEN_EXTENDS)) {
+    consume(parser, TOKEN_IDENTIFIER, "expected a superclass name after 'extends'");
+    if (parser->diag->panicMode) return NULL;
+    superName = parser->previous.start;
+    superLength = parser->previous.length;
+    if (superLength == nameLength &&
+        memcmp(superName, name, (size_t)superLength) == 0) {
+      errorAtCurrent(parser, "a class cannot extend itself");
+      return NULL;
+    }
+  }
+
+  AstNode *node =
+      csAstClass(parser->arena, line, name, nameLength, superName, superLength);
+
+  consume(parser, TOKEN_LEFT_BRACE, "expected '{' to open the class body");
+  if (parser->diag->panicMode) return NULL;
+
+  while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
+    /* A stray ';' between members is legal and means nothing. */
+    if (matchToken(parser, TOKEN_SEMICOLON)) continue;
+
+    if (check(parser, TOKEN_LEFT_BRACKET)) {
+      errorAtCurrent(parser, "computed member names are not supported yet");
+      return NULL;
+    }
+
+    bool isStatic = matchToken(parser, TOKEN_STATIC);
+    if (isStatic && check(parser, TOKEN_LEFT_BRACE)) {
+      errorAtCurrent(parser, "static initialisation blocks are not supported yet");
+      return NULL;
+    }
+
+    consume(parser, TOKEN_IDENTIFIER, "expected a member name");
+    if (parser->diag->panicMode) return NULL;
+    const char *memberName = parser->previous.start;
+    int memberLength = parser->previous.length;
+    int memberLine = parser->previous.line;
+
+    if (nameIs(memberName, memberLength, "get") || nameIs(memberName, memberLength, "set")) {
+      if (check(parser, TOKEN_IDENTIFIER)) {
+        errorAtCurrent(parser, "getters and setters are not supported yet");
+        return NULL;
+      }
+    }
+
+    if (check(parser, TOKEN_LEFT_PAREN)) {
+      /* The constructor is named after its class, because that is what an
+       * arity error or a stack frame should say: `Dog expects 1 argument`
+       * rather than `constructor expects 1 argument`. */
+      bool isConstructor = nameIs(memberName, memberLength, "constructor");
+      AstNode *method = parseFunctionRest(parser, memberLine,
+                                          isConstructor ? name : memberName,
+                                          isConstructor ? nameLength : memberLength,
+                                          true);
+      if (method == NULL) return NULL;
+
+      if (isConstructor) {
+        if (isStatic) {
+          errorAtCurrent(parser, "a constructor cannot be static");
+          return NULL;
+        }
+        if (node->as.classDecl.constructor != NULL) {
+          errorAtCurrent(parser, "a class can only have one constructor");
+          return NULL;
+        }
+        node->as.classDecl.constructor = method;
+      } else {
+        csAstClassAddMember(parser->arena, node, method, isStatic);
+      }
+      continue;
+    }
+
+    if (isStatic) {
+      errorAtCurrent(parser, "static fields are not supported yet; "
+                             "assign to the class after declaring it");
+      return NULL;
+    }
+
+    TypeKind fieldType;
+    bool annotated;
+    if (!parseTypeAnnotation(parser, &fieldType, &annotated)) return NULL;
+
+    AstNode *initializer = NULL;
+    if (matchToken(parser, TOKEN_EQUAL)) {
+      initializer = parseExpression(parser);
+      if (initializer == NULL) return NULL;
+    }
+    consume(parser, TOKEN_SEMICOLON, "expected ';' after the field declaration");
+    if (parser->diag->panicMode) return NULL;
+
+    csAstClassAddField(parser->arena, node, memberName, memberLength, initializer,
+                       fieldType, annotated);
+  }
+
+  consume(parser, TOKEN_RIGHT_BRACE, "expected '}' after the class body");
+  if (parser->diag->panicMode) return NULL;
+  return node;
 }
 
 /* `try { } catch (e) { } finally { }`
@@ -917,6 +1103,25 @@ static AstNode *finishVarDeclaration(Parser *parser, int line, const char *name,
 
   consume(parser, TOKEN_SEMICOLON, "expected ';' after a variable declaration");
   if (parser->diag->panicMode) return NULL;
+
+  /* `const f = () => ...` names the function `f`, the way JavaScript infers a
+   * name for an anonymous function assigned straight to a binding. It shows up
+   * only in diagnostics and in what console.log prints, which is exactly where
+   * an unnamed function is least helpful. */
+  if (initializer != NULL && initializer->type == AST_FUNCTION &&
+      initializer->as.function.name == NULL) {
+    AstNode *named = csAstFunction(parser->arena, initializer->line, name, nameLength);
+    if (named != NULL) {
+      named->as.function.params = initializer->as.function.params;
+      named->as.function.paramCount = initializer->as.function.paramCount;
+      named->as.function.body = initializer->as.function.body;
+      named->as.function.returnType = initializer->as.function.returnType;
+      named->as.function.hasReturnAnnotation =
+          initializer->as.function.hasReturnAnnotation;
+      named->as.function.nameIsInferred = true;
+      initializer = named;
+    }
+  }
 
   return csAstVarDecl(parser->arena, line, name, nameLength, initializer, isConst,
                       declaredType, hasAnnotation);
@@ -1180,6 +1385,8 @@ static AstNode *parseStatement(Parser *parser) {
   if (matchToken(parser, TOKEN_SWITCH)) return parseSwitch(parser);
 
   if (matchToken(parser, TOKEN_FUNCTION)) return parseFunction(parser, true);
+
+  if (matchToken(parser, TOKEN_CLASS)) return parseClass(parser);
 
   if (matchToken(parser, TOKEN_RETURN)) {
     int returnLine = parser->previous.line;

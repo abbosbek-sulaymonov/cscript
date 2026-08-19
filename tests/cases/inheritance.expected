@@ -1,0 +1,17 @@
+rectangle with 4 sides, area 12
+square with 4 sides, area 25 (equilateral)
+12 25 4 5 5
+true true false
+true true true
+rectangle with 4 sides, area 12; square with 4 sides, area 25 (equilateral)
+20 rectangle with 4 sides, area 20 true
+2 leaf v,tag {"v":2,"tag":"leaf"}
+C<B<A>> nC<nA>
+run:base run:custom
+Square { sides: 4, name: 'square', w: 5, h: 5 }
+rectangle,square
+a,t,b,z
+a,t,b,z,c
+a,t,b,z,c
+{"a":1,"t":"y","b":2,"z":9,"c":3}
+{"v":10,"w":2,"u":10}

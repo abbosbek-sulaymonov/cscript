@@ -1,0 +1,104 @@
+// Classes: fields, constructors, methods, statics, inheritance and `this`.
+//
+// Run me:  cscript examples/classes.cx
+
+class Account {
+  balance = 0;
+  history = [];
+
+  constructor(owner: string, opening: number) {
+    this.owner = owner;
+    this.balance = opening;
+    this.record("open", opening);
+  }
+
+  record(kind: string, amount: number) {
+    this.history.push(`${kind}:${amount}`);
+  }
+
+  deposit(amount: number) {
+    this.balance = this.balance + amount;
+    this.record("deposit", amount);
+    return this;
+  }
+
+  withdraw(amount: number) {
+    if (amount > this.balance) {
+      throw Error(`${this.owner} cannot withdraw ${amount}`);
+    }
+    this.balance = this.balance - amount;
+    this.record("withdraw", amount);
+    return this;
+  }
+
+  describe(): string {
+    return `${this.owner}: ${this.balance}`;
+  }
+
+  static open(owner: string) {
+    return new Account(owner, 0);
+  }
+}
+
+// `extends` and `super`, both in the constructor and in a method.
+class Savings extends Account {
+  rate = 0.05;
+
+  constructor(owner: string, opening: number) {
+    super(owner, opening);
+  }
+
+  addInterest() {
+    return this.deposit(Math.round(this.balance * this.rate));
+  }
+
+  describe(): string {
+    return `${super.describe()} (savings)`;
+  }
+}
+
+const ada = new Account("Ada", 100);
+ada.deposit(50).withdraw(30);
+console.log(ada.describe());
+console.log(ada.history.join(" "));
+
+const alan = new Savings("Alan", 1000);
+alan.addInterest();
+console.log(alan.describe());
+
+// The object model is the ordinary one: fields are properties, in the order
+// they were declared, and everything that works on an object works here.
+console.log(Object.keys(alan).join(","));
+console.log(JSON.stringify(ada));
+console.log(new Account("Bo", 1));
+
+// Type tests walk the chain.
+console.log(alan instanceof Savings, alan instanceof Account, ada instanceof Savings);
+
+// Classes are values, so they go in arrays and come back out.
+const owners = [ada, alan].map((a) => a.describe());
+console.log(owners.join(" | "));
+console.log(Account.open("Grace").describe());
+
+// An arrow function inside a method sees the same `this` the method does.
+class Report {
+  rows: any = [];
+
+  add(label: string, value: number) {
+    this.rows.push({ label: label, value: value });
+    return this;
+  }
+
+  render(): string {
+    return this.rows.map((row: any) => `${row.label}=${row.value}`).join(", ");
+  }
+}
+
+console.log(new Report().add("a", 1).add("b", 2).render());
+
+// A method that throws unwinds like anything else.
+try {
+  ada.withdraw(1000);
+} catch (error) {
+  console.log(error.message);
+}

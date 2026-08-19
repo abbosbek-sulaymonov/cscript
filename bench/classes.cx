@@ -1,0 +1,39 @@
+// Method dispatch and field access through a class hierarchy. Every Vec2 shares
+// one layout, so both the field reads and the method lookups should be
+// monomorphic — this is the benchmark that says whether instances really do get
+// the same treatment object literals do.
+class Vec2 {
+  x = 0;
+  y = 0;
+
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+
+  dot(other) {
+    return this.x * other.x + this.y * other.y;
+  }
+}
+
+class Scaled extends Vec2 {
+  constructor(x, y, k) {
+    super(x, y);
+    this.k = k;
+  }
+
+  dot(other) {
+    return super.dot(other) * this.k;
+  }
+}
+
+let total = 0;
+const unit = new Vec2(1, 1);
+
+for (let i = 0; i < 500000; i++) {
+  const v = new Vec2(i, i + 1);
+  const s = new Scaled(i, i + 1, 2);
+  total = total + v.dot(unit) + s.dot(unit);
+}
+
+console.log(total);

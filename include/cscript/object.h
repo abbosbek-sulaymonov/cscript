@@ -16,7 +16,12 @@ typedef enum {
   OBJ_CLOSURE,  /* a function paired with the upvalues it captured */
   OBJ_ARRAY,    /* a dense, growable list of values */
   OBJ_SHAPE,    /* an object layout; never visible from CScript */
+  OBJ_CLASS,
+  OBJ_BOUND_METHOD, /* a method captured away from its receiver */
 } ObjType;
+
+typedef struct ObjClosure ObjClosure;
+typedef struct ObjClass ObjClass;
 
 /* Every heap object starts with this header, so the collector can walk the
  * allocation list without knowing the concrete type. */
@@ -76,6 +81,15 @@ typedef struct ObjObject {
   Shape *shape;
   ObjString *name; /* e.g. "console", used when printing the object */
 
+  /* The class this is an instance of, or NULL for a plain object literal.
+   *
+   * Instances are ordinary ObjObjects rather than a separate type, which is
+   * what makes classes cheap: fields go in slots, shapes are shared between
+   * instances the way they are between literals, and every inline cache,
+   * Object.keys and GC walk already works. A property that misses the shape
+   * falls back to the class chain. */
+  ObjClass *klass;
+
   /* Built-in namespaces refuse to be modified.
    *
    * JavaScript lets you write `Math.PI = 3` or replace `console.log`, and the
@@ -134,12 +148,43 @@ typedef struct ObjArray {
   bool isSpreadMarker;
 } ObjArray;
 
-typedef struct ObjClosure {
+struct ObjClosure {
   Obj obj;
   ObjFunction *function;
   ObjUpvalue **upvalues;
   int upvalueCount;
-} ObjClosure;
+};
+
+/* Methods are looked up through the superclass chain rather than copied down
+ * into each subclass, so a method added to a base class is visible from every
+ * subclass, and the chain is short enough that walking it costs little. */
+struct ObjClass {
+  Obj obj;
+  ObjString *name;
+  ObjClass *superclass; /* NULL for a base class */
+  Table methods;
+  Table statics;
+
+  /* The constructor, or NULL. A class without one is constructed by the
+   * nearest ancestor that has one, which is how `class Dog extends Animal {}`
+   * still accepts Animal's arguments. */
+  ObjClosure *initializer;
+
+  /* A compiler-generated method holding this class's field initialisers, or
+   * NULL when it declares no fields. Kept apart from the constructor so that a
+   * class without a constructor still initialises its fields, and so a
+   * subclass never has to remember to run its parent's. */
+  ObjClosure *fieldInit;
+};
+
+/* Only ever created when a method is read without being called — `const f =
+ * obj.method`. A method that is called goes through OP_INVOKE and allocates
+ * nothing. */
+typedef struct ObjBoundMethod {
+  Obj obj;
+  Value receiver;
+  ObjClosure *method;
+} ObjBoundMethod;
 
 #define OBJ_TYPE(v)   (AS_OBJ(v)->type)
 
@@ -149,6 +194,8 @@ typedef struct ObjClosure {
 #define IS_FUNCTION(v) csIsObjType(v, OBJ_FUNCTION)
 #define IS_CLOSURE(v)  csIsObjType(v, OBJ_CLOSURE)
 #define IS_ARRAY(v)    csIsObjType(v, OBJ_ARRAY)
+#define IS_CLASS(v)    csIsObjType(v, OBJ_CLASS)
+#define IS_BOUND_METHOD(v) csIsObjType(v, OBJ_BOUND_METHOD)
 
 #define AS_STRING(v)   ((ObjString *)AS_OBJ(v))
 #define AS_CSTRING(v)  (((ObjString *)AS_OBJ(v))->chars)
@@ -157,6 +204,8 @@ typedef struct ObjClosure {
 #define AS_FUNCTION(v) ((ObjFunction *)AS_OBJ(v))
 #define AS_CLOSURE(v)  ((ObjClosure *)AS_OBJ(v))
 #define AS_ARRAY(v)    ((ObjArray *)AS_OBJ(v))
+#define AS_CLASS(v)    ((ObjClass *)AS_OBJ(v))
+#define AS_BOUND_METHOD(v) ((ObjBoundMethod *)AS_OBJ(v))
 
 static inline bool csIsObjType(Value value, ObjType type) {
   return IS_OBJ(value) && AS_OBJ(value)->type == type;
@@ -173,6 +222,15 @@ ObjFunction *csFunctionNew(void);
 ObjUpvalue *csUpvalueNew(Value *slot);
 ObjClosure *csClosureNew(ObjFunction *function);
 ObjArray *csArrayNew(void);
+ObjClass *csClassNew(ObjString *name);
+ObjObject *csInstanceNew(ObjClass *klass);
+ObjBoundMethod *csBoundMethodNew(Value receiver, ObjClosure *method);
+
+/* Walks the superclass chain for a method. Returns NULL when nothing has it. */
+ObjClosure *csClassFindMethod(ObjClass *klass, ObjString *name);
+
+/* True when `klass` is `other` or descends from it — what `instanceof` asks. */
+bool csClassDescendsFrom(const ObjClass *klass, const ObjClass *other);
 
 /* Convenience for building namespace objects during startup. */
 void csObjectSetProperty(ObjObject *object, const char *name, Value value);

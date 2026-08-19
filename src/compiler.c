@@ -43,7 +43,17 @@ typedef struct {
 typedef enum {
   FUNCTION_SCRIPT, /* the implicit top-level function */
   FUNCTION_BODY,
+  /* A method's slot 0 holds the receiver rather than the callee, and is named
+   * `this` so an ordinary local lookup finds it — which also means an arrow
+   * function inside a method captures it as an upvalue and gets JavaScript's
+   * lexical `this` without any special rule. */
+  FUNCTION_METHOD,
+  FUNCTION_CONSTRUCTOR,
 } FunctionKind;
+
+static bool isMethodKind(FunctionKind kind) {
+  return kind == FUNCTION_METHOD || kind == FUNCTION_CONSTRUCTOR;
+}
 
 /* One per function being compiled. They form a stack through `enclosing`, which
  * is what lets an inner function resolve a name to an outer function's local. */
@@ -496,6 +506,7 @@ static void compileBinary(const AstNode *node) {
     case BINARY_GREATER_EQUAL: emitByte(OP_GREATER_EQUAL, line); break;
     case BINARY_LESS:          emitByte(OP_LESS, line); break;
     case BINARY_LESS_EQUAL:    emitByte(OP_LESS_EQUAL, line); break;
+    case BINARY_INSTANCEOF:    emitByte(OP_INSTANCEOF, line); break;
   }
 }
 
@@ -1148,18 +1159,25 @@ static void beginFunction(Compiler *compiler, FunctionKind kind, const char *nam
     compiler->function->name = csStringCopy(name, nameLength);
   }
 
-  /* Slot 0 belongs to the running function; naming it "" keeps it unreachable. */
+  /* Slot 0 belongs to the running function, and naming it "" keeps it
+   * unreachable — except in a method, where it holds the receiver instead. */
   Local *local = &compiler->locals[compiler->localCount++];
-  local->name = "";
-  local->length = 0;
+  local->name = isMethodKind(kind) ? "this" : "";
+  local->length = isMethodKind(kind) ? 4 : 0;
   local->depth = 0;
   local->isConst = true;
   local->isCaptured = false;
 }
 
 static ObjFunction *endFunction(int line) {
-  /* Falling off the end of a function returns undefined. */
-  emitByte(OP_UNDEFINED, line);
+  /* Falling off the end of a function returns undefined — except a
+   * constructor, which returns the instance it was given. That is what lets
+   * OP_NEW leave the instance behind without an opcode of its own. */
+  if (current->kind == FUNCTION_CONSTRUCTOR) {
+    emitBytes(OP_GET_LOCAL, 0, line);
+  } else {
+    emitByte(OP_UNDEFINED, line);
+  }
   emitByte(OP_RETURN, line);
 
   ObjFunction *function = current->function;
@@ -1167,7 +1185,23 @@ static ObjFunction *endFunction(int line) {
   return function;
 }
 
-static void compileFunction(const AstNode *node) {
+/* Emits OP_CLOSURE for a function that has just finished compiling, followed
+ * by the (isLocal, index) pair per upvalue that tells the VM where each capture
+ * comes from. */
+static void emitClosure(const Compiler *compiler, ObjFunction *function, int line) {
+  /* endFunction popped this compiler, so csCompilerMarkRoots no longer reaches
+   * the function. It has to stay rooted until the enclosing chunk owns it. */
+  csPushTempRoot((Obj *)function);
+  emitConstantOp(OP_CLOSURE, makeConstant(OBJ_VAL(function), line), line);
+  csPopTempRoot();
+
+  for (int i = 0; i < function->upvalueCount; i++) {
+    emitByte(compiler->upvalues[i].isLocal ? 1 : 0, line);
+    emitByte(compiler->upvalues[i].index, line);
+  }
+}
+
+static void compileFunctionAs(const AstNode *node, FunctionKind kind) {
   int line = node->line;
 
   /* A nested function's `return` must not emit the enclosing function's
@@ -1176,7 +1210,7 @@ static void compileFunction(const AstNode *node) {
   currentTry = NULL;
 
   Compiler compiler;
-  beginFunction(&compiler, FUNCTION_BODY, node->as.function.name,
+  beginFunction(&compiler, kind, node->as.function.name,
                 node->as.function.nameLength);
   beginScope();
 
@@ -1198,21 +1232,204 @@ static void compileFunction(const AstNode *node) {
   /* No endScope(): the whole frame is discarded by OP_RETURN, so popping the
    * locals first would be wasted work. */
   ObjFunction *function = endFunction(line);
-
-  /* endFunction popped this compiler, so csCompilerMarkRoots no longer reaches
-   * the function. It has to stay rooted until the enclosing chunk owns it. */
   currentTry = enclosingTry;
+  emitClosure(&compiler, function, line);
+}
 
-  csPushTempRoot((Obj *)function);
-  emitConstantOp(OP_CLOSURE, makeConstant(OBJ_VAL(function), line), line);
-  csPopTempRoot();
+static void compileFunction(const AstNode *node) {
+  compileFunctionAs(node, FUNCTION_BODY);
+}
 
-  /* Each upvalue is described by the pair of bytes following OP_CLOSURE, so the
-   * VM can wire it up at run time. */
-  for (int i = 0; i < function->upvalueCount; i++) {
-    emitByte(compiler.upvalues[i].isLocal ? 1 : 0, line);
-    emitByte(compiler.upvalues[i].index, line);
+/* Pushes `this`, which is slot 0 of the nearest enclosing method — directly
+ * when compiling that method, and through the upvalue machinery from an arrow
+ * function nested inside it. */
+static bool compileThisLoad(int line) {
+  int slot = resolveLocal(current, "this", 4);
+  if (slot != -1) {
+    emitBytes(OP_GET_LOCAL, (uint8_t)slot, line);
+    return true;
   }
+  int upvalue = resolveUpvalue(current, "this", 4, line);
+  if (upvalue != -1) {
+    emitBytes(OP_GET_UPVALUE, (uint8_t)upvalue, line);
+    return true;
+  }
+  errorAt(line, "'this' is only valid inside a class method");
+  return false;
+}
+
+/* Pushes the hidden local holding the superclass. It is declared in a scope
+ * wrapping the class body, so a method that mentions `super` captures it — and
+ * therefore resolves it against the class the method was *written* in rather
+ * than the class of the receiver, which is what makes `super.m()` from a
+ * two-deep hierarchy call the right method. */
+static bool compileSuperLoad(int line) {
+  int slot = resolveLocal(current, " super", 6);
+  if (slot != -1) {
+    emitBytes(OP_GET_LOCAL, (uint8_t)slot, line);
+    return true;
+  }
+  int upvalue = resolveUpvalue(current, " super", 6, line);
+  if (upvalue != -1) {
+    emitBytes(OP_GET_UPVALUE, (uint8_t)upvalue, line);
+    return true;
+  }
+  errorAt(line, "'super' is only valid inside a class that has a superclass");
+  return false;
+}
+
+/* `this.name = <initialiser>;` for each declared field, in declaration order.
+ * Emitted straight into whatever function is being compiled — the constructor,
+ * or the hidden initialiser below. */
+static void emitFieldAssignments(const AstNode *node) {
+  for (int i = 0; i < node->as.classDecl.fieldCount; i++) {
+    const AstClassField *field = &node->as.classDecl.fields[i];
+    int fieldLine = field->initializer != NULL ? field->initializer->line : node->line;
+
+    emitBytes(OP_GET_LOCAL, 0, fieldLine);
+    if (field->initializer != NULL) {
+      compileNode(field->initializer);
+    } else {
+      /* `x;` still declares the field, so every instance of the class shares
+       * one layout even before anything is assigned. */
+      emitByte(OP_UNDEFINED, fieldLine);
+    }
+    emitPropertyOp(OP_SET_PROPERTY,
+                   identifierConstant(field->name, field->length, fieldLine), fieldLine);
+    emitByte(OP_POP, fieldLine);
+  }
+}
+
+/* Only for a class that declares no constructor: its fields become a hidden
+ * method the VM calls at the point the implicit constructor would have. A
+ * class *with* a constructor gets them compiled into it instead. */
+static void compileFieldInitializer(const AstNode *node) {
+  int line = node->line;
+
+  TryContext *enclosingTry = currentTry;
+  currentTry = NULL;
+
+  Compiler compiler;
+  beginFunction(&compiler, FUNCTION_METHOD, " fields", 7);
+  compiler.function->arity = 0;
+  emitFieldAssignments(node);
+
+  ObjFunction *function = endFunction(line);
+  currentTry = enclosingTry;
+  emitClosure(&compiler, function, line);
+}
+
+/* True for the `super(...);` a subclass constructor must open with. */
+static bool isSuperCallStatement(const AstNode *statement) {
+  return statement != NULL && statement->type == AST_EXPRESSION_STMT &&
+         statement->as.expression != NULL &&
+         statement->as.expression->type == AST_CALL &&
+         statement->as.expression->as.call.callee != NULL &&
+         statement->as.expression->as.call.callee->type == AST_SUPER &&
+         statement->as.expression->as.call.callee->as.super.name == NULL;
+}
+
+/* A constructor, with the class's field initialisers spliced in where
+ * JavaScript runs them: at the top of the body for a base class, and directly
+ * after `super(...)` for a derived one. Anywhere else and the fields would
+ * land in the wrong order relative to whatever the constructors assign, which
+ * is visible through Object.keys. */
+static void compileConstructor(const AstNode *classNode) {
+  const AstNode *fn = classNode->as.classDecl.constructor;
+  const AstNode *body = fn->as.function.body;
+  bool hasSuper = classNode->as.classDecl.superName != NULL;
+  int line = fn->line;
+
+  TryContext *enclosingTry = currentTry;
+  currentTry = NULL;
+
+  Compiler compiler;
+  beginFunction(&compiler, FUNCTION_CONSTRUCTOR, fn->as.function.name,
+                fn->as.function.nameLength);
+  beginScope();
+
+  compiler.function->arity = fn->as.function.paramCount;
+  if (fn->as.function.paramCount > UINT8_MAX) {
+    errorAt(line, "too many parameters (limit %d)", UINT8_MAX);
+  }
+  for (int i = 0; i < fn->as.function.paramCount; i++) {
+    const AstParam *param = &fn->as.function.params[i];
+    addLocal(param->name, param->length, false, line);
+  }
+
+  int first = 0;
+  if (hasSuper) {
+    /* JavaScript only requires `super(...)` before the first use of `this`.
+     * Requiring it first is stricter, and it is what makes the field
+     * initialisers below land at a point the reader can see. */
+    if (!isSuperCallStatement(body->as.block.count > 0 ? body->as.block.statements[0]
+                                                       : NULL)) {
+      errorAt(line, "a subclass constructor must call super(...) as its first "
+                    "statement");
+    } else {
+      compileNode(body->as.block.statements[0]);
+      first = 1;
+    }
+  }
+
+  emitFieldAssignments(classNode);
+  compileStatements(body->as.block.statements + first, body->as.block.count - first);
+
+  ObjFunction *function = endFunction(line);
+  currentTry = enclosingTry;
+  emitClosure(&compiler, function, line);
+}
+
+static void compileClassDecl(const AstNode *node) {
+  int line = node->line;
+  const char *name = node->as.classDecl.name;
+  int nameLength = node->as.classDecl.nameLength;
+
+  emitConstantOp(OP_CLASS, identifierConstant(name, nameLength, line), line);
+
+  /* Bound before the body is compiled, so a method can refer to the class it
+   * belongs to — including to construct one. */
+  if (current->scopeDepth > 0) {
+    addLocal(name, nameLength, true, line);
+  } else {
+    addGlobal(name, nameLength, true, line);
+    emitConstantOp(OP_DEFINE_CONST, identifierConstant(name, nameLength, line), line);
+  }
+
+  bool hasSuper = node->as.classDecl.superName != NULL;
+  if (hasSuper) {
+    compileIdentifierLoad(node->as.classDecl.superName,
+                          node->as.classDecl.superLength, line);
+    /* The superclass stays on the stack as a hidden local for the whole class
+     * body; OP_INHERIT reads it from there and leaves it behind. */
+    beginScope();
+    addLocal(" super", 6, true, line);
+    compileIdentifierLoad(name, nameLength, line);
+    emitByte(OP_INHERIT, line);
+  }
+
+  /* Every member opcode below expects the class on top of the stack. */
+  compileIdentifierLoad(name, nameLength, line);
+
+  if (node->as.classDecl.constructor != NULL) {
+    compileConstructor(node);
+    emitByte(OP_CONSTRUCTOR, line);
+  } else if (node->as.classDecl.fieldCount > 0) {
+    compileFieldInitializer(node);
+    emitByte(OP_FIELD_INIT, line);
+  }
+
+  for (int i = 0; i < node->as.classDecl.memberCount; i++) {
+    const AstClassMember *member = &node->as.classDecl.members[i];
+    compileFunctionAs(member->function, FUNCTION_METHOD);
+    emitConstantOp(member->isStatic ? OP_STATIC_METHOD : OP_METHOD,
+                   identifierConstant(member->function->as.function.name,
+                                      member->function->as.function.nameLength, line),
+                   line);
+  }
+
+  emitByte(OP_POP, line);
+  if (hasSuper) endScope(line);
 }
 
 static void compileNode(const AstNode *node) {
@@ -1316,6 +1533,41 @@ static void compileNode(const AstNode *node) {
         break;
       }
       const AstNode *callee = node->as.call.callee;
+
+      /* `super(...)` and `super.m(...)`. Both leave the receiver below the
+       * arguments and the superclass on top, which is the shape the two super
+       * opcodes read. */
+      if (callee->type == AST_SUPER) {
+        if (!compileThisLoad(line)) break;
+        for (int i = 0; i < node->as.call.argCount; i++) {
+          compileNode(node->as.call.arguments[i]);
+        }
+        if (!compileSuperLoad(line)) break;
+
+        if (callee->as.super.name == NULL) {
+          if (current->kind != FUNCTION_CONSTRUCTOR) {
+            errorAt(line, "'super()' can only be called from a constructor");
+            break;
+          }
+          emitBytes(OP_SUPER_CALL, (uint8_t)node->as.call.argCount, line);
+        } else {
+          emitConstantOp(OP_SUPER_INVOKE,
+                         identifierConstant(callee->as.super.name,
+                                            callee->as.super.length, line),
+                         line);
+          emitByte((uint8_t)node->as.call.argCount, line);
+        }
+        break;
+      }
+
+      if (node->as.call.isNew) {
+        compileNode(callee);
+        for (int i = 0; i < node->as.call.argCount; i++) {
+          compileNode(node->as.call.arguments[i]);
+        }
+        emitBytes(OP_NEW, (uint8_t)node->as.call.argCount, line);
+        break;
+      }
 
       bool hasSpread = false;
       for (int i = 0; i < node->as.call.argCount; i++) {
@@ -1427,8 +1679,9 @@ static void compileNode(const AstNode *node) {
     case AST_FUNCTION:
       compileFunction(node);
       /* A declaration binds the closure to its name; an expression leaves it
-       * on the stack for whatever wanted it. */
-      if (node->as.function.name != NULL) {
+       * on the stack for whatever wanted it. An inferred name is not a
+       * declaration — the binding it was named after does its own. */
+      if (node->as.function.name != NULL && !node->as.function.nameIsInferred) {
         if (current->scopeDepth > 0) {
           addLocal(node->as.function.name, node->as.function.nameLength, false, line);
         } else {
@@ -1552,15 +1805,44 @@ static void compileNode(const AstNode *node) {
         errorAt(line, "'return' outside of a function");
         break;
       }
+      if (current->kind == FUNCTION_CONSTRUCTOR && node->as.returnValue != NULL) {
+        errorAt(line, "a constructor cannot return a value; it always yields "
+                      "the new instance");
+        break;
+      }
       /* The value is computed first so the finally blocks run with it already
        * on the stack — they are balanced, so it survives them. */
       if (node->as.returnValue != NULL) {
         compileNode(node->as.returnValue);
+      } else if (current->kind == FUNCTION_CONSTRUCTOR) {
+        emitBytes(OP_GET_LOCAL, 0, line);
       } else {
         emitByte(OP_UNDEFINED, line);
       }
       unwindTryBlocks(-1, line);
       emitByte(OP_RETURN, line);
+      break;
+
+    case AST_THIS:
+      compileThisLoad(line);
+      break;
+
+    case AST_SUPER:
+      if (node->as.super.name == NULL) {
+        errorAt(line, "'super' can only be called or used with a property");
+        break;
+      }
+      /* `super.m` read without calling: the bound method has to carry the
+       * receiver with it. */
+      if (!compileThisLoad(line)) break;
+      if (!compileSuperLoad(line)) break;
+      emitConstantOp(OP_GET_SUPER,
+                     identifierConstant(node->as.super.name, node->as.super.length, line),
+                     line);
+      break;
+
+    case AST_CLASS_DECL:
+      compileClassDecl(node);
       break;
 
     case AST_PROGRAM:

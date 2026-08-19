@@ -1,0 +1,111 @@
+class Shape {
+  sides = 0;
+
+  constructor(name) {
+    this.name = name;
+  }
+
+  describe() {
+    return `${this.name} with ${this.sides} sides`;
+  }
+
+  area() {
+    return 0;
+  }
+
+  static describeAll(shapes) {
+    return shapes.map((s) => s.describe()).join("; ");
+  }
+}
+
+class Rectangle extends Shape {
+  sides = 4;
+
+  constructor(w, h) {
+    super("rectangle");
+    this.w = w;
+    this.h = h;
+  }
+
+  area() {
+    return this.w * this.h;
+  }
+
+  describe() {
+    return `${super.describe()}, area ${this.area()}`;
+  }
+}
+
+class Square extends Rectangle {
+  constructor(side) {
+    super(side, side);
+    this.name = "square";
+  }
+
+  describe() {
+    return `${super.describe()} (equilateral)`;
+  }
+}
+
+const r = new Rectangle(3, 4);
+const q = new Square(5);
+
+console.log(r.describe());
+console.log(q.describe());
+console.log(r.area(), q.area(), q.sides, q.w, q.h);
+
+console.log(r instanceof Rectangle, r instanceof Shape, r instanceof Square);
+console.log(q instanceof Square, q instanceof Rectangle, q instanceof Shape);
+
+// Statics are inherited.
+console.log(Square.describeAll([r, q]));
+
+// A subclass with no constructor is built by the nearest ancestor that has one.
+class Wide extends Rectangle {}
+const w = new Wide(10, 2);
+console.log(w.area(), w.describe(), w instanceof Rectangle);
+
+// A subclass field of the same name overrides the parent's.
+class Base { v = 1; tag = "base"; }
+class Mid extends Base { v = 2; }
+class Leaf extends Mid { tag = "leaf"; }
+const leaf = new Leaf();
+console.log(leaf.v, leaf.tag, Object.keys(leaf).join(","), JSON.stringify(leaf));
+
+// Two levels of super on a method the middle class does not override.
+class A { m() { return "A"; } n() { return "nA"; } }
+class B extends A { m() { return `B<${super.m()}>`; } }
+class C extends B { m() { return `C<${super.m()}>`; } n() { return `nC<${super.n()}>`; } }
+console.log(new C().m(), new C().n());
+
+// A base method calling an overridden one dispatches on the actual class.
+class Template {
+  run() { return `run:${this.step()}`; }
+  step() { return "base"; }
+}
+class Custom extends Template {
+  step() { return "custom"; }
+}
+console.log(new Template().run(), new Custom().run());
+
+// Instances print under their own class name.
+console.log(q);
+console.log([r, q].map((s) => s.name).join(","));
+
+// Field initialisers run where JavaScript runs them: at the top of a base
+// constructor, and directly after super(...) in a derived one. That ordering
+// is observable through the key order.
+class O1 { a = 1; constructor(t) { this.t = t; } }
+class O2 extends O1 { b = 2; constructor(t) { super(t); this.z = 9; } }
+class O3 extends O2 { c = 3; }
+class O4 extends O3 {}
+console.log(Object.keys(new O2("x")).join(","));
+console.log(Object.keys(new O3("y")).join(","));
+console.log(Object.keys(new O4("z")).join(","));
+console.log(JSON.stringify(new O3("y")));
+
+// A base constructor sees the base field; the subclass's overriding value
+// lands only once super() has returned.
+class Init1 { v = 1; constructor() { this.w = this.v + 1; } }
+class Init2 extends Init1 { v = 10; constructor() { super(); this.u = this.v; } }
+console.log(JSON.stringify(new Init2()));

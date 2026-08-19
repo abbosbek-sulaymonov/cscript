@@ -1,4 +1,4 @@
-# CScript grammar and semantics — v0.12.0
+# CScript grammar and semantics — v0.14.0
 
 CScript's syntax is a **subset of TypeScript's**: every CScript program is a
 valid TypeScript program. `make test-node` enforces that by handing each
@@ -427,14 +427,84 @@ Not supported, each with an error that says so: **nested patterns**,
 rest**, and spreading into a built-in method call such as `xs.push(...ys)` —
 packing the arguments loses the receiver those need.
 
+## Classes
+
+```ts
+class Account {
+  balance = 0;              // field with an initialiser
+  owner;                    // field without one — still part of the layout
+
+  constructor(owner: string) {
+    this.owner = owner;
+  }
+
+  deposit(amount: number) {
+    this.balance = this.balance + amount;
+    return this;            // methods chain
+  }
+
+  static open(owner: string) {
+    return new Account(owner);
+  }
+}
+
+class Savings extends Account {
+  rate = 0.05;
+
+  constructor(owner: string) {
+    super(owner);           // required, and required to come first
+  }
+
+  describe(): string {
+    return `${super.describe()} (savings)`;
+  }
+}
+
+new Savings("Ada") instanceof Account;   // true
+```
+
+Fields, a constructor, methods, `static` methods, `extends`, `super`, `this`
+and `instanceof`.
+
+**Instances are ordinary objects** with a class attached. Fields are properties
+in declaration order, so `Object.keys`, `JSON.stringify` and printing all work
+without a special case, and instances share a layout the same way object
+literals do.
+
+**Field initialisers run where JavaScript runs them**: at the top of a base
+class's constructor, and directly after `super(...)` in a derived one. That
+ordering is observable through key order, which is why it is matched exactly
+rather than simplified.
+
+**`this` is slot 0 of a method's frame**, which means an arrow function inside a
+method captures it through the ordinary closure machinery and gets JavaScript's
+lexical `this` with no rule of its own. `this` outside a class method is an
+error rather than `undefined`.
+
+**A method keeps its receiver.** `const f = obj.method; f()` works — in
+JavaScript it loses `this`, which is the reason `.bind(this)` exists. This is a
+deliberate divergence; see `examples/fixes.cx`.
+
+Two rules are stricter than JavaScript's, both to keep the order above legible:
+a subclass constructor must call `super(...)` as its **first** statement, and a
+constructor cannot `return` a value.
+
+Not supported, each with an error that says so: **getters and setters**,
+**private `#fields`**, **static fields**, **static blocks**, **computed member
+names**, **`new.target`**, and **subclassing built-ins**.
+
+Class names are not usable as type annotations. The type lattice is a fixed set
+of primitives, so an instance is `object` and a class is dynamic; nominal types
+are the next typing milestone rather than part of this one.
+
 ## Not implemented yet
 
 Each of these produces an error that names it:
 
-- Classes, `new`, `this`, prototypes
 - Modules — `import` and `export`
 - `async` / `await`, promises, generators
 - Regular expressions
 - `Map`, `Set`, `Symbol`, `BigInt`
 - `do`/`while`, labelled statements, `for...in`
-- Getters and setters, computed property keys
+- Object-literal shorthand — write `{ x: x }` rather than `{ x }`
+- Computed property keys

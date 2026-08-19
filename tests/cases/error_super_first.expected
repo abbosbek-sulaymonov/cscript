@@ -1,0 +1,1 @@
+error_super_first.cx:8: error: a subclass constructor must call super(...) as its first statement

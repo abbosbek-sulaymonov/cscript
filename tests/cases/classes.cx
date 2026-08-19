@@ -1,0 +1,73 @@
+// Fields, constructor, methods, statics — and the printed form of each.
+class Point {
+  x = 0;
+  y = 0;
+  label;
+
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.label = `(${x}, ${y})`;
+  }
+
+  length() {
+    return Math.sqrt(this.x * this.x + this.y * this.y);
+  }
+
+  scaled(k) {
+    return new Point(this.x * k, this.y * k);
+  }
+
+  static origin() {
+    return new Point(0, 0);
+  }
+}
+
+const p = new Point(3, 4);
+console.log(p.x, p.y, p.label, p.length());
+console.log(p.scaled(2).label, Point.origin().label);
+console.log(p);
+console.log(Object.keys(p).join(","), JSON.stringify(p));
+console.log(typeof Point, typeof p, typeof p.length);
+console.log(p instanceof Point, {} instanceof Point);
+console.log(Point, p.length);
+
+// A method returning `this` chains.
+class Builder {
+  parts = [];
+  add(s) { this.parts.push(s); return this; }
+  build() { return this.parts.join("-"); }
+}
+console.log(new Builder().add("a").add("b").add("c").build());
+
+// An arrow inside a method captures `this` lexically.
+class Scaler {
+  factor = 3;
+  applyAll(xs) { return xs.map((x) => x * this.factor); }
+}
+console.log(new Scaler().applyAll([1, 2, 3]).join(","));
+
+// A class with no constructor.
+class Bare {
+  v = 7;
+  get2() { return this.v * 2; }
+}
+console.log(new Bare().get2(), JSON.stringify(new Bare()));
+
+// Classes are values.
+const kinds = [Point, Builder];
+console.log(kinds.length, kinds[0].origin().label);
+
+// A class declared inside a block.
+{
+  class Inner { name() { return "inner"; } }
+  console.log(new Inner().name());
+}
+
+// A field with no initialiser still exists.
+class Slots { a; b; c = 1; }
+const s = new Slots();
+console.log(s.a, s.b, s.c, Object.keys(s).join(","));
+
+// Every instance of a class shares one layout, so key order is stable.
+console.log(Object.keys(new Point(1, 1)).join(",") === Object.keys(p).join(","));

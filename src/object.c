@@ -93,6 +93,7 @@ ObjObject *csObjectNew(const char *name) {
   registerObject((Obj *)object, OBJ_OBJECT);
   object->name = nameString;
   object->shape = vm.emptyShape;
+  object->klass = NULL;
   object->frozen = false;
   object->as.slots.values = NULL;
   object->as.slots.capacity = 0;
@@ -265,6 +266,63 @@ ObjClosure *csClosureNew(ObjFunction *function) {
   return closure;
 }
 
+ObjClass *csClassNew(ObjString *name) {
+  csPushTempRoot((Obj *)name);
+  ObjClass *klass = CS_ALLOCATE(ObjClass, 1);
+  registerObject((Obj *)klass, OBJ_CLASS);
+  klass->name = name;
+  klass->superclass = NULL;
+  klass->initializer = NULL;
+  klass->fieldInit = NULL;
+  csTableInit(&klass->methods);
+  csTableInit(&klass->statics);
+  csPopTempRoot();
+  return klass;
+}
+
+ObjObject *csInstanceNew(ObjClass *klass) {
+  csPushTempRoot((Obj *)klass);
+  ObjObject *instance = CS_ALLOCATE(ObjObject, 1);
+  registerObject((Obj *)instance, OBJ_OBJECT);
+  instance->name = klass->name;
+  instance->shape = vm.emptyShape;
+  instance->klass = klass;
+  instance->frozen = false;
+  instance->as.slots.values = NULL;
+  instance->as.slots.capacity = 0;
+  csPopTempRoot();
+  return instance;
+}
+
+ObjBoundMethod *csBoundMethodNew(Value receiver, ObjClosure *method) {
+  if (IS_OBJ(receiver)) csPushTempRoot(AS_OBJ(receiver));
+  csPushTempRoot((Obj *)method);
+  ObjBoundMethod *bound = CS_ALLOCATE(ObjBoundMethod, 1);
+  registerObject((Obj *)bound, OBJ_BOUND_METHOD);
+  bound->receiver = receiver;
+  bound->method = method;
+  csPopTempRoot();
+  if (IS_OBJ(receiver)) csPopTempRoot();
+  return bound;
+}
+
+ObjClosure *csClassFindMethod(ObjClass *klass, ObjString *name) {
+  for (ObjClass *current = klass; current != NULL; current = current->superclass) {
+    Value method;
+    if (csTableGet(&current->methods, name, &method)) {
+      return (ObjClosure *)AS_OBJ(method);
+    }
+  }
+  return NULL;
+}
+
+bool csClassDescendsFrom(const ObjClass *klass, const ObjClass *other) {
+  for (const ObjClass *current = klass; current != NULL; current = current->superclass) {
+    if (current == other) return true;
+  }
+  return false;
+}
+
 ObjArray *csArrayNew(void) {
   ObjArray *array = CS_ALLOCATE(ObjArray, 1);
   registerObject((Obj *)array, OBJ_ARRAY);
@@ -308,6 +366,19 @@ void csObjectPrint(Value value) {
       break;
     case OBJ_OBJECT:
       printf("[Object: %s]", AS_OBJECT(value)->name->chars);
+      break;
+    case OBJ_CLASS: {
+      ObjClass *klass = AS_CLASS(value);
+      if (klass->superclass != NULL) {
+        printf("[class %s extends %s]", klass->name->chars,
+               klass->superclass->name->chars);
+      } else {
+        printf("[class %s]", klass->name->chars);
+      }
+      break;
+    }
+    case OBJ_BOUND_METHOD:
+      printFunctionName(AS_BOUND_METHOD(value)->method->function);
       break;
     case OBJ_FUNCTION:
       printFunctionName((ObjFunction *)AS_OBJ(value));
@@ -355,6 +426,7 @@ void csObjectBlacken(Obj *object) {
     case OBJ_OBJECT: {
       ObjObject *instance = (ObjObject *)object;
       csMarkObject((Obj *)instance->name);
+      csMarkObject((Obj *)instance->klass);
       if (instance->shape != NULL) {
         /* The shape is the authority on how many slots hold a value. Anything
          * beyond slotCount is capacity the object has not grown into yet. */
@@ -374,6 +446,24 @@ void csObjectBlacken(Obj *object) {
     case OBJ_SHAPE:
       csShapeBlacken((Shape *)object);
       break;
+
+    case OBJ_CLASS: {
+      ObjClass *klass = (ObjClass *)object;
+      csMarkObject((Obj *)klass->name);
+      csMarkObject((Obj *)klass->superclass);
+      csMarkObject((Obj *)klass->initializer);
+      csMarkObject((Obj *)klass->fieldInit);
+      csTableMark(&klass->methods);
+      csTableMark(&klass->statics);
+      break;
+    }
+
+    case OBJ_BOUND_METHOD: {
+      ObjBoundMethod *bound = (ObjBoundMethod *)object;
+      csMarkValue(bound->receiver);
+      csMarkObject((Obj *)bound->method);
+      break;
+    }
 
     case OBJ_FUNCTION: {
       /* A function owns its constant pool, so every literal in its body is
@@ -436,6 +526,19 @@ void csObjectFree(Obj *object) {
 
     case OBJ_SHAPE:
       csShapeFree((Shape *)object);
+      break;
+
+    case OBJ_CLASS: {
+      ObjClass *klass = (ObjClass *)object;
+      csTableFree(&klass->methods);
+      csTableFree(&klass->statics);
+      CS_FREE(ObjClass, object);
+      break;
+    }
+
+    case OBJ_BOUND_METHOD:
+      /* The receiver and the method both belong to whoever else holds them. */
+      CS_FREE(ObjBoundMethod, object);
       break;
 
     case OBJ_FUNCTION: {

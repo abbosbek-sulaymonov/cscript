@@ -181,6 +181,7 @@ AstNode *csAstCall(AstArena *arena, int line, AstNode *callee) {
   node->as.call.callee = callee;
   node->as.call.arguments = NULL;
   node->as.call.argCount = 0;
+  node->as.call.isNew = false;
   return node;
 }
 
@@ -279,7 +280,82 @@ AstNode *csAstFunction(AstArena *arena, int line, const char *name, int nameLeng
   node->as.function.body = NULL;
   node->as.function.returnType = TYPE_ANY;
   node->as.function.hasReturnAnnotation = false;
+  node->as.function.nameIsInferred = false;
   return node;
+}
+
+AstNode *csAstNew(AstArena *arena, int line, AstNode *callee) {
+  AstNode *node = csAstCall(arena, line, callee);
+  if (node != NULL) node->as.call.isNew = true;
+  return node;
+}
+
+AstNode *csAstThis(AstArena *arena, int line) {
+  return newNode(arena, AST_THIS, line);
+}
+
+AstNode *csAstSuper(AstArena *arena, int line, const char *name, int length) {
+  AstNode *node = newNode(arena, AST_SUPER, line);
+  if (node == NULL) return NULL;
+  node->as.super.name =
+      name != NULL ? internName(arena, name, length, &node->as.super.length) : NULL;
+  if (name == NULL) node->as.super.length = 0;
+  return node;
+}
+
+AstNode *csAstClass(AstArena *arena, int line, const char *name, int nameLength,
+                    const char *superName, int superLength) {
+  AstNode *node = newNode(arena, AST_CLASS_DECL, line);
+  if (node == NULL) return NULL;
+  node->as.classDecl.name = internName(arena, name, nameLength, &node->as.classDecl.nameLength);
+  node->as.classDecl.superName =
+      superName != NULL
+          ? internName(arena, superName, superLength, &node->as.classDecl.superLength)
+          : NULL;
+  if (superName == NULL) node->as.classDecl.superLength = 0;
+  node->as.classDecl.fields = NULL;
+  node->as.classDecl.fieldCount = 0;
+  node->as.classDecl.members = NULL;
+  node->as.classDecl.memberCount = 0;
+  node->as.classDecl.constructor = NULL;
+  return node;
+}
+
+void csAstClassAddField(AstArena *arena, AstNode *node, const char *name, int length,
+                        AstNode *initializer, TypeKind declaredType,
+                        bool hasAnnotation) {
+  if (node == NULL) return;
+  int count = node->as.classDecl.fieldCount;
+  AstClassField *grown =
+      (AstClassField *)csAstArenaAlloc(arena, sizeof(AstClassField) * (size_t)(count + 1));
+  if (grown == NULL) return;
+  if (node->as.classDecl.fields != NULL) {
+    memcpy(grown, node->as.classDecl.fields, sizeof(AstClassField) * (size_t)count);
+  }
+  int stored = 0;
+  grown[count].name = internName(arena, name, length, &stored);
+  grown[count].length = stored;
+  grown[count].initializer = initializer;
+  grown[count].declaredType = declaredType;
+  grown[count].hasAnnotation = hasAnnotation;
+  node->as.classDecl.fields = grown;
+  node->as.classDecl.fieldCount = count + 1;
+}
+
+void csAstClassAddMember(AstArena *arena, AstNode *node, AstNode *function,
+                         bool isStatic) {
+  if (node == NULL) return;
+  int count = node->as.classDecl.memberCount;
+  AstClassMember *grown =
+      (AstClassMember *)csAstArenaAlloc(arena, sizeof(AstClassMember) * (size_t)(count + 1));
+  if (grown == NULL) return;
+  if (node->as.classDecl.members != NULL) {
+    memcpy(grown, node->as.classDecl.members, sizeof(AstClassMember) * (size_t)count);
+  }
+  grown[count].function = function;
+  grown[count].isStatic = isStatic;
+  node->as.classDecl.members = grown;
+  node->as.classDecl.memberCount = count + 1;
 }
 
 void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name,
@@ -548,6 +624,7 @@ const char *csBinaryOpName(BinaryOp op) {
     case BINARY_GREATER_EQUAL:    return ">=";
     case BINARY_LESS:             return "<";
     case BINARY_LESS_EQUAL:       return "<=";
+    case BINARY_INSTANCEOF:       return "instanceof";
   }
   return "?";
 }

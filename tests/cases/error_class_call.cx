@@ -1,0 +1,7 @@
+class Widget {
+  constructor(name) {
+    this.name = name;
+  }
+}
+const w = Widget("a");
+console.log(w);

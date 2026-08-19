@@ -31,6 +31,17 @@ const mine = { PI: 3 };
 mine.PI = 3.14159;
 console.log(mine.PI);
 
+// A method keeps its receiver when it is passed around. In JavaScript
+// `const f = obj.method` silently loses `this`, which is why `.bind(this)` is
+// everywhere; here the method carries it.
+class Counter {
+  count = 0;
+  increment() { this.count = this.count + 1; return this.count; }
+}
+const counter = new Counter();
+const detached = counter.increment;
+console.log(detached(), detached());   // in JavaScript: TypeError
+
 // `any` is the escape hatch back into dynamic typing.
 let loose: any = 1;
 loose = "now a string";

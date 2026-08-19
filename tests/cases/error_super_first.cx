@@ -1,0 +1,14 @@
+class Base {
+  constructor(v) {
+    this.v = v;
+  }
+}
+
+class Derived extends Base {
+  constructor(v) {
+    this.extra = 1;
+    super(v);
+  }
+}
+
+console.log(new Derived(1));

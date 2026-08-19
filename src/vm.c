@@ -207,8 +207,30 @@ static bool callValue(Value callee, int argCount) {
   if (IS_CLOSURE(callee)) return callClosure(AS_CLOSURE(callee), argCount);
   if (IS_NATIVE(callee)) return callNative(AS_NATIVE(callee), UNDEFINED_VAL, argCount);
 
+  if (IS_BOUND_METHOD(callee)) {
+    /* The receiver goes back into slot 0, which is where the method's `this`
+     * reads from — the same place OP_INVOKE would have left it. */
+    ObjBoundMethod *bound = AS_BOUND_METHOD(callee);
+    vm.stackTop[-argCount - 1] = bound->receiver;
+    return callClosure(bound->method, argCount);
+  }
+
+  if (IS_CLASS(callee)) {
+    csVMRuntimeError("%s is a class; write 'new %s(...)' to construct one",
+                     AS_CLASS(callee)->name->chars, AS_CLASS(callee)->name->chars);
+    return false;
+  }
+
   csVMRuntimeError("%s is not a function", csValueTypeName(callee));
   return false;
+}
+
+/* Calls a class method, leaving the receiver in slot 0 so `this` resolves to
+ * it. Every other call path overwrites that slot with the callee, which is
+ * harmless because nothing else names it — a method is the one case where the
+ * body reads it. */
+static bool callMethod(ObjClosure *method, int argCount) {
+  return callClosure(method, argCount);
 }
 
 /* The method table a receiver's built-ins live in, or NULL when it has none. */
@@ -232,8 +254,31 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
       vm.stackTop[-argCount - 1] = method;
       return callValue(method, argCount);
     }
-    csVMRuntimeError("'%s' has no method '%s'", AS_OBJECT(receiver)->name->chars,
-                     name->chars);
+
+    /* Only now the class chain, so a field holding a function still wins —
+     * which also means `this` is bound for methods declared in a class body
+     * and not for a function that merely lives on an object. */
+    ObjObject *instance = AS_OBJECT(receiver);
+    if (instance->klass != NULL) {
+      ObjClosure *classMethod = csClassFindMethod(instance->klass, name);
+      if (classMethod != NULL) return callMethod(classMethod, argCount);
+    }
+
+    csVMRuntimeError("'%s' has no method '%s'", instance->name->chars, name->chars);
+    return false;
+  }
+
+  if (IS_CLASS(receiver)) {
+    /* A static keeps the class in slot 0, so `this` inside one is the class. */
+    for (ObjClass *klass = AS_CLASS(receiver); klass != NULL;
+         klass = klass->superclass) {
+      Value method;
+      if (csTableGet(&klass->statics, name, &method)) {
+        return callMethod((ObjClosure *)AS_OBJ(method), argCount);
+      }
+    }
+    csVMRuntimeError("class %s has no static method '%s'",
+                     AS_CLASS(receiver)->name->chars, name->chars);
     return false;
   }
 
@@ -452,6 +497,52 @@ static void reportUncaught(Value thrown) {
   char *text = csValueInspect(thrown, &length);
   csVMRuntimeError("uncaught %s", text != NULL ? text : "value");
   free(text);
+}
+
+/* Runs the field initialisers of every class from `klass` up to but not
+ * including `stopAt`, base-most first.
+ *
+ * Only classes that declare no constructor of their own get here: a class with
+ * a constructor has its fields compiled into it, at the top of the body for a
+ * base class and immediately after `super(...)` for a derived one. That is
+ * where JavaScript runs them, and running them anywhere else is observable —
+ * it changes the order of `Object.keys`. */
+static bool runFieldInitializers(ObjClass *klass, ObjClass *stopAt, Value instance) {
+  ObjClass *chain[CS_FRAMES_MAX];
+  int depth = 0;
+  for (ObjClass *current = klass; current != stopAt; current = current->superclass) {
+    if (depth == CS_FRAMES_MAX) {
+      csVMRuntimeError("class hierarchy is too deep (limit %d)", CS_FRAMES_MAX);
+      return false;
+    }
+    chain[depth++] = current;
+  }
+
+  for (int i = depth - 1; i >= 0; i--) {
+    if (chain[i]->fieldInit == NULL) continue;
+    /* Pushed where the callee would go, so the initialiser's slot 0 — its
+     * `this` — is the instance. */
+    csVMPush(instance);
+    Value ignored;
+    if (!csVMCallCallback(OBJ_VAL(chain[i]->fieldInit), 0, &ignored)) return false;
+  }
+  return true;
+}
+
+/* The nearest class at or above `klass` that declares a constructor. A class
+ * without one is built by its parent's, which is what makes
+ * `class Dog extends Animal {}` still accept the arguments Animal declares. */
+static ObjClass *findConstructorOwner(ObjClass *klass) {
+  for (ObjClass *current = klass; current != NULL; current = current->superclass) {
+    if (current->initializer != NULL) return current;
+  }
+  return NULL;
+}
+
+/* The nearest constructor at or above `klass`, or NULL. */
+static ObjClosure *findConstructor(ObjClass *klass) {
+  ObjClass *owner = findConstructorOwner(klass);
+  return owner != NULL ? owner->initializer : NULL;
 }
 
 /* The uncached path for assigning to a global: check that the name exists and
@@ -739,13 +830,47 @@ static InterpretResult run(int baseFrame) {
             VM_NEXT();
           }
 
-          /* Dictionary mode, or a genuinely absent property. Reading a missing
-           * property gives undefined, as in JavaScript — checking for absence
-           * is too common to make it an error. */
+          /* Dictionary mode, an inherited method, or a genuinely absent
+           * property. Reading a missing property gives undefined, as in
+           * JavaScript — checking for absence is too common to make it an
+           * error. */
           Value value;
-          if (!csObjectGet(object, name, &value)) value = UNDEFINED_VAL;
+          if (csObjectGet(object, name, &value)) {
+            csVMPop();
+            csVMPush(value);
+            VM_NEXT();
+          }
+
+          if (object->klass != NULL) {
+            ObjClosure *method = csClassFindMethod(object->klass, name);
+            if (method != NULL) {
+              /* Reading a method without calling it is the one case that has
+               * to allocate, because the receiver has to travel with it. */
+              ObjBoundMethod *bound = csBoundMethodNew(receiver, method);
+              csVMPop();
+              csVMPush(OBJ_VAL(bound));
+              VM_NEXT();
+            }
+          }
+
           csVMPop();
-          csVMPush(value);
+          csVMPush(UNDEFINED_VAL);
+          VM_NEXT();
+        }
+
+        /* A class carries its statics, and inherits its parent's. */
+        if (IS_CLASS(receiver)) {
+          for (ObjClass *klass = AS_CLASS(receiver); klass != NULL;
+               klass = klass->superclass) {
+            Value statik;
+            if (csTableGet(&klass->statics, name, &statik)) {
+              csVMPop();
+              csVMPush(statik);
+              VM_NEXT();
+            }
+          }
+          csVMPop();
+          csVMPush(UNDEFINED_VAL);
           VM_NEXT();
         }
 
@@ -1106,6 +1231,201 @@ static InterpretResult run(int baseFrame) {
         }
         /* A method that turned out to be user code pushed a frame. */
         frame = &vm.frames[vm.frameCount - 1];
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_CLASS) {
+        csVMPush(OBJ_VAL(csClassNew(READ_STRING())));
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_INHERIT) {
+        Value superclass = peekStack(1);
+        if (!IS_CLASS(superclass)) {
+          csVMRuntimeError("a class can only extend another class, got %s",
+                           csValueTypeName(superclass));
+          return CS_RUNTIME_ERROR;
+        }
+        AS_CLASS(peekStack(0))->superclass = AS_CLASS(superclass);
+        /* The superclass stays behind as the hidden local that `super` reads. */
+        csVMPop();
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_METHOD)
+      VM_CASE(OP_STATIC_METHOD) {
+        ObjString *name = READ_STRING();
+        ObjClass *klass = AS_CLASS(peekStack(1));
+        /* Both stay on the stack across the insert, which can allocate. */
+        csTableSet(instruction == OP_METHOD ? &klass->methods : &klass->statics,
+                   name, peekStack(0));
+        csVMPop();
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_CONSTRUCTOR) {
+        AS_CLASS(peekStack(1))->initializer = AS_CLOSURE(peekStack(0));
+        csVMPop();
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_FIELD_INIT) {
+        AS_CLASS(peekStack(1))->fieldInit = AS_CLOSURE(peekStack(0));
+        csVMPop();
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_NEW) {
+        int argCount = READ_BYTE();
+        Value target = peekStack(argCount);
+        if (!IS_CLASS(target)) {
+          csVMRuntimeError("'new' needs a class, got %s", csValueTypeName(target));
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
+        }
+
+        ObjClass *klass = AS_CLASS(target);
+        ObjObject *instance = csInstanceNew(klass);
+        /* The class slot becomes the instance, which puts it exactly where a
+         * constructor's slot 0 — its `this` — will be. */
+        vm.stackTop[-argCount - 1] = OBJ_VAL(instance);
+
+        ObjClass *owner = findConstructorOwner(klass);
+
+        if (owner == NULL) {
+          /* Nothing in the hierarchy declares a constructor, so all there is
+           * to do is initialise the fields. */
+          if (argCount != 0) {
+            csVMRuntimeError("%s has no constructor but was given %d argument%s",
+                             klass->name->chars, argCount, argCount == 1 ? "" : "s");
+            HANDLE_FAILED_CALL();
+            VM_NEXT();
+          }
+          if (!runFieldInitializers(klass, NULL, OBJ_VAL(instance))) {
+            HANDLE_FAILED_CALL();
+            VM_NEXT();
+          }
+          frame = &vm.frames[vm.frameCount - 1];
+          /* The instance is already sitting where the result belongs. */
+          VM_NEXT();
+        }
+
+        /* Classes between the instance's own and the one that owns the
+         * constructor have implicit constructors, whose only job is to run
+         * their fields — after the inherited constructor returns. */
+        bool pendingFields = false;
+        for (ObjClass *c = klass; c != owner; c = c->superclass) {
+          if (c->fieldInit != NULL) {
+            pendingFields = true;
+            break;
+          }
+        }
+
+        if (!pendingFields) {
+          /* The common shape. A constructor returns `this`, so the frame it
+           * leaves behind is the instance — no opcode needed to recover it. */
+          if (!callMethod(owner->initializer, argCount)) {
+            HANDLE_FAILED_CALL();
+            VM_NEXT();
+          }
+          frame = &vm.frames[vm.frameCount - 1];
+          VM_NEXT();
+        }
+
+        /* Otherwise the constructor has to finish before those fields run, so
+         * it runs in a loop of its own and the fields follow it. */
+        csPushTempRoot((Obj *)instance);
+        Value ignored;
+        bool ok = csVMCallCallback(OBJ_VAL(owner->initializer), argCount, &ignored) &&
+                  runFieldInitializers(klass, owner, OBJ_VAL(instance));
+        csPopTempRoot();
+        if (!ok) {
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
+        }
+        frame = &vm.frames[vm.frameCount - 1];
+        csVMPush(OBJ_VAL(instance));
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_GET_SUPER) {
+        ObjString *name = READ_STRING();
+        ObjClass *superclass = AS_CLASS(peekStack(0));
+        ObjClosure *method = csClassFindMethod(superclass, name);
+        if (method == NULL) {
+          csVMRuntimeError("class %s has no method '%s'", superclass->name->chars,
+                           name->chars);
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
+        }
+        ObjBoundMethod *bound = csBoundMethodNew(peekStack(1), method);
+        vm.stackTop -= 2;
+        csVMPush(OBJ_VAL(bound));
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_SUPER_INVOKE) {
+        ObjString *name = READ_STRING();
+        int argCount = READ_BYTE();
+        ObjClass *superclass = AS_CLASS(csVMPop());
+        ObjClosure *method = csClassFindMethod(superclass, name);
+        if (method == NULL) {
+          csVMRuntimeError("class %s has no method '%s'", superclass->name->chars,
+                           name->chars);
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
+        }
+        /* `this` is still sitting below the arguments, which is where the
+         * method's slot 0 has to be. */
+        if (!callMethod(method, argCount)) {
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
+        }
+        frame = &vm.frames[vm.frameCount - 1];
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_SUPER_CALL) {
+        int argCount = READ_BYTE();
+        ObjClass *superclass = AS_CLASS(csVMPop());
+        ObjClosure *constructor = findConstructor(superclass);
+
+        if (constructor == NULL) {
+          if (argCount != 0) {
+            csVMRuntimeError("%s has no constructor but super() was given "
+                             "%d argument%s",
+                             superclass->name->chars, argCount,
+                             argCount == 1 ? "" : "s");
+            HANDLE_FAILED_CALL();
+            VM_NEXT();
+          }
+          /* Drop `this` along with the arguments and stand in for the value
+           * the constructor would have returned. */
+          vm.stackTop -= argCount + 1;
+          csVMPush(UNDEFINED_VAL);
+          VM_NEXT();
+        }
+
+        if (!callMethod(constructor, argCount)) {
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
+        }
+        frame = &vm.frames[vm.frameCount - 1];
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_INSTANCEOF) {
+        Value target = peekStack(0);
+        Value value = peekStack(1);
+        if (!IS_CLASS(target)) {
+          csVMRuntimeError("the right side of 'instanceof' must be a class, got %s",
+                           csValueTypeName(target));
+          return CS_RUNTIME_ERROR;
+        }
+        bool result = IS_OBJECT(value) && AS_OBJECT(value)->klass != NULL &&
+                      csClassDescendsFrom(AS_OBJECT(value)->klass, AS_CLASS(target));
+        vm.stackTop -= 2;
+        csVMPush(BOOL_VAL(result));
         VM_NEXT();
       }
 

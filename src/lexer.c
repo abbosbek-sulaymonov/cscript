@@ -109,15 +109,44 @@ static TokenType identifierType(const Lexer *lexer) {
   switch (lexer->start[0]) {
     case 'b': return checkKeyword(lexer, 1, 4, "reak", TOKEN_BREAK);
     case 'd': return checkKeyword(lexer, 1, 6, "efault", TOKEN_DEFAULT);
-    case 'e': return checkKeyword(lexer, 1, 3, "lse", TOKEN_ELSE);
+    case 'e':
+      if (lexer->current - lexer->start > 1) {
+        switch (lexer->start[1]) {
+          case 'l': return checkKeyword(lexer, 2, 2, "se", TOKEN_ELSE);
+          case 'x': return checkKeyword(lexer, 2, 5, "tends", TOKEN_EXTENDS);
+        }
+      }
+      break;
     case 'r': return checkKeyword(lexer, 1, 5, "eturn", TOKEN_RETURN);
     case 'w': return checkKeyword(lexer, 1, 4, "hile", TOKEN_WHILE);
-    case 's': return checkKeyword(lexer, 1, 5, "witch", TOKEN_SWITCH);
+    case 's':
+      if (lexer->current - lexer->start > 1) {
+        switch (lexer->start[1]) {
+          case 'w': return checkKeyword(lexer, 2, 4, "itch", TOKEN_SWITCH);
+          case 'u': return checkKeyword(lexer, 2, 3, "per", TOKEN_SUPER);
+          case 't': return checkKeyword(lexer, 2, 4, "atic", TOKEN_STATIC);
+        }
+      }
+      break;
     case 'T': return checkKeyword(lexer, 1, 3, "rue", TOKEN_TRUE);
     case 'l': return checkKeyword(lexer, 1, 2, "et", TOKEN_LET);
     case 'v': return checkKeyword(lexer, 1, 2, "ar", TOKEN_VAR);
-    case 'i': return checkKeyword(lexer, 1, 1, "f", TOKEN_IF);
-    case 'n': return checkKeyword(lexer, 1, 3, "ull", TOKEN_NULL);
+    case 'i':
+      if (lexer->current - lexer->start > 1) {
+        switch (lexer->start[1]) {
+          case 'f': return checkKeyword(lexer, 2, 0, "", TOKEN_IF);
+          case 'n': return checkKeyword(lexer, 2, 8, "stanceof", TOKEN_INSTANCEOF);
+        }
+      }
+      break;
+    case 'n':
+      if (lexer->current - lexer->start > 1) {
+        switch (lexer->start[1]) {
+          case 'u': return checkKeyword(lexer, 2, 2, "ll", TOKEN_NULL);
+          case 'e': return checkKeyword(lexer, 2, 1, "w", TOKEN_NEW);
+        }
+      }
+      break;
     case 'u': return checkKeyword(lexer, 1, 8, "ndefined", TOKEN_UNDEFINED);
     case 'F': return checkKeyword(lexer, 1, 7, "unction", TOKEN_FUNCTION);
     case 'c':
@@ -129,6 +158,7 @@ static TokenType identifierType(const Lexer *lexer) {
               return checkKeyword(lexer, 1, 4, "atch", TOKEN_CATCH);
             }
             return checkKeyword(lexer, 1, 3, "ase", TOKEN_CASE);
+          case 'l': return checkKeyword(lexer, 2, 3, "ass", TOKEN_CLASS);
           case 'o':
             if (lexer->current - lexer->start > 2 && lexer->start[2] == 'n') {
               /* const / continue share the "con" prefix. */
@@ -153,7 +183,12 @@ static TokenType identifierType(const Lexer *lexer) {
               }
             }
             break;
-          case 'h': return checkKeyword(lexer, 2, 3, "row", TOKEN_THROW);
+          case 'h':
+            /* this / throw share "th". */
+            if (lexer->current - lexer->start > 2 && lexer->start[2] == 'i') {
+              return checkKeyword(lexer, 2, 2, "is", TOKEN_THIS);
+            }
+            return checkKeyword(lexer, 2, 3, "row", TOKEN_THROW);
           case 'y': return checkKeyword(lexer, 2, 4, "peof", TOKEN_TYPEOF);
         }
       }
@@ -425,6 +460,13 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_WHILE:             return "WHILE";
     case TOKEN_FOR:               return "FOR";
     case TOKEN_TYPEOF:            return "TYPEOF";
+    case TOKEN_CLASS:             return "CLASS";
+    case TOKEN_EXTENDS:           return "EXTENDS";
+    case TOKEN_NEW:               return "NEW";
+    case TOKEN_THIS:              return "THIS";
+    case TOKEN_SUPER:             return "SUPER";
+    case TOKEN_STATIC:            return "STATIC";
+    case TOKEN_INSTANCEOF:        return "INSTANCEOF";
     case TOKEN_ERROR:             return "ERROR";
     case TOKEN_EOF:               return "EOF";
   }

@@ -33,6 +33,8 @@ typedef enum {
   AST_ARRAY_LITERAL,
   AST_SPREAD,
   AST_CONDITIONAL,
+  AST_THIS,
+  AST_SUPER,
 
   /* Statements. */
   AST_EXPRESSION_STMT,
@@ -49,6 +51,7 @@ typedef enum {
   AST_SWITCH_STMT,
   AST_TRY_STMT,
   AST_THROW_STMT,
+  AST_CLASS_DECL,
   AST_PROGRAM,
 } AstNodeType;
 
@@ -64,6 +67,7 @@ typedef enum {
   BINARY_EQUAL, BINARY_NOT_EQUAL, /* === !== — CScript has no coercing equality */
   BINARY_GREATER, BINARY_GREATER_EQUAL,
   BINARY_LESS, BINARY_LESS_EQUAL,
+  BINARY_INSTANCEOF,
 } BinaryOp;
 
 typedef enum {
@@ -93,6 +97,25 @@ typedef struct AstBinding {
   AstNode *defaultValue; /* NULL when the pattern has no default */
   bool isRest;           /* ...rest, only valid last in an array pattern */
 } AstBinding;
+
+/* One field declared in a class body: `x;`, `x = 0;` or `x: number = 0;`.
+ *
+ * Field initialisers are lowered into the class's hidden field-initialiser
+ * method rather than into the constructor, so a class without a constructor
+ * still gets them and a subclass does not have to remember to run them. */
+typedef struct AstClassField {
+  const char *name;
+  int length;
+  AstNode *initializer; /* NULL for a bare `x;` */
+  TypeKind declaredType;
+  bool hasAnnotation;
+} AstClassField;
+
+/* One method in a class body. `constructor` is pulled out separately. */
+typedef struct AstClassMember {
+  AstNode *function; /* an AST_FUNCTION */
+  bool isStatic;
+} AstClassMember;
 
 /* One declared parameter. Stored inline in the function node's array. */
 typedef struct AstParam {
@@ -146,11 +169,27 @@ struct AstNode {
       bool isIncrement;
       bool isPrefix;                     /*   prefix yields the new value */
     } update;
-    struct {                             /* AST_CALL */
+    struct {                             /* AST_CALL, and `new C(...)` */
       AstNode *callee;
       AstNode **arguments;
       int argCount;
+      bool isNew;                        /*   construction rather than a call */
     } call;
+    struct {                             /* AST_SUPER */
+      const char *name;                  /*   NULL for `super(...)` */
+      int length;
+    } super;
+    struct {                             /* AST_CLASS_DECL */
+      const char *name;
+      int nameLength;
+      const char *superName;             /*   NULL without `extends` */
+      int superLength;
+      struct AstClassField *fields;
+      int fieldCount;
+      struct AstClassMember *members;
+      int memberCount;
+      AstNode *constructor;              /*   an AST_FUNCTION, or NULL */
+    } classDecl;
     struct {                             /* AST_PROPERTY — obj.name */
       AstNode *object;
       const char *name;
@@ -224,6 +263,11 @@ struct AstNode {
       AstNode *body;                     /*   an AST_BLOCK */
       TypeKind returnType;
       bool hasReturnAnnotation;
+      /* True when the name came from the binding the function was assigned to
+       * rather than from a `function name(...)` declaration. Such a name is
+       * for diagnostics only: it must not declare anything, or `const f = () =>
+       * 1;` would bind `f` twice. */
+      bool nameIsInferred;
     } function;
     AstNode *returnValue;                /* AST_RETURN_STMT, may be NULL */
     struct {                             /* AST_FOR_OF_STMT */
@@ -279,6 +323,16 @@ AstNode *csAstAssign(AstArena *arena, int line, AstNode *target, AstNode *value)
 AstNode *csAstUpdate(AstArena *arena, int line, AstNode *target, bool isIncrement,
                      bool isPrefix);
 AstNode *csAstCall(AstArena *arena, int line, AstNode *callee);
+AstNode *csAstNew(AstArena *arena, int line, AstNode *callee);
+AstNode *csAstThis(AstArena *arena, int line);
+AstNode *csAstSuper(AstArena *arena, int line, const char *name, int length);
+AstNode *csAstClass(AstArena *arena, int line, const char *name, int nameLength,
+                    const char *superName, int superLength);
+void csAstClassAddField(AstArena *arena, AstNode *node, const char *name, int length,
+                        AstNode *initializer, TypeKind declaredType,
+                        bool hasAnnotation);
+void csAstClassAddMember(AstArena *arena, AstNode *node, AstNode *function,
+                         bool isStatic);
 void csAstCallAddArgument(AstArena *arena, AstNode *call, AstNode *argument);
 AstNode *csAstProperty(AstArena *arena, int line, AstNode *object, const char *name,
                        int length);

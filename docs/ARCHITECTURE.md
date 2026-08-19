@@ -233,6 +233,64 @@ quietly failed:
   Past 64 properties an object converts to a plain hash table, once, for good.
   Inline caches simply miss on it.
 
+## Classes on top of shapes
+
+Classes were built after shapes on purpose, and the payoff is how little of the
+runtime they needed.
+
+**An instance is an `ObjObject` with a class pointer.** Not a new heap type. So
+a field is a slot, every instance of a class shares one shape the way every
+object from one literal does, and inline caches, `Object.keys`, `JSON.stringify`
+and the GC walk all worked on instances before instances existed. What a class
+adds is a fallback: a property that misses the shape is looked up along the
+superclass chain.
+
+**Methods are not copied into subclasses.** `csClassFindMethod` walks the chain.
+Copying would make lookup one probe instead of a short walk, at the cost of a
+method added to a base class no longer being visible from its subclasses. The
+chains are short and the walk is pointer compares.
+
+**`this` is slot 0.** A call already leaves the receiver directly below the
+arguments, which is exactly where a frame's slot 0 lands — every other call path
+overwrites that slot with the callee, and a method simply does not. The compiler
+then names slot 0 `this`, so an ordinary local lookup finds it, and an arrow
+function inside a method captures it through the upvalue machinery. JavaScript's
+lexical `this` for arrows falls out with no rule of its own.
+
+**`super` is a hidden local.** The superclass is left on the stack for the
+length of the class body, and a method mentioning `super` captures it as an
+upvalue. That is what makes `super` resolve against the class a method was
+*written* in rather than the class of the receiver — the difference that matters
+the moment a hierarchy is three deep.
+
+**A constructor returns `this`**, which the compiler arranges by emitting
+`OP_GET_LOCAL 0` where it would otherwise emit `OP_UNDEFINED`. So `OP_NEW` needs
+no instruction to recover the instance: the frame leaves it behind.
+
+### Where field initialisers run
+
+This is the part that took the most care, because getting it wrong is visible.
+
+JavaScript runs a class's field initialisers at the point its own constructor
+begins: at the top of the body for a base class, and directly after `super(...)`
+returns for a derived one. Run them all up front instead and `Object.keys`
+comes back in a different order — CScript went to some trouble to preserve
+insertion order elsewhere, so getting it wrong here would be inconsistent.
+
+So a class with a constructor has its field assignments **compiled into that
+constructor**, spliced in at the right point. Nothing extra runs at all. To keep
+the splice point unambiguous, a subclass constructor must call `super(...)` as
+its first statement — stricter than JavaScript, which only requires it before
+the first use of `this`.
+
+A class with *no* constructor keeps its fields in a hidden method the VM calls
+where the implicit constructor would have. Almost always that is immediately,
+before the inherited constructor; the exception is a class that declares fields,
+declares no constructor, and inherits one — there the constructor has to finish
+first, so it runs in a nested interpreter loop and the fields follow it. That
+shape is rare enough to be worth the slow path and common enough to be worth
+getting right.
+
 ## Inline caches
 
 Both property and global sites carry a cache, stored in a side array on the

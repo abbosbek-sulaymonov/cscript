@@ -89,7 +89,13 @@ const char *csValueTypeName(Value value) {
   if (IS_STRING(value)) return "string";
   /* Natives, user functions and closures are all callable, so `typeof` cannot
    * tell them apart — which matches JavaScript. */
-  if (IS_NATIVE(value) || IS_FUNCTION(value) || IS_CLOSURE(value)) return "function";
+  if (IS_NATIVE(value) || IS_FUNCTION(value) || IS_CLOSURE(value) ||
+      IS_BOUND_METHOD(value)) {
+    return "function";
+  }
+  /* A class is callable in JavaScript — only with `new` — and reports as a
+   * function. CScript keeps the report and rejects the call. */
+  if (IS_CLASS(value)) return "function";
   return "object";
 }
 
@@ -253,6 +259,15 @@ static bool sbAppendArray(StringBuilder *builder, ObjArray *array) {
 }
 
 static bool sbAppendObject(StringBuilder *builder, ObjObject *object) {
+  /* An instance prints under its class name — `Dog { name: 'Rex' }` — which is
+   * what makes one distinguishable from a plain literal at a glance. */
+  if (object->klass != NULL) {
+    if (!sbAppend(builder, object->klass->name->chars,
+                  (size_t)object->klass->name->length)) {
+      return false;
+    }
+    if (!sbAppend(builder, " ", 1)) return false;
+  }
   if (!sbAppend(builder, "{", 1)) return false;
 
   bool first = true;
@@ -268,6 +283,61 @@ static bool sbAppendObject(StringBuilder *builder, ObjObject *object) {
   }
 
   return sbAppend(builder, first ? "}" : " }", first ? 1 : 2);
+}
+
+/* Every value that reports as a function, whatever shape it has underneath. */
+#define IS_CALLABLE(v)                                                    \
+  (IS_NATIVE(v) || IS_FUNCTION(v) || IS_CLOSURE(v) || IS_BOUND_METHOD(v) || \
+   IS_CLASS(v))
+
+/* `[Function: name]`, `[Function (anonymous)]` or `[class Name extends Base]`,
+ * matching what Node prints — which is the only reason to prefer any of these
+ * over a bare placeholder.
+ *
+ * Built on the heap rather than in a fixed buffer because a name can be any
+ * length. */
+static char *renderCallable(Value value, size_t *lengthOut) {
+  ObjString *name = NULL;
+  ObjClass *klass = NULL;
+
+  if (IS_NATIVE(value)) {
+    name = AS_NATIVE(value)->name;
+  } else if (IS_FUNCTION(value)) {
+    name = AS_FUNCTION(value)->name;
+  } else if (IS_CLOSURE(value)) {
+    name = AS_CLOSURE(value)->function->name;
+  } else if (IS_BOUND_METHOD(value)) {
+    name = AS_BOUND_METHOD(value)->method->function->name;
+  } else {
+    klass = AS_CLASS(value);
+    name = klass->name;
+  }
+
+  StringBuilder builder = {NULL, 0, 0};
+  bool ok;
+  if (klass != NULL) {
+    ok = sbAppend(&builder, "[class ", 7) &&
+         sbAppend(&builder, name->chars, (size_t)name->length);
+    if (ok && klass->superclass != NULL) {
+      ok = sbAppend(&builder, " extends ", 9) &&
+           sbAppend(&builder, klass->superclass->name->chars,
+                    (size_t)klass->superclass->name->length);
+    }
+    ok = ok && sbAppend(&builder, "]", 1);
+  } else if (name == NULL) {
+    ok = sbAppend(&builder, "[Function (anonymous)]", 22);
+  } else {
+    ok = sbAppend(&builder, "[Function: ", 11) &&
+         sbAppend(&builder, name->chars, (size_t)name->length) &&
+         sbAppend(&builder, "]", 1);
+  }
+
+  if (!ok) {
+    free(builder.data);
+    return NULL;
+  }
+  if (lengthOut != NULL) *lengthOut = builder.length;
+  return builder.data;
 }
 
 static bool sbAppendValue(StringBuilder *builder, Value value, bool quoteStrings) {
@@ -333,9 +403,8 @@ char *csValueToCString(Value value, size_t *lengthOut) {
         ObjString *string = AS_STRING(value);
         text = string->chars;
         length = (size_t)string->length;
-      } else if (IS_NATIVE(value) || IS_FUNCTION(value) || IS_CLOSURE(value)) {
-        text = "[Function]";
-        length = 10;
+      } else if (IS_CALLABLE(value)) {
+        return renderCallable(value, lengthOut);
       } else {
         /* Arrays and objects are rendered structurally, so console.log shows
          * their contents rather than a placeholder. */

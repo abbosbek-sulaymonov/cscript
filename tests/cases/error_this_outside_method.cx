@@ -1,0 +1,4 @@
+function plain() {
+  return this.x;
+}
+console.log(plain());

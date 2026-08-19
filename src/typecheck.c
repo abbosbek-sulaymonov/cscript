@@ -195,7 +195,7 @@ static const Signature *declareFunction(Checker *checker, AstNode *node) {
     signature->paramTypes[i] = param->hasAnnotation ? param->type : TYPE_ANY;
   }
 
-  if (node->as.function.name != NULL) {
+  if (node->as.function.name != NULL && !node->as.function.nameIsInferred) {
     declareVariable(checker, node->as.function.name, node->as.function.nameLength,
                     TYPE_FUNCTION);
     checker->variables[checker->count - 1].signature = signature;
@@ -256,6 +256,12 @@ static TypeKind checkBinary(Checker *checker, AstNode *node) {
       typeError(checker, line, "cannot add %s and %s", csTypeName(left),
                 csTypeName(right));
       return TYPE_ERROR;
+
+    case BINARY_INSTANCEOF:
+      /* The right side has to be a class, which the checker cannot see, so the
+       * VM does that test. The answer is a boolean either way. */
+      checkNode(checker, node->as.binary.left);
+      return TYPE_BOOLEAN;
 
     case BINARY_SUBTRACT:
     case BINARY_MULTIPLY:
@@ -425,9 +431,13 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
         break;
       }
 
-      /* Object shapes are not modelled yet, so a property is dynamic — except
-       * `length`, which is a number on every container that has one. */
-      result = isLength ? TYPE_NUMBER : TYPE_ANY;
+      /* Object shapes are not modelled yet, so a property is dynamic. That
+       * includes `length`: arrays and plain objects share TYPE_OBJECT here, so
+       * assuming a number would reject `class Queue { length() { ... } }` —
+       * and being wrong about a type is worse than not knowing it. A string's
+       * `length` is handled above, where it really is guaranteed. */
+      (void)isLength;
+      result = TYPE_ANY;
       break;
     }
 
@@ -675,6 +685,33 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
       checkNode(checker, node->as.thrown);
       result = TYPE_UNDEFINED;
       break;
+
+    /* Class types are not modelled. The lattice here is a fixed set of
+     * primitives, and adding nominal types with members and subtyping is a
+     * milestone of its own — so an instance is `object`, a class is dynamic,
+     * and `this` is dynamic. Nothing about a class is checked statically
+     * beyond what its method bodies say on their own. */
+    case AST_THIS:
+    case AST_SUPER:
+      result = TYPE_ANY;
+      break;
+
+    case AST_CLASS_DECL: {
+      declareVariable(checker, node->as.classDecl.name, node->as.classDecl.nameLength,
+                      TYPE_ANY);
+
+      for (int i = 0; i < node->as.classDecl.fieldCount; i++) {
+        checkNode(checker, node->as.classDecl.fields[i].initializer);
+      }
+      if (node->as.classDecl.constructor != NULL) {
+        checkNode(checker, node->as.classDecl.constructor);
+      }
+      for (int i = 0; i < node->as.classDecl.memberCount; i++) {
+        checkNode(checker, node->as.classDecl.members[i].function);
+      }
+      result = TYPE_UNDEFINED;
+      break;
+    }
 
     case AST_FOR_OF_STMT:
       beginScope(checker);

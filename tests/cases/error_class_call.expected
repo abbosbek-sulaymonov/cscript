@@ -1,0 +1,2 @@
+cscript: runtime error: Widget is a class; write 'new Widget(...)' to construct one
+  at error_class_call.cx:6
