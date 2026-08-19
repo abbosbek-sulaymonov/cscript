@@ -138,6 +138,93 @@ described above stopped being theoretical: `csObjectSetProperty` allocates twice
 (interning the key, then possibly growing the table), and both the receiver and
 the value have to stay rooted across it.
 
+## Performance
+
+Measured on an Apple M3 Pro, best of seven runs, `bench/run.sh`. The reference
+points are the same loop written in Go and in C, both at `-O2`.
+
+| Benchmark | v0.2.0 | now | change |
+| --- | ---: | ---: | ---: |
+| `loop_arith` | 602 ms | 325 ms | −46% |
+| `branches` | 598 ms | 395 ms | −34% |
+| `loop_empty` | 317 ms | 203 ms | −36% |
+| `globals` | 339 ms | 273 ms | −19% |
+| `locals` | 252 ms | 160 ms | −37% |
+| `strings` | 260 ms | 260 ms | — |
+| **total** | **2368 ms** | **1616 ms** | **−32%** |
+
+`loop_arith` against native code: Go 27 ms, C 26 ms. CScript went from 22× Go to
+12× Go. The remaining gap is structural, not a missing tweak — see
+[the ceiling](#the-interpreter-ceiling).
+
+### What actually helped
+
+**An integer fast path for `%`** — the largest single win. `OP_MODULO` called
+`fmod()` unconditionally; in isolation, ten million `fmod` calls take 182 ms
+against 8 ms for integer remainder, a 23× difference. Loop counters are
+integers virtually always, so the fast path applies whenever it is exactly
+equivalent. A zero dividend is excluded so `-0 % n` stays `-0`.
+
+**In-place local update** — `i++` in statement position had to produce the old
+value nobody reads, costing a duplicate and two pops. `OP_INC_LOCAL` does the
+whole thing in one instruction with no stack traffic. The canonical loop body
+went from 16 instructions to 11.
+
+**An inlined numeric path for `+`**, skipping the call and two string checks
+that the general concatenate-or-add path performs.
+
+### What did not help: computed goto
+
+The interpreter dispatches through computed goto where the compiler supports it
+and a switch everywhere else. On this hardware the choice is **a wash**:
+
+| Benchmark | computed goto | switch |
+| --- | ---: | ---: |
+| `locals` | 160 ms | 190 ms |
+| `loop_arith` | 325 ms | 342 ms |
+| `loop_empty` | 203 ms | 214 ms |
+| `globals` | 273 ms | 284 ms |
+| `branches` | **395 ms** | **332 ms** |
+| total | 1616 ms | 1624 ms |
+
+It wins on four of six — the tight loops, where the same short opcode sequence
+repeats and each dispatch site gets a clean branch history. It loses badly on
+`branches`, whose control flow is data-dependent and which touches a wider
+spread of opcodes: replicating the dispatch sequence at 38 sites costs
+instruction-cache footprint, and the per-site predictors each see less history
+than the single shared one does.
+
+Computed goto is kept as the default because the loops it helps are more
+representative of interpreter work, and because this result is specific to one
+ARM64 core — the technique generally wins by more on x86-64, which is not
+tested here. `make test-switch` runs the whole suite through the other path so
+the fallback cannot rot.
+
+This is the sort of thing the benchmark suite exists to catch. The optimisation
+was expected to be worth 15–25% and was worth nothing; without measuring, it
+would have been documented as a win.
+
+### The interpreter ceiling
+
+Roughly 12× Go, and the remaining distance is architectural. Go compiles the
+benchmark loop to about four machine instructions; CScript executes eleven
+bytecode instructions through a dispatch loop, each with a stack round-trip.
+Nothing removes that floor.
+
+Ideas that would still help, in rough order of value per effort:
+
+| Idea | Expected | Effort |
+| --- | --- | --- |
+| Superinstructions (fuse hot opcode pairs) | 20–40% | medium |
+| NaN-boxing — `Value` 16 bytes to 8 | 10–20% | medium |
+| Inline caches for global and property lookup | 10–20% | medium |
+| Register-based bytecode instead of a stack | 20–40% | large |
+| A JIT | order of magnitude | very large |
+
+Only the last closes the gap with Go, and it is what makes Node 2.8× rather
+than 12×. It is also a multi-year project. A well-tuned bytecode interpreter
+lands somewhere around 5–10× native, and CScript is now inside that band.
+
 ## Values
 
 `Value` is a 16-byte tagged union: a `ValueType` plus a payload of a `bool`, a

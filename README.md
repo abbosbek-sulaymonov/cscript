@@ -170,12 +170,62 @@ only between parsing and code generation, in an arena freed in one call.
 
 **Scopes are resolved at compile time.** A local variable compiles to a stack
 slot index, so reading a loop counter is an array index — not the hash lookup a
-naive interpreter would do on every iteration. Globals still hash, which is a
-real reason to prefer `let` inside a loop.
+naive interpreter would do on every iteration. Globals still hash: `bench/`
+measures the same program both ways and locals come out about 30% faster.
 
 **A garbage collector from day one.** Retrofitting GC means touching every
 allocation site. Wiring it in while there was one object type was nearly free —
 and it paid off immediately when milestone 2 added two more.
+
+---
+
+## Performance
+
+Measured on an Apple M3 Pro, best of seven, via `bench/run.sh`.
+
+```
+benchmark             cscript         node      ratio
+---------------------------------------------------------
+locals                  160 ms         67 ms       2.4x
+loop_empty              203 ms         66 ms       3.1x
+strings                 260 ms         62 ms       4.2x
+globals                 273 ms         66 ms       4.1x
+loop_arith              325 ms         70 ms       4.6x
+branches                395 ms         68 ms       5.8x
+
+native reference (loop_arith):  Go 27 ms   ·   C -O2 26 ms
+```
+
+CScript is **about 12× slower than Go** and 4–6× slower than Node's JIT. It was
+22× slower than Go before this round of work; `bench/` exists so that number is
+measured rather than asserted.
+
+Three optimisations account for the 32% improvement, and the measurements are
+worth more than the summary:
+
+- **An integer fast path for `%`** was the largest single win. `OP_MODULO`
+  called `fmod()` unconditionally — ten million `fmod` calls cost 182 ms
+  against 8 ms for integer remainder.
+- **`OP_INC_LOCAL`** collapses `i++` in statement position from seven
+  instructions to one, since the old value nobody reads no longer has to be
+  produced. The canonical loop body went from 16 instructions to 11.
+- **Computed-goto dispatch turned out to be worth nothing.** It wins on four of
+  six benchmarks and loses 19% on the branch-heavy one, netting a 0.5%
+  difference. It is kept as the default with the switch path still tested, and
+  the reasoning is written up in
+  [ARCHITECTURE.md](docs/ARCHITECTURE.md#what-did-not-help-computed-goto). This
+  is exactly why the benchmarks exist: it was expected to be worth 15–25%.
+
+Closing the gap with Go needs a JIT, not another tweak — the reasoning and the
+remaining ideas are in
+[ARCHITECTURE.md](docs/ARCHITECTURE.md#the-interpreter-ceiling).
+
+```bash
+bench/run.sh              # everything
+bench/run.sh loop         # only matching names
+REPS=7 bench/run.sh       # more repetitions
+BIN=build/switch/cscript bench/run.sh    # compare dispatch strategies
+```
 
 ---
 
@@ -197,10 +247,11 @@ never leaves a stale object behind.
 ### Tests
 
 ```bash
-make test        # golden-file suite under UBSan — UB aborts the run
-make test-gc     # same suite, collecting on every allocation
-make test-node   # examples must match Node.js output
-make test-all    # all three
+make test         # golden-file suite under UBSan — UB aborts the run
+make test-gc      # same suite, collecting on every allocation
+make test-switch  # same suite, forcing the portable switch dispatch
+make test-node    # examples must match Node.js output
+make test-all     # all four
 make test FILTER=scoping
 UPDATE=1 tests/run_tests.sh    # rewrite .expected from actual output
 ```

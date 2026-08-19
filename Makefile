@@ -8,6 +8,7 @@
 #   make test-asan  golden-file suite against the AddressSanitizer build
 #   make test-gc    golden-file suite with a collection on every allocation
 #   make test-node  check the examples against Node.js (skipped if absent)
+#   make test-switch  same suite, forcing the portable switch dispatch
 #   make run FILE=examples/hello.cx
 #   make clean
 #
@@ -40,7 +41,7 @@ ASAN          := -fsanitize=address
 TRACE_DEFINES := -DCS_DEBUG_PRINT_TOKENS -DCS_DEBUG_PRINT_AST \
                  -DCS_DEBUG_PRINT_CODE -DCS_DEBUG_TRACE_EXECUTION
 
-.PHONY: all release debug asan gcstress trace test test-asan test-gc test-node test-all run clean help
+.PHONY: all release debug asan gcstress switch trace test test-asan test-gc test-node test-switch test-all run clean help
 .DEFAULT_GOAL := release
 
 all: release
@@ -67,6 +68,7 @@ $(eval $(call BUILD_CONFIG,release,-O2 -DNDEBUG,))
 $(eval $(call BUILD_CONFIG,debug,-O0 -g3 $(UBSAN) -fno-omit-frame-pointer,$(UBSAN)))
 $(eval $(call BUILD_CONFIG,asan,-O0 -g3 $(ASAN) $(UBSAN) -fno-omit-frame-pointer,$(ASAN) $(UBSAN)))
 $(eval $(call BUILD_CONFIG,gcstress,-O0 -g3 $(UBSAN) -DCS_DEBUG_STRESS_GC,$(UBSAN)))
+$(eval $(call BUILD_CONFIG,switch,-O2 -DNDEBUG -DCS_NO_COMPUTED_GOTO,))
 $(eval $(call BUILD_CONFIG,trace,-O0 -g3 $(UBSAN) $(TRACE_DEFINES),$(UBSAN)))
 
 # Run against an instrumented build so undefined behaviour fails the suite.
@@ -87,7 +89,13 @@ test-gc: gcstress
 test-node: release
 	@BIN=$(BUILD)/release/cscript tests/node_parity.sh
 
-test-all: test test-gc test-node
+# The interpreter dispatches through computed goto where the compiler supports
+# it, and a switch everywhere else. Only one of those is exercised by a normal
+# build, so the other is run explicitly here.
+test-switch: switch
+	@BIN=$(BUILD)/switch/cscript tests/run_tests.sh $(FILTER)
+
+test-all: test test-gc test-switch test-node
 
 run: release
 	@$(BUILD)/release/cscript $(FILE)
@@ -104,6 +112,7 @@ help:
 	@echo "make test-asan  same suite under AddressSanitizer"
 	@echo "make test-gc    same suite, collecting on every allocation"
 	@echo "make test-node  check the examples against Node.js"
-	@echo "make test-all   test + test-gc + test-node"
+	@echo "make test-switch same suite with switch dispatch"
+	@echo "make test-all   test + test-gc + test-switch + test-node"
 	@echo "make run FILE=examples/hello.cx"
 	@echo "make clean"

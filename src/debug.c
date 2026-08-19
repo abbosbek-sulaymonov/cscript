@@ -57,6 +57,8 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_SET_GLOBAL:        return constantInstruction("OP_SET_GLOBAL", chunk, offset);
     case OP_GET_LOCAL:         return byteInstruction("OP_GET_LOCAL", chunk, offset);
     case OP_SET_LOCAL:         return byteInstruction("OP_SET_LOCAL", chunk, offset);
+    case OP_INC_LOCAL:         return byteInstruction("OP_INC_LOCAL", chunk, offset);
+    case OP_DEC_LOCAL:         return byteInstruction("OP_DEC_LOCAL", chunk, offset);
     case OP_GET_PROPERTY:      return constantInstruction("OP_GET_PROPERTY", chunk, offset);
     case OP_CALL:              return byteInstruction("OP_CALL", chunk, offset);
     case OP_ADD:               return simpleInstruction("OP_ADD", offset);

@@ -345,6 +345,30 @@ static void compileUpdate(Compiler *compiler, const AstNode *node) {
   if (!node->as.update.isPrefix) emitByte(compiler, OP_POP, line);
 }
 
+/* Compiles an expression whose value is thrown away.
+ *
+ * `i++` as a statement is the common case worth special-casing: the general
+ * form has to produce the old value, which costs a duplicate and two pops that
+ * nothing ever reads. In effect position none of that is observable, so a local
+ * update collapses to a single in-place instruction. */
+static void compileForEffect(Compiler *compiler, const AstNode *node) {
+  if (node != NULL && node->type == AST_UPDATE) {
+    const AstNode *target = node->as.update.target;
+    const char *name = target->as.identifier.name;
+    int length = target->as.identifier.length;
+    int slot = resolveLocal(compiler, name, length);
+
+    if (slot != -1 && !compiler->locals[slot].isConst) {
+      emitBytes(compiler, node->as.update.isIncrement ? OP_INC_LOCAL : OP_DEC_LOCAL,
+                (uint8_t)slot, node->line);
+      return;
+    }
+  }
+
+  compileNode(compiler, node);
+  emitByte(compiler, OP_POP, node != NULL ? node->line : 0);
+}
+
 static void compileVarDecl(Compiler *compiler, const AstNode *node) {
   int line = node->line;
   const char *name = node->as.varDecl.name;
@@ -418,8 +442,7 @@ static void compileFor(Compiler *compiler, const AstNode *node) {
   compileNode(compiler, node->as.forStmt.body);
 
   if (node->as.forStmt.increment != NULL) {
-    compileNode(compiler, node->as.forStmt.increment);
-    emitByte(compiler, OP_POP, line); /* the increment is evaluated for effect */
+    compileForEffect(compiler, node->as.forStmt.increment);
   }
 
   emitLoop(compiler, loopStart, line);
@@ -516,8 +539,8 @@ static void compileNode(Compiler *compiler, const AstNode *node) {
       break;
 
     case AST_EXPRESSION_STMT:
-      compileNode(compiler, node->as.expression);
-      emitByte(compiler, OP_POP, line); /* statements leave the stack balanced */
+      /* A statement's value is discarded, which leaves the stack balanced. */
+      compileForEffect(compiler, node->as.expression);
       break;
 
     case AST_VAR_DECL:

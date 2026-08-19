@@ -1,0 +1,7 @@
+// Allocation and interning pressure: every concatenation makes a new string,
+// so this exercises the collector as much as the interpreter.
+let out = "";
+for (let i = 0; i < 20000; i++) {
+  out = out + "x";
+}
+console.log(typeof out);

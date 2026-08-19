@@ -62,6 +62,14 @@ Value csVMPop(void) { return *(--vm.stackTop); }
 
 static Value peekStack(int distance) { return vm.stackTop[-1 - distance]; }
 
+/* True when a double holds an exact integer small enough to move into an
+ * int64_t without loss. 2^53 is the largest such value for a double, and it is
+ * far inside int64_t's range, so the conversion below cannot overflow. */
+static inline bool isExactInteger(double value) {
+  return value >= -9007199254740992.0 && value <= 9007199254740992.0 &&
+         value == (double)(int64_t)value;
+}
+
 void csVMRuntimeError(const char *format, ...) {
   va_list args;
   va_start(args, format);
@@ -147,6 +155,35 @@ static bool callValue(Value callee, int argCount) {
   return true;
 }
 
+/* Dispatch strategy.
+ *
+ * A switch compiles to one indirect branch shared by every opcode, so the CPU's
+ * branch predictor has a single history slot for the whole interpreter and
+ * mispredicts constantly. Computed goto gives each opcode its own dispatch
+ * branch at the end of its own handler, so the predictor can learn the pairs
+ * that actually follow one another — OP_GET_LOCAL is nearly always followed by
+ * OP_CONSTANT in a loop, and that becomes predictable.
+ *
+ * The switch version is kept for compilers without the labels-as-values
+ * extension, and both paths run the same handler bodies.
+ */
+/* Define CS_NO_COMPUTED_GOTO to force the portable switch path — `make
+ * test-switch` builds that way, so the fallback cannot quietly rot. */
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(CS_NO_COMPUTED_GOTO)
+#define CS_COMPUTED_GOTO 1
+#endif
+
+/* Labels-as-values is a GNU extension, which -Wpedantic flags. The use is
+ * deliberate and guarded by the feature test above, so the warning is silenced
+ * here rather than dropped from the project-wide warning set. */
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wgnu-label-as-value"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#endif
+
 static InterpretResult run(void) {
 #define READ_BYTE() (*vm.ip++)
 #define READ_SHORT() (vm.ip += 2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1]))
@@ -169,46 +206,86 @@ static InterpretResult run(void) {
     csVMPush(valueType(a op b));                                            \
   } while (false)
 
-  for (;;) {
 #ifdef CS_DEBUG_TRACE_EXECUTION
-    printf("          ");
-    for (Value *slot = vm.stack; slot < vm.stackTop; slot++) {
-      printf("[ ");
-      csValuePrint(*slot);
-      printf(" ]");
-    }
-    printf("\n");
-    csDisassembleInstruction(vm.chunk, (int)(vm.ip - vm.chunk->code));
+#define VM_TRACE_STEP()                                        \
+  do {                                                         \
+    printf("          ");                                      \
+    for (Value *slot = vm.stack; slot < vm.stackTop; slot++) { \
+      printf("[ ");                                            \
+      csValuePrint(*slot);                                     \
+      printf(" ]");                                            \
+    }                                                          \
+    printf("\n");                                              \
+    csDisassembleInstruction(vm.chunk, (int)(vm.ip - vm.chunk->code)); \
+  } while (false)
+#else
+#define VM_TRACE_STEP() ((void)0)
 #endif
 
-    uint8_t instruction = READ_BYTE();
+  uint8_t instruction = 0;
+
+#ifdef CS_COMPUTED_GOTO
+  /* Generated from the same list as the OpCode enum, so the table can never
+   * drift out of order with it. */
+  static const void *const dispatchTable[] = {
+#define CS_DISPATCH_ENTRY(name) &&label_##name,
+      CS_OPCODE_LIST(CS_DISPATCH_ENTRY)
+#undef CS_DISPATCH_ENTRY
+  };
+  _Static_assert(sizeof(dispatchTable) / sizeof(dispatchTable[0]) == OP_COUNT,
+                 "dispatch table and OpCode enum disagree");
+
+#define VM_DISPATCH()                            \
+  do {                                           \
+    VM_TRACE_STEP();                             \
+    instruction = READ_BYTE();                   \
+    goto *dispatchTable[instruction];            \
+  } while (false)
+
+#define VM_BEGIN VM_DISPATCH();
+#define VM_CASE(name) label_##name:
+#define VM_NEXT() VM_DISPATCH()
+#define VM_END
+#else
+#define VM_BEGIN         \
+  for (;;) {             \
+    VM_TRACE_STEP();     \
+    instruction = READ_BYTE(); \
     switch (instruction) {
-      case OP_CONSTANT:  csVMPush(READ_CONSTANT()); break;
-      case OP_NULL:      csVMPush(NULL_VAL); break;
-      case OP_UNDEFINED: csVMPush(UNDEFINED_VAL); break;
-      case OP_TRUE:      csVMPush(BOOL_VAL(true)); break;
-      case OP_FALSE:     csVMPush(BOOL_VAL(false)); break;
+#define VM_CASE(name) case name:
+#define VM_NEXT() break
+#define VM_END \
+  }            \
+  }
+#endif
 
-      case OP_POP: csVMPop(); break;
-      case OP_POP_N: vm.stackTop -= READ_BYTE(); break;
-      case OP_DUP: csVMPush(peekStack(0)); break;
+  VM_BEGIN
+      VM_CASE(OP_CONSTANT)  csVMPush(READ_CONSTANT()); VM_NEXT();
+      VM_CASE(OP_NULL)      csVMPush(NULL_VAL); VM_NEXT();
+      VM_CASE(OP_UNDEFINED) csVMPush(UNDEFINED_VAL); VM_NEXT();
+      VM_CASE(OP_TRUE)      csVMPush(BOOL_VAL(true)); VM_NEXT();
+      VM_CASE(OP_FALSE)     csVMPush(BOOL_VAL(false)); VM_NEXT();
 
-      case OP_DEFINE_GLOBAL: {
+      VM_CASE(OP_POP) csVMPop(); VM_NEXT();
+      VM_CASE(OP_POP_N) vm.stackTop -= READ_BYTE(); VM_NEXT();
+      VM_CASE(OP_DUP) csVMPush(peekStack(0)); VM_NEXT();
+
+      VM_CASE(OP_DEFINE_GLOBAL) {
         ObjString *name = READ_STRING();
         csTableSet(&vm.globals, name, peekStack(0));
         csVMPop();
-        break;
+        VM_NEXT();
       }
 
-      case OP_DEFINE_CONST: {
+      VM_CASE(OP_DEFINE_CONST) {
         ObjString *name = READ_STRING();
         csTableSet(&vm.globals, name, peekStack(0));
         csVMMarkGlobalConst(name);
         csVMPop();
-        break;
+        VM_NEXT();
       }
 
-      case OP_GET_GLOBAL: {
+      VM_CASE(OP_GET_GLOBAL) {
         ObjString *name = READ_STRING();
         Value value;
         if (!csTableGet(&vm.globals, name, &value)) {
@@ -218,10 +295,10 @@ static InterpretResult run(void) {
           return CS_RUNTIME_ERROR;
         }
         csVMPush(value);
-        break;
+        VM_NEXT();
       }
 
-      case OP_SET_GLOBAL: {
+      VM_CASE(OP_SET_GLOBAL) {
         ObjString *name = READ_STRING();
         if (csTableGet(&vm.globalConsts, name, NULL)) {
           csVMRuntimeError("'%s' is a constant and cannot be reassigned", name->chars);
@@ -234,18 +311,32 @@ static InterpretResult run(void) {
           csVMRuntimeError("'%s' is not defined", name->chars);
           return CS_RUNTIME_ERROR;
         }
-        break;
+        VM_NEXT();
       }
 
-      case OP_GET_LOCAL: csVMPush(vm.stack[READ_BYTE()]); break;
+      VM_CASE(OP_GET_LOCAL) csVMPush(vm.stack[READ_BYTE()]); VM_NEXT();
 
-      case OP_SET_LOCAL: {
+      VM_CASE(OP_SET_LOCAL) {
         uint8_t slot = READ_BYTE();
         vm.stack[slot] = peekStack(0);
-        break;
+        VM_NEXT();
       }
 
-      case OP_GET_PROPERTY: {
+      VM_CASE(OP_INC_LOCAL)
+      VM_CASE(OP_DEC_LOCAL) {
+        uint8_t slot = READ_BYTE();
+        Value *target = &vm.stack[slot];
+        if (!IS_NUMBER(*target)) {
+          csVMRuntimeError("operand of '%s' must be a number, got %s",
+                           instruction == OP_INC_LOCAL ? "++" : "--",
+                           csValueTypeName(*target));
+          return CS_RUNTIME_ERROR;
+        }
+        target->as.number += (instruction == OP_INC_LOCAL ? 1 : -1);
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_GET_PROPERTY) {
         ObjString *name = READ_STRING();
         Value receiver = peekStack(0);
         if (!IS_OBJECT(receiver)) {
@@ -261,24 +352,34 @@ static InterpretResult run(void) {
         }
         csVMPop();
         csVMPush(value);
-        break;
+        VM_NEXT();
       }
 
-      case OP_CALL: {
+      VM_CASE(OP_CALL) {
         int argCount = READ_BYTE();
         if (!callValue(peekStack(argCount), argCount)) return CS_RUNTIME_ERROR;
-        break;
+        VM_NEXT();
       }
 
-      case OP_ADD:
+      VM_CASE(OP_ADD) {
+        /* Adding two numbers is overwhelmingly the common case, and routing it
+         * through concatenateOrAdd() costs a call plus two string checks. */
+        Value b = peekStack(0);
+        Value a = peekStack(1);
+        if (IS_NUMBER(a) && IS_NUMBER(b)) {
+          vm.stackTop -= 2;
+          csVMPush(NUMBER_VAL(AS_NUMBER(a) + AS_NUMBER(b)));
+          VM_NEXT();
+        }
         if (!concatenateOrAdd()) return CS_RUNTIME_ERROR;
-        break;
+        VM_NEXT();
+      }
 
-      case OP_SUBTRACT: BINARY_NUMERIC_OP(NUMBER_VAL, -); break;
-      case OP_MULTIPLY: BINARY_NUMERIC_OP(NUMBER_VAL, *); break;
-      case OP_DIVIDE:   BINARY_NUMERIC_OP(NUMBER_VAL, /); break;
+      VM_CASE(OP_SUBTRACT) BINARY_NUMERIC_OP(NUMBER_VAL, -); VM_NEXT();
+      VM_CASE(OP_MULTIPLY) BINARY_NUMERIC_OP(NUMBER_VAL, *); VM_NEXT();
+      VM_CASE(OP_DIVIDE)   BINARY_NUMERIC_OP(NUMBER_VAL, /); VM_NEXT();
 
-      case OP_MODULO: {
+      VM_CASE(OP_MODULO) {
         if (!IS_NUMBER(peekStack(0)) || !IS_NUMBER(peekStack(1))) {
           csVMRuntimeError("operands of '%%' must be numbers, got %s and %s",
                            csValueTypeName(peekStack(1)), csValueTypeName(peekStack(0)));
@@ -286,89 +387,117 @@ static InterpretResult run(void) {
         }
         double b = AS_NUMBER(csVMPop());
         double a = AS_NUMBER(csVMPop());
-        /* JS % keeps the sign of the dividend, which is exactly fmod. */
-        csVMPush(NUMBER_VAL(fmod(a, b)));
-        break;
+
+        /* fmod() is a libm call and costs roughly 20ns; integer remainder is
+         * about 1ns. Loop counters are integers virtually always, so take the
+         * integer path whenever it is exactly equivalent.
+         *
+         * C's % truncates toward zero and so keeps the sign of the dividend,
+         * which is what JavaScript's % does too. A zero dividend is excluded so
+         * that -0 %% n stays -0 rather than becoming +0. */
+        if (b != 0 && a != 0 && isExactInteger(a) && isExactInteger(b)) {
+          csVMPush(NUMBER_VAL((double)((int64_t)a % (int64_t)b)));
+        } else {
+          csVMPush(NUMBER_VAL(fmod(a, b)));
+        }
+        VM_NEXT();
       }
 
-      case OP_NEGATE:
+      VM_CASE(OP_NEGATE)
         if (!IS_NUMBER(peekStack(0))) {
           csVMRuntimeError("operand of unary '-' must be a number, got %s",
                            csValueTypeName(peekStack(0)));
           return CS_RUNTIME_ERROR;
         }
         csVMPush(NUMBER_VAL(-AS_NUMBER(csVMPop())));
-        break;
+        VM_NEXT();
 
-      case OP_NOT:
+      VM_CASE(OP_NOT)
         csVMPush(BOOL_VAL(!csValueIsTruthy(csVMPop())));
-        break;
+        VM_NEXT();
 
-      case OP_TYPEOF: {
+      VM_CASE(OP_TYPEOF) {
         const char *name = csValueTypeName(csVMPop());
         csVMPush(OBJ_VAL(csStringCopy(name, (int)strlen(name))));
-        break;
+        VM_NEXT();
       }
 
-      case OP_EQUAL: {
+      VM_CASE(OP_EQUAL) {
         Value b = csVMPop();
         Value a = csVMPop();
         csVMPush(BOOL_VAL(csValuesStrictEqual(a, b)));
-        break;
+        VM_NEXT();
       }
-      case OP_NOT_EQUAL: {
+      VM_CASE(OP_NOT_EQUAL) {
         Value b = csVMPop();
         Value a = csVMPop();
         csVMPush(BOOL_VAL(!csValuesStrictEqual(a, b)));
-        break;
+        VM_NEXT();
       }
 
-      case OP_GREATER:       BINARY_NUMERIC_OP(BOOL_VAL, >); break;
-      case OP_GREATER_EQUAL: BINARY_NUMERIC_OP(BOOL_VAL, >=); break;
-      case OP_LESS:          BINARY_NUMERIC_OP(BOOL_VAL, <); break;
-      case OP_LESS_EQUAL:    BINARY_NUMERIC_OP(BOOL_VAL, <=); break;
+      VM_CASE(OP_GREATER)       BINARY_NUMERIC_OP(BOOL_VAL, >); VM_NEXT();
+      VM_CASE(OP_GREATER_EQUAL) BINARY_NUMERIC_OP(BOOL_VAL, >=); VM_NEXT();
+      VM_CASE(OP_LESS)          BINARY_NUMERIC_OP(BOOL_VAL, <); VM_NEXT();
+      VM_CASE(OP_LESS_EQUAL)    BINARY_NUMERIC_OP(BOOL_VAL, <=); VM_NEXT();
 
-      case OP_JUMP: {
+      VM_CASE(OP_JUMP) {
         uint16_t offset = READ_SHORT();
         vm.ip += offset;
-        break;
+        VM_NEXT();
       }
-      case OP_JUMP_IF_FALSE: {
+      VM_CASE(OP_JUMP_IF_FALSE) {
         uint16_t offset = READ_SHORT();
         if (!csValueIsTruthy(peekStack(0))) vm.ip += offset;
-        break;
+        VM_NEXT();
       }
-      case OP_JUMP_IF_TRUE: {
+      VM_CASE(OP_JUMP_IF_TRUE) {
         uint16_t offset = READ_SHORT();
         if (csValueIsTruthy(peekStack(0))) vm.ip += offset;
-        break;
+        VM_NEXT();
       }
-      case OP_POP_JUMP_IF_FALSE: {
+      VM_CASE(OP_POP_JUMP_IF_FALSE) {
         uint16_t offset = READ_SHORT();
         if (!csValueIsTruthy(csVMPop())) vm.ip += offset;
-        break;
+        VM_NEXT();
       }
-      case OP_LOOP: {
+      VM_CASE(OP_LOOP) {
         uint16_t offset = READ_SHORT();
         vm.ip -= offset;
-        break;
+        VM_NEXT();
       }
 
-      case OP_RETURN:
+      VM_CASE(OP_RETURN)
         return CS_OK;
 
+#ifndef CS_COMPUTED_GOTO
       default:
+        /* Unreachable: the only producer of bytecode is our own compiler. The
+         * computed-goto path has no equivalent guard — an out-of-range byte
+         * would index past the table — which is the price of the faster
+         * dispatch, and is acceptable because chunks never come from disk. */
         csVMRuntimeError("unknown opcode %d", instruction);
         return CS_RUNTIME_ERROR;
-    }
-  }
+#endif
 
+  VM_END
+
+#undef VM_END
+#undef VM_NEXT
+#undef VM_CASE
+#undef VM_BEGIN
+#undef VM_TRACE_STEP
 #undef BINARY_NUMERIC_OP
 #undef READ_STRING
 #undef READ_CONSTANT
 #undef READ_SHORT
 #undef READ_BYTE
 }
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 InterpretResult csInterpret(const char *source, const char *sourceName) {
   Diagnostics diag;

@@ -1,0 +1,12 @@
+// Branch-heavy code: the jump opcodes and truthiness checks.
+let taken = 0;
+for (let i = 0; i < 5000000; i++) {
+  if (i % 3 === 0) {
+    taken += 1;
+  } else if (i % 5 === 0) {
+    taken += 2;
+  } else {
+    taken += 3;
+  }
+}
+console.log(taken);
