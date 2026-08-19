@@ -1,0 +1,18 @@
+// `let` and `const` only — `var` is rejected, because it is function-scoped
+// and hoisted, which is where a whole family of JavaScript bugs comes from.
+const greeting = "hello";
+let count = 0;
+
+count = count + 1;
+count += 10;
+count++;
+
+console.log(greeting, count);
+
+// Blocks scope their variables, and an inner name shadows an outer one.
+let name = "outer";
+{
+  let name = "inner";
+  console.log(name);
+}
+console.log(name);

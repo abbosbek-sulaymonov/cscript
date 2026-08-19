@@ -1,0 +1,2 @@
+// The smallest CScript program. This is also valid JavaScript.
+console.log("Hello, CScript!");

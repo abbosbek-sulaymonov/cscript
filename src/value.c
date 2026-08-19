@@ -46,9 +46,9 @@ bool csValuesStrictEqual(Value a, Value b) {
   return false;
 }
 
-/* Coerces a value to a number the way JS's abstract ToNumber does, for the
- * subset of types that exist today. */
-static double toNumber(Value value) {
+/* Coerces a value to a number the way JS's abstract ToNumber does. This is only
+ * ever reached through the Number() built-in — no operator applies it. */
+double csValueToNumber(Value value) {
   switch (value.type) {
     case VAL_UNDEFINED: return NAN;
     case VAL_NULL:      return 0;
@@ -69,20 +69,6 @@ static double toNumber(Value value) {
     }
   }
   return NAN;
-}
-
-bool csValuesLooseEqual(Value a, Value b) {
-  if (a.type == b.type) return csValuesStrictEqual(a, b);
-
-  /* null == undefined, and neither is loosely equal to anything else. */
-  bool aNullish = IS_NULL(a) || IS_UNDEFINED(a);
-  bool bNullish = IS_NULL(b) || IS_UNDEFINED(b);
-  if (aNullish || bNullish) return aNullish && bNullish;
-
-  /* Everything else compares numerically after coercion. */
-  double an = toNumber(a);
-  double bn = toNumber(b);
-  return an == bn;
 }
 
 bool csValueIsTruthy(Value value) {
@@ -106,11 +92,14 @@ bool csValueIsTruthy(Value value) {
 const char *csValueTypeName(Value value) {
   switch (value.type) {
     case VAL_UNDEFINED: return "undefined";
-    case VAL_NULL:      return "object"; /* the famous typeof null quirk, kept */
+    /* JavaScript reports "object" here. That is a bug from 1995 that cannot be
+     * fixed without breaking the web; CScript is not bound by that. */
+    case VAL_NULL:      return "null";
     case VAL_BOOL:      return "boolean";
     case VAL_NUMBER:    return "number";
     case VAL_OBJ:
       if (IS_STRING(value)) return "string";
+      if (IS_NATIVE(value)) return "function";
       return "object";
   }
   return "undefined";
@@ -172,8 +161,11 @@ char *csValueToCString(Value value, size_t *lengthOut) {
         ObjString *string = AS_STRING(value);
         text = string->chars;
         length = (size_t)string->length;
+      } else if (IS_NATIVE(value)) {
+        text = "[Function]";
+        length = 10;
       } else {
-        text = "[object]";
+        text = "[Object]";
         length = 8;
       }
       break;

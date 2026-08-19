@@ -9,11 +9,11 @@
 
 static void printUsage(FILE *out) {
   fprintf(out,
-          "cscript %s — a JavaScript-flavoured language on a bytecode VM\n"
+          "cscript %s — JavaScript syntax, without the footguns\n"
           "\n"
           "usage:\n"
           "  cscript              start the REPL\n"
-          "  cscript <file.cs>    run a script\n"
+          "  cscript <file.cx>    run a script\n"
           "  cscript -e <code>    run a one-liner\n"
           "  cscript --version    print the version\n"
           "  cscript --help       show this message\n",

@@ -1,49 +1,69 @@
 # CScript
 
-A JavaScript-flavoured programming language, implemented from scratch in C11 as
-a bytecode virtual machine.
+A programming language with **JavaScript's syntax and none of its footguns**,
+implemented from scratch in C11 as a bytecode virtual machine.
 
 ```js
-print "Hello, " + "CScript!";
-
-print 1 + 2 * 3;        // 7 — precedence, not left-to-right
-print 1 == "1";         // true  — loose equality coerces
-print 1 === "1";        // false — strict equality does not
-print null || "default";
-print typeof null;      // "object" — yes, on purpose
+// hello.cx — this is also a valid JavaScript file
+for (let i = 1; i <= 15; i++) {
+  if (i % 15 === 0) {
+    console.log("FizzBuzz");
+  } else if (i % 3 === 0) {
+    console.log("Fizz");
+  } else if (i % 5 === 0) {
+    console.log("Buzz");
+  } else {
+    console.log(i);
+  }
+}
 ```
 
 ```
-$ cscript hello.cs
-Hello, CScript!
+$ cscript examples/fizzbuzz.cx
+1
+2
+Fizz
+...
 ```
+
+---
+
+## The idea
+
+**Every CScript program is a valid JavaScript program.** Same keywords, same
+operators, same precedence, same `console.log`. `make test-node` runs the
+examples under Node and diffs the output, so that claim stays honest rather than
+aspirational.
+
+**The semantics are not JavaScript's.** CScript removes the traps that make
+JavaScript hard to get right — and every removal is a **loud error**, never a
+silent change of meaning. A program that would behave differently here refuses
+to compile or fails at runtime, so nothing you write can quietly mean one thing
+in CScript and another in Node.
+
+```js
+1 == "1"      // error: '==' coerces its operands; use '==='
+var x = 1;    // error: 'var' is function-scoped and hoisted; use 'let' or 'const'
+true * 3      // runtime error: operands of '*' must be numbers
+console.log(typo);  // runtime error: 'typo' is not defined
+answer = 43;  // error: 'answer' is declared const and cannot be reassigned
+typeof null   // "null", not "object"
+```
+
+The full list, with the reasoning for each, is in
+[docs/GRAMMAR.md](docs/GRAMMAR.md#fixes-to-javascript).
 
 ---
 
 ## Status
 
-**v0.1.0 — the pipeline is complete end to end.**
+**v0.2.0.** Variables, block scoping, control flow, function calls, property
+access and the `console` / `Math` built-ins all work, on top of the milestone-1
+pipeline: lexer → parser → bytecode compiler → stack VM, with a mark-sweep
+collector underneath.
 
-Source becomes tokens, tokens become a syntax tree, the tree is compiled to
-bytecode, and a stack VM executes it, with a mark-sweep garbage collector
-underneath. Expressions, all the operators, both equality families, JavaScript's
-truthiness and coercion rules, and real error reporting all work today.
-
-What is deliberately *not* here yet: variables, control flow, functions and
-objects. Those are milestones 2 through 5, and every one of them extends a stage
-that already exists rather than adding a new one — which is the whole point of
-building the skeleton first. See the [roadmap](#roadmap).
-
----
-
-## Table of contents
-
-- [Build and run](#build-and-run)
-- [The language](#the-language)
-- [How it works](#how-it-works)
-- [Development](#development)
-- [Project layout](#project-layout)
-- [Roadmap](#roadmap)
+Not here yet: user-defined functions, object literals and arrays. Each produces
+an error naming the milestone it lands in. See the [roadmap](#roadmap).
 
 ---
 
@@ -57,14 +77,14 @@ cd cscript
 make
 ```
 
-That produces `build/release/cscript`.
-
 ```bash
-./build/release/cscript                      # REPL
-./build/release/cscript examples/hello.cs    # run a file
-./build/release/cscript -e 'print 6 * 7;'    # one-liner
+./build/release/cscript                       # REPL
+./build/release/cscript examples/hello.cx     # run a file
+./build/release/cscript -e 'console.log(6*7);'
 ./build/release/cscript --help
 ```
+
+> Source files use **`.cx`**. `.cs` belongs to C#.
 
 ---
 
@@ -72,77 +92,56 @@ That produces `build/release/cscript`.
 
 Full reference: **[docs/GRAMMAR.md](docs/GRAMMAR.md)**.
 
-### Types
+```js
+// Variables — let and const only, both block-scoped.
+const limit = 10;
+let total = 0;
 
-Five of JavaScript's primitives: `number`, `string`, `boolean`, `null`,
-`undefined`. All numbers are IEEE 754 doubles, so `10 / 2` prints `5`, `1 / 0`
-is `Infinity` and `0 / 0` is `NaN`.
+for (let i = 1; i <= limit; i++) {
+  total += i * i;
+}
+console.log("sum of squares:", total);   // 385
 
-### Operators
+// Blocks scope, and inner names shadow outer ones.
+let name = "outer";
+{
+  let name = "inner";
+  console.log(name);   // inner
+}
+console.log(name);     // outer
+
+// && and || return an operand, not a boolean, and short-circuit.
+console.log(null || "fallback");   // fallback
+console.log(0 && "never");         // 0
+
+// Conversions are explicit.
+console.log(Number("42") + 1);     // 43
+console.log(String(42) + "!");     // 42!
+```
 
 | Group | Operators |
 | --- | --- |
-| Arithmetic | `+` `-` `*` `/` `%` |
+| Assignment | `=` `+=` `-=` `*=` `/=` `%=` |
+| Arithmetic | `+` `-` `*` `/` `%` `++` `--` |
 | Comparison | `<` `<=` `>` `>=` |
-| Equality | `==` `!=` `===` `!==` |
+| Equality | `===` `!==` |
 | Logical | `&&` `\|\|` `!` |
-| Other | `typeof`, `( )` |
+| Other | `typeof` `.` `( )` |
 
-### The JavaScript parts that are kept on purpose
-
-This is a JavaScript-flavoured language, so it keeps the semantics that make
-JavaScript what it is — including the awkward ones.
-
-```js
-print 1 == "1";            // true   — coerces
-print 1 === "1";           // false  — does not
-print 0 == false;          // true
-print null == undefined;   // true
-print typeof null;         // "object"
-print (0/0) === (0/0);     // false  — NaN is not equal to itself
-```
-
-`&&` and `||` short-circuit and evaluate to **an operand**, not to a boolean:
-
-```js
-print null || "fallback";   // "fallback"
-print "first" && "second";  // "second"
-print 0 && "never";         // 0
-```
-
-`+` concatenates when either side is a string, and adds otherwise:
-
-```js
-print "n = " + 42;     // "n = 42"
-print 1 + 2;           // 3
-```
-
-### One deliberate departure
-
-`-` `*` `/` `%` require numbers and raise an error on anything else, where
-JavaScript would quietly produce `NaN`:
-
-```js
-print true * 3;
-// cscript: runtime error: operands of '*' must be numbers, got boolean and number
-//   at <argv>:1
-```
-
-A `NaN` that propagates silently through a program is far harder to debug than
-an error at the point of the mistake.
+Built-ins: `console.log` / `.error` / `.warn`, `Math.floor` / `.abs` / `.max` /
+`.min` / `.PI` / `.E`, and `Number` / `String` / `Boolean`. All are constants.
 
 ### Errors point at the problem
 
 ```
-$ cscript -e 'print 1 +;'
+$ cscript -e 'console.log(1 +);'
 <argv>:1: error: expected an expression
-      1 | print 1 +;
-        |          ^
+      1 | console.log(1 +);
+        |                ^
 ```
 
 The parser recovers at statement boundaries, so one bad line does not hide the
-rest of the file — a script with three independent syntax errors reports all
-three.
+rest of the file.
 
 ---
 
@@ -157,42 +156,9 @@ source ──▶ Lexer ──▶ Parser ──▶ Compiler ──▶ VM ──�
 ```
 
 Four stages, each with one job, its own header, and a debug flag that dumps
-exactly what it produced. `make trace` turns all four on at once:
+exactly what it produced. `make trace` turns all four on at once.
 
-```
-$ ./build/trace/cscript -e 'print 1 + 2 * 3;'
-== tokens ==
-   1 PRINT              'print'
-   | NUMBER             '1'
-   | PLUS               '+'
-   ...
-
-== ast ==
-Program (1 statement)
-  PrintStmt
-    Binary +
-      Number 1
-      Binary *
-        Number 2
-        Number 3
-
-== <argv> ==
-0000    1 OP_CONSTANT           0 '1'
-0002    | OP_CONSTANT           1 '2'
-0004    | OP_CONSTANT           2 '3'
-0006    | OP_MULTIPLY
-0007    | OP_ADD
-0008    | OP_PRINT
-
-          [ 1 ][ 2 ][ 3 ]
-0006    | OP_MULTIPLY
-          [ 1 ][ 6 ]
-0007    | OP_ADD
-          [ 7 ]
-7
-```
-
-Three design decisions worth stating up front:
+Design decisions worth stating up front:
 
 **A bytecode VM, not a tree walker.** Flat instruction arrays stay
 cache-friendly, recursion depth is bounded by the value stack rather than the C
@@ -202,9 +168,14 @@ stack, and it is the shape every production JavaScript engine takes.
 is the only structure a formatter, linter or optimiser can work on. It lives
 only between parsing and code generation, in an arena freed in one call.
 
+**Scopes are resolved at compile time.** A local variable compiles to a stack
+slot index, so reading a loop counter is an array index — not the hash lookup a
+naive interpreter would do on every iteration. Globals still hash, which is a
+real reason to prefer `let` inside a loop.
+
 **A garbage collector from day one.** Retrofitting GC means touching every
-allocation site in the codebase. Wiring it in while there is one object type is
-almost free.
+allocation site. Wiring it in while there was one object type was nearly free —
+and it paid off immediately when milestone 2 added two more.
 
 ---
 
@@ -213,7 +184,7 @@ almost free.
 ```bash
 make            # optimised build       -> build/release/cscript
 make debug      # -O0 -g3 + UBSan       -> build/debug/cscript
-make asan       # + AddressSanitizer    -> build/asan/cscript
+make asan       # + AddressSanitizer
 make gcstress   # collects on every allocation
 make trace      # debug + dumps every stage
 make clean
@@ -225,25 +196,30 @@ never leaves a stale object behind.
 
 ### Tests
 
-Golden-file suite: every `tests/cases/NAME.cs` runs and its output is compared
-against `NAME.expected`. Cases named `error_*` assert the failure path.
-
 ```bash
-make test              # under UBSan — undefined behaviour aborts the run
-make test-gc           # collecting on every allocation
-make test-asan         # under AddressSanitizer
-make test FILTER=string
+make test        # golden-file suite under UBSan — UB aborts the run
+make test-gc     # same suite, collecting on every allocation
+make test-node   # examples must match Node.js output
+make test-all    # all three
+make test FILTER=scoping
 UPDATE=1 tests/run_tests.sh    # rewrite .expected from actual output
 ```
 
-`make test-gc` is not decoration. Collecting on every single allocation means
-any value the collector cannot reach from a root is freed the instant it becomes
-unreachable — it caught a real bug during development, where the executing
-chunk's constant pool was never being marked and string literals were collected
-mid-run.
+Every `tests/cases/NAME.cx` runs and its output is compared against
+`NAME.expected`; cases named `error_*` assert the failure path.
 
-> **Note:** AddressSanitizer fails to start under some sandboxed environments,
-> which is why `make test` uses the UBSan build and ASan is a separate target.
+**`make test-gc` is not decoration.** Collecting on every single allocation
+means any value the collector cannot reach from a root is freed the instant it
+becomes unreachable. It caught a real bug in milestone 1 — the executing chunk's
+constant pool was never marked, so string literals were collected mid-run.
+
+**`make test-node` is what keeps the headline claim true.** It runs each example
+under Node and requires byte-identical output, except for the files listed as
+deliberately divergent — which it requires to actually differ, so a fix that
+silently stops working also fails the build.
+
+> AddressSanitizer fails to start under some sandboxed environments, which is
+> why `make test` uses the UBSan build and ASan is a separate target.
 
 ---
 
@@ -256,10 +232,11 @@ cscript/
 │   ├── lexer.c          source text  -> tokens
 │   ├── parser.c         tokens       -> AST   (precedence climbing, recovery)
 │   ├── ast.c            node constructors and the arena
-│   ├── compiler.c       AST          -> bytecode
+│   ├── compiler.c       AST          -> bytecode (scope resolution lives here)
 │   ├── vm.c             the interpreter loop
+│   ├── native.c         console, Math, and the conversion functions
 │   ├── memory.c         allocator and mark-sweep collector
-│   ├── object.c         heap objects, string interning
+│   ├── object.c         heap object types, string interning
 │   ├── table.c          open-addressing hash table
 │   ├── value.c          value operations, coercion, formatting
 │   ├── chunk.c          bytecode buffer and constant pool
@@ -268,11 +245,12 @@ cscript/
 │   └── main.c           CLI, REPL, file runner
 ├── tests/
 │   ├── run_tests.sh     golden-file runner
-│   └── cases/           *.cs paired with *.expected
+│   ├── node_parity.sh   examples vs. Node.js
+│   └── cases/           *.cx paired with *.expected
 ├── examples/            runnable sample programs
 └── docs/
     ├── ARCHITECTURE.md  how the pipeline and the GC work
-    └── GRAMMAR.md       full grammar and semantics
+    └── GRAMMAR.md       full grammar, semantics, and every fix to JavaScript
 ```
 
 ---
@@ -281,16 +259,13 @@ cscript/
 
 | Milestone | Adds | Mostly touches |
 | --- | --- | --- |
-| **1 ✅** | **Lexer, parser, compiler, VM, GC, REPL, expressions** | — |
-| 2 | `let` / `const`, scopes, assignment | parser, compiler, new opcodes |
-| 3 | `if` / `else` / `while` / `for`, blocks | parser, compiler (jumps already exist) |
-| 4 | Functions, call frames, closures | VM gains a frame stack |
-| 5 | Objects, arrays, property access | new `Obj` types |
-| 6 | `console.log` and native functions | replaces the temporary `print` statement |
+| **1 ✅** | Lexer, parser, compiler, VM, GC, REPL, expressions | — |
+| **2 ✅** | `let`/`const`, scopes, control flow, calls, `console.log` | — |
+| 3 | User functions, `return`, closures | VM gains a frame stack |
+| 4 | Object literals, arrays, indexing | `ObjObject` already exists |
+| 5 | `switch`, `break`/`continue`, `for...of` | parser and compiler |
+| 6 | Template literals, ternary, destructuring | parser and compiler |
 | 7 | NaN-boxing, computed-goto dispatch | `value.h` and the VM loop |
-
-`print` is scaffolding: milestone 1 has no functions to call, so it is a
-statement for now and becomes `console.log` in milestone 6.
 
 ---
 

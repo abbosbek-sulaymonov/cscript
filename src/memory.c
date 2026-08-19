@@ -71,8 +71,8 @@ void csMarkValue(Value value) {
   if (IS_OBJ(value)) csMarkObject(AS_OBJ(value));
 }
 
-/* Marks everything reachable from `object`. Strings have no outgoing
- * references, so today this only has to blacken the header. */
+/* Marks everything reachable from `object`. The per-type walk lives in
+ * object.c, next to the definitions of the types it has to know about. */
 static void blackenObject(Obj *object) {
 #ifdef CS_DEBUG_LOG_GC
   printf("%p blacken ", (void *)object);
@@ -80,10 +80,7 @@ static void blackenObject(Obj *object) {
   printf("\n");
 #endif
 
-  switch (object->type) {
-    case OBJ_STRING:
-      break;
-  }
+  csObjectBlacken(object);
 }
 
 static void markRoots(void) {
@@ -101,6 +98,7 @@ static void markRoots(void) {
   }
 
   csTableMark(&vm.globals);
+  csTableMark(&vm.globalConsts);
   for (int i = 0; i < vm.tempRootCount; i++) {
     csMarkObject(vm.tempRoots[i]);
   }

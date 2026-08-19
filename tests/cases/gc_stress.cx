@@ -1,0 +1,11 @@
+// Allocates many distinct strings so the collector has to run while values are
+// still live. Interning means equal contents are the same object.
+console.log("a" + "b" + "c" + "d" + "e");
+console.log(("x" + 1) + ("y" + 2) + ("z" + 3));
+console.log(("a" + "b") === "ab");
+let acc = "";
+for (let i = 0; i < 20; i++) {
+  acc = acc + i;
+}
+console.log(acc);
+console.log(typeof ("t" + "u"));

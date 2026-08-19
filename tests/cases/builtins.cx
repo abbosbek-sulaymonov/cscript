@@ -1,0 +1,6 @@
+console.log(Math.floor(3.7), Math.abs(-5));
+console.log(Math.max(1, 9, 3), Math.min(4, 2, 8));
+console.log(Number("42") + 1);
+console.log(String(42) + "!");
+console.log(Boolean(""), Boolean("x"), Boolean(0), Boolean(1));
+console.log(typeof console, typeof Math.floor, typeof Math.PI);

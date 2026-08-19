@@ -1,0 +1,7 @@
+console.log(!false, !0, !"", !null, !undefined);
+console.log(!1, !"text", !!"text");
+console.log("value" || "unused");
+console.log(null || "fallback");
+console.log("first" && "second");
+console.log(0 && "never");
+console.log(0 || null || "last");

@@ -1,0 +1,2 @@
+cscript: runtime error: 'Math' has no property 'nope'
+  at error_bad_property.cx:1

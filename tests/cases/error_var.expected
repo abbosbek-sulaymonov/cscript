@@ -1,0 +1,3 @@
+error_var.cx:1: error: 'var' is not supported because it is function-scoped and hoisted; use 'let' or 'const'
+      1 | var x = 1;
+        | ^^^

@@ -27,6 +27,10 @@ typedef struct {
   Value *stackTop;
 
   Table globals;
+  /* Names bound by `const` or by a built-in. Used as a set; the values are
+   * ignored. Assigning to anything in here is a runtime error, which is what
+   * keeps `console = 1` from silently destroying the console. */
+  Table globalConsts;
   Table strings; /* intern pool; weak — swept entries are removed */
 
   Obj *objects; /* head of the intrusive list of every live object */
@@ -54,7 +58,14 @@ void csVMFree(void);
 /* Compiles and runs a whole source string. */
 InterpretResult csInterpret(const char *source, const char *sourceName);
 
+/* Marks a global as constant. Used by `const` and by the built-ins. */
+void csVMMarkGlobalConst(ObjString *name);
+
 void csVMPush(Value value);
 Value csVMPop(void);
+
+/* Reports a runtime error at the currently executing instruction and unwinds.
+ * Native functions call this before returning false. */
+void csVMRuntimeError(const char *format, ...);
 
 #endif /* CSCRIPT_VM_H */

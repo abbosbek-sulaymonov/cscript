@@ -137,14 +137,128 @@ AstNode *csAstGrouping(AstArena *arena, int line, AstNode *inner) {
   return node;
 }
 
-AstNode *csAstExpressionStmt(AstArena *arena, int line, AstNode *expression) {
-  AstNode *node = newNode(arena, AST_EXPRESSION_STMT, line);
-  if (node != NULL) node->as.expression = expression;
+/* Copies a NUL-terminated name into the arena so it outlives the token. */
+static const char *internName(AstArena *arena, const char *name, int length,
+                              int *lengthOut) {
+  char *copy = (char *)csAstArenaAlloc(arena, (size_t)length + 1);
+  if (copy == NULL) return NULL;
+  memcpy(copy, name, (size_t)length);
+  copy[length] = '\0';
+  *lengthOut = length;
+  return copy;
+}
+
+AstNode *csAstIdentifier(AstArena *arena, int line, const char *name, int length) {
+  AstNode *node = newNode(arena, AST_IDENTIFIER, line);
+  if (node == NULL) return NULL;
+  node->as.identifier.name =
+      internName(arena, name, length, &node->as.identifier.length);
   return node;
 }
 
-AstNode *csAstPrintStmt(AstArena *arena, int line, AstNode *expression) {
-  AstNode *node = newNode(arena, AST_PRINT_STMT, line);
+AstNode *csAstAssign(AstArena *arena, int line, AstNode *target, AstNode *value) {
+  AstNode *node = newNode(arena, AST_ASSIGN, line);
+  if (node == NULL) return NULL;
+  node->as.assign.target = target;
+  node->as.assign.value = value;
+  return node;
+}
+
+AstNode *csAstUpdate(AstArena *arena, int line, AstNode *target, bool isIncrement,
+                     bool isPrefix) {
+  AstNode *node = newNode(arena, AST_UPDATE, line);
+  if (node == NULL) return NULL;
+  node->as.update.target = target;
+  node->as.update.isIncrement = isIncrement;
+  node->as.update.isPrefix = isPrefix;
+  return node;
+}
+
+AstNode *csAstCall(AstArena *arena, int line, AstNode *callee) {
+  AstNode *node = newNode(arena, AST_CALL, line);
+  if (node == NULL) return NULL;
+  node->as.call.callee = callee;
+  node->as.call.arguments = NULL;
+  node->as.call.argCount = 0;
+  return node;
+}
+
+void csAstCallAddArgument(AstArena *arena, AstNode *call, AstNode *argument) {
+  if (call == NULL || argument == NULL) return;
+
+  /* Argument lists are tiny, so a fresh copy per append is cheaper than
+   * carrying a capacity field around. */
+  AstNode **grown = (AstNode **)csAstArenaAlloc(
+      arena, sizeof(AstNode *) * (size_t)(call->as.call.argCount + 1));
+  if (grown == NULL) return;
+  if (call->as.call.arguments != NULL) {
+    memcpy(grown, call->as.call.arguments,
+           sizeof(AstNode *) * (size_t)call->as.call.argCount);
+  }
+  grown[call->as.call.argCount] = argument;
+  call->as.call.arguments = grown;
+  call->as.call.argCount++;
+}
+
+AstNode *csAstProperty(AstArena *arena, int line, AstNode *object, const char *name,
+                       int length) {
+  AstNode *node = newNode(arena, AST_PROPERTY, line);
+  if (node == NULL) return NULL;
+  node->as.property.object = object;
+  node->as.property.name = internName(arena, name, length, &node->as.property.length);
+  return node;
+}
+
+AstNode *csAstVarDecl(AstArena *arena, int line, const char *name, int length,
+                      AstNode *initializer, bool isConst) {
+  AstNode *node = newNode(arena, AST_VAR_DECL, line);
+  if (node == NULL) return NULL;
+  node->as.varDecl.name = internName(arena, name, length, &node->as.varDecl.length);
+  node->as.varDecl.initializer = initializer;
+  node->as.varDecl.isConst = isConst;
+  return node;
+}
+
+AstNode *csAstBlock(AstArena *arena, int line) {
+  AstNode *node = newNode(arena, AST_BLOCK, line);
+  if (node == NULL) return NULL;
+  node->as.block.statements = NULL;
+  node->as.block.count = 0;
+  node->as.block.capacity = 0;
+  return node;
+}
+
+AstNode *csAstIf(AstArena *arena, int line, AstNode *condition, AstNode *thenBranch,
+                 AstNode *elseBranch) {
+  AstNode *node = newNode(arena, AST_IF_STMT, line);
+  if (node == NULL) return NULL;
+  node->as.ifStmt.condition = condition;
+  node->as.ifStmt.thenBranch = thenBranch;
+  node->as.ifStmt.elseBranch = elseBranch;
+  return node;
+}
+
+AstNode *csAstWhile(AstArena *arena, int line, AstNode *condition, AstNode *body) {
+  AstNode *node = newNode(arena, AST_WHILE_STMT, line);
+  if (node == NULL) return NULL;
+  node->as.whileStmt.condition = condition;
+  node->as.whileStmt.body = body;
+  return node;
+}
+
+AstNode *csAstFor(AstArena *arena, int line, AstNode *initializer, AstNode *condition,
+                  AstNode *increment, AstNode *body) {
+  AstNode *node = newNode(arena, AST_FOR_STMT, line);
+  if (node == NULL) return NULL;
+  node->as.forStmt.initializer = initializer;
+  node->as.forStmt.condition = condition;
+  node->as.forStmt.increment = increment;
+  node->as.forStmt.body = body;
+  return node;
+}
+
+AstNode *csAstExpressionStmt(AstArena *arena, int line, AstNode *expression) {
+  AstNode *node = newNode(arena, AST_EXPRESSION_STMT, line);
   if (node != NULL) node->as.expression = expression;
   return node;
 }
@@ -158,8 +272,12 @@ AstNode *csAstProgram(AstArena *arena, int line) {
   return node;
 }
 
-void csAstProgramAdd(AstArena *arena, AstNode *program, AstNode *statement) {
-  if (program == NULL || statement == NULL) return;
+void csAstProgramAdd(AstArena *arena, AstNode *parent, AstNode *statement) {
+  if (parent == NULL || statement == NULL) return;
+
+  /* AST_PROGRAM and AST_BLOCK have the same list layout, so one appender
+   * serves both. */
+  AstNode *program = parent;
 
   if (program->as.program.count + 1 > program->as.program.capacity) {
     int oldCapacity = program->as.program.capacity;
@@ -197,10 +315,8 @@ const char *csBinaryOpName(BinaryOp op) {
     case BINARY_MULTIPLY:         return "*";
     case BINARY_DIVIDE:           return "/";
     case BINARY_MODULO:           return "%";
-    case BINARY_EQUAL:            return "==";
-    case BINARY_NOT_EQUAL:        return "!=";
-    case BINARY_STRICT_EQUAL:     return "===";
-    case BINARY_STRICT_NOT_EQUAL: return "!==";
+    case BINARY_EQUAL:            return "===";
+    case BINARY_NOT_EQUAL:        return "!==";
     case BINARY_GREATER:          return ">";
     case BINARY_GREATER_EQUAL:    return ">=";
     case BINARY_LESS:             return "<";

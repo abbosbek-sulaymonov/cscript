@@ -1,0 +1,16 @@
+// Blocks scope, and a for-loop initialiser cannot leak.
+let x = 1;
+{
+  let x = 2;
+  {
+    let x = 3;
+    console.log(x);
+  }
+  console.log(x);
+}
+console.log(x);
+
+for (let i = 0; i < 2; i++) {
+  let inner = i * 10;
+  console.log(inner);
+}

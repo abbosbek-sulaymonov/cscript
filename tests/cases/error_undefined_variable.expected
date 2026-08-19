@@ -1,0 +1,2 @@
+cscript: runtime error: 'missingName' is not defined
+  at error_undefined_variable.cx:1

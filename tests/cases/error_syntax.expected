@@ -1,3 +1,3 @@
-error_syntax.cs:1: error: expected an expression
-      1 | print 1 +;
-        |          ^
+error_syntax.cx:1: error: expected an expression
+      1 | console.log(1 +);
+        |                ^

@@ -1,0 +1,18 @@
+const greeting = "hello";
+let count = 0;
+count = count + 1;
+count += 10;
+count++;
+console.log(greeting, count);
+
+let name = "outer";
+{
+  let name = "inner";
+  console.log(name);
+}
+console.log(name);
+
+let a = 5;
+console.log(a++, a);
+let b = 5;
+console.log(++b, b);

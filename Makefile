@@ -7,7 +7,8 @@
 #   make test       golden-file suite against the UBSan build
 #   make test-asan  golden-file suite against the AddressSanitizer build
 #   make test-gc    golden-file suite with a collection on every allocation
-#   make run FILE=examples/hello.cs
+#   make test-node  check the examples against Node.js (skipped if absent)
+#   make run FILE=examples/hello.cx
 #   make clean
 #
 # Each configuration compiles into its own directory. Sharing one would let a
@@ -39,7 +40,7 @@ ASAN          := -fsanitize=address
 TRACE_DEFINES := -DCS_DEBUG_PRINT_TOKENS -DCS_DEBUG_PRINT_AST \
                  -DCS_DEBUG_PRINT_CODE -DCS_DEBUG_TRACE_EXECUTION
 
-.PHONY: all release debug asan gcstress trace test test-asan test-gc run clean help
+.PHONY: all release debug asan gcstress trace test test-asan test-gc test-node test-all run clean help
 .DEFAULT_GOAL := release
 
 all: release
@@ -81,6 +82,13 @@ test-asan: asan
 test-gc: gcstress
 	@BIN=$(BUILD)/gcstress/cscript tests/run_tests.sh $(FILTER)
 
+# CScript's syntax is a subset of JavaScript's, so the examples must also run
+# under Node. This is the check that keeps that claim honest.
+test-node: release
+	@BIN=$(BUILD)/release/cscript tests/node_parity.sh
+
+test-all: test test-gc test-node
+
 run: release
 	@$(BUILD)/release/cscript $(FILE)
 
@@ -95,5 +103,7 @@ help:
 	@echo "make test     golden-file suite (FILTER=name to narrow)"
 	@echo "make test-asan  same suite under AddressSanitizer"
 	@echo "make test-gc    same suite, collecting on every allocation"
-	@echo "make run FILE=examples/hello.cs"
+	@echo "make test-node  check the examples against Node.js"
+	@echo "make test-all   test + test-gc + test-node"
+	@echo "make run FILE=examples/hello.cx"
 	@echo "make clean"

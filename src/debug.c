@@ -12,16 +12,22 @@ static int simpleInstruction(const char *name, int offset) {
 
 static int constantInstruction(const char *name, const Chunk *chunk, int offset) {
   uint8_t constant = chunk->code[offset + 1];
-  printf("%-18s %4d '", name, constant);
+  printf("%-22s %4d '", name, constant);
   csValuePrint(chunk->constants.values[constant]);
   printf("'\n");
+  return offset + 2;
+}
+
+static int byteInstruction(const char *name, const Chunk *chunk, int offset) {
+  uint8_t operand = chunk->code[offset + 1];
+  printf("%-22s %4d\n", name, operand);
   return offset + 2;
 }
 
 static int jumpInstruction(const char *name, int sign, const Chunk *chunk, int offset) {
   uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8);
   jump |= chunk->code[offset + 2];
-  printf("%-18s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
+  printf("%-22s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
   return offset + 3;
 }
 
@@ -43,6 +49,16 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_TRUE:              return simpleInstruction("OP_TRUE", offset);
     case OP_FALSE:             return simpleInstruction("OP_FALSE", offset);
     case OP_POP:               return simpleInstruction("OP_POP", offset);
+    case OP_POP_N:             return byteInstruction("OP_POP_N", chunk, offset);
+    case OP_DUP:               return simpleInstruction("OP_DUP", offset);
+    case OP_DEFINE_GLOBAL:     return constantInstruction("OP_DEFINE_GLOBAL", chunk, offset);
+    case OP_DEFINE_CONST:      return constantInstruction("OP_DEFINE_CONST", chunk, offset);
+    case OP_GET_GLOBAL:        return constantInstruction("OP_GET_GLOBAL", chunk, offset);
+    case OP_SET_GLOBAL:        return constantInstruction("OP_SET_GLOBAL", chunk, offset);
+    case OP_GET_LOCAL:         return byteInstruction("OP_GET_LOCAL", chunk, offset);
+    case OP_SET_LOCAL:         return byteInstruction("OP_SET_LOCAL", chunk, offset);
+    case OP_GET_PROPERTY:      return constantInstruction("OP_GET_PROPERTY", chunk, offset);
+    case OP_CALL:              return byteInstruction("OP_CALL", chunk, offset);
     case OP_ADD:               return simpleInstruction("OP_ADD", offset);
     case OP_SUBTRACT:          return simpleInstruction("OP_SUBTRACT", offset);
     case OP_MULTIPLY:          return simpleInstruction("OP_MULTIPLY", offset);
@@ -53,15 +69,15 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_TYPEOF:            return simpleInstruction("OP_TYPEOF", offset);
     case OP_EQUAL:             return simpleInstruction("OP_EQUAL", offset);
     case OP_NOT_EQUAL:         return simpleInstruction("OP_NOT_EQUAL", offset);
-    case OP_STRICT_EQUAL:      return simpleInstruction("OP_STRICT_EQUAL", offset);
-    case OP_STRICT_NOT_EQUAL:  return simpleInstruction("OP_STRICT_NOT_EQUAL", offset);
     case OP_GREATER:           return simpleInstruction("OP_GREATER", offset);
     case OP_GREATER_EQUAL:     return simpleInstruction("OP_GREATER_EQUAL", offset);
     case OP_LESS:              return simpleInstruction("OP_LESS", offset);
     case OP_LESS_EQUAL:        return simpleInstruction("OP_LESS_EQUAL", offset);
+    case OP_JUMP:              return jumpInstruction("OP_JUMP", 1, chunk, offset);
     case OP_JUMP_IF_FALSE:     return jumpInstruction("OP_JUMP_IF_FALSE", 1, chunk, offset);
     case OP_JUMP_IF_TRUE:      return jumpInstruction("OP_JUMP_IF_TRUE", 1, chunk, offset);
-    case OP_PRINT:             return simpleInstruction("OP_PRINT", offset);
+    case OP_POP_JUMP_IF_FALSE: return jumpInstruction("OP_POP_JUMP_IF_FALSE", 1, chunk, offset);
+    case OP_LOOP:              return jumpInstruction("OP_LOOP", -1, chunk, offset);
     case OP_RETURN:            return simpleInstruction("OP_RETURN", offset);
     default:
       printf("unknown opcode %d\n", instruction);
@@ -125,13 +141,68 @@ static void printNode(const AstNode *node, int depth) {
       printf("Grouping\n");
       printNode(node->as.grouping, depth + 1);
       break;
+    case AST_IDENTIFIER:
+      printf("Identifier %.*s\n", node->as.identifier.length, node->as.identifier.name);
+      break;
+    case AST_ASSIGN:
+      printf("Assign\n");
+      printNode(node->as.assign.target, depth + 1);
+      printNode(node->as.assign.value, depth + 1);
+      break;
+    case AST_UPDATE:
+      printf("Update %s%s\n", node->as.update.isIncrement ? "++" : "--",
+             node->as.update.isPrefix ? " (prefix)" : " (postfix)");
+      printNode(node->as.update.target, depth + 1);
+      break;
+    case AST_PROPERTY:
+      printf("Property .%.*s\n", node->as.property.length, node->as.property.name);
+      printNode(node->as.property.object, depth + 1);
+      break;
+    case AST_CALL:
+      printf("Call (%d argument%s)\n", node->as.call.argCount,
+             node->as.call.argCount == 1 ? "" : "s");
+      printNode(node->as.call.callee, depth + 1);
+      for (int i = 0; i < node->as.call.argCount; i++) {
+        printNode(node->as.call.arguments[i], depth + 1);
+      }
+      break;
     case AST_EXPRESSION_STMT:
       printf("ExpressionStmt\n");
       printNode(node->as.expression, depth + 1);
       break;
-    case AST_PRINT_STMT:
-      printf("PrintStmt\n");
-      printNode(node->as.expression, depth + 1);
+    case AST_VAR_DECL:
+      printf("%s %.*s\n", node->as.varDecl.isConst ? "Const" : "Let",
+             node->as.varDecl.length, node->as.varDecl.name);
+      if (node->as.varDecl.initializer != NULL) {
+        printNode(node->as.varDecl.initializer, depth + 1);
+      }
+      break;
+    case AST_BLOCK:
+      printf("Block (%d statement%s)\n", node->as.block.count,
+             node->as.block.count == 1 ? "" : "s");
+      for (int i = 0; i < node->as.block.count; i++) {
+        printNode(node->as.block.statements[i], depth + 1);
+      }
+      break;
+    case AST_IF_STMT:
+      printf("If\n");
+      printNode(node->as.ifStmt.condition, depth + 1);
+      printNode(node->as.ifStmt.thenBranch, depth + 1);
+      if (node->as.ifStmt.elseBranch != NULL) {
+        printNode(node->as.ifStmt.elseBranch, depth + 1);
+      }
+      break;
+    case AST_WHILE_STMT:
+      printf("While\n");
+      printNode(node->as.whileStmt.condition, depth + 1);
+      printNode(node->as.whileStmt.body, depth + 1);
+      break;
+    case AST_FOR_STMT:
+      printf("For\n");
+      printNode(node->as.forStmt.initializer, depth + 1);
+      printNode(node->as.forStmt.condition, depth + 1);
+      printNode(node->as.forStmt.increment, depth + 1);
+      printNode(node->as.forStmt.body, depth + 1);
       break;
     case AST_PROGRAM:
       printf("Program (%d statement%s)\n", node->as.program.count,

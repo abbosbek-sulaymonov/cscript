@@ -66,9 +66,9 @@ collector track `bytesAllocated` and decide when to run.
 
 Mark-sweep, tri-colour, non-moving:
 
-1. **Mark roots** — the value stack, the globals table, the temporary-root
-   stack, the constant pool of the chunk being executed, and the constant pool
-   of the chunk being compiled.
+1. **Mark roots** — the value stack, the globals table, the const-globals
+   table, the temporary-root stack, the constant pool of the chunk being
+   executed, and the constant pool of the chunk being compiled.
 2. **Trace** — drain a worklist, blackening each object's references.
 3. **Sweep weak references** — drop intern-pool entries whose string died.
 4. **Sweep** — walk the intrusive object list and free anything unmarked.
@@ -91,6 +91,52 @@ Both of these caused real bugs during development, caught by `make test-gc`:
 `make test-gc` builds with `CS_DEBUG_STRESS_GC`, which collects on *every*
 allocation. If a root is missing, the object dies immediately and the suite
 fails rather than the bug surfacing months later under memory pressure.
+
+## Variables: why locals are fast and globals are not
+
+A naive interpreter stores every variable in a hash map keyed by its name, so
+reading `i` inside a loop costs a hash, a probe and a string comparison on every
+iteration.
+
+CScript resolves scopes **at compile time** instead. The compiler keeps a stack
+of the locals currently in scope; when it sees an identifier it walks that list
+backwards — which is also what makes an inner declaration shadow an outer one —
+and emits `OP_GET_LOCAL` with the stack slot number. At run time that is a
+single array index.
+
+Globals still go through a hash lookup, because a global's binding can be
+created by code the compiler has not seen yet. That asymmetry is deliberate and
+worth knowing when writing hot code: **loop counters and accumulators should be
+`let` inside the loop, not globals.**
+
+Two details fall out of the design:
+
+- A declaration inside a block emits *no instruction at all*. The initialiser
+  has already left its value exactly where the local's slot is, so declaring it
+  is pure compile-time bookkeeping.
+- Leaving a scope pops every local it introduced in one `OP_POP_N` rather than a
+  run of `OP_POP`s.
+
+## Objects and native functions
+
+`console.log` is not a statement or a special form — it is a property lookup on
+a real object that yields a real function value, which `OP_CALL` then invokes.
+That is why `typeof console` is `"object"` and `typeof Math.floor` is
+`"function"`, and why the same machinery will carry user-defined objects in the
+next milestone without redesign.
+
+Three heap types exist today:
+
+| Type | Holds | Marked by the collector as |
+| --- | --- | --- |
+| `ObjString` | interned characters, stored inline | a leaf — no outgoing references |
+| `ObjNative` | a C function pointer and its name | its name |
+| `ObjObject` | a property table and a name | its name and every property |
+
+`blackenObject` gained real work here. When it did, the temporary-root discipline
+described above stopped being theoretical: `csObjectSetProperty` allocates twice
+(interning the key, then possibly growing the table), and both the receiver and
+the value have to stay rooted across it.
 
 ## Values
 
@@ -132,6 +178,7 @@ table, then reset the stack.
 | `src/table.c` | Open-addressing hash table |
 | `src/value.c` | Value operations, coercion, formatting |
 | `src/chunk.c` | Bytecode buffer and constant pool |
+| `src/native.c` | The built-in global environment |
 | `src/debug.c` | Disassembler and AST printer |
 | `src/diagnostic.c` | Error reporting |
 | `src/main.c` | CLI, REPL, file runner |
@@ -158,18 +205,17 @@ sandboxed environments, and that should not be able to wedge `make test`.
 
 ## What comes next
 
-The pipeline is complete end to end, which is the point of this milestone —
-every later feature extends stages that already exist rather than inventing new
-ones.
+The pipeline has not changed shape since milestone 1, which was the point of
+building it first. Milestone 2 added variables, control flow, calls and objects
+without adding a single new stage: the parser grew statement forms, the compiler
+grew scope resolution, the VM grew opcodes, and the collector grew two object
+types.
 
 | Milestone | Adds | Touches |
 | --- | --- | --- |
-| 2 | `let`/`const`, scopes, assignment | parser, compiler, new opcodes |
-| 3 | `if`/`while`/`for`, blocks | parser, compiler (jumps already exist) |
-| 4 | Functions, call frames, closures | VM gains a frame stack; GC gains upvalues |
-| 5 | Objects, arrays, property access | new `Obj` types; `blackenObject` gains real work |
-| 6 | `console.log`, native functions | replaces the temporary `print` statement |
+| **2 ✅** | **`let`/`const`, scopes, control flow, calls, `console.log`** | — |
+| 3 | User functions, call frames, closures | VM gains a frame stack; GC gains upvalues |
+| 4 | Object literals, arrays, indexing | `ObjObject` already exists; add `ObjArray` |
+| 5 | `switch`, `break`/`continue`, `for...of` | parser and compiler only |
+| 6 | Template literals, ternary, destructuring | parser and compiler only |
 | 7 | NaN-boxing, computed-goto dispatch | `value.h` and the VM loop only |
-
-The `print` statement is scaffolding. It exists because milestone 1 has no
-functions to call, and it disappears in milestone 6 in favour of `console.log`.

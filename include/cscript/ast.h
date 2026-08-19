@@ -21,10 +21,19 @@ typedef enum {
   AST_BINARY,
   AST_LOGICAL,
   AST_GROUPING,
+  AST_IDENTIFIER,
+  AST_ASSIGN,
+  AST_UPDATE,
+  AST_CALL,
+  AST_PROPERTY,
 
   /* Statements. */
   AST_EXPRESSION_STMT,
-  AST_PRINT_STMT,
+  AST_VAR_DECL,
+  AST_BLOCK,
+  AST_IF_STMT,
+  AST_WHILE_STMT,
+  AST_FOR_STMT,
   AST_PROGRAM,
 } AstNodeType;
 
@@ -36,8 +45,7 @@ typedef enum {
 
 typedef enum {
   BINARY_ADD, BINARY_SUBTRACT, BINARY_MULTIPLY, BINARY_DIVIDE, BINARY_MODULO,
-  BINARY_EQUAL, BINARY_NOT_EQUAL,               /* ==  != — coercing */
-  BINARY_STRICT_EQUAL, BINARY_STRICT_NOT_EQUAL, /* === !== — no coercion */
+  BINARY_EQUAL, BINARY_NOT_EQUAL, /* === !== — CScript has no coercing equality */
   BINARY_GREATER, BINARY_GREATER_EQUAL,
   BINARY_LESS, BINARY_LESS_EQUAL,
 } BinaryOp;
@@ -74,7 +82,56 @@ struct AstNode {
       AstNode *right;
     } logical;
     AstNode *grouping;                   /* AST_GROUPING */
-    AstNode *expression;                 /* AST_EXPRESSION_STMT, AST_PRINT_STMT */
+    AstNode *expression;                 /* AST_EXPRESSION_STMT */
+    struct {                             /* AST_IDENTIFIER */
+      const char *name;                  /*   arena-owned, NUL-terminated */
+      int length;
+    } identifier;
+    struct {                             /* AST_ASSIGN */
+      AstNode *target;                   /*   an identifier for now */
+      AstNode *value;
+    } assign;
+    struct {                             /* AST_UPDATE — ++x, x++, --x, x-- */
+      AstNode *target;
+      bool isIncrement;
+      bool isPrefix;                     /*   prefix yields the new value */
+    } update;
+    struct {                             /* AST_CALL */
+      AstNode *callee;
+      AstNode **arguments;
+      int argCount;
+    } call;
+    struct {                             /* AST_PROPERTY — obj.name */
+      AstNode *object;
+      const char *name;
+      int length;
+    } property;
+    struct {                             /* AST_VAR_DECL */
+      const char *name;
+      int length;
+      AstNode *initializer;              /*   NULL for `let x;` */
+      bool isConst;
+    } varDecl;
+    struct {                             /* AST_BLOCK */
+      AstNode **statements;
+      int count;
+      int capacity;
+    } block;
+    struct {                             /* AST_IF_STMT */
+      AstNode *condition;
+      AstNode *thenBranch;
+      AstNode *elseBranch;               /*   NULL when there is no else */
+    } ifStmt;
+    struct {                             /* AST_WHILE_STMT */
+      AstNode *condition;
+      AstNode *body;
+    } whileStmt;
+    struct {                             /* AST_FOR_STMT — any clause may be NULL */
+      AstNode *initializer;
+      AstNode *condition;
+      AstNode *increment;
+      AstNode *body;
+    } forStmt;
     struct {                             /* AST_PROGRAM */
       AstNode **statements;
       int count;
@@ -108,10 +165,28 @@ AstNode *csAstBinary(AstArena *arena, int line, BinaryOp op, AstNode *left,
 AstNode *csAstLogical(AstArena *arena, int line, LogicalOp op, AstNode *left,
                       AstNode *right);
 AstNode *csAstGrouping(AstArena *arena, int line, AstNode *inner);
+AstNode *csAstIdentifier(AstArena *arena, int line, const char *name, int length);
+AstNode *csAstAssign(AstArena *arena, int line, AstNode *target, AstNode *value);
+AstNode *csAstUpdate(AstArena *arena, int line, AstNode *target, bool isIncrement,
+                     bool isPrefix);
+AstNode *csAstCall(AstArena *arena, int line, AstNode *callee);
+void csAstCallAddArgument(AstArena *arena, AstNode *call, AstNode *argument);
+AstNode *csAstProperty(AstArena *arena, int line, AstNode *object, const char *name,
+                       int length);
+
 AstNode *csAstExpressionStmt(AstArena *arena, int line, AstNode *expression);
-AstNode *csAstPrintStmt(AstArena *arena, int line, AstNode *expression);
+AstNode *csAstVarDecl(AstArena *arena, int line, const char *name, int length,
+                      AstNode *initializer, bool isConst);
+AstNode *csAstBlock(AstArena *arena, int line);
+AstNode *csAstIf(AstArena *arena, int line, AstNode *condition, AstNode *thenBranch,
+                 AstNode *elseBranch);
+AstNode *csAstWhile(AstArena *arena, int line, AstNode *condition, AstNode *body);
+AstNode *csAstFor(AstArena *arena, int line, AstNode *initializer, AstNode *condition,
+                  AstNode *increment, AstNode *body);
 AstNode *csAstProgram(AstArena *arena, int line);
-void csAstProgramAdd(AstArena *arena, AstNode *program, AstNode *statement);
+
+/* Appends to a AST_PROGRAM or AST_BLOCK statement list. */
+void csAstProgramAdd(AstArena *arena, AstNode *parent, AstNode *statement);
 
 const char *csUnaryOpName(UnaryOp op);
 const char *csBinaryOpName(BinaryOp op);

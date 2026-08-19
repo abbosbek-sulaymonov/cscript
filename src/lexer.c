@@ -110,7 +110,6 @@ static TokenType identifierType(const Lexer *lexer) {
     case 'c': return checkKeyword(lexer, 1, 4, "onst", TOKEN_CONST);
     case 'e': return checkKeyword(lexer, 1, 3, "lse", TOKEN_ELSE);
     case 'r': return checkKeyword(lexer, 1, 5, "eturn", TOKEN_RETURN);
-    case 'p': return checkKeyword(lexer, 1, 4, "rint", TOKEN_PRINT);
     case 'w': return checkKeyword(lexer, 1, 4, "hile", TOKEN_WHILE);
     case 'l': return checkKeyword(lexer, 1, 2, "et", TOKEN_LET);
     case 'v': return checkKeyword(lexer, 1, 2, "ar", TOKEN_VAR);
@@ -215,11 +214,23 @@ Token csLexerNext(Lexer *lexer) {
     case ';': return makeToken(lexer, TOKEN_SEMICOLON);
     case ':': return makeToken(lexer, TOKEN_COLON);
     case '?': return makeToken(lexer, TOKEN_QUESTION);
-    case '+': return makeToken(lexer, TOKEN_PLUS);
-    case '-': return makeToken(lexer, TOKEN_MINUS);
-    case '*': return makeToken(lexer, TOKEN_STAR);
-    case '/': return makeToken(lexer, TOKEN_SLASH);
-    case '%': return makeToken(lexer, TOKEN_PERCENT);
+    case '+':
+      if (match(lexer, '+')) return makeToken(lexer, TOKEN_PLUS_PLUS);
+      if (match(lexer, '=')) return makeToken(lexer, TOKEN_PLUS_EQUAL);
+      return makeToken(lexer, TOKEN_PLUS);
+    case '-':
+      if (match(lexer, '-')) return makeToken(lexer, TOKEN_MINUS_MINUS);
+      if (match(lexer, '=')) return makeToken(lexer, TOKEN_MINUS_EQUAL);
+      return makeToken(lexer, TOKEN_MINUS);
+    case '*':
+      if (match(lexer, '=')) return makeToken(lexer, TOKEN_STAR_EQUAL);
+      return makeToken(lexer, TOKEN_STAR);
+    case '/':
+      if (match(lexer, '=')) return makeToken(lexer, TOKEN_SLASH_EQUAL);
+      return makeToken(lexer, TOKEN_SLASH);
+    case '%':
+      if (match(lexer, '=')) return makeToken(lexer, TOKEN_PERCENT_EQUAL);
+      return makeToken(lexer, TOKEN_PERCENT);
 
     case '!':
       if (match(lexer, '=')) {
@@ -272,6 +283,13 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_STAR:              return "STAR";
     case TOKEN_SLASH:             return "SLASH";
     case TOKEN_PERCENT:           return "PERCENT";
+    case TOKEN_PLUS_PLUS:         return "PLUS_PLUS";
+    case TOKEN_MINUS_MINUS:       return "MINUS_MINUS";
+    case TOKEN_PLUS_EQUAL:        return "PLUS_EQUAL";
+    case TOKEN_MINUS_EQUAL:       return "MINUS_EQUAL";
+    case TOKEN_STAR_EQUAL:        return "STAR_EQUAL";
+    case TOKEN_SLASH_EQUAL:       return "SLASH_EQUAL";
+    case TOKEN_PERCENT_EQUAL:     return "PERCENT_EQUAL";
     case TOKEN_BANG:              return "BANG";
     case TOKEN_BANG_EQUAL:        return "BANG_EQUAL";
     case TOKEN_BANG_EQUAL_EQUAL:  return "BANG_EQUAL_EQUAL";
@@ -301,7 +319,6 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_WHILE:             return "WHILE";
     case TOKEN_FOR:               return "FOR";
     case TOKEN_TYPEOF:            return "TYPEOF";
-    case TOKEN_PRINT:             return "PRINT";
     case TOKEN_ERROR:             return "ERROR";
     case TOKEN_EOF:               return "EOF";
   }

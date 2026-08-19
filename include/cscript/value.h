@@ -59,11 +59,13 @@ void csValueArrayInit(ValueArray *array);
 void csValueArrayWrite(ValueArray *array, Value value);
 void csValueArrayFree(ValueArray *array);
 
-/* JS `===`: no coercion, different types are never equal. */
+/* `===`: no coercion, different types are never equal. CScript has no coercing
+ * equality at all — see docs/GRAMMAR.md for why. */
 bool csValuesStrictEqual(Value a, Value b);
 
-/* JS `==`: coerces across number/string/bool before comparing. */
-bool csValuesLooseEqual(Value a, Value b);
+/* Explicit ToNumber, exposed for the Number() built-in. Never applied
+ * implicitly by any operator. */
+double csValueToNumber(Value value);
 
 /* JS truthiness: false, null, undefined, 0, NaN and "" are falsy. */
 bool csValueIsTruthy(Value value);

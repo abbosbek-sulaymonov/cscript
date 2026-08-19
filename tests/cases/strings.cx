@@ -1,0 +1,8 @@
+console.log("hello, " + "world");
+console.log('single quotes');
+console.log("number: " + 42);
+console.log(true + " and " + null);
+console.log("escaped: \"quoted\", tab:\tdone");
+console.log("");
+console.log("a" + "b" + "c");
+console.log("multiple", "arguments", 1, true);

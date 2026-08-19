@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Golden-file test runner.
 #
-# Every tests/cases/NAME.cs is executed and its combined stdout+stderr compared
+# Every tests/cases/NAME.cx is executed and its combined stdout+stderr compared
 # against tests/cases/NAME.expected. A case whose name starts with "error_" is
 # expected to exit non-zero; every other case must exit 0.
 #
@@ -33,16 +33,16 @@ fi
 pass=0; fail=0; skipped=0
 failed_names=()
 
-for case_file in "$ROOT"/tests/cases/*.cs; do
+for case_file in "$ROOT"/tests/cases/*.cx; do
   [[ -e "$case_file" ]] || continue
-  name="$(basename "$case_file" .cs)"
+  name="$(basename "$case_file" .cx)"
 
   if [[ -n "$FILTER" && "$name" != *"$FILTER"* ]]; then
     skipped=$((skipped + 1))
     continue
   fi
 
-  expected_file="${case_file%.cs}.expected"
+  expected_file="${case_file%.cx}.expected"
   actual="$("$BIN" "$case_file" 2>&1)"
   status=$?
 

@@ -1,0 +1,9 @@
+// Six values are falsy: false, null, undefined, 0, NaN and "".
+console.log(!false, !0, !"", !null, !undefined);
+console.log(!"anything");
+
+// && and || return one of their operands, not a boolean, and short-circuit.
+console.log("value" || "unused");
+console.log(null || "fallback");
+console.log("first" && "second");
+console.log(0 && "never reached");

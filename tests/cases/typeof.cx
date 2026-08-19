@@ -1,0 +1,6 @@
+console.log(typeof 1);
+console.log(typeof "s");
+console.log(typeof true);
+console.log(typeof undefined);
+console.log(typeof null);   // "null" — JavaScript says "object", which is a bug
+console.log(typeof (1 + 1));

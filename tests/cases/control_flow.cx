@@ -1,0 +1,30 @@
+const n = 7;
+if (n % 2 === 0) {
+  console.log("even");
+} else {
+  console.log("odd");
+}
+
+if (n > 100) {
+  console.log("big");
+} else if (n > 5) {
+  console.log("medium");
+} else {
+  console.log("small");
+}
+
+let i = 0;
+while (i < 3) {
+  console.log("while " + i);
+  i++;
+}
+
+for (let j = 0; j < 3; j++) {
+  console.log("for " + j);
+}
+
+let total = 0;
+for (let k = 1; k <= 10; k++) {
+  total += k * k;
+}
+console.log("sum " + total);

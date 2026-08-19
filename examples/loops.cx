@@ -1,0 +1,15 @@
+// Sum the first ten squares.
+let total = 0;
+for (let i = 1; i <= 10; i++) {
+  total += i * i;
+}
+console.log("sum of squares:", total);
+
+// The same thing with a while loop.
+let n = 10;
+let factorial = 1;
+while (n > 1) {
+  factorial *= n;
+  n--;
+}
+console.log("10! =", factorial);

@@ -1,0 +1,23 @@
+// CScript keeps JavaScript's syntax but removes the traps. Each line below
+// behaves differently here than it would in JavaScript — and every difference
+// is an error you can see, never a silent change of meaning.
+
+// typeof null is "object" in JavaScript. That is a bug from 1995.
+console.log(typeof null);          // "null"
+
+// Strict equality is the only equality. `==` is rejected at compile time.
+console.log(1 === 1, "a" === "a");
+console.log(0 === false);          // false — no coercion, no surprise
+
+// Arithmetic on non-numbers is an error rather than a silently spreading NaN.
+// Uncomment to see it:
+//   console.log(true * 3);
+
+// Conversions are explicit.
+console.log(Number("42") + 1);
+console.log(String(42) + "!");
+console.log(Boolean(""));
+
+// Reading a name that was never declared is an error, not `undefined`.
+// Uncomment to see it:
+//   console.log(typo);

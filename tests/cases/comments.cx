@@ -1,0 +1,6 @@
+// A line comment.
+console.log(1); // trailing comment
+/* a block
+   comment spanning lines */
+console.log(2);
+console.log(3 /* inline */ + 4);

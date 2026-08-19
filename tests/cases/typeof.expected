@@ -2,5 +2,5 @@ number
 string
 boolean
 undefined
-object
+null
 number
