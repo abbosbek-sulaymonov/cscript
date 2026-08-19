@@ -102,6 +102,13 @@
   X(OP_SUPER_CALL)        /* [argc]   run the superclass constructor        */ \
   X(OP_INSTANCEOF)        /*          pop class and value, push a boolean   */ \
                                                                               \
+  /* Modules. An import reads through to the exporting module's global rather   \
+   * than copying it, so a binding stays live and nothing has to be written     \
+   * back when a module finishes running. The module itself is a constant in    \
+   * the importing chunk, resolved when it was compiled. */                     \
+  X(OP_IMPORT_NAME)       /* [const16]  pop a module, push that export      */ \
+  X(OP_IMPORT_NAMESPACE)  /*          pop a module, push all its exports    */ \
+                                                                              \
   /* Closures. OP_CLOSURE is followed by one (isLocal, index) pair per         \
    * upvalue, describing where each capture comes from. */                     \
   X(OP_CLOSURE)           /* [const16] then 2 bytes per upvalue               */ \

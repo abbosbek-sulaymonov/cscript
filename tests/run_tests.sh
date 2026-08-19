@@ -5,6 +5,10 @@
 # against tests/cases/NAME.expected. A case whose name starts with "error_" is
 # expected to exit non-zero; every other case must exit 0.
 #
+# A case may also be a directory, for programs that span files:
+# tests/cases/NAME/main.cx is the entry point and tests/cases/NAME/expected
+# holds the output.
+#
 #   tests/run_tests.sh              use build/cscript
 #   BIN=build/cscript-debug tests/run_tests.sh
 #   tests/run_tests.sh string       run only cases matching "string"
@@ -33,21 +37,39 @@ fi
 pass=0; fail=0; skipped=0
 failed_names=()
 
+# Single-file cases first, then the directory ones. Collected into one list so
+# the rest of the loop does not have to care which kind it is looking at.
+cases=()
 for case_file in "$ROOT"/tests/cases/*.cx; do
-  [[ -e "$case_file" ]] || continue
-  name="$(basename "$case_file" .cx)"
+  [[ -e "$case_file" ]] && cases+=("$case_file")
+done
+for case_dir in "$ROOT"/tests/cases/*/; do
+  [[ -f "$case_dir/main.cx" ]] && cases+=("$case_dir/main.cx")
+done
+
+for case_file in "${cases[@]}"; do
+  if [[ "$(basename "$case_file")" == "main.cx" ]]; then
+    name="$(basename "$(dirname "$case_file")")"
+    expected_file="$(dirname "$case_file")/expected"
+  else
+    name="$(basename "$case_file" .cx)"
+    expected_file="${case_file%.cx}.expected"
+  fi
 
   if [[ -n "$FILTER" && "$name" != *"$FILTER"* ]]; then
     skipped=$((skipped + 1))
     continue
   fi
 
-  expected_file="${case_file%.cx}.expected"
   actual="$("$BIN" "$case_file" 2>&1)"
   status=$?
 
   # Paths appear in diagnostics; strip the directory so results are portable.
+  # Both spellings, because a path is shown relative to the working directory
+  # when it sits underneath it and absolute when it does not.
   actual="${actual//$ROOT\/tests\/cases\//}"
+  actual="${actual//tests\/cases\//}"
+  actual="${actual//$name\//}"
 
   if [[ "$UPDATE" == "1" ]]; then
     printf '%s\n' "$actual" > "$expected_file"

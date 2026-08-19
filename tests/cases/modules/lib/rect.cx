@@ -1,0 +1,14 @@
+import { Shape, scale, UNIT } from "./shapes.cx";
+
+export class Rect extends Shape {
+  constructor(w, h) {
+    super("rect");
+    this.w = w;
+    this.h = h;
+  }
+  area() {
+    return scale(this.w, this.h);
+  }
+}
+
+export const unitRect = new Rect(UNIT, UNIT);

@@ -973,6 +973,174 @@ static AstNode *parseClass(Parser *parser) {
   return node;
 }
 
+/* True when the current token is the given contextual keyword. `as` and `from`
+ * are ordinary identifiers everywhere else, so they are matched by text rather
+ * than reserved. */
+static bool checkContextual(Parser *parser, const char *word) {
+  return check(parser, TOKEN_IDENTIFIER) &&
+         nameIs(parser->current.start, parser->current.length, word);
+}
+
+static bool matchContextual(Parser *parser, const char *word) {
+  if (!checkContextual(parser, word)) return false;
+  advanceToken(parser);
+  return true;
+}
+
+/* The `{ a, b as c }` shared by import and export lists. */
+static bool parseModuleNameList(Parser *parser, AstNode *node, bool isImport) {
+  consume(parser, TOKEN_LEFT_BRACE, "expected '{' after the list");
+  if (parser->diag->panicMode) return false;
+
+  if (!check(parser, TOKEN_RIGHT_BRACE)) {
+    do {
+      /* A trailing comma before the brace is legal. */
+      if (check(parser, TOKEN_RIGHT_BRACE)) break;
+
+      consume(parser, TOKEN_IDENTIFIER, "expected a name");
+      if (parser->diag->panicMode) return false;
+      const char *name = parser->previous.start;
+      int nameLength = parser->previous.length;
+
+      const char *alias = name;
+      int aliasLength = nameLength;
+      if (matchContextual(parser, "as")) {
+        consume(parser, TOKEN_IDENTIFIER, "expected a name after 'as'");
+        if (parser->diag->panicMode) return false;
+        alias = parser->previous.start;
+        aliasLength = parser->previous.length;
+      }
+
+      if (isImport) {
+        csAstImportAddName(parser->arena, node, name, nameLength, alias, aliasLength);
+      } else {
+        csAstExportAddName(parser->arena, node, name, nameLength, alias, aliasLength);
+      }
+    } while (matchToken(parser, TOKEN_COMMA));
+  }
+
+  consume(parser, TOKEN_RIGHT_BRACE, "expected '}' to close the list");
+  return !parser->diag->panicMode;
+}
+
+/* The `from "./path.cx"` tail, whose specifier has to name a file this program
+ * can actually find: a relative path, extension written out. There is no
+ * package system to resolve a bare name against, and guessing extensions is
+ * how a module system starts needing a resolver nobody can predict. */
+static bool parseModuleSpecifier(Parser *parser, const char **out, int *outLength) {
+  if (!matchContextual(parser, "from")) {
+    errorAtCurrent(parser, "expected 'from' after the imported names");
+    return false;
+  }
+  consume(parser, TOKEN_STRING, "expected a quoted module path after 'from'");
+  if (parser->diag->panicMode) return false;
+
+  AstNode *literal = makeStringLiteral(parser, parser->previous.start,
+                                       parser->previous.length, parser->previous.line);
+  if (literal == NULL) return false;
+
+  const char *text = literal->as.string.chars;
+  int length = literal->as.string.length;
+  bool relative = (length > 2 && text[0] == '.' && text[1] == '/') ||
+                  (length > 3 && text[0] == '.' && text[1] == '.' && text[2] == '/');
+  if (!relative) {
+    csDiagnosticError(parser->diag, parser->previous.line, NULL, 0,
+                      "a module path must be relative and start with './' or '../'");
+    return false;
+  }
+
+  *out = text;
+  *outLength = length;
+  return true;
+}
+
+/* `import { a, b as c } from "./m.cx";` and `import * as ns from "./m.cx";` */
+static AstNode *parseImport(Parser *parser) {
+  int line = parser->previous.line;
+
+  const char *namespaceName = NULL;
+  int namespaceLength = 0;
+  AstNode *node = NULL;
+
+  if (matchToken(parser, TOKEN_STAR)) {
+    if (!matchContextual(parser, "as")) {
+      errorAtCurrent(parser, "expected 'as' after 'import *'");
+      return NULL;
+    }
+    consume(parser, TOKEN_IDENTIFIER, "expected a name after 'as'");
+    if (parser->diag->panicMode) return NULL;
+    namespaceName = parser->previous.start;
+    namespaceLength = parser->previous.length;
+
+    const char *specifier;
+    int specifierLength;
+    if (!parseModuleSpecifier(parser, &specifier, &specifierLength)) return NULL;
+    node = csAstImport(parser->arena, line, specifier, specifierLength);
+    if (node == NULL) return NULL;
+    node->as.import.namespaceName = namespaceName;
+    node->as.import.namespaceLength = namespaceLength;
+  } else if (check(parser, TOKEN_LEFT_BRACE)) {
+    node = csAstImport(parser->arena, line, "", 0);
+    if (node == NULL) return NULL;
+    if (!parseModuleNameList(parser, node, true)) return NULL;
+
+    const char *specifier;
+    int specifierLength;
+    if (!parseModuleSpecifier(parser, &specifier, &specifierLength)) return NULL;
+    node->as.import.specifier = specifier;
+    node->as.import.specifierLength = specifierLength;
+  } else {
+    errorAtCurrent(parser,
+                   "a default import is not supported; write "
+                   "'import { name } from \"...\"' or 'import * as ns from \"...\"'");
+    return NULL;
+  }
+
+  consume(parser, TOKEN_SEMICOLON, "expected ';' after the import");
+  if (parser->diag->panicMode) return NULL;
+  return node;
+}
+
+/* `export const x = 1;`, `export function f() {}`, `export class C {}` and
+ * `export { a, b as c };` */
+static AstNode *parseExport(Parser *parser) {
+  int line = parser->previous.line;
+
+  if (matchToken(parser, TOKEN_STAR)) {
+    errorAtCurrent(parser, "'export *' is not supported; name what you re-export");
+    return NULL;
+  }
+  if (check(parser, TOKEN_DEFAULT)) {
+    errorAtCurrent(parser,
+                   "a default export is not supported; export a named binding "
+                   "instead");
+    return NULL;
+  }
+
+  if (check(parser, TOKEN_LEFT_BRACE)) {
+    AstNode *node = csAstExport(parser->arena, line, NULL);
+    if (node == NULL) return NULL;
+    if (!parseModuleNameList(parser, node, false)) return NULL;
+    if (checkContextual(parser, "from")) {
+      errorAtCurrent(parser, "re-exporting from another module is not supported yet");
+      return NULL;
+    }
+    consume(parser, TOKEN_SEMICOLON, "expected ';' after the export list");
+    if (parser->diag->panicMode) return NULL;
+    return node;
+  }
+
+  if (!check(parser, TOKEN_LET) && !check(parser, TOKEN_CONST) &&
+      !check(parser, TOKEN_FUNCTION) && !check(parser, TOKEN_CLASS)) {
+    errorAtCurrent(parser, "'export' must be followed by a declaration or '{'");
+    return NULL;
+  }
+
+  AstNode *declaration = parseStatement(parser);
+  if (declaration == NULL) return NULL;
+  return csAstExport(parser->arena, line, declaration);
+}
+
 /* `try { } catch (e) { } finally { }`
  *
  * At least one of catch and finally must be present, since `try` alone does
@@ -1387,6 +1555,10 @@ static AstNode *parseStatement(Parser *parser) {
   if (matchToken(parser, TOKEN_FUNCTION)) return parseFunction(parser, true);
 
   if (matchToken(parser, TOKEN_CLASS)) return parseClass(parser);
+
+  if (matchToken(parser, TOKEN_IMPORT)) return parseImport(parser);
+
+  if (matchToken(parser, TOKEN_EXPORT)) return parseExport(parser);
 
   if (matchToken(parser, TOKEN_RETURN)) {
     int returnLine = parser->previous.line;

@@ -7,6 +7,7 @@
 #include "cscript/compiler.h"
 #include "cscript/debug.h"
 #include "cscript/memory.h"
+#include "cscript/module.h"
 #include "cscript/native.h"
 #include "cscript/object.h"
 #include "cscript/shape.h"
@@ -35,8 +36,11 @@ void csVMInit(void) {
   vm.nextGC = 1024 * 1024;
   vm.sourceName = "<script>";
 
-  csTableInit(&vm.globals);
-  csTableInit(&vm.globalConsts);
+  csTableInit(&vm.builtins);
+  csTableInit(&vm.builtinConsts);
+  csTableInit(&vm.modules);
+  vm.mainModule = NULL;
+  vm.pendingCount = 0;
   csTableInit(&vm.strings);
   csTableInit(&vm.arrayMethods);
   csTableInit(&vm.stringMethods);
@@ -49,15 +53,20 @@ void csVMInit(void) {
   vm.absentShape = csShapeNewRoot();
 
   csNativesInstall();
+
+  /* Code with no file of its own — `-e`, the REPL, a string handed to
+   * csInterpret — still needs a scope to live in. */
+  vm.mainModule = csModuleNew(csStringCopy("<main>", 6));
 }
 
-void csVMMarkGlobalConst(ObjString *name) {
-  csTableSet(&vm.globalConsts, name, BOOL_VAL(true));
+void csVMMarkBuiltinConst(ObjString *name) {
+  csTableSet(&vm.builtinConsts, name, BOOL_VAL(true));
 }
 
 void csVMFree(void) {
-  csTableFree(&vm.globals);
-  csTableFree(&vm.globalConsts);
+  csTableFree(&vm.builtins);
+  csTableFree(&vm.builtinConsts);
+  csTableFree(&vm.modules);
   csTableFree(&vm.arrayMethods);
   csTableFree(&vm.stringMethods);
   csTableFree(&vm.strings);
@@ -87,6 +96,15 @@ static inline bool isExactInteger(double value) {
          value == (double)(int64_t)value;
 }
 
+/* How a file is named in a stack trace: relative to where the program was
+ * started when it sits underneath, absolute otherwise. Traces cross module
+ * boundaries now, so each frame names its own file rather than sharing one. */
+static const char *frameSourceName(const CallFrame *frame) {
+  ObjModule *module = frame->closure->function->module;
+  if (module == NULL || module == vm.mainModule) return vm.sourceName;
+  return csModuleDisplayPath(module->path->chars);
+}
+
 void csVMRuntimeError(const char *format, ...) {
   va_list args;
   va_start(args, format);
@@ -103,10 +121,11 @@ void csVMRuntimeError(const char *format, ...) {
     size_t instruction = (size_t)(frame->ip - function->chunk.code - 1);
     int line = function->chunk.lines[instruction];
 
+    const char *source = frameSourceName(frame);
     if (function->name == NULL) {
-      fprintf(stderr, "  at %s:%d\n", vm.sourceName, line);
+      fprintf(stderr, "  at %s:%d\n", source, line);
     } else {
-      fprintf(stderr, "  at %s (%s:%d)\n", function->name->chars, vm.sourceName, line);
+      fprintf(stderr, "  at %s (%s:%d)\n", function->name->chars, source, line);
     }
   }
 
@@ -545,6 +564,12 @@ static ObjClosure *findConstructor(ObjClass *klass) {
   return owner != NULL ? owner->initializer : NULL;
 }
 
+/* The scope a frame's global reads and writes resolve in. Every function in a
+ * file carries the module it was compiled in. */
+static ObjModule *frameModule(const CallFrame *frame) {
+  return frame->closure->function->module;
+}
+
 /* The uncached path for assigning to a global: check that the name exists and
  * is not a constant, then record where it lives so the site never has to ask
  * again.
@@ -553,23 +578,25 @@ static ObjClosure *findConstructor(ObjClass *klass) {
  * A name's constness is fixed when it is declared, and a site cannot run
  * before the declaration it refers to — reaching one would have errored here
  * with "is not defined" and left the cache empty. */
-static bool assignGlobal(ObjString *name, GlobalCache *cache, Value value) {
-  if (csTableGet(&vm.globalConsts, name, NULL)) {
+static bool assignGlobal(ObjModule *module, ObjString *name, GlobalCache *cache,
+                         Value value) {
+  if (csTableGet(&module->globalConsts, name, NULL)) {
     csVMRuntimeError("'%s' is a constant and cannot be reassigned", name->chars);
     return false;
   }
 
   /* Assigning to a name that does not exist would silently create a global in
    * JavaScript; here it is the typo it almost always is. */
-  Entry *entry = csTableFindEntry(&vm.globals, name);
+  Entry *entry = csTableFindEntry(&module->globals, name);
   if (entry == NULL) {
     csVMRuntimeError("'%s' is not defined", name->chars);
     return false;
   }
 
   entry->value = value;
+  cache->table = &module->globals;
   cache->entry = entry;
-  cache->version = vm.globals.version;
+  cache->version = module->globals.version;
   cache->filled = true;
   return true;
 }
@@ -699,15 +726,16 @@ static InterpretResult run(int baseFrame) {
 
       VM_CASE(OP_DEFINE_GLOBAL) {
         ObjString *name = READ_STRING();
-        csTableSet(&vm.globals, name, peekStack(0));
+        csTableSet(&frameModule(frame)->globals, name, peekStack(0));
         csVMPop();
         VM_NEXT();
       }
 
       VM_CASE(OP_DEFINE_CONST) {
         ObjString *name = READ_STRING();
-        csTableSet(&vm.globals, name, peekStack(0));
-        csVMMarkGlobalConst(name);
+        ObjModule *module = frameModule(frame);
+        csTableSet(&module->globals, name, peekStack(0));
+        csTableSet(&module->globalConsts, name, BOOL_VAL(true));
         csVMPop();
         VM_NEXT();
       }
@@ -720,20 +748,22 @@ static InterpretResult run(int baseFrame) {
          * run once the entry it wants is fixed. The version check is what
          * makes holding a pointer into the table safe: only a rehash or a
          * delete can move an entry, and both bump it. */
-        if (cache->filled && cache->version == vm.globals.version) {
+        if (cache->filled && cache->version == cache->table->version) {
           csVMPush(cache->entry->value);
           VM_NEXT();
         }
 
-        Entry *entry = csTableFindEntry(&vm.globals, name);
+        ObjModule *module = frameModule(frame);
+        Entry *entry = csTableFindEntry(&module->globals, name);
         if (entry == NULL) {
           /* JavaScript would return undefined for a bare read in sloppy mode.
            * Reading a name that was never declared is a typo, not an intent. */
           csVMRuntimeError("'%s' is not defined", name->chars);
           return CS_RUNTIME_ERROR;
         }
+        cache->table = &module->globals;
         cache->entry = entry;
-        cache->version = vm.globals.version;
+        cache->version = module->globals.version;
         cache->filled = true;
         csVMPush(entry->value);
         VM_NEXT();
@@ -742,11 +772,13 @@ static InterpretResult run(int baseFrame) {
       VM_CASE(OP_SET_GLOBAL) {
         ObjString *name = READ_STRING();
         GlobalCache *cache = READ_GLOBAL_CACHE();
-        if (cache->filled && cache->version == vm.globals.version) {
+        if (cache->filled && cache->version == cache->table->version) {
           cache->entry->value = peekStack(0);
           VM_NEXT();
         }
-        if (!assignGlobal(name, cache, peekStack(0))) return CS_RUNTIME_ERROR;
+        if (!assignGlobal(frameModule(frame), name, cache, peekStack(0))) {
+          return CS_RUNTIME_ERROR;
+        }
         VM_NEXT();
       }
 
@@ -774,11 +806,13 @@ static InterpretResult run(int baseFrame) {
       VM_CASE(OP_SET_GLOBAL_POP) {
         ObjString *name = READ_STRING();
         GlobalCache *cache = READ_GLOBAL_CACHE();
-        if (cache->filled && cache->version == vm.globals.version) {
+        if (cache->filled && cache->version == cache->table->version) {
           cache->entry->value = csVMPop();
           VM_NEXT();
         }
-        if (!assignGlobal(name, cache, peekStack(0))) return CS_RUNTIME_ERROR;
+        if (!assignGlobal(frameModule(frame), name, cache, peekStack(0))) {
+          return CS_RUNTIME_ERROR;
+        }
         csVMPop();
         VM_NEXT();
       }
@@ -1429,6 +1463,78 @@ static InterpretResult run(int baseFrame) {
         VM_NEXT();
       }
 
+      VM_CASE(OP_IMPORT_NAME) {
+        ObjString *name = READ_STRING();
+        ObjModule *module = AS_MODULE(peekStack(0));
+        Value value;
+        if (!csTableGet(&module->globals, name, &value)) {
+          /* The compiler checked the export list, so reaching here means the
+           * module did not get as far as defining it. */
+          csVMRuntimeError("'%s' was not defined by '%s'", name->chars,
+                           module->path->chars);
+          return CS_RUNTIME_ERROR;
+        }
+        csVMPop();
+        csVMPush(value);
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_IMPORT_NAMESPACE) {
+        ObjModule *module = AS_MODULE(peekStack(0));
+
+        /* Sorted, because that is what the specification says a namespace's
+         * keys are — the exporting file's declaration order is deliberately
+         * not observable through one. Collected first so the sort does not
+         * have to happen against a hash table. */
+        ObjString *names[CS_NAMESPACE_MAX];
+        int count = 0;
+        for (int i = 0; i < module->exports.capacity; i++) {
+          Entry *entry = &module->exports.entries[i];
+          if (entry->key == NULL) continue;
+          if (count == CS_NAMESPACE_MAX) {
+            csVMRuntimeError("'%s' exports more than %d names",
+                             module->path->chars, CS_NAMESPACE_MAX);
+            return CS_RUNTIME_ERROR;
+          }
+          names[count++] = entry->key;
+        }
+
+        /* Insertion sort: export lists are short, and this keeps the
+         * comparison — code-unit order, shorter first on a prefix — in one
+         * readable place. */
+        for (int i = 1; i < count; i++) {
+          ObjString *key = names[i];
+          int j = i - 1;
+          while (j >= 0) {
+            int shorter = names[j]->length < key->length ? names[j]->length : key->length;
+            int order = memcmp(names[j]->chars, key->chars, (size_t)shorter);
+            if (order == 0) order = names[j]->length - key->length;
+            if (order <= 0) break;
+            names[j + 1] = names[j];
+            j--;
+          }
+          names[j + 1] = key;
+        }
+
+        ObjObject *namespaceObject = csObjectNew(module->path->chars);
+        /* Kept on the stack under the module so the copies below, which
+         * allocate, cannot collect it. */
+        csVMPush(OBJ_VAL(namespaceObject));
+
+        for (int i = 0; i < count; i++) {
+          Value value;
+          if (!csTableGet(&module->globals, names[i], &value)) continue;
+          csObjectPut(namespaceObject, names[i], value);
+        }
+
+        /* A namespace is a view of another module, not somewhere to put
+         * things. */
+        csObjectFreeze(namespaceObject);
+        vm.stackTop -= 2;
+        csVMPush(OBJ_VAL(namespaceObject));
+        VM_NEXT();
+      }
+
       VM_CASE(OP_CLOSURE) {
         ObjFunction *function = AS_FUNCTION(READ_CONSTANT());
         ObjClosure *closure = csClosureNew(function);
@@ -1748,6 +1854,13 @@ InterpretResult csInterpret(const char *source, const char *sourceName) {
     return CS_COMPILE_ERROR;
   }
 
+  /* Code with no file of its own still resolves its imports, against the
+   * working directory. */
+  if (!csModuleLoadImports(program, vm.mainModule->path->chars, &diag)) {
+    csAstArenaFree(&arena);
+    return CS_COMPILE_ERROR;
+  }
+
   /* Static checking sits between parsing and code generation: it needs the
    * whole tree, and the compiler benefits from the types it resolves. */
   if (!csTypeCheck(program, &diag)) {
@@ -1759,7 +1872,7 @@ InterpretResult csInterpret(const char *source, const char *sourceName) {
   csAstPrint(program);
 #endif
 
-  ObjFunction *script = csCompile(program, &diag);
+  ObjFunction *script = csCompile(program, vm.mainModule, &diag);
   /* The AST is only needed to produce bytecode, so it goes as soon as it has. */
   csAstArenaFree(&arena);
   if (script == NULL) return CS_COMPILE_ERROR;
@@ -1768,11 +1881,17 @@ InterpretResult csInterpret(const char *source, const char *sourceName) {
   csDisassembleChunk(&script->chunk, sourceName);
 #endif
 
-  /* The script is itself a function, so running it is just a call. Pushing the
-   * closure first keeps it reachable while callClosure allocates nothing but
-   * still leaves it rooted through the frame. */
-  csPushTempRoot((Obj *)script);
-  ObjClosure *closure = csClosureNew(script);
+  InterpretResult pending = csVMRunPendingModules();
+  if (pending != CS_OK) return pending;
+  return csVMRunBody(script);
+}
+
+InterpretResult csVMRunBody(ObjFunction *body) {
+  /* A top level is itself a function, so running it is just a call. Pushing
+   * the closure first keeps it reachable while callClosure allocates nothing
+   * but still leaves it rooted through the frame. */
+  csPushTempRoot((Obj *)body);
+  ObjClosure *closure = csClosureNew(body);
   csPopTempRoot();
 
   csVMPush(OBJ_VAL(closure));
@@ -1781,6 +1900,28 @@ InterpretResult csInterpret(const char *source, const char *sourceName) {
   InterpretResult result = run(0);
   resetStack();
   return result;
+}
+
+InterpretResult csVMRunPendingModules(void) {
+  /* Dependency order, so everything a module imports has already run by the
+   * time it starts. The list is cleared as it goes rather than at the end, so
+   * a module that throws does not leave the rest queued behind it. */
+  for (int i = 0; i < vm.pendingCount; i++) {
+    ObjModule *module = vm.pending[i];
+    if (module->executed) continue;
+
+    ObjFunction *body = module->body;
+    module->executed = true;
+    module->body = NULL;
+
+    InterpretResult result = csVMRunBody(body);
+    if (result != CS_OK) {
+      vm.pendingCount = 0;
+      return result;
+    }
+  }
+  vm.pendingCount = 0;
+  return CS_OK;
 }
 
 bool csVMCallAdapted(Value callee, Value *args, int available, Value *result) {

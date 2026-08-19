@@ -1,0 +1,1 @@
+main.cx:1: error: './lib.cx' has no export named 'absent'

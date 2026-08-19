@@ -19,10 +19,16 @@ typedef struct {
   int slot;
 } PropertyCache;
 
-/* What one global site learned. The globals table never moves an Entry except
- * on a rehash or a delete, both of which bump the table's version — so a
- * matching version means the pointer is still the right one. */
+/* What one global site learned. A globals table never moves an Entry except on
+ * a rehash or a delete, both of which bump the table's version — so a matching
+ * version means the pointer is still the right one.
+ *
+ * The table is part of the cache rather than looked up from the running frame:
+ * a site lives in exactly one module's code, so the table it resolves against
+ * is fixed for the life of the program. That is what keeps per-module scope
+ * from costing anything on the hot path. */
 typedef struct {
+  Table *table;
   Entry *entry;
   uint32_t version;
   bool filled;

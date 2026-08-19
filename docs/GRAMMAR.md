@@ -497,11 +497,54 @@ Class names are not usable as type annotations. The type lattice is a fixed set
 of primitives, so an instance is `object` and a class is dynamic; nominal types
 are the next typing milestone rather than part of this one.
 
+## Modules
+
+One file, one module, its own top-level scope. Nothing a file declares escapes
+it unless the file says so.
+
+```ts
+// math.cx
+export const PI = 3.14159;
+export function add(a: number, b: number): number { return a + b; }
+export class Vec { … }
+
+const helper = 1;
+export { helper };
+
+// main.cx
+import { add, PI } from "./math.cx";
+import { add as plus } from "./math.cx";
+import * as math from "./math.cx";
+```
+
+A specifier is a **relative path with the extension written out**. There is no
+package system to resolve a bare name against, and guessing extensions is how
+a module system starts needing a resolver nobody can predict.
+
+Everything a file imports is loaded, compiled and run before the file itself,
+so a program's compile errors all surface in one pass and a module has already
+finished by the time anything reads from it. A file is read once no matter how
+many others import it.
+
+An import is a **live read** of the exporting module's binding, not a copy of
+its value at import time. A namespace object exposes exactly the exported
+names, sorted, and is frozen.
+
+**Cycles are an error**, reported at the import that closed the loop. ES
+modules answer a cycle with a half-initialised namespace and a `ReferenceError`
+if you touch the wrong thing at the wrong moment; refusing it names the problem
+where it is.
+
+Not supported, each with an error that says so: **default exports** (one file,
+two ways to name a thing), **`export *`**, **re-exporting** with
+`export { x } from "..."`, **dynamic `import()`**, and **bare specifiers**.
+Imported bindings are `any` to the type checker — types do not cross a file
+boundary yet.
+
 ## Not implemented yet
 
 Each of these produces an error that names it:
 
-- Modules — `import` and `export`
 - `async` / `await`, promises, generators
 - Regular expressions
 - `Map`, `Set`, `Symbol`, `BigInt`

@@ -1,0 +1,26 @@
+// Modules: one file per idea, and one name for each thing.
+//
+// Run me:  cscript examples/modules/main.cx
+
+import { add, total, names } from "./store/items.cx";
+import { discounted, RATE } from "./store/discount.cx";
+import { RATE as rate } from "./store/discount.cx";
+import * as discount from "./store/discount.cx";
+
+add("hammer", 1200);
+add("saw", 1800);
+add("nails", 300);
+
+console.log(names());
+console.log(total(), discounted());
+
+// The same binding, under three names, from one file read once.
+console.log(RATE, rate, discount.RATE);
+
+// A namespace exposes exactly what the module exported, sorted.
+console.log(Object.keys(discount).join(","));
+
+// Imports are live: discount.cx reads items.cx's state through a function, so
+// adding another item changes what it reports.
+add("glue", 700);
+console.log(total(), discounted());

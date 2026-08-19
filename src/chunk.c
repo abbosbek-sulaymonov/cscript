@@ -67,6 +67,7 @@ int csChunkAddGlobalCache(Chunk *chunk) {
   int index = chunk->globalCacheCount;
   chunk->globalCaches =
       CS_GROW_ARRAY(GlobalCache, chunk->globalCaches, index, index + 1);
+  chunk->globalCaches[index].table = NULL;
   chunk->globalCaches[index].entry = NULL;
   chunk->globalCaches[index].version = 0;
   chunk->globalCaches[index].filled = false;

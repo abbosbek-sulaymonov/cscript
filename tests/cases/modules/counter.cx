@@ -1,0 +1,11 @@
+// State lives in the module, and every importer sees the same one.
+let count = 0;
+
+export function bump() {
+  count = count + 1;
+  return count;
+}
+
+export function current() {
+  return count;
+}

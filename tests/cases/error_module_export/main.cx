@@ -1,0 +1,2 @@
+import { present, absent } from "./lib.cx";
+console.log(present, absent);

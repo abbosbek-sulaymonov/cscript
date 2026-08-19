@@ -1,0 +1,17 @@
+export const UNIT = 1;
+
+export class Shape {
+  constructor(name) {
+    this.name = name;
+  }
+  area() {
+    return 0;
+  }
+  describe() {
+    return `${this.name} area ${this.area()}`;
+  }
+}
+
+export function scale(n, by) {
+  return n * by;
+}

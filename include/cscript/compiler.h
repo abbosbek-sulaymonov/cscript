@@ -12,7 +12,8 @@
 #include "cscript/object.h"
 
 /* Returns the compiled top-level function, or NULL if an error was reported. */
-ObjFunction *csCompile(AstNode *program, Diagnostics *diag);
+ObjFunction *csCompile(AstNode *program, ObjModule *module,
+                       Diagnostics *diag);
 
 /* Marks the functions currently being compiled. Called by the collector. */
 void csCompilerMarkRoots(void);

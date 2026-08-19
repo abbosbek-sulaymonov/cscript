@@ -52,6 +52,8 @@ typedef enum {
   AST_TRY_STMT,
   AST_THROW_STMT,
   AST_CLASS_DECL,
+  AST_IMPORT,
+  AST_EXPORT,
   AST_PROGRAM,
 } AstNodeType;
 
@@ -97,6 +99,15 @@ typedef struct AstBinding {
   AstNode *defaultValue; /* NULL when the pattern has no default */
   bool isRest;           /* ...rest, only valid last in an array pattern */
 } AstBinding;
+
+/* One name moved across a module boundary: `a`, or `a as b`. The alias is the
+ * local name, and equals the exported name when there is no `as`. */
+typedef struct AstModuleName {
+  const char *name;
+  int nameLength;
+  const char *alias;
+  int aliasLength;
+} AstModuleName;
 
 /* One field declared in a class body: `x;`, `x = 0;` or `x: number = 0;`.
  *
@@ -179,6 +190,19 @@ struct AstNode {
       const char *name;                  /*   NULL for `super(...)` */
       int length;
     } super;
+    struct {                             /* AST_IMPORT */
+      const char *specifier;             /*   the quoted path, decoded */
+      int specifierLength;
+      struct AstModuleName *names;
+      int nameCount;
+      const char *namespaceName;         /*   non-NULL for `import * as ns` */
+      int namespaceLength;
+    } import;
+    struct {                             /* AST_EXPORT */
+      AstNode *declaration;              /*   NULL for `export { a, b };` */
+      struct AstModuleName *names;       /*   only for the list form */
+      int nameCount;
+    } export;
     struct {                             /* AST_CLASS_DECL */
       const char *name;
       int nameLength;
@@ -326,6 +350,13 @@ AstNode *csAstCall(AstArena *arena, int line, AstNode *callee);
 AstNode *csAstNew(AstArena *arena, int line, AstNode *callee);
 AstNode *csAstThis(AstArena *arena, int line);
 AstNode *csAstSuper(AstArena *arena, int line, const char *name, int length);
+AstNode *csAstImport(AstArena *arena, int line, const char *specifier, int length);
+void csAstImportAddName(AstArena *arena, AstNode *node, const char *name, int nameLength,
+                        const char *alias, int aliasLength);
+AstNode *csAstExport(AstArena *arena, int line, AstNode *declaration);
+void csAstExportAddName(AstArena *arena, AstNode *node, const char *name, int nameLength,
+                        const char *alias, int aliasLength);
+
 AstNode *csAstClass(AstArena *arena, int line, const char *name, int nameLength,
                     const char *superName, int superLength);
 void csAstClassAddField(AstArena *arena, AstNode *node, const char *name, int length,

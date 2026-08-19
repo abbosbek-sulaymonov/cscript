@@ -1,0 +1,7 @@
+rect area 12 12 1
+1 42
+true true
+Shape,UNIT,scale
+1 10 bare area 0
+1 2 2
+rect area 12 | rect area 1 | plain area 0

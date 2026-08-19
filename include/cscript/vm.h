@@ -20,6 +20,8 @@ typedef enum {
 #define CS_TEMP_ROOTS_MAX 64
 #define CS_FRAMES_MAX 64
 #define CS_HANDLERS_MAX 64
+#define CS_MODULES_MAX 256
+#define CS_NAMESPACE_MAX 256
 
 /* Defined in object.h, which includes this header for Value. */
 struct ObjClosure;
@@ -68,11 +70,25 @@ typedef struct {
    * by descending slot so closing a scope can stop early. */
   struct ObjUpvalue *openUpvalues;
 
-  Table globals;
-  /* Names bound by `const` or by a built-in. Used as a set; the values are
-   * ignored. Assigning to anything in here is a runtime error, which is what
-   * keeps `console = 1` from silently destroying the console. */
-  Table globalConsts;
+  /* The standard library, copied into every module as it is created. Held
+   * pristine here so a module never has to fall back to a second table. */
+  Table builtins;
+  /* Names bound by a built-in. Used as a set; the values are ignored.
+   * Assigning to anything in here is a runtime error, which is what keeps
+   * `console = 1` from silently destroying the console. */
+  Table builtinConsts;
+
+  /* Every module that has been loaded, keyed by its resolved path, so
+   * importing the same file twice runs it once. */
+  Table modules;
+  /* Where `-e`, the REPL and any code with no file of its own live. */
+  ObjModule *mainModule;
+
+  /* Modules compiled but not yet run, in dependency order. Kept alive by the
+   * registry above; this only records the order. */
+  ObjModule *pending[CS_MODULES_MAX];
+  int pendingCount;
+
   Table strings; /* intern pool; weak — swept entries are removed */
 
   /* Built-in methods, keyed by interned name and selected by the receiver's
@@ -120,8 +136,14 @@ void csVMFree(void);
 /* Compiles and runs a whole source string. */
 InterpretResult csInterpret(const char *source, const char *sourceName);
 
-/* Marks a global as constant. Used by `const` and by the built-ins. */
-void csVMMarkGlobalConst(ObjString *name);
+/* Marks a built-in as constant. Module-level `const` marks its own table. */
+void csVMMarkBuiltinConst(ObjString *name);
+
+/* Runs a compiled top level as a call. Used for modules and for `-e`. */
+InterpretResult csVMRunBody(ObjFunction *body);
+
+/* Runs every module compiled but not yet executed, in dependency order. */
+InterpretResult csVMRunPendingModules(void);
 
 void csVMPush(Value value);
 Value csVMPop(void);

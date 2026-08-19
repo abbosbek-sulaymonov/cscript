@@ -239,6 +239,7 @@ ObjFunction *csFunctionNew(void) {
   function->arity = 0;
   function->upvalueCount = 0;
   function->name = NULL;
+  function->module = NULL;
   csChunkInit(&function->chunk);
   return function;
 }
@@ -264,6 +265,30 @@ ObjClosure *csClosureNew(ObjFunction *function) {
   closure->upvalues = upvalues;
   closure->upvalueCount = function->upvalueCount;
   return closure;
+}
+
+ObjModule *csModuleNew(ObjString *path) {
+  csPushTempRoot((Obj *)path);
+  ObjModule *module = CS_ALLOCATE(ObjModule, 1);
+  registerObject((Obj *)module, OBJ_MODULE);
+  module->path = path;
+  module->body = NULL;
+  module->loading = false;
+  module->executed = false;
+  csTableInit(&module->globals);
+  csTableInit(&module->globalConsts);
+  csTableInit(&module->exports);
+
+  /* The built-ins are in scope in every module. Copying them costs one table
+   * of about thirty entries per file and keeps global lookup a single hash
+   * rather than a hash with a fallback behind it. */
+  csPushTempRoot((Obj *)module);
+  csTableAddAll(&vm.builtins, &module->globals);
+  csTableAddAll(&vm.builtinConsts, &module->globalConsts);
+  csPopTempRoot();
+
+  csPopTempRoot();
+  return module;
 }
 
 ObjClass *csClassNew(ObjString *name) {
@@ -380,6 +405,9 @@ void csObjectPrint(Value value) {
     case OBJ_BOUND_METHOD:
       printFunctionName(AS_BOUND_METHOD(value)->method->function);
       break;
+    case OBJ_MODULE:
+      printf("[Module: %s]", AS_MODULE(value)->path->chars);
+      break;
     case OBJ_FUNCTION:
       printFunctionName((ObjFunction *)AS_OBJ(value));
       break;
@@ -465,11 +493,22 @@ void csObjectBlacken(Obj *object) {
       break;
     }
 
+    case OBJ_MODULE: {
+      ObjModule *module = (ObjModule *)object;
+      csMarkObject((Obj *)module->path);
+      csMarkObject((Obj *)module->body);
+      csTableMark(&module->globals);
+      csTableMark(&module->globalConsts);
+      csTableMark(&module->exports);
+      break;
+    }
+
     case OBJ_FUNCTION: {
       /* A function owns its constant pool, so every literal in its body is
        * live for as long as the function is. */
       ObjFunction *function = (ObjFunction *)object;
       csMarkObject((Obj *)function->name);
+      csMarkObject((Obj *)function->module);
       for (int i = 0; i < function->chunk.constants.count; i++) {
         csMarkValue(function->chunk.constants.values[i]);
       }
@@ -540,6 +579,15 @@ void csObjectFree(Obj *object) {
       /* The receiver and the method both belong to whoever else holds them. */
       CS_FREE(ObjBoundMethod, object);
       break;
+
+    case OBJ_MODULE: {
+      ObjModule *module = (ObjModule *)object;
+      csTableFree(&module->globals);
+      csTableFree(&module->globalConsts);
+      csTableFree(&module->exports);
+      CS_FREE(ObjModule, object);
+      break;
+    }
 
     case OBJ_FUNCTION: {
       ObjFunction *function = (ObjFunction *)object;

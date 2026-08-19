@@ -73,11 +73,11 @@ The full list, with the reasoning for each, is in
 
 ## Status
 
-**v0.14.0.** The language is feature-complete for everyday code: objects and
-arrays, functions and closures, gradual typing with inference, control flow,
-`switch`, template literals and the conditional operator. The pipeline is lexer
-→ parser → type checker → bytecode compiler → stack VM, with a mark-sweep
-collector underneath.
+**v0.15.0.** The language is feature-complete for everyday code: objects and
+arrays, functions and closures, classes and inheritance, modules, gradual
+typing with inference, control flow, `switch`, template literals and the
+conditional operator. The pipeline is lexer → parser → type checker → bytecode
+compiler → stack VM, with a mark-sweep collector underneath.
 
 ```ts
 class Person {
@@ -404,7 +404,8 @@ cscript/
 | **13 ✅** | Destructuring and spread | — |
 | **14 ✅** | Hidden classes and inline caches for properties and globals | — |
 | **15 ✅** | `class`, `new`, `this`, `extends`, `super`, `instanceof` | — |
-| next | Modules — `import` and `export` | — |
+| **16 ✅** | Modules — `import`, `export`, per-file scope | — |
+| next | `async`/`await`, or a register VM | — |
 
 ---
 

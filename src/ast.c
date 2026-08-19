@@ -303,6 +303,64 @@ AstNode *csAstSuper(AstArena *arena, int line, const char *name, int length) {
   return node;
 }
 
+/* Both name lists grow by copying, like the others here: they are short and a
+ * capacity field on every node would cost more than the copies do. */
+static AstModuleName *addModuleName(AstArena *arena, AstModuleName *list, int count,
+                                    const char *name, int nameLength,
+                                    const char *alias, int aliasLength) {
+  AstModuleName *grown =
+      (AstModuleName *)csAstArenaAlloc(arena, sizeof(AstModuleName) * (size_t)(count + 1));
+  if (grown == NULL) return NULL;
+  if (list != NULL) memcpy(grown, list, sizeof(AstModuleName) * (size_t)count);
+
+  grown[count].name = internName(arena, name, nameLength, &grown[count].nameLength);
+  grown[count].alias = internName(arena, alias, aliasLength, &grown[count].aliasLength);
+  return grown;
+}
+
+AstNode *csAstImport(AstArena *arena, int line, const char *specifier, int length) {
+  AstNode *node = newNode(arena, AST_IMPORT, line);
+  if (node == NULL) return NULL;
+  node->as.import.specifier =
+      internName(arena, specifier, length, &node->as.import.specifierLength);
+  node->as.import.names = NULL;
+  node->as.import.nameCount = 0;
+  node->as.import.namespaceName = NULL;
+  node->as.import.namespaceLength = 0;
+  return node;
+}
+
+void csAstImportAddName(AstArena *arena, AstNode *node, const char *name, int nameLength,
+                        const char *alias, int aliasLength) {
+  if (node == NULL) return;
+  AstModuleName *grown = addModuleName(arena, node->as.import.names,
+                                       node->as.import.nameCount, name, nameLength,
+                                       alias, aliasLength);
+  if (grown == NULL) return;
+  node->as.import.names = grown;
+  node->as.import.nameCount++;
+}
+
+AstNode *csAstExport(AstArena *arena, int line, AstNode *declaration) {
+  AstNode *node = newNode(arena, AST_EXPORT, line);
+  if (node == NULL) return NULL;
+  node->as.export.declaration = declaration;
+  node->as.export.names = NULL;
+  node->as.export.nameCount = 0;
+  return node;
+}
+
+void csAstExportAddName(AstArena *arena, AstNode *node, const char *name, int nameLength,
+                        const char *alias, int aliasLength) {
+  if (node == NULL) return;
+  AstModuleName *grown = addModuleName(arena, node->as.export.names,
+                                       node->as.export.nameCount, name, nameLength,
+                                       alias, aliasLength);
+  if (grown == NULL) return;
+  node->as.export.names = grown;
+  node->as.export.nameCount++;
+}
+
 AstNode *csAstClass(AstArena *arena, int line, const char *name, int nameLength,
                     const char *superName, int superLength) {
   AstNode *node = newNode(arena, AST_CLASS_DECL, line);

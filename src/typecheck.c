@@ -696,6 +696,26 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
       result = TYPE_ANY;
       break;
 
+    /* Types do not cross a module boundary yet: the checker runs per file and
+     * has no record of what another file resolved. An imported binding is
+     * dynamic, which is honest rather than merely permissive. */
+    case AST_IMPORT:
+      if (node->as.import.namespaceName != NULL) {
+        declareVariable(checker, node->as.import.namespaceName,
+                        node->as.import.namespaceLength, TYPE_OBJECT);
+      }
+      for (int i = 0; i < node->as.import.nameCount; i++) {
+        const AstModuleName *entry = &node->as.import.names[i];
+        declareVariable(checker, entry->alias, entry->aliasLength, TYPE_ANY);
+      }
+      result = TYPE_UNDEFINED;
+      break;
+
+    case AST_EXPORT:
+      checkNode(checker, node->as.export.declaration);
+      result = TYPE_UNDEFINED;
+      break;
+
     case AST_CLASS_DECL: {
       declareVariable(checker, node->as.classDecl.name, node->as.classDecl.nameLength,
                       TYPE_ANY);

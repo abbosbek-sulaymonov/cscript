@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "cscript/common.h"
+#include "cscript/module.h"
 #include "cscript/vm.h"
 
 #ifdef CS_DEBUG_PROFILE_OPCODES
@@ -45,43 +46,6 @@ static void repl(void) {
   }
 }
 
-/* Reads the whole file into a NUL-terminated buffer the caller owns. */
-static char *readFile(const char *path) {
-  FILE *file = fopen(path, "rb");
-  if (file == NULL) {
-    fprintf(stderr, "cscript: could not open '%s'\n", path);
-    return NULL;
-  }
-
-  fseek(file, 0L, SEEK_END);
-  long size = ftell(file);
-  rewind(file);
-  if (size < 0) {
-    fprintf(stderr, "cscript: could not measure '%s'\n", path);
-    fclose(file);
-    return NULL;
-  }
-
-  char *buffer = (char *)malloc((size_t)size + 1);
-  if (buffer == NULL) {
-    fprintf(stderr, "cscript: not enough memory to read '%s'\n", path);
-    fclose(file);
-    return NULL;
-  }
-
-  size_t read = fread(buffer, sizeof(char), (size_t)size, file);
-  if (read < (size_t)size) {
-    fprintf(stderr, "cscript: could not read '%s'\n", path);
-    free(buffer);
-    fclose(file);
-    return NULL;
-  }
-  buffer[read] = '\0';
-
-  fclose(file);
-  return buffer;
-}
-
 static int runSource(const char *source, const char *name) {
   InterpretResult result = csInterpret(source, name);
   if (result == CS_COMPILE_ERROR) return 65;
@@ -111,13 +75,8 @@ int main(int argc, const char *argv[]) {
     printUsage(stderr);
     exitCode = 64;
   } else {
-    char *source = readFile(argv[1]);
-    if (source == NULL) {
-      exitCode = 66;
-    } else {
-      exitCode = runSource(source, argv[1]);
-      free(source);
-    }
+    InterpretResult result = csRunFile(argv[1]);
+    exitCode = result == CS_COMPILE_ERROR ? 65 : result == CS_RUNTIME_ERROR ? 70 : 0;
   }
 
 #ifdef CS_DEBUG_PROFILE_OPCODES

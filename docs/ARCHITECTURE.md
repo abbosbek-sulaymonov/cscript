@@ -583,9 +583,53 @@ table, then reset the stack.
 | `src/typecheck.c` | Static checking; annotates the AST with types |
 | `src/type.c` | The type lattice and assignability |
 | `src/native.c` | The built-in global environment |
+| `src/module.c` | Resolving, loading and ordering source files |
 | `src/debug.c` | Disassembler and AST printer |
 | `src/diagnostic.c` | Error reporting |
 | `src/main.c` | CLI, REPL, file runner |
+
+## Modules: one file, one scope
+
+Before v0.15.0 there was a single globals table, so two files could not be
+combined without their top-level names colliding. A module now owns its own
+table, and the built-ins are copied into it when it is created — one uniform
+lookup rather than a lookup with a fallback behind it.
+
+**The hot path did not get slower.** A global site lives in exactly one
+module's code, so the table it resolves against is fixed for the life of the
+program. The inline cache from v0.13.0 already held an `Entry *` and a version;
+it gained the `Table *` it took them from, so the hit test is still two loads
+and a compare and never touches the running frame. Measured: the `globals`
+benchmark went from 206 ms to 211 ms, about 2.4%, and nothing else moved.
+
+**The loader sits above the compiler**, not inside it, because the compiler is
+a single global `current` and must not be re-entered:
+
+```
+load(path):
+  registry hit, loaded   -> reuse
+  registry hit, loading  -> error: import cycle
+  read, parse
+  for each import specifier: load(resolve(path, specifier))
+  type-check, compile        <- dependencies are already compiled
+  append to the execution list
+```
+
+Post-order, so the execution list is in dependency order and everything a
+module imports has run before it starts. All compilation finishes before any
+execution, which is what lets every compile error in a program surface in one
+pass — and what lets a missing export be a *compile* error, since the importing
+file is compiled only after the exporting one has published its export list.
+
+`exports` is a **set of names**, not a copy of values. An import reads through
+to the exporting module's global, so bindings stay live and nothing has to be
+written back when a module finishes. A namespace object is built at import time
+from the same reads, sorted, and frozen.
+
+Cycles are refused rather than half-run. ES modules answer a cycle with a
+partially initialised namespace and a `ReferenceError` if you touch the wrong
+thing at the wrong moment; naming the import that closed the loop is more use
+than reproducing that.
 
 ## Build configurations
 

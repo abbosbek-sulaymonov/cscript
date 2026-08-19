@@ -1,0 +1,7 @@
+import { total } from "./items.cx";
+
+export const RATE = 0.1;
+
+export function discounted(): number {
+  return Math.round(total() * (1 - RATE));
+}

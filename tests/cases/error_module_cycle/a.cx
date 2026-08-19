@@ -1,0 +1,2 @@
+import { b } from "./b.cx";
+export const a = b + 1;

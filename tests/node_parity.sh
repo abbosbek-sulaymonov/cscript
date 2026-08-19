@@ -47,17 +47,46 @@ trap 'rm -rf "$tmp"' EXIT
 
 pass=0; fail=0; divergent=0
 
-for example in "$ROOT"/examples/*.cx; do
-  name="$(basename "$example" .cx)"
+# An example is either one .cx file or a directory whose main.cx is the entry
+# point. A directory is copied whole so its imports still resolve, with .cx
+# renamed to .ts in both filenames and specifiers.
+examples=()
+for entry in "$ROOT"/examples/*.cx; do
+  [[ -e "$entry" ]] && examples+=("$entry")
+done
+for entry in "$ROOT"/examples/*/; do
+  [[ -f "$entry/main.cx" ]] && examples+=("$entry/main.cx")
+done
+
+for example in "${examples[@]}"; do
+  if [[ "$(basename "$example")" == "main.cx" ]]; then
+    name="$(basename "$(dirname "$example")")"
+    is_directory=1
+  else
+    name="$(basename "$example" .cx)"
+    is_directory=0
+  fi
 
   is_divergent=0
   for entry in "${DIVERGENT[@]}"; do
     [[ "$name" == "$entry" ]] && is_divergent=1
   done
 
-  cp "$example" "$tmp/$name.ts"
+  if [[ $is_directory -eq 1 ]]; then
+    rm -rf "$tmp/$name"
+    cp -R "$(dirname "$example")" "$tmp/$name"
+    while IFS= read -r file; do
+      sed 's/\.cx"/.ts"/g' "$file" > "${file%.cx}.ts"
+      rm "$file"
+    done < <(find "$tmp/$name" -name '*.cx')
+    entry="$tmp/$name/main.ts"
+  else
+    cp "$example" "$tmp/$name.ts"
+    entry="$tmp/$name.ts"
+  fi
+
   ours="$("$BIN" "$example" 2>&1)"
-  theirs="$(run_node "$tmp/$name.ts")"
+  theirs="$(run_node "$entry")"
 
   if [[ $is_divergent -eq 1 ]]; then
     if [[ "$ours" == "$theirs" ]]; then

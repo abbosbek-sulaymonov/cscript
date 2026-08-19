@@ -18,6 +18,7 @@ typedef enum {
   OBJ_SHAPE,    /* an object layout; never visible from CScript */
   OBJ_CLASS,
   OBJ_BOUND_METHOD, /* a method captured away from its receiver */
+  OBJ_MODULE,       /* one source file: its own top-level scope */
 } ObjType;
 
 typedef struct ObjClosure ObjClosure;
@@ -111,16 +112,45 @@ typedef struct ObjObject {
   } as;
 } ObjObject;
 
+/* One source file, and the scope its top level lives in.
+ *
+ * Before modules there was a single globals table, so two files could not be
+ * combined without their top-level names colliding. A module owns its own.
+ * Built-ins are copied in when it is created, which keeps every global lookup
+ * one uniform mechanism rather than a lookup with a fallback behind it. */
+struct ObjModule {
+  Obj obj;
+  ObjString *path; /* resolved and absolute: the registry key */
+  Table globals;
+  Table globalConsts;
+
+  /* Used as a set. Which names this module allows to be imported — the values
+   * are read through to `globals`, so a binding stays live and nothing has to
+   * be copied when the module finishes running. */
+  Table exports;
+
+  /* The compiled top level, kept only until it runs. */
+  ObjFunction *body;
+
+  /* Loaded but not finished: a module reached again while this is set closes
+   * an import cycle. */
+  bool loading;
+  bool executed;
+};
+
 /* Compiled user code. Every function body is its own chunk, and the top level
- * of a script is itself a function — which is what lets the VM run scripts and
+ * of a module is itself a function — which is what lets the VM run modules and
  * calls through exactly one mechanism. */
-typedef struct ObjFunction {
+struct ObjFunction {
   Obj obj;
   int arity;
   int upvalueCount;
   Chunk chunk;
   ObjString *name; /* NULL for the implicit top-level function */
-} ObjFunction;
+  /* The module this was compiled in, which is where its global reads and
+   * writes resolve. Every function in a file shares it. */
+  ObjModule *module;
+};
 
 /* A captured variable.
  *
@@ -195,6 +225,7 @@ typedef struct ObjBoundMethod {
 #define IS_CLOSURE(v)  csIsObjType(v, OBJ_CLOSURE)
 #define IS_ARRAY(v)    csIsObjType(v, OBJ_ARRAY)
 #define IS_CLASS(v)    csIsObjType(v, OBJ_CLASS)
+#define IS_MODULE(v)   csIsObjType(v, OBJ_MODULE)
 #define IS_BOUND_METHOD(v) csIsObjType(v, OBJ_BOUND_METHOD)
 
 #define AS_STRING(v)   ((ObjString *)AS_OBJ(v))
@@ -205,6 +236,7 @@ typedef struct ObjBoundMethod {
 #define AS_CLOSURE(v)  ((ObjClosure *)AS_OBJ(v))
 #define AS_ARRAY(v)    ((ObjArray *)AS_OBJ(v))
 #define AS_CLASS(v)    ((ObjClass *)AS_OBJ(v))
+#define AS_MODULE(v)   ((ObjModule *)AS_OBJ(v))
 #define AS_BOUND_METHOD(v) ((ObjBoundMethod *)AS_OBJ(v))
 
 static inline bool csIsObjType(Value value, ObjType type) {
@@ -223,6 +255,9 @@ ObjUpvalue *csUpvalueNew(Value *slot);
 ObjClosure *csClosureNew(ObjFunction *function);
 ObjArray *csArrayNew(void);
 ObjClass *csClassNew(ObjString *name);
+
+/* Creates a module with the built-ins already in scope. */
+ObjModule *csModuleNew(ObjString *path);
 ObjObject *csInstanceNew(ObjClass *klass);
 ObjBoundMethod *csBoundMethodNew(Value receiver, ObjClosure *method);
 

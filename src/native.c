@@ -471,10 +471,10 @@ static void defineGlobal(const char *name, Value value) {
   if (IS_OBJ(value)) csPushTempRoot(AS_OBJ(value));
   ObjString *key = csStringCopy(name, (int)strlen(name));
   csPushTempRoot((Obj *)key);
-  csTableSet(&vm.globals, key, value);
+  csTableSet(&vm.builtins, key, value);
   /* Built-ins are constants: reassigning `console` should fail loudly rather
    * than leave the program with no way to print. */
-  csVMMarkGlobalConst(key);
+  csVMMarkBuiltinConst(key);
   csPopTempRoot();
   if (IS_OBJ(value)) csPopTempRoot();
 }

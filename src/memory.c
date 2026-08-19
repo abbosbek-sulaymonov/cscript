@@ -109,8 +109,10 @@ static void markRoots(void) {
 
   csMarkObject((Obj *)vm.emptyShape);
   csMarkObject((Obj *)vm.absentShape);
-  csTableMark(&vm.globals);
-  csTableMark(&vm.globalConsts);
+  csTableMark(&vm.builtins);
+  csTableMark(&vm.builtinConsts);
+  csTableMark(&vm.modules);
+  csMarkObject((Obj *)vm.mainModule);
   /* Built-in methods live only in these tables, so nothing else keeps them
    * alive between calls. */
   csTableMark(&vm.arrayMethods);

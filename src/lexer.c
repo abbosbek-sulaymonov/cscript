@@ -113,7 +113,12 @@ static TokenType identifierType(const Lexer *lexer) {
       if (lexer->current - lexer->start > 1) {
         switch (lexer->start[1]) {
           case 'l': return checkKeyword(lexer, 2, 2, "se", TOKEN_ELSE);
-          case 'x': return checkKeyword(lexer, 2, 5, "tends", TOKEN_EXTENDS);
+          case 'x':
+            /* extends / export share "ex". */
+            if (lexer->current - lexer->start > 2 && lexer->start[2] == 'p') {
+              return checkKeyword(lexer, 2, 4, "port", TOKEN_EXPORT);
+            }
+            return checkKeyword(lexer, 2, 5, "tends", TOKEN_EXTENDS);
         }
       }
       break;
@@ -135,6 +140,7 @@ static TokenType identifierType(const Lexer *lexer) {
       if (lexer->current - lexer->start > 1) {
         switch (lexer->start[1]) {
           case 'f': return checkKeyword(lexer, 2, 0, "", TOKEN_IF);
+          case 'm': return checkKeyword(lexer, 2, 4, "port", TOKEN_IMPORT);
           case 'n': return checkKeyword(lexer, 2, 8, "stanceof", TOKEN_INSTANCEOF);
         }
       }
@@ -460,6 +466,8 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_WHILE:             return "WHILE";
     case TOKEN_FOR:               return "FOR";
     case TOKEN_TYPEOF:            return "TYPEOF";
+    case TOKEN_IMPORT:            return "IMPORT";
+    case TOKEN_EXPORT:            return "EXPORT";
     case TOKEN_CLASS:             return "CLASS";
     case TOKEN_EXTENDS:           return "EXTENDS";
     case TOKEN_NEW:               return "NEW";

@@ -1,0 +1,21 @@
+import { Rect, unitRect } from "./lib/rect.cx";
+import { Shape, UNIT } from "./lib/shapes.cx";
+import { scale as times } from "./lib/shapes.cx";
+import * as shapes from "./lib/shapes.cx";
+import { bump, current } from "./counter.cx";
+
+const r = new Rect(3, 4);
+console.log(r.describe(), r.area(), unitRect.area());
+console.log(UNIT, times(6, 7));
+console.log(r instanceof Rect, r instanceof Shape);
+
+// A namespace exposes exactly the exported names, in sorted order.
+console.log(Object.keys(shapes).join(","));
+console.log(shapes.UNIT, shapes.scale(2, 5), new shapes.Shape("bare").describe());
+
+// Module state is shared: importing twice does not run the file twice.
+console.log(bump(), bump(), current());
+
+// A base class defined in one file, subclassed in another, used in a third.
+const all = [r, unitRect, new Shape("plain")];
+console.log(all.map((s) => s.describe()).join(" | "));

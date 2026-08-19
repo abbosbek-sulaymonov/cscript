@@ -1,0 +1,2 @@
+import { a } from "./a.cx";
+console.log(a);

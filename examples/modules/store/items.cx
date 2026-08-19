@@ -1,0 +1,17 @@
+// A module keeps its own state. Everything that imports it sees the same one,
+// because a file is read, compiled and run exactly once no matter how many
+// other files ask for it.
+const items: any = [];
+
+export function add(name: string, price: number) {
+  items.push({ name: name, price: price });
+  return items.length;
+}
+
+export function total(): number {
+  return items.reduce((sum: number, item: any) => sum + item.price, 0);
+}
+
+export function names(): string {
+  return items.map((item: any) => item.name).join(", ");
+}
