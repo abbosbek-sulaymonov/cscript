@@ -67,6 +67,9 @@
    * arrays and strings are iterable today, which is why this is one opcode    \
    * rather than an iterator protocol. */                                       \
   X(OP_ITER_LENGTH)       /*          replace top with its length           */ \
+  /* `for...in` desugars to `for...of` over this: an object's own keys, or an  \
+   * array's indices as strings, which is what JavaScript enumerates. */        \
+  X(OP_ENUM_KEYS)         /*          replace top with its keys as an array */ \
   X(OP_SET_INDEX)         /*          target[index] = value, leaving value  */ \
   X(OP_OBJECT)            /* [count]  build from `count` key/value pairs    */ \
   X(OP_ARRAY)             /* [count]  build from the top `count` values     */ \
@@ -98,6 +101,9 @@
   X(OP_INHERIT)           /*          link peek(0) to peek(1), pop it       */ \
   X(OP_METHOD)            /* [const16]  pop a closure onto the class        */ \
   X(OP_STATIC_METHOD)     /* [const16]  ... onto its statics                */ \
+  X(OP_STATIC_FIELD)      /* [const16]  pop a value onto its statics        */ \
+  X(OP_GETTER)            /* [const16]  pop a closure onto its getters      */ \
+  X(OP_SETTER)            /* [const16]  pop a closure onto its setters      */ \
   X(OP_CONSTRUCTOR)       /*          pop a closure as the constructor      */ \
   /* The field initialisers, kept apart from the constructor so a class with    \
    * no constructor still runs them and a subclass never has to. */             \

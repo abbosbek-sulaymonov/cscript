@@ -1,0 +1,27 @@
+class Temp {
+  celsius = 0;
+  get fahrenheit() { return this.celsius * 9 / 5 + 32; }
+  set fahrenheit(f) { this.celsius = (f - 32) * 5 / 9; }
+  get label() { return `${this.celsius}C`; }
+}
+const t = new Temp();
+console.log(t.fahrenheit, t.label);
+t.fahrenheit = 212;
+console.log(t.celsius, t.fahrenheit, t.label);
+t.celsius = 100;
+console.log(t.fahrenheit);
+
+class Sub extends Temp {
+  get label() { return `sub ${super.label}`; }
+}
+const s = new Sub();
+s.fahrenheit = 32;
+console.log(s.celsius, s.label);
+
+// A method actually named `get` still works.
+class Store {
+  items = {};
+  get(k) { return this.items[k]; }
+  set(k, v) { this.items[k] = v; return this; }
+}
+console.log(new Store().set("a", 1).get("a"));

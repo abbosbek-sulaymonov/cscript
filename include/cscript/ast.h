@@ -99,6 +99,10 @@ typedef struct AstBinding {
   int nameLength;
   AstNode *defaultValue; /* NULL when the pattern has no default */
   bool isRest;           /* ...rest, only valid last in an array pattern */
+
+  /* A nested pattern — `const { a: { b } } = x` — which binds nothing itself
+   * and destructures the piece it was given instead. NULL for a plain name. */
+  AstNode *pattern;
 } AstBinding;
 
 /* One name moved across a module boundary: `a`, or `a as b`. The alias is the
@@ -121,12 +125,20 @@ typedef struct AstClassField {
   AstNode *initializer; /* NULL for a bare `x;` */
   TypeKind declaredType;
   bool hasAnnotation;
+  bool isStatic;        /* belongs to the class, not to an instance */
 } AstClassField;
 
 /* One method in a class body. `constructor` is pulled out separately. */
+typedef enum {
+  MEMBER_METHOD,
+  MEMBER_GETTER,
+  MEMBER_SETTER,
+} ClassMemberKind;
+
 typedef struct AstClassMember {
   AstNode *function; /* an AST_FUNCTION */
   bool isStatic;
+  ClassMemberKind kind;
 } AstClassMember;
 
 /* One declared parameter. Stored inline in the function node's array. */
@@ -135,6 +147,11 @@ typedef struct AstParam {
   int length;
   TypeKind type;
   bool hasAnnotation;
+
+  /* `function f({ a, b })` — the parameter takes a generated name and the
+   * pattern is destructured from it at the top of the body, which is exactly
+   * what writing it out by hand would do. */
+  AstNode *pattern;
 } AstParam;
 
 struct AstNode {
@@ -241,6 +258,7 @@ struct AstNode {
     struct {                             /* AST_WHILE_STMT */
       AstNode *condition;
       AstNode *body;
+      bool isDoWhile;                    /*   body runs before the first test */
     } whileStmt;
     struct {                             /* AST_FOR_STMT — any clause may be NULL */
       AstNode *initializer;
@@ -302,6 +320,7 @@ struct AstNode {
       bool isConst;
       AstNode *iterable;
       AstNode *body;
+      bool isForIn;                      /*   iterate keys rather than values */
     } forOf;
     struct {                             /* AST_TRY_STMT */
       AstNode *body;                     /*   an AST_BLOCK */
@@ -364,9 +383,9 @@ AstNode *csAstClass(AstArena *arena, int line, const char *name, int nameLength,
                     const char *superName, int superLength);
 void csAstClassAddField(AstArena *arena, AstNode *node, const char *name, int length,
                         AstNode *initializer, TypeKind declaredType,
-                        bool hasAnnotation);
+                        bool hasAnnotation, bool isStatic);
 void csAstClassAddMember(AstArena *arena, AstNode *node, AstNode *function,
-                         bool isStatic);
+                         bool isStatic, ClassMemberKind kind);
 void csAstCallAddArgument(AstArena *arena, AstNode *call, AstNode *argument);
 AstNode *csAstProperty(AstArena *arena, int line, AstNode *object, const char *name,
                        int length);
@@ -406,6 +425,12 @@ AstNode *csAstDestructure(AstArena *arena, int line, bool isObject, bool isConst
 void csAstDestructureAdd(AstArena *arena, AstNode *node, const char *key,
                          int keyLength, const char *name, int nameLength,
                          AstNode *defaultValue, bool isRest);
+
+/* Attaches a nested pattern to the binding just added. */
+void csAstDestructureNest(AstNode *node, AstNode *pattern);
+
+/* Attaches a pattern to the parameter just added. */
+void csAstParamPattern(AstNode *function, AstNode *pattern);
 AstNode *csAstReturn(AstArena *arena, int line, AstNode *value);
 AstNode *csAstProgram(AstArena *arena, int line);
 

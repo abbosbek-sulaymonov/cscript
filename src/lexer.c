@@ -109,7 +109,14 @@ static TokenType identifierType(const Lexer *lexer) {
   switch (lexer->start[0]) {
     case 'a': return checkKeyword(lexer, 1, 4, "wait", TOKEN_AWAIT);
     case 'b': return checkKeyword(lexer, 1, 4, "reak", TOKEN_BREAK);
-    case 'd': return checkKeyword(lexer, 1, 6, "efault", TOKEN_DEFAULT);
+    case 'd':
+      if (lexer->current - lexer->start > 1) {
+        switch (lexer->start[1]) {
+          case 'e': return checkKeyword(lexer, 2, 5, "fault", TOKEN_DEFAULT);
+          case 'o': return checkKeyword(lexer, 2, 0, "", TOKEN_DO);
+        }
+      }
+      break;
     case 'e':
       if (lexer->current - lexer->start > 1) {
         switch (lexer->start[1]) {
@@ -142,7 +149,10 @@ static TokenType identifierType(const Lexer *lexer) {
         switch (lexer->start[1]) {
           case 'f': return checkKeyword(lexer, 2, 0, "", TOKEN_IF);
           case 'm': return checkKeyword(lexer, 2, 4, "port", TOKEN_IMPORT);
-          case 'n': return checkKeyword(lexer, 2, 8, "stanceof", TOKEN_INSTANCEOF);
+          case 'n':
+            /* in / instanceof share "in". */
+            if (lexer->current - lexer->start == 2) return TOKEN_IN;
+            return checkKeyword(lexer, 2, 8, "stanceof", TOKEN_INSTANCEOF);
         }
       }
       break;
@@ -468,6 +478,8 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_FOR:               return "FOR";
     case TOKEN_TYPEOF:            return "TYPEOF";
     case TOKEN_AWAIT:             return "AWAIT";
+    case TOKEN_DO:                return "DO";
+    case TOKEN_IN:                return "IN";
     case TOKEN_IMPORT:            return "IMPORT";
     case TOKEN_EXPORT:            return "EXPORT";
     case TOKEN_CLASS:             return "CLASS";

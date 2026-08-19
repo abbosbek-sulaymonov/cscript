@@ -1,4 +1,4 @@
-# CScript grammar and semantics — v0.14.0
+# CScript grammar and semantics — v0.17.0
 
 CScript's syntax is a **subset of TypeScript's**: every CScript program is a
 valid TypeScript program. `make test-node` enforces that by handing each
@@ -20,44 +20,101 @@ Written in EBNF. `*` is zero or more, `?` is optional, `|` is alternation.
 ```ebnf
 program        = statement* EOF ;
 
-statement      = varDeclaration
+statement      = varDeclaration | destructuring
+               | functionDecl | classDecl
+               | importDecl | exportDecl
                | block
-               | ifStatement
-               | whileStatement
-               | forStatement
+               | ifStatement | whileStatement | doWhileStatement
+               | forStatement | forOfStatement
+               | switchStatement | tryStatement
+               | "break" ";" | "continue" ";" | "throw" expression ";"
+               | "return" expression? ";"
                | expressionStatement ;
 
-varDeclaration = ( "let" | "const" ) IDENTIFIER typeAnnotation?
-                 ( "=" expression )? ";" ;
+varDeclaration = ( "let" | "const" ) declarator ( "," declarator )* ";" ;
+declarator     = IDENTIFIER typeAnnotation? ( "=" expression )? ;
+destructuring  = ( "let" | "const" ) pattern "=" expression ";" ;
 typeAnnotation = ":" TYPE_NAME ;
+
+pattern        = "[" arrayElement? ( "," arrayElement? )* "]"
+               | "{" objectEntry  ( "," objectEntry  )* "}" ;
+arrayElement   = ( IDENTIFIER | pattern ) ( "=" expression )?
+               | "..." IDENTIFIER ;
+objectEntry    = IDENTIFIER ( ":" ( IDENTIFIER | pattern ) )? ( "=" expression )? ;
+
+functionDecl   = "async"? "function" IDENTIFIER "(" parameters? ")"
+                 typeAnnotation? block ;
+parameters     = parameter ( "," parameter )* ;
+parameter      = ( IDENTIFIER typeAnnotation? | pattern ) ;
+
+classDecl      = "class" IDENTIFIER ( "extends" IDENTIFIER )? "{" member* "}" ;
+member         = "static"? ( method | field ) ;
+method         = ( "get" | "set" )? propertyName "(" parameters? ")"
+                 typeAnnotation? block
+               | "async" propertyName "(" parameters? ")" typeAnnotation? block ;
+field          = propertyName typeAnnotation? ( "=" expression )? ";" ;
+propertyName   = IDENTIFIER | KEYWORD ;
+
+importDecl     = "import" ( namedImports | "*" "as" IDENTIFIER )
+                 "from" STRING ";" ;
+namedImports   = "{" importName ( "," importName )* "}" ;
+importName     = IDENTIFIER ( "as" IDENTIFIER )? ;
+exportDecl     = "export" ( varDeclaration | functionDecl | classDecl
+                          | namedImports ";" ) ;
+
 block          = "{" statement* "}" ;
 ifStatement    = "if" "(" expression ")" statement ( "else" statement )? ;
 whileStatement = "while" "(" expression ")" statement ;
+doWhileStatement = "do" statement "while" "(" expression ")" ";" ;
 forStatement   = "for" "(" ( varDeclaration | expressionStatement | ";" )
                            expression? ";" expression? ")" statement ;
+forOfStatement = "for" "(" ( "let" | "const" ) IDENTIFIER ( "of" | "in" )
+                 expression ")" statement ;
+switchStatement = "switch" "(" expression ")" "{"
+                  ( "case" expression ":" statement* )*
+                  ( "default" ":" statement* )? "}" ;
+tryStatement   = "try" block ( "catch" ( "(" IDENTIFIER ")" )? block )?
+                 ( "finally" block )? ;
 expressionStatement = expression ";" ;
 
 expression     = assignment ;
-
-assignment     = IDENTIFIER ( "=" | "+=" | "-=" | "*=" | "/=" | "%=" ) assignment
-               | logicalOr ;
-
+assignment     = ( IDENTIFIER | property | index )
+                 ( "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "**=" ) assignment
+               | conditional ;
+conditional    = logicalOr ( "?" assignment ":" conditional )? ;
 logicalOr      = logicalAnd ( "||" logicalAnd )* ;
 logicalAnd     = equality   ( "&&" equality )* ;
 equality       = comparison ( ( "===" | "!==" ) comparison )* ;
-comparison     = term       ( ( "<" | "<=" | ">" | ">=" ) term )* ;
+comparison     = term       ( ( "<" | "<=" | ">" | ">=" | "instanceof" ) term )* ;
 term           = factor     ( ( "+" | "-" ) factor )* ;
-factor         = unary      ( ( "*" | "/" | "%" ) unary )* ;
+factor         = exponent   ( ( "*" | "/" | "%" ) exponent )* ;
+exponent       = unary      ( "**" exponent )? ;          (* right-associative *)
 
-unary          = ( "!" | "-" | "typeof" | "++" | "--" ) unary
+unary          = ( "!" | "-" | "typeof" | "await" | "++" | "--" ) unary
                | postfix ;
+postfix        = primary ( "." propertyName
+                         | "[" expression "]"
+                         | "(" arguments? ")"
+                         | "++" | "--" )* ;
+arguments      = argument ( "," argument )* ;
+argument       = "..."? expression ;
 
-postfix        = primary ( "." IDENTIFIER | "(" arguments? ")" | "++" | "--" )* ;
-arguments      = expression ( "," expression )* ;
-
-primary        = NUMBER | STRING | IDENTIFIER
+primary        = NUMBER | STRING | TEMPLATE | IDENTIFIER
                | "true" | "false" | "null" | "undefined"
+               | "this" | "super" ( "." propertyName | "(" arguments? ")" )
+               | "new" IDENTIFIER ( "." propertyName )* ( "(" arguments? ")" )?
+               | arrayLiteral | objectLiteral | arrowFunction
+               | "async"? "function" IDENTIFIER? "(" parameters? ")" block
                | "(" expression ")" ;
+
+arrayLiteral   = "[" ( argument ( "," argument )* )? "]" ;
+objectLiteral  = "{" ( objectProperty ( "," objectProperty )* )? "}" ;
+objectProperty = propertyName                         (* shorthand: { x } *)
+               | propertyName ":" expression
+               | STRING ":" expression
+               | "[" expression "]" ":" expression ;   (* computed key *)
+arrowFunction  = "async"? ( IDENTIFIER | "(" parameters? ")" typeAnnotation? )
+                 "=>" ( expression | block ) ;
 ```
 
 ## Operator precedence
@@ -419,13 +476,28 @@ console.log([...a, ...b]);
 console.log(Math.max(...numbers));
 ```
 
-Array and object patterns, with renaming, defaults and a rest element. Spread
-works in array literals and call arguments, and over strings.
+Array and object patterns, with renaming, defaults, a rest element, and
+nesting to any depth:
 
-Not supported, each with an error that says so: **nested patterns**,
-**destructuring a parameter** (destructure inside the body instead), **object
-rest**, and spreading into a built-in method call such as `xs.push(...ys)` —
-packing the arguments loses the receiver those need.
+```ts
+const { user: { name, tags: [first] } } = data;
+const [[a, b], [c]] = pairs;
+```
+
+A **parameter** may be a pattern too. It takes a name no source can write and
+the pattern is unpacked from it before the body runs, which is exactly what
+writing it out by hand would do:
+
+```ts
+function greet({ name, greeting = "hi" }) { … }
+points.map(({ x, y }) => x * y);
+```
+
+Spread works in array literals and call arguments, and over strings.
+
+Not supported, each with an error that says so: **object rest**
+(`const { a, ...rest } = o`) and spreading into a built-in method call such as
+`xs.push(...ys)` — packing the arguments loses the receiver those need.
 
 ## Classes
 
@@ -489,9 +561,27 @@ Two rules are stricter than JavaScript's, both to keep the order above legible:
 a subclass constructor must call `super(...)` as its **first** statement, and a
 constructor cannot `return` a value.
 
-Not supported, each with an error that says so: **getters and setters**,
-**private `#fields`**, **static fields**, **static blocks**, **computed member
-names**, **`new.target`**, and **subclassing built-ins**.
+**Getters and setters** work, including through `super`:
+
+```ts
+class Temp {
+  celsius = 0;
+  get fahrenheit() { return this.celsius * 9 / 5 + 32; }
+  set fahrenheit(f) { this.celsius = (f - 32) * 5 / 9; }
+}
+```
+
+An accessor never enters an instance's layout, which is what keeps it out of
+the inline caches: a shape hit is always a real field, and only a miss looks
+for one. Assigning to a property that has a getter and no setter is an error
+rather than a write that silently does nothing.
+
+**Static fields** work too — `static count = 0;` — and are set on the class
+where it is declared.
+
+Not supported, each with an error that says so: **private `#fields`**,
+**static blocks**, **computed member names**, **`new.target`**, and
+**subclassing built-ins**.
 
 Class names are not usable as type annotations. The type lattice is a fixed set
 of primitives, so an instance is `object` and a class is dynamic; nominal types
@@ -597,6 +687,8 @@ Each of these produces an error that names it:
 
 - Regular expressions
 - `Map`, `Set`, `Symbol`, `BigInt`
-- `do`/`while`, labelled statements, `for...in`
-- Object-literal shorthand — write `{ x: x }` rather than `{ x }`
-- Computed property keys
+- Labelled statements
+- Object rest — `const { a, ...rest } = o`
+- Generators, `for await`, async iterators
+- Property order puts integer-like keys in insertion order, where JavaScript
+  puts them first and in ascending order

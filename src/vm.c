@@ -741,12 +741,20 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
       return true;
     }
 
-    /* Dictionary mode, an inherited method, or a genuinely absent property.
-     * Reading a missing property gives undefined, as in JavaScript — checking
-     * for absence is too common to make it an error. */
+    /* Dictionary mode, an accessor, an inherited method, or a genuinely absent
+     * property. Reading a missing property gives undefined, as in JavaScript —
+     * checking for absence is too common to make it an error. */
     if (csObjectGet(object, name, out)) return true;
 
     if (object->klass != NULL) {
+      ObjClosure *getter = csClassFindGetter(object->klass, name);
+      if (getter != NULL) {
+        /* A getter is a call, so it runs a nested loop. It never enters the
+         * shape, which is why the inline caches never see one. */
+        csVMPush(receiver);
+        return csVMCallCallback(OBJ_VAL(getter), 0, out);
+      }
+
       ObjClosure *method = csClassFindMethod(object->klass, name);
       if (method != NULL) {
         /* Reading a method without calling it is the one case that has to
@@ -804,6 +812,13 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
 /* The part of a property write that is not a cache hit. */
 static bool propertyWriteSlow(ObjString *name, PropertyCache *cache, Value receiver,
                               Value value) {
+  /* A class carries its statics, so assigning to one is how a counter kept on
+   * the class is updated. It never enters a shape, so it never caches. */
+  if (IS_CLASS(receiver)) {
+    csTableSet(&AS_CLASS(receiver)->statics, name, value);
+    return true;
+  }
+
   if (!IS_OBJECT(receiver)) {
     csVMRuntimeError("cannot set property '%s' of %s", name->chars,
                      csValueTypeName(receiver));
@@ -813,6 +828,26 @@ static bool propertyWriteSlow(ObjString *name, PropertyCache *cache, Value recei
     csVMRuntimeError("'%s.%s' is a built-in and cannot be replaced",
                      AS_OBJECT(receiver)->name->chars, name->chars);
     return false;
+  }
+
+  /* A setter takes the write instead of the object storing it. Checked before
+   * the store, so the property never enters the shape and the caches stay out
+   * of it. */
+  if (AS_OBJECT(receiver)->klass != NULL) {
+    ObjClosure *setter = csClassFindSetter(AS_OBJECT(receiver)->klass, name);
+    if (setter != NULL) {
+      csVMPush(receiver);
+      csVMPush(value);
+      Value ignored;
+      return csVMCallCallback(OBJ_VAL(setter), 1, &ignored);
+    }
+    /* A getter with no setter is read-only, and silently dropping the write is
+     * how a bug hides. */
+    if (csClassFindGetter(AS_OBJECT(receiver)->klass, name) != NULL) {
+      csVMRuntimeError("'%s' has only a getter and cannot be assigned to",
+                       name->chars);
+      return false;
+    }
   }
 
   csObjectPut(AS_OBJECT(receiver), name, value);
@@ -1210,6 +1245,39 @@ static InterpretResult run(int baseFrame) {
         return CS_RUNTIME_ERROR;
       }
 
+      VM_CASE(OP_ENUM_KEYS) {
+        Value target = peekStack(0);
+        ObjArray *keys = csArrayNew();
+        csVMPush(OBJ_VAL(keys)); /* rooted while the copies below allocate */
+
+        if (IS_OBJECT(target)) {
+          ObjObject *object = AS_OBJECT(target);
+          for (int i = 0; i < csObjectCount(object); i++) {
+            csValueArrayWrite(&keys->elements, OBJ_VAL(csObjectKeyAt(object, i)));
+          }
+        } else if (IS_ARRAY(target)) {
+          /* JavaScript enumerates an array's indices, as strings. */
+          for (int i = 0; i < AS_ARRAY(target)->elements.count; i++) {
+            char digits[16];
+            int length = snprintf(digits, sizeof digits, "%d", i);
+            /* The new string is reachable from nothing while the array grows,
+             * and growing allocates. */
+            ObjString *index = csStringCopy(digits, length);
+            csPushTempRoot((Obj *)index);
+            csValueArrayWrite(&keys->elements, OBJ_VAL(index));
+            csPopTempRoot();
+          }
+        } else if (!IS_NULL(target) && !IS_UNDEFINED(target)) {
+          csVMRuntimeError("'for...in' needs an object or an array, got %s",
+                           csValueTypeName(target));
+          return CS_RUNTIME_ERROR;
+        }
+
+        vm.stackTop -= 2;
+        csVMPush(OBJ_VAL(keys));
+        VM_NEXT();
+      }
+
       VM_CASE(OP_ITER_LENGTH) {
         Value iterable = csVMPop();
         if (IS_ARRAY(iterable)) {
@@ -1279,7 +1347,21 @@ static InterpretResult run(int baseFrame) {
 
         Value *entries = vm.stackTop - (count * 2);
         for (int i = 0; i < count; i++) {
-          csObjectPut(object, AS_STRING(entries[i * 2]), entries[i * 2 + 1]);
+          Value key = entries[i * 2];
+          if (!IS_STRING(key)) {
+            /* A computed key can be anything; JavaScript converts it. */
+            size_t length = 0;
+            char *text = csValueToCString(key, &length);
+            if (text == NULL) {
+              csVMRuntimeError("out of memory building an object key");
+              return CS_RUNTIME_ERROR;
+            }
+            ObjString *converted = csStringCopy(text, (int)length);
+            free(text);
+            entries[i * 2] = OBJ_VAL(converted); /* keeps it rooted */
+            key = entries[i * 2];
+          }
+          csObjectPut(object, AS_STRING(key), entries[i * 2 + 1]);
         }
 
         csPopTempRoot();
@@ -1465,6 +1547,23 @@ static InterpretResult run(int baseFrame) {
         VM_NEXT();
       }
 
+      VM_CASE(OP_GETTER)
+      VM_CASE(OP_SETTER) {
+        ObjString *name = READ_STRING();
+        ObjClass *klass = AS_CLASS(peekStack(1));
+        csTableSet(instruction == OP_GETTER ? &klass->getters : &klass->setters, name,
+                   peekStack(0));
+        csVMPop();
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_STATIC_FIELD) {
+        ObjString *name = READ_STRING();
+        csTableSet(&AS_CLASS(peekStack(1))->statics, name, peekStack(0));
+        csVMPop();
+        VM_NEXT();
+      }
+
       VM_CASE(OP_CONSTRUCTOR) {
         AS_CLASS(peekStack(1))->initializer = AS_CLOSURE(peekStack(0));
         csVMPop();
@@ -1564,6 +1663,26 @@ static InterpretResult run(int baseFrame) {
       VM_CASE(OP_GET_SUPER) {
         ObjString *name = READ_STRING();
         ObjClass *superclass = AS_CLASS(peekStack(0));
+
+        /* `super.x` where the superclass defines a getter runs it, rather than
+         * handing back something to call. */
+        ObjClosure *getter = IS_CLASS(peekStack(1))
+                                 ? NULL
+                                 : csClassFindGetter(superclass, name);
+        if (getter != NULL) {
+          Value receiver = peekStack(1);
+          vm.stackTop -= 2;
+          csVMPush(receiver);
+          Value value;
+          if (!csVMCallCallback(OBJ_VAL(getter), 0, &value)) {
+            HANDLE_FAILED_CALL();
+            VM_NEXT();
+          }
+          frame = &vm.frames[vm.frameCount - 1];
+          csVMPush(value);
+          VM_NEXT();
+        }
+
         ObjClosure *method =
             findSuperMember(superclass, name, IS_CLASS(peekStack(1)));
         if (method == NULL) {

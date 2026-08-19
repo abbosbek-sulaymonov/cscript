@@ -139,6 +139,7 @@ static AstNode *finishVarDeclaration(Parser *parser, int line, const char *name,
                                      int nameLength, bool isConst);
 static AstNode *parseTemplate(Parser *parser, const char *start, int length, int line);
 static AstNode *parseStatement(Parser *parser);
+static AstNode *parsePattern(Parser *parser, bool isObject, bool isConst);
 static void synchronize(Parser *parser);
 static bool parseTypeAnnotation(Parser *parser, TypeKind *type, bool *present);
 static bool looksLikeArrowParams(Parser *parser);
@@ -457,8 +458,20 @@ static AstNode *parsePrimary(Parser *parser) {
       do {
         if (check(parser, TOKEN_RIGHT_BRACE)) break;
 
-        /* Keys may be written bare or quoted; both become string constants. */
+        /* Keys may be written bare, quoted, or computed. The first two become
+         * string constants; a computed one is an expression the VM converts. */
         AstNode *key;
+        if (matchToken(parser, TOKEN_LEFT_BRACKET)) {
+          key = parseExpression(parser);
+          consume(parser, TOKEN_RIGHT_BRACKET, "expected ']' after a computed key");
+          if (key == NULL || parser->diag->panicMode) return NULL;
+          consume(parser, TOKEN_COLON, "expected ':' after the property name");
+          if (parser->diag->panicMode) return NULL;
+          AstNode *computedValue = parsePrecedence(parser, PREC_ASSIGNMENT);
+          if (computedValue == NULL) return NULL;
+          csAstObjectLiteralAdd(parser->arena, object, key, computedValue);
+          continue;
+        }
         if (matchToken(parser, TOKEN_STRING)) {
           key = makeStringLiteral(parser, parser->previous.start,
                                   parser->previous.length, parser->previous.line);
@@ -469,10 +482,17 @@ static AstNode *parsePrimary(Parser *parser) {
                             parser->previous.start, parser->previous.length);
         }
 
-        consume(parser, TOKEN_COLON, "expected ':' after the property name");
-        if (parser->diag->panicMode) return NULL;
-
-        AstNode *value = parsePrecedence(parser, PREC_ASSIGNMENT);
+        /* `{ x }` is `{ x: x }`. The key was just read, so the value is an
+         * identifier with the same name and the same position. */
+        AstNode *value;
+        if (check(parser, TOKEN_COMMA) || check(parser, TOKEN_RIGHT_BRACE)) {
+          value = csAstIdentifier(parser->arena, key->line, key->as.string.chars,
+                                  key->as.string.length);
+        } else {
+          consume(parser, TOKEN_COLON, "expected ':' after the property name");
+          if (parser->diag->panicMode) return NULL;
+          value = parsePrecedence(parser, PREC_ASSIGNMENT);
+        }
         if (value == NULL) return NULL;
         csAstObjectLiteralAdd(parser->arena, object, key, value);
       } while (matchToken(parser, TOKEN_COMMA));
@@ -488,12 +508,21 @@ static AstNode *parsePrimary(Parser *parser) {
       arrow->as.function.isAsync = parser->pendingAsync;
 
       if (!check(parser, TOKEN_RIGHT_PAREN)) {
+        int patternIndex = 0;
         do {
           if (check(parser, TOKEN_LEFT_BRACKET) || check(parser, TOKEN_LEFT_BRACE)) {
-            errorAtCurrent(parser,
-                           "destructuring a parameter is not supported yet; "
-                           "destructure inside the body instead");
-            return NULL;
+            bool patternIsObject = check(parser, TOKEN_LEFT_BRACE);
+            advanceToken(parser);
+            AstNode *pattern = parsePattern(parser, patternIsObject, true);
+            if (pattern == NULL) return NULL;
+
+            char generated[16];
+            int generatedLength =
+                snprintf(generated, sizeof generated, " arg%d", patternIndex++);
+            csAstFunctionAddParam(parser->arena, arrow, generated, generatedLength,
+                                  TYPE_ANY, false);
+            csAstParamPattern(arrow, pattern);
+            continue;
           }
           consume(parser, TOKEN_IDENTIFIER, "expected a parameter name");
           if (parser->diag->panicMode) return NULL;
@@ -877,12 +906,25 @@ static AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
   if (parser->diag->panicMode) return NULL;
 
   if (!check(parser, TOKEN_RIGHT_PAREN)) {
+    int patternIndex = 0;
     do {
+      /* `function f({ a, b })` — the parameter takes a name no source can
+       * write, and the pattern is destructured from it at the top of the body.
+       * That is exactly what writing it out by hand would produce. */
       if (check(parser, TOKEN_LEFT_BRACKET) || check(parser, TOKEN_LEFT_BRACE)) {
-        errorAtCurrent(parser, "destructuring a parameter is not supported yet; "
-                               "destructure inside the body instead");
-        return NULL;
+        bool patternIsObject = check(parser, TOKEN_LEFT_BRACE);
+        advanceToken(parser);
+        AstNode *pattern = parsePattern(parser, patternIsObject, true);
+        if (pattern == NULL) return NULL;
+
+        char generated[16];
+        int generatedLength = snprintf(generated, sizeof generated, " arg%d", patternIndex++);
+        csAstFunctionAddParam(parser->arena, function, generated, generatedLength,
+                              TYPE_ANY, false);
+        csAstParamPattern(function, pattern);
+        continue;
       }
+
       consume(parser, TOKEN_IDENTIFIER, "expected a parameter name");
       if (parser->diag->panicMode) return NULL;
 
@@ -1010,11 +1052,19 @@ static AstNode *parseClass(Parser *parser) {
     int memberLength = parser->previous.length;
     int memberLine = parser->previous.line;
 
-    if (nameIs(memberName, memberLength, "get") || nameIs(memberName, memberLength, "set")) {
-      if (check(parser, TOKEN_IDENTIFIER)) {
-        errorAtCurrent(parser, "getters and setters are not supported yet");
+    /* `get x() {}` — an accessor, unless `get` is the member's own name, which
+     * it is whenever `(` follows it directly. */
+    ClassMemberKind memberKind = MEMBER_METHOD;
+    if ((nameIs(memberName, memberLength, "get") ||
+         nameIs(memberName, memberLength, "set")) &&
+        !check(parser, TOKEN_LEFT_PAREN)) {
+      memberKind = memberName[0] == 'g' ? MEMBER_GETTER : MEMBER_SETTER;
+      if (!consumePropertyName(parser, "expected a name after 'get' or 'set'")) {
         return NULL;
       }
+      memberName = parser->previous.start;
+      memberLength = parser->previous.length;
+      memberLine = parser->previous.line;
     }
 
     if (check(parser, TOKEN_LEFT_PAREN)) {
@@ -1044,15 +1094,9 @@ static AstNode *parseClass(Parser *parser) {
         }
         node->as.classDecl.constructor = method;
       } else {
-        csAstClassAddMember(parser->arena, node, method, isStatic);
+        csAstClassAddMember(parser->arena, node, method, isStatic, memberKind);
       }
       continue;
-    }
-
-    if (isStatic) {
-      errorAtCurrent(parser, "static fields are not supported yet; "
-                             "assign to the class after declaring it");
-      return NULL;
     }
 
     TypeKind fieldType;
@@ -1068,7 +1112,7 @@ static AstNode *parseClass(Parser *parser) {
     if (parser->diag->panicMode) return NULL;
 
     csAstClassAddField(parser->arena, node, memberName, memberLength, initializer,
-                       fieldType, annotated);
+                       fieldType, annotated, isStatic);
   }
 
   consume(parser, TOKEN_RIGHT_BRACE, "expected '}' after the class body");
@@ -1371,8 +1415,6 @@ static AstNode *finishVarDeclaration(Parser *parser, int line, const char *name,
     return NULL;
   }
 
-  consume(parser, TOKEN_SEMICOLON, "expected ';' after a variable declaration");
-  if (parser->diag->panicMode) return NULL;
 
   /* `const f = () => ...` names the function `f`, the way JavaScript infers a
    * name for an anonymous function assigned straight to a binding. It shows up
@@ -1401,7 +1443,11 @@ static AstNode *finishVarDeclaration(Parser *parser, int line, const char *name,
  *
  * Both forms compile to the loads and stores they stand for, so nothing new
  * exists at run time. Nested patterns are not supported and say so. */
-static AstNode *parseDestructuring(Parser *parser, bool isObject, bool isConst) {
+/* One pattern — `[a, b]` or `{ x, y: z = 1 }` — with the opening bracket
+ * already consumed. Recursive, so a piece of a pattern may be a pattern.
+ * Shared by declarations and by parameters, which differ only in what supplies
+ * the value. */
+static AstNode *parsePattern(Parser *parser, bool isObject, bool isConst) {
   int line = parser->previous.line;
   AstNode *pattern = csAstDestructure(parser->arena, line, isObject, isConst);
   TokenType closer = isObject ? TOKEN_RIGHT_BRACE : TOKEN_RIGHT_BRACKET;
@@ -1416,9 +1462,23 @@ static AstNode *parseDestructuring(Parser *parser, bool isObject, bool isConst) 
         return NULL;
       }
 
-      if (check(parser, TOKEN_LEFT_BRACKET) || check(parser, TOKEN_LEFT_BRACE)) {
-        errorAtCurrent(parser, "nested destructuring patterns are not supported yet");
-        return NULL;
+      /* An array pattern may hold a pattern directly; an object pattern gets
+       * to one through a key, as in `{ a: { b } }`. */
+      if (!isObject && (check(parser, TOKEN_LEFT_BRACKET) ||
+                        check(parser, TOKEN_LEFT_BRACE))) {
+        if (isRest) {
+          errorAtCurrent(parser, "a rest element must be a plain name");
+          return NULL;
+        }
+        bool nestedIsObject = check(parser, TOKEN_LEFT_BRACE);
+        advanceToken(parser);
+        AstNode *nested = parsePattern(parser, nestedIsObject, isConst);
+        if (nested == NULL) return NULL;
+        /* The binding itself names nothing; the nested pattern does the work.
+         * The placeholder name is one no source can write. */
+        csAstDestructureAdd(parser->arena, pattern, NULL, 0, " nested", 7, NULL, false);
+        csAstDestructureNest(pattern, nested);
+        continue;
       }
 
       consume(parser, TOKEN_IDENTIFIER, "expected a name in the pattern");
@@ -1428,13 +1488,24 @@ static AstNode *parseDestructuring(Parser *parser, bool isObject, bool isConst) 
       int keyLength = parser->previous.length;
       const char *name = key;
       int nameLength = keyLength;
+      AstNode *nested = NULL;
 
-      /* `{ key: localName }` renames on the way in. */
+      /* `{ key: localName }` renames on the way in, and `{ key: [a, b] }`
+       * destructures the property further. */
       if (isObject && matchToken(parser, TOKEN_COLON)) {
-        consume(parser, TOKEN_IDENTIFIER, "expected a name after ':'");
-        if (parser->diag->panicMode) return NULL;
-        name = parser->previous.start;
-        nameLength = parser->previous.length;
+        if (check(parser, TOKEN_LEFT_BRACKET) || check(parser, TOKEN_LEFT_BRACE)) {
+          bool nestedIsObject = check(parser, TOKEN_LEFT_BRACE);
+          advanceToken(parser);
+          nested = parsePattern(parser, nestedIsObject, isConst);
+          if (nested == NULL) return NULL;
+          name = " nested";
+          nameLength = 7;
+        } else {
+          consume(parser, TOKEN_IDENTIFIER, "expected a name after ':'");
+          if (parser->diag->panicMode) return NULL;
+          name = parser->previous.start;
+          nameLength = parser->previous.length;
+        }
       }
 
       AstNode *defaultValue = NULL;
@@ -1445,6 +1516,7 @@ static AstNode *parseDestructuring(Parser *parser, bool isObject, bool isConst) 
 
       csAstDestructureAdd(parser->arena, pattern, isObject ? key : NULL, keyLength,
                           name, nameLength, defaultValue, isRest);
+      if (nested != NULL) csAstDestructureNest(pattern, nested);
 
       if (isRest) break; /* nothing may follow a rest element */
     } while (matchToken(parser, TOKEN_COMMA));
@@ -1452,6 +1524,13 @@ static AstNode *parseDestructuring(Parser *parser, bool isObject, bool isConst) 
 
   consume(parser, closer, isObject ? "expected '}' to close the pattern"
                                    : "expected ']' to close the pattern");
+  return parser->diag->panicMode ? NULL : pattern;
+}
+
+static AstNode *parseDestructuring(Parser *parser, bool isObject, bool isConst) {
+  AstNode *pattern = parsePattern(parser, isObject, isConst);
+  if (pattern == NULL) return NULL;
+
   consume(parser, TOKEN_EQUAL, "a destructuring declaration needs an initialiser");
   if (parser->diag->panicMode) return NULL;
 
@@ -1463,9 +1542,13 @@ static AstNode *parseDestructuring(Parser *parser, bool isObject, bool isConst) 
 }
 
 /* `let x = 1;` / `const y = 2;` — `var` is rejected in parseStatement. */
+/* `let a = 1, b = 2;` — one keyword, several bindings.
+ *
+ * The result is an AST_PROGRAM rather than an AST_BLOCK when there is more
+ * than one, because a block would put them in a scope of their own and they
+ * belong to the enclosing one. */
 static AstNode *parseVarDeclaration(Parser *parser, bool isConst) {
   int line = parser->previous.line;
-  (void)line;
 
   /* A pattern rather than a name means this is a destructuring declaration. */
   if (matchToken(parser, TOKEN_LEFT_BRACKET)) {
@@ -1475,11 +1558,33 @@ static AstNode *parseVarDeclaration(Parser *parser, bool isConst) {
     return parseDestructuring(parser, true, isConst);
   }
 
-  consume(parser, TOKEN_IDENTIFIER, "expected a variable name");
-  if (parser->diag->panicMode) return NULL;
+  AstNode *first = NULL;
+  AstNode *list = NULL;
 
-  return finishVarDeclaration(parser, line, parser->previous.start,
-                              parser->previous.length, isConst);
+  for (;;) {
+    consume(parser, TOKEN_IDENTIFIER, "expected a variable name");
+    if (parser->diag->panicMode) return NULL;
+
+    AstNode *declaration = finishVarDeclaration(parser, line, parser->previous.start,
+                                                parser->previous.length, isConst);
+    if (declaration == NULL) return NULL;
+
+    if (first == NULL) {
+      first = declaration;
+    } else {
+      if (list == NULL) {
+        list = csAstProgram(parser->arena, line);
+        csAstProgramAdd(parser->arena, list, first);
+      }
+      csAstProgramAdd(parser->arena, list, declaration);
+    }
+
+    if (!matchToken(parser, TOKEN_COMMA)) break;
+  }
+
+  consume(parser, TOKEN_SEMICOLON, "expected ';' after a variable declaration");
+  if (parser->diag->panicMode) return NULL;
+  return list != NULL ? list : first;
 }
 
 static AstNode *parseBlock(Parser *parser) {
@@ -1514,6 +1619,29 @@ static AstNode *parseIf(Parser *parser) {
   }
 
   return csAstIf(parser->arena, line, condition, thenBranch, elseBranch);
+}
+
+/* `do body while (condition);` — the body runs before the first test. */
+static AstNode *parseDoWhile(Parser *parser) {
+  int line = parser->previous.line;
+
+  AstNode *body = parseStatement(parser);
+  if (body == NULL) return NULL;
+
+  consume(parser, TOKEN_WHILE, "expected 'while' after the body of a 'do'");
+  if (parser->diag->panicMode) return NULL;
+  consume(parser, TOKEN_LEFT_PAREN, "expected '(' after 'while'");
+  AstNode *condition = parseExpression(parser);
+  consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the condition");
+  if (condition == NULL || parser->diag->panicMode) return NULL;
+
+  /* The trailing semicolon is required in JavaScript and cheap to insist on. */
+  consume(parser, TOKEN_SEMICOLON, "expected ';' after 'do ... while (...)'");
+  if (parser->diag->panicMode) return NULL;
+
+  AstNode *node = csAstWhile(parser->arena, line, condition, body);
+  if (node != NULL) node->as.whileStmt.isDoWhile = true;
+  return node;
 }
 
 static AstNode *parseWhile(Parser *parser) {
@@ -1556,7 +1684,10 @@ static AstNode *parseFor(Parser *parser) {
      * rather than by the lexer. */
     bool isForOf = check(parser, TOKEN_IDENTIFIER) && parser->current.length == 2 &&
                    memcmp(parser->current.start, "of", 2) == 0;
-    if (isForOf) {
+    /* `in` is a real keyword, unlike `of`, because nothing else can follow the
+     * binding name here. */
+    bool isForIn = check(parser, TOKEN_IN);
+    if (isForOf || isForIn) {
       advanceToken(parser);
       AstNode *iterable = parseExpression(parser);
       consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the iterable");
@@ -1564,13 +1695,19 @@ static AstNode *parseFor(Parser *parser) {
 
       AstNode *body = parseStatement(parser);
       if (body == NULL) return NULL;
-      return csAstForOf(parser->arena, line, bindingName, bindingLength, isConst,
-                        iterable, body);
+      AstNode *loop = csAstForOf(parser->arena, line, bindingName, bindingLength,
+                                 isConst, iterable, body);
+      if (loop != NULL) loop->as.forOf.isForIn = isForIn;
+      return loop;
     }
 
     initializer = finishVarDeclaration(parser, line, bindingName, bindingLength,
                                        isConst);
     if (initializer == NULL) return NULL;
+    /* The loop form owns its own semicolon, which the declaration no longer
+     * consumes now that `let a = 1, b = 2;` is a list. */
+    consume(parser, TOKEN_SEMICOLON, "expected ';' after the loop initialiser");
+    if (parser->diag->panicMode) return NULL;
   } else {
     AstNode *expression = parseExpression(parser);
     consume(parser, TOKEN_SEMICOLON, "expected ';' after the loop initialiser");
@@ -1666,6 +1803,8 @@ static AstNode *parseStatement(Parser *parser) {
   }
 
   if (matchToken(parser, TOKEN_CLASS)) return parseClass(parser);
+
+  if (matchToken(parser, TOKEN_DO)) return parseDoWhile(parser);
 
   if (matchToken(parser, TOKEN_IMPORT)) return parseImport(parser);
 

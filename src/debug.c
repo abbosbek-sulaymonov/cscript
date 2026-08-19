@@ -132,6 +132,7 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_SET_PROPERTY:      return cachedInstruction("OP_SET_PROPERTY", chunk, offset);
     case OP_GET_INDEX:         return simpleInstruction("OP_GET_INDEX", offset);
     case OP_ITER_LENGTH:       return simpleInstruction("OP_ITER_LENGTH", offset);
+    case OP_ENUM_KEYS:         return simpleInstruction("OP_ENUM_KEYS", offset);
     case OP_SET_INDEX:         return simpleInstruction("OP_SET_INDEX", offset);
     case OP_OBJECT:            return byteInstruction("OP_OBJECT", chunk, offset);
     case OP_ARRAY:             return byteInstruction("OP_ARRAY", chunk, offset);
@@ -174,6 +175,9 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_SUPER_CALL:        return byteInstruction("OP_SUPER_CALL", chunk, offset);
     case OP_METHOD:            return constantInstruction("OP_METHOD", chunk, offset);
     case OP_STATIC_METHOD:     return constantInstruction("OP_STATIC_METHOD", chunk, offset);
+    case OP_STATIC_FIELD:      return constantInstruction("OP_STATIC_FIELD", chunk, offset);
+    case OP_GETTER:            return constantInstruction("OP_GETTER", chunk, offset);
+    case OP_SETTER:            return constantInstruction("OP_SETTER", chunk, offset);
     case OP_GET_SUPER:         return constantInstruction("OP_GET_SUPER", chunk, offset);
     case OP_SUPER_INVOKE:      return invokeInstruction("OP_SUPER_INVOKE", chunk, offset);
     case OP_INVOKE:            return invokeInstruction("OP_INVOKE", chunk, offset);

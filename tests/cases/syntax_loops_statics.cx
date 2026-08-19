@@ -1,0 +1,34 @@
+const x = 1, y = 2;
+console.log(JSON.stringify({ x, y, z: 3 }));
+
+let i = 0;
+do { i = i + 1; } while (i < 3);
+console.log("do", i);
+
+let n = 0;
+do { n = n + 1; if (n === 2) continue; if (n > 4) break; } while (true);
+console.log("do2", n);
+
+const o = { a: 1, b: 2, c: 3 };
+const seen = [];
+for (const k in o) seen.push(`${k}=${o[k]}`);
+console.log(seen.join(","));
+
+const arr = ["p", "q"];
+const idx = [];
+for (const k in arr) idx.push(k);
+console.log(idx.join(","), typeof idx[0]);
+class Counter {
+  static total = 0;
+  static LABEL = "count";
+  value = 0;
+  static bump() { Counter.total = Counter.total + 1; return Counter.total; }
+  step() { this.value = this.value + 1; return this.value; }
+}
+console.log(Counter.total, Counter.LABEL);
+console.log(Counter.bump(), Counter.bump(), Counter.total);
+const c = new Counter();
+console.log(c.step(), c.step(), c.value);
+
+class Sub extends Counter {}
+console.log(Sub.LABEL, Sub.bump(), Counter.total);

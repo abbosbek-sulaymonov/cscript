@@ -282,6 +282,14 @@ struct ObjClass {
   Table methods;
   Table statics;
 
+  /* Accessors, kept apart from methods so a property read can tell a stored
+   * field from a computed one without a flag on every lookup. An accessor
+   * never enters an instance's shape, so the inline caches are untouched: a
+   * shape hit is always a real field, and a miss is where accessors are
+   * looked for. */
+  Table getters;
+  Table setters;
+
   /* The constructor, or NULL. A class without one is constructed by the
    * nearest ancestor that has one, which is how `class Dog extends Animal {}`
    * still accepts Animal's arguments. */
@@ -385,6 +393,10 @@ ObjBoundMethod *csBoundMethodNew(Value receiver, Obj *method);
 
 /* Walks the superclass chain for a method. Returns NULL when nothing has it. */
 ObjClosure *csClassFindMethod(ObjClass *klass, ObjString *name);
+
+/* The same walk over the accessor tables. */
+ObjClosure *csClassFindGetter(ObjClass *klass, ObjString *name);
+ObjClosure *csClassFindSetter(ObjClass *klass, ObjString *name);
 
 /* True when `klass` is `other` or descends from it — what `instanceof` asks. */
 bool csClassDescendsFrom(const ObjClass *klass, const ObjClass *other);

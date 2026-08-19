@@ -429,6 +429,8 @@ ObjClass *csClassNew(ObjString *name) {
   klass->fieldInit = NULL;
   csTableInit(&klass->methods);
   csTableInit(&klass->statics);
+  csTableInit(&klass->getters);
+  csTableInit(&klass->setters);
   csPopTempRoot();
   return klass;
 }
@@ -467,6 +469,24 @@ ObjClosure *csClassFindMethod(ObjClass *klass, ObjString *name) {
     }
   }
   return NULL;
+}
+
+static ObjClosure *findAccessor(ObjClass *klass, ObjString *name, bool isGetter) {
+  for (ObjClass *current = klass; current != NULL; current = current->superclass) {
+    Value accessor;
+    if (csTableGet(isGetter ? &current->getters : &current->setters, name, &accessor)) {
+      return (ObjClosure *)AS_OBJ(accessor);
+    }
+  }
+  return NULL;
+}
+
+ObjClosure *csClassFindGetter(ObjClass *klass, ObjString *name) {
+  return findAccessor(klass, name, true);
+}
+
+ObjClosure *csClassFindSetter(ObjClass *klass, ObjString *name) {
+  return findAccessor(klass, name, false);
 }
 
 bool csClassDescendsFrom(const ObjClass *klass, const ObjClass *other) {
@@ -637,6 +657,8 @@ void csObjectBlacken(Obj *object) {
       csMarkObject((Obj *)klass->fieldInit);
       csTableMark(&klass->methods);
       csTableMark(&klass->statics);
+      csTableMark(&klass->getters);
+      csTableMark(&klass->setters);
       break;
     }
 
@@ -756,6 +778,8 @@ void csObjectFree(Obj *object) {
       ObjClass *klass = (ObjClass *)object;
       csTableFree(&klass->methods);
       csTableFree(&klass->statics);
+      csTableFree(&klass->getters);
+      csTableFree(&klass->setters);
       CS_FREE(ObjClass, object);
       break;
     }

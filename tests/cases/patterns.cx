@@ -1,0 +1,38 @@
+const data = { user: { name: "ada", tags: ["x", "y"] }, nums: [1, [2, 3]] };
+const { user: { name, tags: [firstTag] } } = data;
+console.log(name, firstTag);
+const { nums: [head, [a, b]] } = data;
+console.log(head, a, b);
+const [[p, q], [r]] = [[1, 2], [3]];
+console.log(p, q, r);
+const { user: { missing = "dflt" } } = data;
+console.log(missing);
+function greet({ name, greeting = "hi" }) { return `${greeting}, ${name}`; }
+console.log(greet({ name: "ada" }), greet({ name: "bob", greeting: "yo" }));
+
+function pair([a, b], { scale }) { return (a + b) * scale; }
+console.log(pair([1, 2], { scale: 10 }));
+
+const arrow = ({ x }, [y]) => x + y;
+console.log(arrow({ x: 1 }, [2]));
+
+const points = [{ x: 1, y: 2 }, { x: 3, y: 4 }];
+console.log(points.map(({ x, y }) => x * y).join(","));
+
+function deep({ a: { b: [c] } }) { return c; }
+console.log(deep({ a: { b: [42] } }));
+
+class Vec {
+  constructor({ x, y }) { this.x = x; this.y = y; }
+  add({ x, y }) { return new Vec({ x: this.x + x, y: this.y + y }); }
+}
+const v = new Vec({ x: 1, y: 2 }).add({ x: 10, y: 20 });
+console.log(v.x, v.y);
+
+async function load({ id }) { await Promise.resolve(); return id * 2; }
+load({ id: 21 }).then((n) => console.log("async", n));
+
+// Computed keys, and shorthand beside them.
+const key = "dyn";
+const w = 1;
+console.log(JSON.stringify({ [key]: 1, w, [`t${w}`]: 2 }));

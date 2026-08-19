@@ -73,7 +73,7 @@ The full list, with the reasoning for each, is in
 
 ## Status
 
-**v0.16.0.** The language is feature-complete for everyday code: objects and
+**v0.17.0.** The language is feature-complete for everyday code: objects and
 arrays, functions and closures, classes and inheritance, modules, promises and
 `async`/`await`, gradual typing with inference, control flow, `switch`,
 template literals and the conditional operator. The pipeline is lexer → parser → type checker → bytecode
@@ -425,7 +425,8 @@ cscript/
 | **15 ✅** | `class`, `new`, `this`, `extends`, `super`, `instanceof` | — |
 | **16 ✅** | Modules — `import`, `export`, per-file scope | — |
 | **17 ✅** | Promises, timers, the event loop, `async`/`await` | — |
-| next | A register VM | — |
+| **18 ✅** | The rest of the syntax: patterns, accessors, `do`/`for...in` | — |
+| next | `Map` and `Set`, or regular expressions | — |
 
 ---
 

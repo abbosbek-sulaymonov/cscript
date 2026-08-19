@@ -248,6 +248,7 @@ AstNode *csAstWhile(AstArena *arena, int line, AstNode *condition, AstNode *body
   if (node == NULL) return NULL;
   node->as.whileStmt.condition = condition;
   node->as.whileStmt.body = body;
+  node->as.whileStmt.isDoWhile = false;
   return node;
 }
 
@@ -389,7 +390,7 @@ AstNode *csAstClass(AstArena *arena, int line, const char *name, int nameLength,
 
 void csAstClassAddField(AstArena *arena, AstNode *node, const char *name, int length,
                         AstNode *initializer, TypeKind declaredType,
-                        bool hasAnnotation) {
+                        bool hasAnnotation, bool isStatic) {
   if (node == NULL) return;
   int count = node->as.classDecl.fieldCount;
   AstClassField *grown =
@@ -404,12 +405,13 @@ void csAstClassAddField(AstArena *arena, AstNode *node, const char *name, int le
   grown[count].initializer = initializer;
   grown[count].declaredType = declaredType;
   grown[count].hasAnnotation = hasAnnotation;
+  grown[count].isStatic = isStatic;
   node->as.classDecl.fields = grown;
   node->as.classDecl.fieldCount = count + 1;
 }
 
 void csAstClassAddMember(AstArena *arena, AstNode *node, AstNode *function,
-                         bool isStatic) {
+                         bool isStatic, ClassMemberKind kind) {
   if (node == NULL) return;
   int count = node->as.classDecl.memberCount;
   AstClassMember *grown =
@@ -420,6 +422,7 @@ void csAstClassAddMember(AstArena *arena, AstNode *node, AstNode *function,
   }
   grown[count].function = function;
   grown[count].isStatic = isStatic;
+  grown[count].kind = kind;
   node->as.classDecl.members = grown;
   node->as.classDecl.memberCount = count + 1;
 }
@@ -442,6 +445,7 @@ void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name,
   grown[count].length = stored;
   grown[count].type = type;
   grown[count].hasAnnotation = hasAnnotation;
+  grown[count].pattern = NULL;
 
   function->as.function.params = grown;
   function->as.function.paramCount = count + 1;
@@ -559,6 +563,7 @@ AstNode *csAstForOf(AstArena *arena, int line, const char *name, int nameLength,
   node->as.forOf.isConst = isConst;
   node->as.forOf.iterable = iterable;
   node->as.forOf.body = body;
+  node->as.forOf.isForIn = false;
   return node;
 }
 
@@ -581,6 +586,16 @@ AstNode *csAstSpread(AstArena *arena, int line, AstNode *expression) {
   AstNode *node = newNode(arena, AST_SPREAD, line);
   if (node != NULL) node->as.spread = expression;
   return node;
+}
+
+void csAstDestructureNest(AstNode *node, AstNode *pattern) {
+  if (node == NULL || node->as.destructure.count == 0) return;
+  node->as.destructure.bindings[node->as.destructure.count - 1].pattern = pattern;
+}
+
+void csAstParamPattern(AstNode *function, AstNode *pattern) {
+  if (function == NULL || function->as.function.paramCount == 0) return;
+  function->as.function.params[function->as.function.paramCount - 1].pattern = pattern;
 }
 
 AstNode *csAstDestructure(AstArena *arena, int line, bool isObject, bool isConst) {
@@ -614,6 +629,7 @@ void csAstDestructureAdd(AstArena *arena, AstNode *node, const char *key,
   grown[count].nameLength = stored;
   grown[count].defaultValue = defaultValue;
   grown[count].isRest = isRest;
+  grown[count].pattern = NULL;
 
   node->as.destructure.bindings = grown;
   node->as.destructure.count = count + 1;

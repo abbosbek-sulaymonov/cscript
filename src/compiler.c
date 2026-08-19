@@ -704,12 +704,15 @@ static void compileForEffect(const AstNode *node) {
  * Compiles to the loads and stores the pattern stands for, so nothing new
  * exists at run time. The source is evaluated once into a hidden local, then
  * each binding reads its own piece out of it. */
-static void compileDestructure(const AstNode *node) {
-  int line = node->line;
+/* Destructures the value already on top of the stack.
+ *
+ * Split out from compileDestructure so a pattern can hold a pattern — the
+ * piece a nested binding extracts is exactly the value this wants — and so a
+ * parameter can be destructured from the slot it arrived in. */
+static void compileDestructurePattern(const AstNode *node, int line) {
   bool isObject = node->as.destructure.isObject;
 
   /* The source, held in a slot the body cannot name. */
-  compileNode(node->as.destructure.initializer);
   addLocal(" source", 7, true, line);
   int sourceSlot = current->localCount - 1;
 
@@ -745,6 +748,13 @@ static void compileDestructure(const AstNode *node) {
       }
     }
 
+    /* A nested pattern binds nothing itself: it destructures the piece just
+     * extracted, which is already where that pattern's source belongs. */
+    if (binding->pattern != NULL) {
+      compileDestructurePattern(binding->pattern, line);
+      continue;
+    }
+
     /* The value is already sitting where the binding's slot will be. */
     if (current->scopeDepth > 0) {
       addLocal(binding->name, binding->nameLength, node->as.destructure.isConst, line);
@@ -761,6 +771,11 @@ static void compileDestructure(const AstNode *node) {
     current->localCount--;
     emitByte(OP_POP, line);
   }
+}
+
+static void compileDestructure(const AstNode *node) {
+  compileNode(node->as.destructure.initializer);
+  compileDestructurePattern(node, node->line);
 }
 
 static void compileVarDecl(const AstNode *node) {
@@ -838,6 +853,22 @@ static void compileWhile(const AstNode *node) {
 
   Loop loop;
   beginLoop(&loop, true);
+
+  /* `do` runs the body before the first test, so the only difference is where
+   * the condition sits: at the top, or at the bottom with no jump over it. */
+  if (node->as.whileStmt.isDoWhile) {
+    compileNode(node->as.whileStmt.body);
+
+    /* `continue` in a do-while jumps to the test, not past it. */
+    for (int i = 0; i < loop.continueCount; i++) {
+      patchJump(loop.continueJumps[i], line);
+    }
+    int exitJump = emitConditionJump(node->as.whileStmt.condition, line);
+    emitLoop(loopStart, line);
+    patchJump(exitJump, line);
+    endLoop(&loop, line);
+    return;
+  }
 
   int exitJump = emitConditionJump(node->as.whileStmt.condition, line);
 
@@ -1034,8 +1065,10 @@ static void compileForOf(const AstNode *node) {
   int line = node->line;
   beginScope();
 
-  /* Slot 1: the iterable, evaluated once. */
+  /* Slot 1: the iterable, evaluated once. `for...in` walks the same loop over
+   * the key array, which is what the language means by enumerating an object. */
   compileNode(node->as.forOf.iterable);
+  if (node->as.forOf.isForIn) emitByte(OP_ENUM_KEYS, line);
   addLocal(" iterable", 9, true, line);
   int iterableSlot = current->localCount - 1;
 
@@ -1247,6 +1280,15 @@ static void compileFunctionAs(const AstNode *node, FunctionKind kind) {
     addLocal(param->name, param->length, false, line);
   }
 
+  /* A destructured parameter arrived under a generated name; the pattern it
+   * was written as is unpacked from that slot before the body runs. */
+  for (int i = 0; i < node->as.function.paramCount; i++) {
+    const AstParam *param = &node->as.function.params[i];
+    if (param->pattern == NULL) continue;
+    emitBytes(OP_GET_LOCAL, (uint8_t)(i + 1), line);
+    compileDestructurePattern(param->pattern, line);
+  }
+
   compileStatements(node->as.function.body->as.block.statements,
                     node->as.function.body->as.block.count);
 
@@ -1302,9 +1344,21 @@ static bool compileSuperLoad(int line) {
 /* `this.name = <initialiser>;` for each declared field, in declaration order.
  * Emitted straight into whatever function is being compiled — the constructor,
  * or the hidden initialiser below. */
+/* How many fields belong to an instance rather than to the class. */
+static int instanceFieldCount(const AstNode *node) {
+  int count = 0;
+  for (int i = 0; i < node->as.classDecl.fieldCount; i++) {
+    if (!node->as.classDecl.fields[i].isStatic) count++;
+  }
+  return count;
+}
+
 static void emitFieldAssignments(const AstNode *node) {
   for (int i = 0; i < node->as.classDecl.fieldCount; i++) {
     const AstClassField *field = &node->as.classDecl.fields[i];
+    /* A static field belongs to the class and is set once, where the class is
+     * built — not here, which runs per instance. */
+    if (field->isStatic) continue;
     int fieldLine = field->initializer != NULL ? field->initializer->line : node->line;
 
     emitBytes(OP_GET_LOCAL, 0, fieldLine);
@@ -1376,6 +1430,14 @@ static void compileConstructor(const AstNode *classNode) {
   for (int i = 0; i < fn->as.function.paramCount; i++) {
     const AstParam *param = &fn->as.function.params[i];
     addLocal(param->name, param->length, false, line);
+  }
+  /* A destructured parameter is unpacked before anything else, including the
+   * super call — which may well want one of the names it binds. */
+  for (int i = 0; i < fn->as.function.paramCount; i++) {
+    const AstParam *param = &fn->as.function.params[i];
+    if (param->pattern == NULL) continue;
+    emitBytes(OP_GET_LOCAL, (uint8_t)(i + 1), line);
+    compileDestructurePattern(param->pattern, line);
   }
 
   int first = 0;
@@ -1562,15 +1624,42 @@ static void compileClassDecl(const AstNode *node) {
   if (node->as.classDecl.constructor != NULL) {
     compileConstructor(node);
     emitByte(OP_CONSTRUCTOR, line);
-  } else if (node->as.classDecl.fieldCount > 0) {
+  } else if (instanceFieldCount(node) > 0) {
     compileFieldInitializer(node);
     emitByte(OP_FIELD_INIT, line);
+  }
+
+  /* Static fields are set on the class itself, while it is still on the stack.
+   * They are ordinary values rather than per-instance work. */
+  for (int i = 0; i < node->as.classDecl.fieldCount; i++) {
+    const AstClassField *field = &node->as.classDecl.fields[i];
+    if (!field->isStatic) continue;
+    int fieldLine = field->initializer != NULL ? field->initializer->line : line;
+
+    if (field->initializer != NULL) {
+      compileNode(field->initializer);
+    } else {
+      emitByte(OP_UNDEFINED, fieldLine);
+    }
+    emitConstantOp(OP_STATIC_FIELD,
+                   identifierConstant(field->name, field->length, fieldLine),
+                   fieldLine);
   }
 
   for (int i = 0; i < node->as.classDecl.memberCount; i++) {
     const AstClassMember *member = &node->as.classDecl.members[i];
     compileFunctionAs(member->function, FUNCTION_METHOD);
-    emitConstantOp(member->isStatic ? OP_STATIC_METHOD : OP_METHOD,
+
+    uint8_t opcode = OP_METHOD;
+    if (member->kind == MEMBER_GETTER) {
+      opcode = OP_GETTER;
+    } else if (member->kind == MEMBER_SETTER) {
+      opcode = OP_SETTER;
+    } else if (member->isStatic) {
+      opcode = OP_STATIC_METHOD;
+    }
+
+    emitConstantOp(opcode,
                    identifierConstant(member->function->as.function.name,
                                       member->function->as.function.nameLength, line),
                    line);
