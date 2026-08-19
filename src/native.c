@@ -594,6 +594,24 @@ void csNativesInstall(void) {
 
   csArrayMethodsInstall();
   csStringMethodsInstall();
+  csPromiseMethodsInstall();
+
+  /* `Promise` is callable and also carries statics, the same shape `Number`
+   * has: `new Promise(executor)` and `Promise.all([...])` both work. */
+  ObjNative *promiseFn = csPromiseConstructor();
+  csPushTempRoot((Obj *)promiseFn);
+  ObjObject *promiseStatics = csObjectNew("Promise");
+  csPushTempRoot((Obj *)promiseStatics);
+  promiseFn->statics = promiseStatics;
+  csPromiseInstallStatics(promiseStatics);
+  csObjectFreeze(promiseStatics);
+  defineGlobal("Promise", OBJ_VAL(promiseFn));
+  csPopTempRoot();
+  csPopTempRoot();
+
+  defineFunction("setTimeout", csSetTimeoutFn(), -1);
+  defineFunction("clearTimeout", csClearTimeoutFn(), -1);
+  defineFunction("queueMicrotask", csQueueMicrotaskFn(), -1);
 
   defineGlobal("NaN", NUMBER_VAL(NAN));
   defineGlobal("Infinity", NUMBER_VAL(INFINITY));

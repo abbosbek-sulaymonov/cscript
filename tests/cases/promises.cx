@@ -1,0 +1,9 @@
+console.log("start");
+Promise.resolve(1).then((v) => { console.log("then", v); return v + 1; }).then((v) => console.log("chain", v));
+setTimeout(() => console.log("timer"), 0);
+queueMicrotask(() => console.log("micro"));
+new Promise((resolve) => { console.log("executor"); resolve("made"); }).then((v) => console.log(v));
+Promise.all([Promise.resolve("a"), "b", Promise.resolve("c")]).then((v) => console.log("all", v.join("")));
+Promise.race([new Promise((r) => setTimeout(() => r("slow"), 20)), Promise.resolve("fast")]).then((v) => console.log("race", v));
+Promise.reject("boom").catch((e) => console.log("caught", e));
+console.log("end");

@@ -1,0 +1,4 @@
+function notAsync() {
+  return await Promise.resolve(1);
+}
+console.log(notAsync());

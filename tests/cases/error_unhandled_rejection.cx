@@ -1,0 +1,5 @@
+async function fails() {
+  throw Error("nobody is listening");
+}
+fails();
+console.log("kept going");

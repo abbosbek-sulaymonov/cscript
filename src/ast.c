@@ -280,6 +280,7 @@ AstNode *csAstFunction(AstArena *arena, int line, const char *name, int nameLeng
   node->as.function.body = NULL;
   node->as.function.returnType = TYPE_ANY;
   node->as.function.hasReturnAnnotation = false;
+  node->as.function.isAsync = false;
   node->as.function.nameIsInferred = false;
   return node;
 }
@@ -292,6 +293,13 @@ AstNode *csAstNew(AstArena *arena, int line, AstNode *callee) {
 
 AstNode *csAstThis(AstArena *arena, int line) {
   return newNode(arena, AST_THIS, line);
+}
+
+AstNode *csAstAwait(AstArena *arena, int line, AstNode *operand) {
+  AstNode *node = newNode(arena, AST_AWAIT, line);
+  if (node == NULL) return NULL;
+  node->as.unary.operand = operand;
+  return node;
 }
 
 AstNode *csAstSuper(AstArena *arena, int line, const char *name, int length) {

@@ -1,0 +1,24 @@
+async function one() { return 1; }
+async function add(a, b) { const x = await one(); return a + b + x; }
+
+async function main() {
+  console.log("in main");
+  const v = await add(2, 3);
+  console.log("sum", v);
+  const both = await Promise.all([one(), add(1, 1)]);
+  console.log("all", both.join(","));
+  try {
+    await Promise.reject("nope");
+  } catch (e) {
+    console.log("caught", e);
+  }
+  for (let i = 0; i < 3; i++) {
+    const n = await one();
+    console.log("loop", i, n);
+  }
+  return "done";
+}
+
+console.log("before");
+main().then((v) => console.log("then", v));
+console.log("after");

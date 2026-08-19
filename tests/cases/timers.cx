@@ -1,0 +1,9 @@
+const order = [];
+setTimeout(() => { order.push("t100"); }, 100);
+setTimeout(() => { order.push("t0a"); }, 0);
+setTimeout(() => { order.push("t0b"); }, 0);
+const id = setTimeout(() => { order.push("cancelled"); }, 0);
+clearTimeout(id);
+setTimeout(() => { order.push("t50"); console.log(order.join(" ")); }, 50);
+Promise.resolve().then(() => order.push("micro"));
+order.push("sync");

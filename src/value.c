@@ -247,6 +247,20 @@ static bool sbAppend(StringBuilder *builder, const char *text, size_t length) {
 
 static bool sbAppendValue(StringBuilder *builder, Value value, bool quoteStrings);
 
+/* `Promise { 1 }`, `Promise { <pending> }`, `Promise { <rejected> 'why' }` —
+ * the same shapes Node prints, so a program that logs one still matches. */
+static bool sbAppendPromise(StringBuilder *builder, ObjPromise *promise) {
+  if (promise->state == PROMISE_PENDING) {
+    return sbAppend(builder, "Promise { <pending> }", 21);
+  }
+  if (!sbAppend(builder, "Promise { ", 10)) return false;
+  if (promise->state == PROMISE_REJECTED &&
+      !sbAppend(builder, "<rejected> ", 11)) {
+    return false;
+  }
+  return sbAppendValue(builder, promise->value, true) && sbAppend(builder, " }", 2);
+}
+
 static bool sbAppendArray(StringBuilder *builder, ObjArray *array) {
   if (!sbAppend(builder, "[ ", array->elements.count > 0 ? 2 : 1)) return false;
   for (int i = 0; i < array->elements.count; i++) {
@@ -307,7 +321,9 @@ static char *renderCallable(Value value, size_t *lengthOut) {
   } else if (IS_CLOSURE(value)) {
     name = AS_CLOSURE(value)->function->name;
   } else if (IS_BOUND_METHOD(value)) {
-    name = AS_BOUND_METHOD(value)->method->function->name;
+    Obj *method = AS_BOUND_METHOD(value)->method;
+    name = method->type == OBJ_NATIVE ? ((ObjNative *)method)->name
+                                      : ((ObjClosure *)method)->function->name;
   } else {
     klass = AS_CLASS(value);
     name = klass->name;
@@ -352,6 +368,7 @@ static bool sbAppendValue(StringBuilder *builder, Value value, bool quoteStrings
   if (IS_OBJ(value)) {
     if (IS_ARRAY(value)) return sbAppendArray(builder, AS_ARRAY(value));
     if (IS_OBJECT(value)) return sbAppendObject(builder, AS_OBJECT(value));
+    if (IS_PROMISE(value)) return sbAppendPromise(builder, AS_PROMISE(value));
     if (IS_STRING(value) && quoteStrings) {
       ObjString *string = AS_STRING(value);
       return sbAppend(builder, "'", 1) &&

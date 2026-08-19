@@ -109,6 +109,12 @@
   X(OP_IMPORT_NAME)       /* [const16]  pop a module, push that export      */ \
   X(OP_IMPORT_NAMESPACE)  /*          pop a module, push all its exports    */ \
                                                                               \
+  /* Suspends the running fiber until the promise on top settles, then leaves  \
+   * its value in the promise's place — or throws, if it rejected. Only ever   \
+   * emitted inside an async function, which is the only thing that has a      \
+   * fiber to suspend. */                                                       \
+  X(OP_AWAIT)             /*          pop a promise, resume with its value  */ \
+                                                                              \
   /* Closures. OP_CLOSURE is followed by one (isLocal, index) pair per         \
    * upvalue, describing where each capture comes from. */                     \
   X(OP_CLOSURE)           /* [const16] then 2 bytes per upvalue               */ \

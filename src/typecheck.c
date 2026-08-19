@@ -696,6 +696,14 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
       result = TYPE_ANY;
       break;
 
+    /* What a promise resolves to is not modelled, so awaiting one is dynamic.
+     * An async function's declared return type describes what it resolves to
+     * rather than what calling it produces, so it is not checked either. */
+    case AST_AWAIT:
+      checkNode(checker, node->as.unary.operand);
+      result = TYPE_ANY;
+      break;
+
     /* Types do not cross a module boundary yet: the checker runs per file and
      * has no record of what another file resolved. An imported binding is
      * dynamic, which is honest rather than merely permissive. */

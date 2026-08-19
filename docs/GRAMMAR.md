@@ -541,11 +541,45 @@ two ways to name a thing), **`export *`**, **re-exporting** with
 Imported bindings are `any` to the type checker — types do not cross a file
 boundary yet.
 
+## Asynchrony
+
+```ts
+async function fetchUser(id: number) {
+  await sleep(5);
+  return { id: id, name: `user${id}` };
+}
+
+const users = await Promise.all([fetchUser(1), fetchUser(2)]);
+```
+
+`async function`, `async () => {}` and `async m() {}` in a class body. An async
+function hands its caller a promise immediately and carries on where it left
+off once whatever it awaited settles. `return` fulfils that promise, a throw
+rejects it, and a rejection arrives at the `await` as an exception — so
+`try`/`catch`/`finally` work unchanged.
+
+**Promises.** `new Promise((resolve, reject) => …)`, `Promise.resolve`,
+`.reject`, `.all`, `.race`, and `.then` / `.catch` / `.finally`. Settling a
+promise *queues* its handlers rather than running them, which is why `.then`
+is asynchronous even on an already settled promise, and is what makes ordering
+predictable.
+
+**The loop.** Everything synchronous runs first, then the microtask queue is
+drained completely, then one timer gets a turn, and so on until both are
+empty. `setTimeout`, `clearTimeout` and `queueMicrotask` are the way in.
+
+A rejection nothing ever listened to is reported and exits non-zero, as it
+does in Node — a promise that failed with no one watching is a bug, and the
+alternative is a program that silently does half its work.
+
+**Top-level `await` is out**, with an error that says so: it would make
+running a module itself asynchronous and reorder every import in a program.
+Generators, `for await`, and async iterators are not implemented either.
+
 ## Not implemented yet
 
 Each of these produces an error that names it:
 
-- `async` / `await`, promises, generators
 - Regular expressions
 - `Map`, `Set`, `Symbol`, `BigInt`
 - `do`/`while`, labelled statements, `for...in`

@@ -1,4 +1,5 @@
 #include <math.h>
+#include <time.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,7 +27,19 @@ static void resetStack(void) {
   vm.tempRootCount = 0;
 }
 
+/* The main program's execution state. A fiber for `await` gets its own arrays
+ * on the heap; this one is static because it exists for the whole run. */
+static Value mainStack[CS_STACK_MAX];
+static CallFrame mainFrames[CS_FRAMES_MAX];
+static ExceptionHandler mainHandlers[CS_HANDLERS_MAX];
+
 void csVMInit(void) {
+  vm.stack = mainStack;
+  vm.stackCapacity = CS_STACK_MAX;
+  vm.frames = mainFrames;
+  vm.frameCapacity = CS_FRAMES_MAX;
+  vm.handlers = mainHandlers;
+  vm.handlerCapacity = CS_HANDLERS_MAX;
   resetStack();
   vm.objects = NULL;
   vm.grayCount = 0;
@@ -40,10 +53,24 @@ void csVMInit(void) {
   csTableInit(&vm.builtinConsts);
   csTableInit(&vm.modules);
   vm.mainModule = NULL;
+  vm.currentFiber = NULL;
+  vm.fiberSuspended = false;
   vm.pendingCount = 0;
   csTableInit(&vm.strings);
   csTableInit(&vm.arrayMethods);
   csTableInit(&vm.stringMethods);
+  csTableInit(&vm.promiseMethods);
+
+  vm.microtasks = NULL;
+  vm.microtaskCount = 0;
+  vm.microtaskCapacity = 0;
+  vm.microtaskHead = 0;
+  vm.timerCount = 0;
+  vm.nextTimerId = 1;
+  vm.timerSequence = 0;
+  vm.rejected = NULL;
+  vm.rejectedCount = 0;
+  vm.rejectedCapacity = 0;
 
   /* Before any object exists: csObjectNew reads it, and the collector marks
    * it. */
@@ -64,6 +91,9 @@ void csVMMarkBuiltinConst(ObjString *name) {
 }
 
 void csVMFree(void) {
+  CS_FREE_ARRAY(Microtask, vm.microtasks, vm.microtaskCapacity);
+  CS_FREE_ARRAY(ObjPromise *, vm.rejected, vm.rejectedCapacity);
+  csTableFree(&vm.promiseMethods);
   csTableFree(&vm.builtins);
   csTableFree(&vm.builtinConsts);
   csTableFree(&vm.modules);
@@ -74,7 +104,7 @@ void csVMFree(void) {
 }
 
 void csVMPush(Value value) {
-  if (vm.stackTop - vm.stack >= CS_STACK_MAX) {
+  if (vm.stackTop - vm.stack >= vm.stackCapacity) {
     fprintf(stderr, "cscript: value stack overflow\n");
     resetStack();
     return;
@@ -189,8 +219,8 @@ static bool callClosure(ObjClosure *closure, int argCount) {
     return false;
   }
 
-  if (vm.frameCount == CS_FRAMES_MAX) {
-    csVMRuntimeError("call stack overflow (limit %d frames)", CS_FRAMES_MAX);
+  if (vm.frameCount == vm.frameCapacity) {
+    csVMRuntimeError("call stack overflow (limit %d frames)", vm.frameCapacity);
     return false;
   }
 
@@ -222,16 +252,27 @@ static bool callNative(ObjNative *native, Value receiver, int argCount) {
   return true;
 }
 
+static bool callAsyncFunction(ObjClosure *closure, int argCount);
+
 static bool callValue(Value callee, int argCount) {
-  if (IS_CLOSURE(callee)) return callClosure(AS_CLOSURE(callee), argCount);
+  if (IS_CLOSURE(callee)) {
+    ObjClosure *closure = AS_CLOSURE(callee);
+    if (closure->function->isAsync) return callAsyncFunction(closure, argCount);
+    return callClosure(closure, argCount);
+  }
   if (IS_NATIVE(callee)) return callNative(AS_NATIVE(callee), UNDEFINED_VAL, argCount);
 
   if (IS_BOUND_METHOD(callee)) {
+    ObjBoundMethod *bound = AS_BOUND_METHOD(callee);
+    if (bound->method->type == OBJ_NATIVE) {
+      /* Natives already take a receiver, so a bound one is simply called with
+       * the value it was bound to. */
+      return callNative((ObjNative *)bound->method, bound->receiver, argCount);
+    }
     /* The receiver goes back into slot 0, which is where the method's `this`
      * reads from — the same place OP_INVOKE would have left it. */
-    ObjBoundMethod *bound = AS_BOUND_METHOD(callee);
     vm.stackTop[-argCount - 1] = bound->receiver;
-    return callClosure(bound->method, argCount);
+    return callClosure((ObjClosure *)bound->method, argCount);
   }
 
   if (IS_CLASS(callee)) {
@@ -256,6 +297,7 @@ static bool callMethod(ObjClosure *method, int argCount) {
 static Table *methodTableFor(Value receiver) {
   if (IS_ARRAY(receiver)) return &vm.arrayMethods;
   if (IS_STRING(receiver)) return &vm.stringMethods;
+  if (IS_PROMISE(receiver)) return &vm.promiseMethods;
   return NULL;
 }
 
@@ -320,7 +362,9 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
     }
     /* typeof [] is "object", which would make the message confusing here. */
     csVMRuntimeError("%s has no method '%s'",
-                     IS_ARRAY(receiver) ? "array" : csValueTypeName(receiver),
+                     IS_ARRAY(receiver)     ? "array"
+                     : IS_PROMISE(receiver) ? "a promise"
+                                            : csValueTypeName(receiver),
                      name->chars);
     return false;
   }
@@ -564,6 +608,46 @@ static ObjClosure *findConstructor(ObjClass *klass) {
   return owner != NULL ? owner->initializer : NULL;
 }
 
+/* Moves the active execution state into `fiber`, and `fiber`'s into the VM.
+ * The VM keeps the running state inline so the interpreter loop never pays for
+ * an indirection; this is the price of that, paid once per suspend or resume. */
+static void swapExecutionState(ObjFiber *fiber) {
+  Value *stack = vm.stack;
+  Value *stackTop = vm.stackTop;
+  int stackCapacity = vm.stackCapacity;
+  CallFrame *frames = vm.frames;
+  int frameCount = vm.frameCount;
+  int frameCapacity = vm.frameCapacity;
+  ExceptionHandler *handlers = vm.handlers;
+  int handlerCount = vm.handlerCount;
+  int handlerCapacity = vm.handlerCapacity;
+  ObjUpvalue *openUpvalues = vm.openUpvalues;
+
+  vm.stack = fiber->stack;
+  vm.stackTop = fiber->stackTop;
+  vm.stackCapacity = fiber->stackCapacity;
+  vm.frames = fiber->frames;
+  vm.frameCount = fiber->frameCount;
+  vm.frameCapacity = CS_FIBER_FRAMES;
+  vm.handlers = fiber->handlers;
+  vm.handlerCount = fiber->handlerCount;
+  vm.handlerCapacity = CS_FIBER_HANDLERS;
+  vm.openUpvalues = fiber->openUpvalues;
+
+  fiber->stack = stack;
+  fiber->stackTop = stackTop;
+  fiber->stackCapacity = stackCapacity;
+  fiber->frames = frames;
+  fiber->frameCount = frameCount;
+  fiber->handlers = handlers;
+  fiber->handlerCount = handlerCount;
+  fiber->openUpvalues = openUpvalues;
+  /* The capacities the caller had are recovered from whichever kind of
+   * execution state it was: the main one, or another fiber. */
+  (void)frameCapacity;
+  (void)handlerCapacity;
+}
+
 /* The scope a frame's global reads and writes resolve in. Every function in a
  * file carries the module it was compiled in. */
 static ObjModule *frameModule(const CallFrame *frame) {
@@ -599,6 +683,22 @@ static bool assignGlobal(ObjModule *module, ObjString *name, GlobalCache *cache,
   cache->version = module->globals.version;
   cache->filled = true;
   return true;
+}
+
+/* What happens to a throw that escapes every handler.
+ *
+ * Inside an async function it is not an error yet: the call already handed its
+ * caller a promise, so the escaping value becomes that promise's rejection and
+ * whoever awaits it decides what to do. Anywhere else there is no one left to
+ * tell, and it is reported. */
+static InterpretResult uncaught(Value thrown) {
+  if (vm.currentFiber != NULL) {
+    vm.pendingException = thrown;
+    vm.hasPendingException = true;
+    return CS_RUNTIME_ERROR;
+  }
+  reportUncaught(thrown);
+  return CS_RUNTIME_ERROR;
 }
 
 static InterpretResult run(int baseFrame) {
@@ -708,8 +808,7 @@ static InterpretResult run(int baseFrame) {
       case THROW_HANDLED: break;                                        \
       case THROW_PROPAGATE: return CS_RUNTIME_ERROR;                    \
       case THROW_UNCAUGHT:                                              \
-        reportUncaught(pending);                                        \
-        return CS_RUNTIME_ERROR;                                        \
+        return uncaught(pending);                                       \
     }                                                                   \
   } while (false)
 
@@ -880,7 +979,7 @@ static InterpretResult run(int baseFrame) {
             if (method != NULL) {
               /* Reading a method without calling it is the one case that has
                * to allocate, because the receiver has to travel with it. */
-              ObjBoundMethod *bound = csBoundMethodNew(receiver, method);
+              ObjBoundMethod *bound = csBoundMethodNew(receiver, (Obj *)method);
               csVMPop();
               csVMPush(OBJ_VAL(bound));
               VM_NEXT();
@@ -1312,6 +1411,17 @@ static InterpretResult run(int baseFrame) {
       VM_CASE(OP_NEW) {
         int argCount = READ_BYTE();
         Value target = peekStack(argCount);
+
+        /* A built-in constructor is an ordinary native that returns the thing
+         * it made, so `new Promise(executor)` and `Promise(executor)` are the
+         * same call. There is no separate construction protocol to write. */
+        if (IS_NATIVE(target)) {
+          if (!callNative(AS_NATIVE(target), UNDEFINED_VAL, argCount)) {
+            HANDLE_FAILED_CALL();
+          }
+          VM_NEXT();
+        }
+
         if (!IS_CLASS(target)) {
           csVMRuntimeError("'new' needs a class, got %s", csValueTypeName(target));
           HANDLE_FAILED_CALL();
@@ -1392,7 +1502,7 @@ static InterpretResult run(int baseFrame) {
           HANDLE_FAILED_CALL();
           VM_NEXT();
         }
-        ObjBoundMethod *bound = csBoundMethodNew(peekStack(1), method);
+        ObjBoundMethod *bound = csBoundMethodNew(peekStack(1), (Obj *)method);
         vm.stackTop -= 2;
         csVMPush(OBJ_VAL(bound));
         VM_NEXT();
@@ -1533,6 +1643,45 @@ static InterpretResult run(int baseFrame) {
         vm.stackTop -= 2;
         csVMPush(OBJ_VAL(namespaceObject));
         VM_NEXT();
+      }
+
+      VM_CASE(OP_AWAIT) {
+        ObjFiber *fiber = vm.currentFiber;
+        if (fiber == NULL) {
+          csVMRuntimeError("'await' outside an async function");
+          return CS_RUNTIME_ERROR;
+        }
+
+        Value awaited = peekStack(0);
+        ObjPromise *promise;
+        if (IS_PROMISE(awaited)) {
+          promise = AS_PROMISE(awaited);
+        } else {
+          /* Awaiting a plain value still yields to the microtask queue, which
+           * is what keeps `await 1` from running its continuation early. */
+          promise = csPromiseNew();
+        }
+
+        /* Rooted before anything else: settling and registering both allocate,
+         * and once the value comes off the stack this is the only reference. */
+        csPushTempRoot((Obj *)promise);
+        if (!IS_PROMISE(awaited)) csPromiseFulfill(promise, awaited);
+        csVMPop();
+
+        promise->handled = true;
+        csPromiseAddReaction(promise, UNDEFINED_VAL, UNDEFINED_VAL, NULL);
+        if (promise->state == PROMISE_PENDING) {
+          promise->reactions[promise->reactionCount - 1].fiber = fiber;
+        } else {
+          vm.microtasks[vm.microtaskCount - 1].fiber = fiber;
+        }
+        csPopTempRoot();
+
+        /* Hand control back to whoever started this fiber. The frame's ip is
+         * already past this instruction, so resuming lands on the next one and
+         * the awaited value arrives in the promise's place. */
+        vm.fiberSuspended = true;
+        return CS_OK;
       }
 
       VM_CASE(OP_CLOSURE) {
@@ -1741,9 +1890,9 @@ static InterpretResult run(int baseFrame) {
 
       VM_CASE(OP_TRY) {
         uint16_t offset = READ_SHORT();
-        if (vm.handlerCount == CS_HANDLERS_MAX) {
+        if (vm.handlerCount == vm.handlerCapacity) {
           csVMRuntimeError("too many nested 'try' blocks (limit %d)",
-                           CS_HANDLERS_MAX);
+                           vm.handlerCapacity);
           return CS_RUNTIME_ERROR;
         }
         ExceptionHandler *handler = &vm.handlers[vm.handlerCount++];
@@ -1766,8 +1915,7 @@ static InterpretResult run(int baseFrame) {
           case THROW_PROPAGATE:
             return CS_RUNTIME_ERROR;
           case THROW_UNCAUGHT:
-            reportUncaught(thrown);
-            return CS_RUNTIME_ERROR;
+            return uncaught(thrown);
         }
         VM_NEXT();
       }
@@ -1883,7 +2031,10 @@ InterpretResult csInterpret(const char *source, const char *sourceName) {
 
   InterpretResult pending = csVMRunPendingModules();
   if (pending != CS_OK) return pending;
-  return csVMRunBody(script);
+
+  InterpretResult result = csVMRunBody(script);
+  if (result != CS_OK) return result;
+  return csVMRunEventLoop();
 }
 
 InterpretResult csVMRunBody(ObjFunction *body) {
@@ -1900,6 +2051,236 @@ InterpretResult csVMRunBody(ObjFunction *body) {
   InterpretResult result = run(0);
   resetStack();
   return result;
+}
+
+void csVMQueueMicrotask(Value callback, Value argument, ObjPromise *result,
+                        bool isRejection) {
+  /* Compact before growing: the queue is drained to empty between macrotasks,
+   * so the head is almost always reclaimable. */
+  if (vm.microtaskHead > 0 && vm.microtaskHead == vm.microtaskCount) {
+    vm.microtaskHead = 0;
+    vm.microtaskCount = 0;
+  }
+
+  if (vm.microtaskCapacity < vm.microtaskCount + 1) {
+    int oldCapacity = vm.microtaskCapacity;
+    vm.microtaskCapacity = CS_GROW_CAPACITY(oldCapacity);
+    vm.microtasks =
+        CS_GROW_ARRAY(Microtask, vm.microtasks, oldCapacity, vm.microtaskCapacity);
+  }
+
+  Microtask *task = &vm.microtasks[vm.microtaskCount++];
+  task->callback = callback;
+  task->argument = argument;
+  task->result = result;
+  task->isRejection = isRejection;
+  task->combineState = NULL;
+  task->combineIndex = 0;
+  task->fiber = NULL;
+}
+
+void csVMQueueCombine(ObjArray *state, int index, Value argument, bool isRejection) {
+  csVMQueueMicrotask(UNDEFINED_VAL, argument, NULL, isRejection);
+  Microtask *task = &vm.microtasks[vm.microtaskCount - 1];
+  task->combineState = state;
+  task->combineIndex = index;
+}
+
+/* Promise.all and Promise.race, settled from the inside. The state is
+ * [results, remaining, target]; a negative index means the first settlement
+ * wins, which is race. */
+static void runCombine(const Microtask *task) {
+  ObjArray *state = task->combineState;
+  ObjPromise *target = AS_PROMISE(state->elements.values[2]);
+
+  if (task->isRejection) {
+    csPromiseReject(target, task->argument);
+    return;
+  }
+  if (task->combineIndex < 0) {
+    csPromiseFulfill(target, task->argument);
+    return;
+  }
+
+  ObjArray *results = AS_ARRAY(state->elements.values[0]);
+  results->elements.values[task->combineIndex] = task->argument;
+
+  double remaining = AS_NUMBER(state->elements.values[1]) - 1;
+  state->elements.values[1] = NUMBER_VAL(remaining);
+  if (remaining == 0) csPromiseFulfill(target, state->elements.values[0]);
+}
+
+void csVMNoteRejection(ObjPromise *promise) {
+  if (vm.rejectedCapacity < vm.rejectedCount + 1) {
+    int oldCapacity = vm.rejectedCapacity;
+    vm.rejectedCapacity = CS_GROW_CAPACITY(oldCapacity);
+    vm.rejected =
+        CS_GROW_ARRAY(ObjPromise *, vm.rejected, oldCapacity, vm.rejectedCapacity);
+  }
+  vm.rejected[vm.rejectedCount++] = promise;
+}
+
+/* Milliseconds on a clock that only moves forward, so a timer cannot be
+ * delayed or fired early by the wall clock being adjusted. */
+static double nowMs(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
+}
+
+/* Runs one queued reaction. A microtask always ends by settling its result
+ * promise — with what the handler returned, with what it threw, or with the
+ * value that arrived when there was no handler to ask. */
+static InterpretResult runMicrotask(const Microtask *task) {
+  if (task->fiber != NULL) {
+    /* An `await` that is ready to continue. */
+    csVMResumeFiber(task->fiber, task->argument, task->isRejection);
+    return CS_OK;
+  }
+
+  if (task->combineState != NULL) {
+    runCombine(task);
+    return CS_OK;
+  }
+
+  Value callback = task->callback;
+  Value argument = task->argument;
+  ObjPromise *result = task->result;
+  bool isRejection = task->isRejection;
+
+  if (IS_UNDEFINED(callback) || IS_NULL(callback)) {
+    /* No handler for this outcome: it passes straight through, which is what
+     * makes `.then(f)` forward a rejection and `.catch(g)` forward a value. */
+    if (result != NULL) {
+      if (isRejection) {
+        csPromiseReject(result, argument);
+      } else {
+        csPromiseFulfill(result, argument);
+      }
+    }
+    return CS_OK;
+  }
+
+  if (result != NULL) csPushTempRoot((Obj *)result);
+
+  /* Adapted rather than called with exactly one argument: a handler that
+   * ignores the value — `queueMicrotask(() => ...)` — declares none. */
+  Value handlerArgs[1] = {argument};
+  Value returned;
+  bool ok = csVMCallAdapted(callback, handlerArgs, 1, &returned);
+  if (result != NULL) csPopTempRoot();
+
+  if (!ok) {
+    /* The call left an exception behind rather than reporting it, which is how
+     * a throw inside a `.then` becomes a rejection of the promise it feeds. */
+    if (vm.hasPendingException) {
+      Value thrown = vm.pendingException;
+      vm.hasPendingException = false;
+      resetStack();
+      if (result != NULL) {
+        csPromiseReject(result, thrown);
+        return CS_OK;
+      }
+      csVMRuntimeError("uncaught exception in a microtask");
+      return CS_RUNTIME_ERROR;
+    }
+    resetStack();
+    return CS_RUNTIME_ERROR;
+  }
+
+  if (result != NULL) {
+    /* Settling queues reactions, which can allocate — and `returned` is a bare
+     * C local by now. */
+    if (IS_OBJ(returned)) csPushTempRoot(AS_OBJ(returned));
+    csPromiseFulfill(result, returned);
+    if (IS_OBJ(returned)) csPopTempRoot();
+  }
+  return CS_OK;
+}
+
+static InterpretResult drainMicrotasks(void) {
+  while (vm.microtaskHead < vm.microtaskCount) {
+    /* The head stays put until the task is done. The collector marks the queue
+     * from the head onward, and everything a task holds — its handler, the
+     * value it carries, the promise it settles — is reachable from nowhere
+     * else while it runs. Advancing first would unmark all three. */
+    Microtask task = vm.microtasks[vm.microtaskHead];
+    InterpretResult result = runMicrotask(&task);
+    vm.microtaskHead++;
+    if (result != CS_OK) return result;
+  }
+  vm.microtaskHead = 0;
+  vm.microtaskCount = 0;
+  return CS_OK;
+}
+
+/* Reports a rejection nothing ever listened to. Node treats this as fatal and
+ * so does CScript: a promise that failed with no one watching is a bug, and
+ * the alternative is a program that silently does half its work. */
+static InterpretResult reportUnhandledRejections(void) {
+  for (int i = 0; i < vm.rejectedCount; i++) {
+    ObjPromise *promise = vm.rejected[i];
+    if (promise->handled) continue;
+
+    size_t length = 0;
+    char *text = csValueInspect(promise->value, &length);
+    fprintf(stderr, "cscript: unhandled promise rejection: %s\n",
+            text != NULL ? text : "<unprintable>");
+    free(text);
+    vm.rejectedCount = 0;
+    return CS_RUNTIME_ERROR;
+  }
+  vm.rejectedCount = 0;
+  return CS_OK;
+}
+
+InterpretResult csVMRunEventLoop(void) {
+  for (;;) {
+    InterpretResult result = drainMicrotasks();
+    if (result != CS_OK) return result;
+
+    /* Timers are kept sorted, so the next one to run is the first one left. */
+    if (vm.timerCount == 0) break;
+
+    Timer next = vm.timers[0];
+    if (next.cancelled) {
+      memmove(&vm.timers[0], &vm.timers[1], sizeof(Timer) * (size_t)(vm.timerCount - 1));
+      vm.timerCount--;
+      continue;
+    }
+
+    double wait = next.dueMs - nowMs();
+    if (wait > 0) {
+      struct timespec sleepFor;
+      sleepFor.tv_sec = (time_t)(wait / 1000.0);
+      sleepFor.tv_nsec = (long)((wait - (double)sleepFor.tv_sec * 1000.0) * 1000000.0);
+      nanosleep(&sleepFor, NULL);
+    }
+
+    memmove(&vm.timers[0], &vm.timers[1], sizeof(Timer) * (size_t)(vm.timerCount - 1));
+    vm.timerCount--;
+
+    /* Off the queue, so the collector no longer reaches it through the timer
+     * list — the same trap the microtask loop avoids by not advancing. */
+    if (IS_OBJ(next.callback)) csPushTempRoot(AS_OBJ(next.callback));
+    Value ignored;
+    if (!csVMCallAdapted(next.callback, NULL, 0, &ignored)) {
+      if (vm.hasPendingException) {
+        Value thrown = vm.pendingException;
+        vm.hasPendingException = false;
+        resetStack();
+        csVMPush(thrown);
+        csVMRuntimeError("uncaught exception in a timer callback");
+      }
+      resetStack();
+      if (IS_OBJ(next.callback)) csPopTempRoot();
+      return CS_RUNTIME_ERROR;
+    }
+    if (IS_OBJ(next.callback)) csPopTempRoot();
+    resetStack();
+  }
+
+  return reportUnhandledRejections();
 }
 
 InterpretResult csVMRunPendingModules(void) {
@@ -1922,6 +2303,118 @@ InterpretResult csVMRunPendingModules(void) {
   }
   vm.pendingCount = 0;
   return CS_OK;
+}
+
+/* Runs `fiber` until it finishes or suspends, then puts the caller's execution
+ * state back and settles the promise if it is done. */
+static void finishFiber(ObjFiber *fiber, ObjFiber *enclosing, InterpretResult result) {
+  Value outcome = UNDEFINED_VAL;
+  bool rejected = result != CS_OK;
+  if (result == CS_OK) {
+    outcome = csVMPop();
+  } else if (vm.hasPendingException) {
+    outcome = vm.pendingException;
+    vm.hasPendingException = false;
+  }
+
+  ObjPromise *promise = fiber->promise;
+  fiber->state = FIBER_DONE;
+  swapExecutionState(fiber);
+  vm.currentFiber = enclosing;
+
+  if (promise == NULL) return;
+  if (IS_OBJ(outcome)) csPushTempRoot(AS_OBJ(outcome));
+  if (rejected) {
+    csPromiseReject(promise, outcome);
+  } else {
+    csPromiseFulfill(promise, outcome);
+  }
+  if (IS_OBJ(outcome)) csPopTempRoot();
+}
+
+static void runFiber(ObjFiber *fiber) {
+  ObjFiber *enclosing = vm.currentFiber;
+  vm.currentFiber = fiber;
+  fiber->state = FIBER_RUNNING;
+  swapExecutionState(fiber);
+
+  vm.fiberSuspended = false;
+  InterpretResult result = run(0);
+
+  if (vm.fiberSuspended) {
+    vm.fiberSuspended = false;
+    fiber->state = FIBER_SUSPENDED;
+    swapExecutionState(fiber);
+    vm.currentFiber = enclosing;
+    return;
+  }
+  finishFiber(fiber, enclosing, result);
+}
+
+/* Starts an async function: hands the caller a promise straight away and runs
+ * the body until it either finishes or reaches its first await. */
+static bool callAsyncFunction(ObjClosure *closure, int argCount) {
+  ObjFunction *function = closure->function;
+  if (argCount != function->arity) {
+    csVMRuntimeError("%s expects %d argument%s but got %d",
+                     function->name != NULL ? function->name->chars : "<anonymous>",
+                     function->arity, function->arity == 1 ? "" : "s", argCount);
+    return false;
+  }
+
+  ObjFiber *fiber = csFiberNew();
+  csPushTempRoot((Obj *)fiber);
+  fiber->promise = csPromiseNew();
+
+  /* Slot 0 and the arguments move to the fiber's own stack; after that the
+   * caller's stack is back where it was before the call. */
+  Value *base = vm.stackTop - argCount - 1;
+  for (int i = 0; i <= argCount; i++) fiber->stack[i] = base[i];
+  fiber->stackTop = fiber->stack + argCount + 1;
+
+  CallFrame *frame = &fiber->frames[fiber->frameCount++];
+  frame->closure = closure;
+  frame->ip = function->chunk.code;
+  frame->slots = fiber->stack;
+
+  vm.stackTop = base;
+  csVMPush(OBJ_VAL(fiber->promise));
+
+  runFiber(fiber);
+  csPopTempRoot();
+  return true;
+}
+
+void csVMResumeFiber(ObjFiber *fiber, Value value, bool isRejection) {
+  if (fiber->state != FIBER_SUSPENDED) return;
+
+  ObjFiber *enclosing = vm.currentFiber;
+  vm.currentFiber = fiber;
+  fiber->state = FIBER_RUNNING;
+  swapExecutionState(fiber);
+
+  if (isRejection) {
+    /* The await throws rather than producing a value, which is what makes a
+     * try/catch around one work — the handler stack belongs to this fiber. */
+    CallFrame *frame = &vm.frames[vm.frameCount - 1];
+    if (performThrow(value, 0, &frame) != THROW_HANDLED) {
+      finishFiber(fiber, enclosing, CS_RUNTIME_ERROR);
+      return;
+    }
+  } else {
+    csVMPush(value);
+  }
+
+  vm.fiberSuspended = false;
+  InterpretResult result = run(0);
+  if (vm.fiberSuspended) {
+    vm.fiberSuspended = false;
+    fiber->state = FIBER_SUSPENDED;
+    swapExecutionState(fiber);
+    vm.currentFiber = enclosing;
+    return;
+  }
+  finishFiber(fiber, enclosing, result);
 }
 
 bool csVMCallAdapted(Value callee, Value *args, int available, Value *result) {

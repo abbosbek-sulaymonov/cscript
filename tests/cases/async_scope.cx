@@ -1,0 +1,66 @@
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(() => resolve(ms), ms));
+}
+
+// A closure capturing a local across an await. The local must survive the
+// suspension and stay shared with the closure.
+async function captures() {
+  let count = 0;
+  const bump = () => { count = count + 1; return count; };
+  bump();
+  await sleep(1);
+  bump();
+  const after = bump();
+  return `${count} ${after}`;
+}
+
+class Service {
+  constructor(name) { this.name = name; }
+  async fetch(n) {
+    await sleep(1);
+    return `${this.name}:${n}`;
+  }
+  async all() {
+    const parts = [];
+    for (const n of [1, 2]) {
+      parts.push(await this.fetch(n));
+    }
+    return parts.join(" ");
+  }
+}
+
+async function fails() {
+  await sleep(1);
+  throw Error("deliberate");
+}
+
+const asyncArrow = async (x) => {
+  await sleep(1);
+  return x * 2;
+};
+
+async function main() {
+  console.log(await captures());
+  console.log(await new Service("svc").all());
+  try {
+    await fails();
+  } catch (e) {
+    console.log("caught", e.message);
+  }
+  console.log(await asyncArrow(21));
+
+  // Concurrency: both sleeps overlap rather than running one after the other.
+  const started = [sleep(5), sleep(5)];
+  console.log((await Promise.all(started)).join(","));
+
+  // finally runs on both paths.
+  try {
+    await Promise.reject("r");
+  } catch (e) {
+    console.log("c", e);
+  } finally {
+    console.log("f");
+  }
+}
+
+main().then(() => console.log("end"));

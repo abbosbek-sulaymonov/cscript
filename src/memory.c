@@ -3,6 +3,7 @@
 
 #include "cscript/compiler.h"
 #include "cscript/memory.h"
+#include "cscript/native.h"
 #include "cscript/object.h"
 #include "cscript/shape.h"
 #include "cscript/table.h"
@@ -109,10 +110,29 @@ static void markRoots(void) {
 
   csMarkObject((Obj *)vm.emptyShape);
   csMarkObject((Obj *)vm.absentShape);
+  /* Anything queued is reachable from nowhere else: a microtask holds the only
+   * reference to its handler and its result promise until it runs. */
+  for (int i = vm.microtaskHead; i < vm.microtaskCount; i++) {
+    csMarkValue(vm.microtasks[i].callback);
+    csMarkValue(vm.microtasks[i].argument);
+    csMarkObject((Obj *)vm.microtasks[i].result);
+    csMarkObject((Obj *)vm.microtasks[i].combineState);
+    csMarkObject((Obj *)vm.microtasks[i].fiber);
+  }
+  for (int i = 0; i < vm.timerCount; i++) {
+    csMarkValue(vm.timers[i].callback);
+  }
+  for (int i = 0; i < vm.rejectedCount; i++) {
+    csMarkObject((Obj *)vm.rejected[i]);
+  }
+
+  csPromiseMarkRoots();
+  csTableMark(&vm.promiseMethods);
   csTableMark(&vm.builtins);
   csTableMark(&vm.builtinConsts);
   csTableMark(&vm.modules);
   csMarkObject((Obj *)vm.mainModule);
+  csMarkObject((Obj *)vm.currentFiber);
   /* Built-in methods live only in these tables, so nothing else keeps them
    * alive between calls. */
   csTableMark(&vm.arrayMethods);

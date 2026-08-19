@@ -584,6 +584,7 @@ table, then reset the stack.
 | `src/type.c` | The type lattice and assignability |
 | `src/native.c` | The built-in global environment |
 | `src/module.c` | Resolving, loading and ordering source files |
+| `src/native_promise.c` | Promises, timers, the microtask queue |
 | `src/debug.c` | Disassembler and AST printer |
 | `src/diagnostic.c` | Error reporting |
 | `src/main.c` | CLI, REPL, file runner |
@@ -630,6 +631,69 @@ Cycles are refused rather than half-run. ES modules answer a cycle with a
 partially initialised namespace and a `ReferenceError` if you touch the wrong
 thing at the wrong moment; naming the import that closed the loop is more use
 than reproducing that.
+
+## Fibers: how `await` suspends a call
+
+`await` has to stop a running function and start it again later. The cheap
+implementation — copy the frame's slots off the value stack and copy them back
+on resume — is wrong here, and the reason is worth stating because it decided
+the whole design: **upvalues hold raw pointers into the value stack**. A
+closure created inside an async function captures a local by address. Move that
+local and the closure reads freed memory, or the function and its closure
+quietly stop sharing a variable.
+
+Two ways out. Heap-allocate every captured local up front, the way V8's context
+allocation does — a compiler change reaching into every closure. Or give each
+suspendable call its own stack, so nothing ever moves. The second is smaller,
+and a stack VM is already shaped for it.
+
+So an async call gets an `ObjFiber`: its own value stack, frames, handlers and
+open-upvalue list, plus the promise it settles. **The active fiber's state
+lives inline in the VM**, which is what keeps `csVMPush` at one store and the
+interpreter loop unchanged; suspending swaps it out and the caller's back in.
+Measured after the extraction, every benchmark was flat.
+
+Calling an async function creates a fiber, moves the arguments onto its stack,
+pushes the promise to the caller, and runs. `OP_AWAIT` registers the fiber on
+the awaited promise and returns out of `run()` with a flag set. When that
+promise settles it queues a microtask holding the fiber; running it swaps the
+fiber back in and either pushes the value or throws inside it — which is why a
+`try`/`catch` around an `await` works, since the handler stack belongs to the
+fiber too.
+
+A throw that escapes an async function is not an error yet: the call already
+handed its caller a promise, so the escaping value becomes that promise's
+rejection.
+
+*Cost:* a suspended call holds its own stack — 1024 values and 64 frames, about
+10 KB per in-flight async call. Growing them on demand is a later change; the
+limit is reported rather than silently hit.
+
+## The event loop
+
+```
+run the entry module and everything it imports
+loop:
+  drain the microtask queue completely
+  run the next timer that is due
+  stop when both are empty
+```
+
+Settling a promise queues its reactions rather than calling them. That one rule
+is what makes `.then` asynchronous even on an already settled promise, and it
+is the difference between a promise and a callback.
+
+Three kinds of thing sit in the microtask queue: a reaction with a handler, a
+`Promise.all` / `.race` settlement, and a suspended `await`. The last two carry
+no user callback — a combinator has to count settlements and place results by
+position, which no single-argument callback can do — so the queue entry names
+what to do rather than always holding a function.
+
+Two rooting rules the collector depends on here, both found by `test-gc`:
+the microtask queue's head does not advance until the task it points at has
+finished, since a running task's handler, value and result promise are
+reachable from nowhere else; and a timer taken off the queue is rooted
+explicitly for the same reason.
 
 ## Build configurations
 

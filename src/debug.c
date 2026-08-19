@@ -155,6 +155,7 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_INSTANCEOF:        return simpleInstruction("OP_INSTANCEOF", offset);
     case OP_IMPORT_NAME:       return constantInstruction("OP_IMPORT_NAME", chunk, offset);
     case OP_IMPORT_NAMESPACE:  return simpleInstruction("OP_IMPORT_NAMESPACE", offset);
+    case OP_AWAIT:             return simpleInstruction("OP_AWAIT", offset);
     case OP_NEW:               return byteInstruction("OP_NEW", chunk, offset);
     case OP_SUPER_CALL:        return byteInstruction("OP_SUPER_CALL", chunk, offset);
     case OP_METHOD:            return constantInstruction("OP_METHOD", chunk, offset);
@@ -336,6 +337,10 @@ static void printNode(const AstNode *node, int depth) {
     case AST_EXPORT:
       printf("Export\n");
       printNode(node->as.export.declaration, depth + 1);
+      break;
+    case AST_AWAIT:
+      printf("Await\n");
+      printNode(node->as.unary.operand, depth + 1);
       break;
     case AST_THIS:
       printf("This\n");

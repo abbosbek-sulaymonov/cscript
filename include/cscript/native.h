@@ -2,6 +2,8 @@
 #ifndef CSCRIPT_NATIVE_H
 #define CSCRIPT_NATIVE_H
 
+#include "cscript/object.h"
+
 #include "cscript/common.h"
 
 /* Defined in object.h, which this header deliberately does not include. */
@@ -20,5 +22,15 @@ void csStringMethodsInstall(void);
 
 /* Installs JSON.stringify and JSON.parse onto the given namespace object. */
 void csJsonInstall(struct ObjObject *json);
+
+/* Promises, timers and the microtask queue. Split out of native.c because
+ * they carry state of their own rather than being pure functions. */
+void csPromiseMethodsInstall(void);
+void csPromiseMarkRoots(void);
+ObjNative *csPromiseConstructor(void);
+void csPromiseInstallStatics(ObjObject *statics);
+NativeFn csSetTimeoutFn(void);
+NativeFn csClearTimeoutFn(void);
+NativeFn csQueueMicrotaskFn(void);
 
 #endif /* CSCRIPT_NATIVE_H */

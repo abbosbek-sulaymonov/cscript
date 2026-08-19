@@ -107,6 +107,7 @@ static TokenType checkKeyword(const Lexer *lexer, int start, int length,
 /* Trie over the keyword set: one switch per shared prefix. */
 static TokenType identifierType(const Lexer *lexer) {
   switch (lexer->start[0]) {
+    case 'a': return checkKeyword(lexer, 1, 4, "wait", TOKEN_AWAIT);
     case 'b': return checkKeyword(lexer, 1, 4, "reak", TOKEN_BREAK);
     case 'd': return checkKeyword(lexer, 1, 6, "efault", TOKEN_DEFAULT);
     case 'e':
@@ -466,6 +467,7 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_WHILE:             return "WHILE";
     case TOKEN_FOR:               return "FOR";
     case TOKEN_TYPEOF:            return "TYPEOF";
+    case TOKEN_AWAIT:             return "AWAIT";
     case TOKEN_IMPORT:            return "IMPORT";
     case TOKEN_EXPORT:            return "EXPORT";
     case TOKEN_CLASS:             return "CLASS";

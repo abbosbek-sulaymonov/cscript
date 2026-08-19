@@ -240,6 +240,7 @@ ObjFunction *csFunctionNew(void) {
   function->upvalueCount = 0;
   function->name = NULL;
   function->module = NULL;
+  function->isAsync = false;
   csChunkInit(&function->chunk);
   return function;
 }
@@ -291,6 +292,122 @@ ObjModule *csModuleNew(ObjString *path) {
   return module;
 }
 
+ObjPromise *csPromiseNew(void) {
+  ObjPromise *promise = CS_ALLOCATE(ObjPromise, 1);
+  registerObject((Obj *)promise, OBJ_PROMISE);
+  promise->state = PROMISE_PENDING;
+  promise->value = UNDEFINED_VAL;
+  promise->reactions = NULL;
+  promise->reactionCount = 0;
+  promise->reactionCapacity = 0;
+  promise->handled = false;
+  return promise;
+}
+
+/* Settling queues the waiting reactions rather than running them, which is
+ * what makes `.then` always asynchronous — and is the whole reason a promise
+ * and a plain callback behave differently. */
+static void settle(ObjPromise *promise, PromiseState state, Value value) {
+  if (promise->state != PROMISE_PENDING) return;
+
+  promise->state = state;
+  promise->value = value;
+
+  for (int i = 0; i < promise->reactionCount; i++) {
+    Reaction *reaction = &promise->reactions[i];
+    if (reaction->fiber != NULL) {
+      csVMQueueMicrotask(UNDEFINED_VAL, value, NULL, state == PROMISE_REJECTED);
+      vm.microtasks[vm.microtaskCount - 1].fiber = reaction->fiber;
+      continue;
+    }
+    if (reaction->combineState != NULL) {
+      csVMQueueCombine(reaction->combineState, reaction->combineIndex, value,
+                       state == PROMISE_REJECTED);
+      continue;
+    }
+    Value handler =
+        state == PROMISE_FULFILLED ? reaction->onFulfilled : reaction->onRejected;
+    csVMQueueMicrotask(handler, value, reaction->result,
+                       state == PROMISE_REJECTED);
+  }
+
+  CS_FREE_ARRAY(Reaction, promise->reactions, promise->reactionCapacity);
+  promise->reactions = NULL;
+  promise->reactionCount = 0;
+  promise->reactionCapacity = 0;
+
+  if (state == PROMISE_REJECTED && !promise->handled) csVMNoteRejection(promise);
+}
+
+/* Resolving *with* a promise adopts its outcome rather than nesting, so
+ * `return somePromise` inside a `.then` flattens the way it should. */
+void csPromiseFulfill(ObjPromise *promise, Value value) {
+  if (promise->state != PROMISE_PENDING) return;
+
+  if (IS_PROMISE(value)) {
+    ObjPromise *inner = AS_PROMISE(value);
+    csPushTempRoot((Obj *)promise);
+    csPromiseAddReaction(inner, UNDEFINED_VAL, UNDEFINED_VAL, promise);
+    csPopTempRoot();
+    return;
+  }
+  settle(promise, PROMISE_FULFILLED, value);
+}
+
+void csPromiseReject(ObjPromise *promise, Value reason) {
+  settle(promise, PROMISE_REJECTED, reason);
+}
+
+void csPromiseAddReaction(ObjPromise *promise, Value onFulfilled, Value onRejected,
+                          ObjPromise *result) {
+  promise->handled = true;
+
+  if (promise->state != PROMISE_PENDING) {
+    Value handler =
+        promise->state == PROMISE_FULFILLED ? onFulfilled : onRejected;
+    csVMQueueMicrotask(handler, promise->value, result,
+                       promise->state == PROMISE_REJECTED);
+    return;
+  }
+
+  if (promise->reactionCapacity < promise->reactionCount + 1) {
+    int oldCapacity = promise->reactionCapacity;
+    promise->reactionCapacity = CS_GROW_CAPACITY(oldCapacity);
+    promise->reactions = CS_GROW_ARRAY(Reaction, promise->reactions, oldCapacity,
+                                       promise->reactionCapacity);
+  }
+  Reaction *reaction = &promise->reactions[promise->reactionCount++];
+  reaction->onFulfilled = onFulfilled;
+  reaction->onRejected = onRejected;
+  reaction->result = result;
+  reaction->combineState = NULL;
+  reaction->combineIndex = 0;
+  reaction->fiber = NULL;
+}
+
+ObjFiber *csFiberNew(void) {
+  /* Allocated before the fiber itself and cleared, so a collection triggered
+   * partway through never walks uninitialised slots. */
+  Value *stack = CS_ALLOCATE(Value, CS_FIBER_STACK);
+  for (int i = 0; i < CS_FIBER_STACK; i++) stack[i] = UNDEFINED_VAL;
+  CallFrame *frames = CS_ALLOCATE(CallFrame, CS_FIBER_FRAMES);
+  ExceptionHandler *handlers = CS_ALLOCATE(ExceptionHandler, CS_FIBER_HANDLERS);
+
+  ObjFiber *fiber = CS_ALLOCATE(ObjFiber, 1);
+  registerObject((Obj *)fiber, OBJ_FIBER);
+  fiber->stack = stack;
+  fiber->stackTop = stack;
+  fiber->stackCapacity = CS_FIBER_STACK;
+  fiber->frames = frames;
+  fiber->frameCount = 0;
+  fiber->handlers = handlers;
+  fiber->handlerCount = 0;
+  fiber->openUpvalues = NULL;
+  fiber->promise = NULL;
+  fiber->state = FIBER_READY;
+  return fiber;
+}
+
 ObjClass *csClassNew(ObjString *name) {
   csPushTempRoot((Obj *)name);
   ObjClass *klass = CS_ALLOCATE(ObjClass, 1);
@@ -319,9 +436,9 @@ ObjObject *csInstanceNew(ObjClass *klass) {
   return instance;
 }
 
-ObjBoundMethod *csBoundMethodNew(Value receiver, ObjClosure *method) {
+ObjBoundMethod *csBoundMethodNew(Value receiver, Obj *method) {
   if (IS_OBJ(receiver)) csPushTempRoot(AS_OBJ(receiver));
-  csPushTempRoot((Obj *)method);
+  csPushTempRoot(method);
   ObjBoundMethod *bound = CS_ALLOCATE(ObjBoundMethod, 1);
   registerObject((Obj *)bound, OBJ_BOUND_METHOD);
   bound->receiver = receiver;
@@ -402,12 +519,38 @@ void csObjectPrint(Value value) {
       }
       break;
     }
-    case OBJ_BOUND_METHOD:
-      printFunctionName(AS_BOUND_METHOD(value)->method->function);
+    case OBJ_BOUND_METHOD: {
+      Obj *method = AS_BOUND_METHOD(value)->method;
+      if (method->type == OBJ_NATIVE) {
+        printf("[Function: %s]", ((ObjNative *)method)->name->chars);
+      } else {
+        printFunctionName(((ObjClosure *)method)->function);
+      }
       break;
+    }
     case OBJ_MODULE:
       printf("[Module: %s]", AS_MODULE(value)->path->chars);
       break;
+    case OBJ_FIBER:
+      printf("[internal]");
+      break;
+    case OBJ_PROMISE: {
+      ObjPromise *promise = AS_PROMISE(value);
+      if (promise->state == PROMISE_PENDING) {
+        printf("Promise { <pending> }");
+      } else {
+        printf("Promise { ");
+        if (promise->state == PROMISE_REJECTED) printf("<rejected> ");
+        /* Quoted, the way a value nested inside a container is printed. */
+        if (IS_STRING(promise->value)) {
+          printf("'%s'", AS_CSTRING(promise->value));
+        } else {
+          csValuePrint(promise->value);
+        }
+        printf(" }");
+      }
+      break;
+    }
     case OBJ_FUNCTION:
       printFunctionName((ObjFunction *)AS_OBJ(value));
       break;
@@ -489,7 +632,38 @@ void csObjectBlacken(Obj *object) {
     case OBJ_BOUND_METHOD: {
       ObjBoundMethod *bound = (ObjBoundMethod *)object;
       csMarkValue(bound->receiver);
-      csMarkObject((Obj *)bound->method);
+      csMarkObject(bound->method);
+      break;
+    }
+
+    case OBJ_FIBER: {
+      ObjFiber *fiber = (ObjFiber *)object;
+      /* Only up to stackTop: everything above is the slots it has not grown
+       * into yet, and marking those would walk stale values. */
+      for (Value *slot = fiber->stack; slot < fiber->stackTop; slot++) {
+        csMarkValue(*slot);
+      }
+      for (int i = 0; i < fiber->frameCount; i++) {
+        csMarkObject((Obj *)fiber->frames[i].closure);
+      }
+      for (ObjUpvalue *upvalue = fiber->openUpvalues; upvalue != NULL;
+           upvalue = upvalue->next) {
+        csMarkObject((Obj *)upvalue);
+      }
+      csMarkObject((Obj *)fiber->promise);
+      break;
+    }
+
+    case OBJ_PROMISE: {
+      ObjPromise *promise = (ObjPromise *)object;
+      csMarkValue(promise->value);
+      for (int i = 0; i < promise->reactionCount; i++) {
+        csMarkValue(promise->reactions[i].onFulfilled);
+        csMarkValue(promise->reactions[i].onRejected);
+        csMarkObject((Obj *)promise->reactions[i].result);
+        csMarkObject((Obj *)promise->reactions[i].combineState);
+        csMarkObject((Obj *)promise->reactions[i].fiber);
+      }
       break;
     }
 
@@ -579,6 +753,22 @@ void csObjectFree(Obj *object) {
       /* The receiver and the method both belong to whoever else holds them. */
       CS_FREE(ObjBoundMethod, object);
       break;
+
+    case OBJ_FIBER: {
+      ObjFiber *fiber = (ObjFiber *)object;
+      CS_FREE_ARRAY(Value, fiber->stack, fiber->stackCapacity);
+      CS_FREE_ARRAY(CallFrame, fiber->frames, CS_FIBER_FRAMES);
+      CS_FREE_ARRAY(ExceptionHandler, fiber->handlers, CS_FIBER_HANDLERS);
+      CS_FREE(ObjFiber, object);
+      break;
+    }
+
+    case OBJ_PROMISE: {
+      ObjPromise *promise = (ObjPromise *)object;
+      CS_FREE_ARRAY(Reaction, promise->reactions, promise->reactionCapacity);
+      CS_FREE(ObjPromise, object);
+      break;
+    }
 
     case OBJ_MODULE: {
       ObjModule *module = (ObjModule *)object;

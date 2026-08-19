@@ -1,0 +1,49 @@
+// Asynchrony: promises, await, and the loop that runs them.
+//
+// Run me:  cscript examples/async.cx
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(() => resolve(ms), ms));
+}
+
+// An async function hands its caller a promise straight away and carries on
+// where it left off once whatever it awaited has settled.
+async function fetchUser(id: number) {
+  await sleep(5);
+  return { id: id, name: `user${id}` };
+}
+
+async function main() {
+  // One at a time: each await waits for the one before it.
+  const first = await fetchUser(1);
+  console.log(first.name);
+
+  // Or all at once. Both requests are already in flight before the await, so
+  // this takes as long as the slowest rather than the sum.
+  const users = await Promise.all([fetchUser(2), fetchUser(3), fetchUser(4)]);
+  console.log(users.map((u: any) => u.name).join(", "));
+
+  // A rejection arrives as an exception at the await that was waiting for it,
+  // so the ordinary try/catch/finally applies.
+  try {
+    await Promise.reject(Error("no such user"));
+  } catch (error) {
+    console.log("failed:", error.message);
+  } finally {
+    console.log("cleaned up");
+  }
+
+  // Whichever settles first wins.
+  const winner = await Promise.race([sleep(50), sleep(1)]);
+  console.log("winner", winner);
+
+  return users.length + 1;
+}
+
+// Ordering is the part worth knowing. Everything synchronous runs first, then
+// the microtask queue empties, and only then does a timer get a turn.
+console.log("1 sync");
+setTimeout(() => console.log("4 timer"), 0);
+Promise.resolve().then(() => console.log("3 microtask"));
+main().then((count) => console.log("5 done, saw", count, "users"));
+console.log("2 sync");

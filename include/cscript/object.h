@@ -19,7 +19,11 @@ typedef enum {
   OBJ_CLASS,
   OBJ_BOUND_METHOD, /* a method captured away from its receiver */
   OBJ_MODULE,       /* one source file: its own top-level scope */
+  OBJ_PROMISE,
+  OBJ_FIBER, /* a suspendable call: an async function's own stack */
 } ObjType;
+
+typedef struct ObjPromise ObjPromise;
 
 typedef struct ObjClosure ObjClosure;
 typedef struct ObjClass ObjClass;
@@ -138,6 +142,76 @@ struct ObjModule {
   bool executed;
 };
 
+/* One `.then` waiting on a promise: what to run when it settles, and the
+ * promise that gets whatever that produces. Both handlers may be undefined,
+ * in which case the outcome passes straight through — which is what makes
+ * `.then(f)` forward a rejection and `.catch(g)` forward a value. */
+typedef struct {
+  Value onFulfilled;
+  Value onRejected;
+  ObjPromise *result;
+
+  /* Set instead of a handler when the waiter is a suspended `await`. */
+  struct ObjFiber *fiber;
+
+  /* Set instead of the handlers when the waiter is Promise.all or .race rather
+   * than user code. A combinator has to count settlements and place results by
+   * position, which no single-argument callback can do — and building it out
+   * of user-visible closures would mean allocating two per element. The state
+   * is [results, remaining, target]; index -1 means the first to settle wins.
+   */
+  struct ObjArray *combineState;
+  int combineIndex;
+} Reaction;
+
+typedef enum {
+  PROMISE_PENDING,
+  PROMISE_FULFILLED,
+  PROMISE_REJECTED,
+} PromiseState;
+
+struct ObjPromise {
+  Obj obj;
+  PromiseState state;
+  Value value; /* the fulfilment value, or the rejection reason */
+
+  Reaction *reactions;
+  int reactionCount;
+  int reactionCapacity;
+
+  /* Whether anything ever asked what happened. A rejection nothing is
+   * listening to is a bug the program would otherwise swallow, so it is
+   * reported when the event loop runs dry. */
+  bool handled;
+};
+
+typedef enum {
+  FIBER_READY,     /* set up, never started */
+  FIBER_RUNNING,
+  FIBER_SUSPENDED, /* waiting on a promise */
+  FIBER_DONE,
+} FiberState;
+
+struct ObjFiber {
+  Obj obj;
+
+  /* The saved execution state, mirroring the fields the VM holds inline while
+   * this fiber is the one running. */
+  Value *stack;
+  Value *stackTop;
+  int stackCapacity;
+  struct CallFrame *frames;
+  int frameCount;
+  struct ExceptionHandler *handlers;
+  int handlerCount;
+  struct ObjUpvalue *openUpvalues;
+
+  /* What the async function call handed back to its caller, settled when the
+   * body returns or throws. */
+  ObjPromise *promise;
+  FiberState state;
+};
+
 /* Compiled user code. Every function body is its own chunk, and the top level
  * of a module is itself a function — which is what lets the VM run modules and
  * calls through exactly one mechanism. */
@@ -150,6 +224,10 @@ struct ObjFunction {
   /* The module this was compiled in, which is where its global reads and
    * writes resolve. Every function in a file shares it. */
   ObjModule *module;
+
+  /* Calling this returns a promise and runs the body on a fiber of its own, so
+   * an `await` inside it can suspend without disturbing its caller. */
+  bool isAsync;
 };
 
 /* A captured variable.
@@ -207,13 +285,18 @@ struct ObjClass {
   ObjClosure *fieldInit;
 };
 
-/* Only ever created when a method is read without being called — `const f =
- * obj.method`. A method that is called goes through OP_INVOKE and allocates
- * nothing. */
+/* A callable paired with the receiver it belongs to.
+ *
+ * Created when a method is read without being called — `const f = obj.method`
+ * — since a method that *is* called goes through OP_INVOKE and allocates
+ * nothing. It doubles as the way a built-in carries state: natives already
+ * take a receiver, so binding one to a value gives a C function a closure
+ * without a second object type. That is what `new Promise(resolve, reject)`
+ * hands the executor. */
 typedef struct ObjBoundMethod {
   Obj obj;
   Value receiver;
-  ObjClosure *method;
+  Obj *method; /* an ObjClosure or an ObjNative */
 } ObjBoundMethod;
 
 #define OBJ_TYPE(v)   (AS_OBJ(v)->type)
@@ -226,6 +309,7 @@ typedef struct ObjBoundMethod {
 #define IS_ARRAY(v)    csIsObjType(v, OBJ_ARRAY)
 #define IS_CLASS(v)    csIsObjType(v, OBJ_CLASS)
 #define IS_MODULE(v)   csIsObjType(v, OBJ_MODULE)
+#define IS_PROMISE(v)  csIsObjType(v, OBJ_PROMISE)
 #define IS_BOUND_METHOD(v) csIsObjType(v, OBJ_BOUND_METHOD)
 
 #define AS_STRING(v)   ((ObjString *)AS_OBJ(v))
@@ -237,6 +321,7 @@ typedef struct ObjBoundMethod {
 #define AS_ARRAY(v)    ((ObjArray *)AS_OBJ(v))
 #define AS_CLASS(v)    ((ObjClass *)AS_OBJ(v))
 #define AS_MODULE(v)   ((ObjModule *)AS_OBJ(v))
+#define AS_PROMISE(v)  ((ObjPromise *)AS_OBJ(v))
 #define AS_BOUND_METHOD(v) ((ObjBoundMethod *)AS_OBJ(v))
 
 static inline bool csIsObjType(Value value, ObjType type) {
@@ -258,8 +343,36 @@ ObjClass *csClassNew(ObjString *name);
 
 /* Creates a module with the built-ins already in scope. */
 ObjModule *csModuleNew(ObjString *path);
+
+ObjPromise *csPromiseNew(void);
+
+/* A suspendable call.
+ *
+ * `await` has to stop a running function and start it again later. Copying its
+ * slots off the value stack and back would be cheaper, but upvalues hold raw
+ * pointers *into* that stack: move a captured local and the closure that
+ * captured it reads freed memory. So a suspendable call gets a stack of its
+ * own, and nothing ever moves.
+ *
+ * The active fiber's state lives inline in the VM — see vm.h — so the
+ * interpreter loop never pays for the indirection. Suspending copies it out to
+ * here and the caller's back in. */
+typedef struct ObjFiber ObjFiber;
+ObjFiber *csFiberNew(void);
+
+/* Settles a promise and queues whatever was waiting on it. Settling an already
+ * settled promise does nothing, which is what makes a resolve function safe to
+ * call twice. Resolving *with* a promise adopts its outcome instead of nesting.
+ */
+void csPromiseFulfill(ObjPromise *promise, Value value);
+void csPromiseReject(ObjPromise *promise, Value reason);
+
+/* Registers a reaction, running it as a microtask straight away when the
+ * promise has already settled. */
+void csPromiseAddReaction(ObjPromise *promise, Value onFulfilled, Value onRejected,
+                          ObjPromise *result);
 ObjObject *csInstanceNew(ObjClass *klass);
-ObjBoundMethod *csBoundMethodNew(Value receiver, ObjClosure *method);
+ObjBoundMethod *csBoundMethodNew(Value receiver, Obj *method);
 
 /* Walks the superclass chain for a method. Returns NULL when nothing has it. */
 ObjClosure *csClassFindMethod(ObjClass *klass, ObjString *name);

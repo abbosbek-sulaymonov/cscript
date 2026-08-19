@@ -211,12 +211,57 @@ static bool rejectLooseEquality(Parser *parser) {
   return false;
 }
 
+/* A property name may be any identifier *or* any keyword: `p.catch`, `x.of`
+ * and `{ default: 1 }` are all ordinary names in JavaScript, and reserving
+ * them only where they cannot be reserved would be a gratuitous difference.
+ * Every keyword's lexeme starts with a letter, so that is the whole test. */
+static bool consumePropertyName(Parser *parser, const char *message) {
+  bool wordLike = parser->current.length > 0 &&
+                  ((parser->current.start[0] >= 'a' && parser->current.start[0] <= 'z') ||
+                   (parser->current.start[0] >= 'A' && parser->current.start[0] <= 'Z') ||
+                   parser->current.start[0] == '_' || parser->current.start[0] == '$');
+  if (!wordLike || parser->current.type == TOKEN_STRING ||
+      parser->current.type == TOKEN_NUMBER) {
+    errorAtCurrent(parser, message);
+    return false;
+  }
+  advanceToken(parser);
+  return true;
+}
+
+/* `async` and `from` are ordinary identifiers everywhere else, so they are
+ * matched by text rather than reserved. */
+static bool nameIsWord(const char *name, int length, const char *word) {
+  int wordLength = (int)strlen(word);
+  return length == wordLength && memcmp(name, word, (size_t)wordLength) == 0;
+}
+
+static bool checkWord(Parser *parser, const char *word) {
+  return check(parser, TOKEN_IDENTIFIER) &&
+         nameIsWord(parser->current.start, parser->current.length, word);
+}
+
+/* Whether the token after the current one opens a function. Used to tell
+ * `async function f() {}` from a variable that happens to be called `async`. */
+static bool nextStartsFunction(Parser *parser) {
+  Lexer probe = parser->lexer;
+  Token next = csLexerNext(&probe);
+  return next.type == TOKEN_FUNCTION;
+}
+
+/* Whether what follows `async` could be an arrow's parameter list. */
+static bool nextStartsArrowParams(Parser *parser) {
+  Lexer probe = parser->lexer;
+  Token next = csLexerNext(&probe);
+  return next.type == TOKEN_LEFT_PAREN || next.type == TOKEN_IDENTIFIER;
+}
+
 /* Postfix `.name` and `(args)`, which bind tighter than any unary operator. */
 static AstNode *parseCallSuffixes(Parser *parser, AstNode *expression) {
   for (;;) {
     if (matchToken(parser, TOKEN_DOT)) {
       int line = parser->previous.line;
-      consume(parser, TOKEN_IDENTIFIER, "expected a property name after '.'");
+      if (!consumePropertyName(parser, "expected a property name after '.'")) return NULL;
       if (parser->diag->panicMode) return NULL;
       expression = csAstProperty(parser->arena, line, expression,
                                  parser->previous.start, parser->previous.length);
@@ -328,7 +373,7 @@ static AstNode *parsePrimary(Parser *parser) {
                                       parser->previous.length);
     /* `new a.B()` — a class reached through a property. */
     while (matchToken(parser, TOKEN_DOT)) {
-      consume(parser, TOKEN_IDENTIFIER, "expected a property name after '.'");
+      if (!consumePropertyName(parser, "expected a property name after '.'")) return NULL;
       if (parser->diag->panicMode) return NULL;
       callee = csAstProperty(parser->arena, line, callee, parser->previous.start,
                              parser->previous.length);
@@ -353,6 +398,17 @@ static AstNode *parsePrimary(Parser *parser) {
     return parseCallSuffixes(parser, node);
   }
 
+  /* `async x => ...` and `async (a, b) => ...`. Only an `async` that is
+   * actually followed by parameters means anything; anywhere else it is a
+   * variable named `async`. */
+  if (checkWord(parser, "async") && nextStartsArrowParams(parser)) {
+    advanceToken(parser);
+    parser->pendingAsync = true;
+    AstNode *arrow = parsePrimary(parser);
+    parser->pendingAsync = false;
+    return arrow;
+  }
+
   if (matchToken(parser, TOKEN_IDENTIFIER)) {
     const char *name = parser->previous.start;
     int nameLength = parser->previous.length;
@@ -361,6 +417,7 @@ static AstNode *parsePrimary(Parser *parser) {
     if (check(parser, TOKEN_ARROW)) {
       advanceToken(parser);
       AstNode *arrow = csAstFunction(parser->arena, line, NULL, 0);
+      arrow->as.function.isAsync = parser->pendingAsync;
       csAstFunctionAddParam(parser->arena, arrow, name, nameLength, TYPE_ANY, false);
       return finishArrow(parser, arrow, line);
     }
@@ -406,7 +463,7 @@ static AstNode *parsePrimary(Parser *parser) {
           key = makeStringLiteral(parser, parser->previous.start,
                                   parser->previous.length, parser->previous.line);
         } else {
-          consume(parser, TOKEN_IDENTIFIER, "expected a property name");
+          if (!consumePropertyName(parser, "expected a property name")) return NULL;
           if (parser->diag->panicMode) return NULL;
           key = csAstString(parser->arena, parser->previous.line,
                             parser->previous.start, parser->previous.length);
@@ -428,6 +485,7 @@ static AstNode *parsePrimary(Parser *parser) {
   if (matchToken(parser, TOKEN_LEFT_PAREN)) {
     if (looksLikeArrowParams(parser)) {
       AstNode *arrow = csAstFunction(parser->arena, line, NULL, 0);
+      arrow->as.function.isAsync = parser->pendingAsync;
 
       if (!check(parser, TOKEN_RIGHT_PAREN)) {
         do {
@@ -484,6 +542,17 @@ static AstNode *parsePrimary(Parser *parser) {
     AstNode *operand = parsePrecedence(parser, PREC_UNARY);
     if (operand == NULL) return NULL;
     return csAstUnary(parser->arena, line, UNARY_TYPEOF, operand);
+  }
+
+  if (matchToken(parser, TOKEN_AWAIT)) {
+    if (parser->asyncDepth == 0) {
+      csDiagnosticError(parser->diag, line, NULL, 0,
+                        "'await' is only allowed inside an async function");
+      return NULL;
+    }
+    AstNode *operand = parsePrecedence(parser, PREC_UNARY);
+    if (operand == NULL) return NULL;
+    return parseCallSuffixes(parser, csAstAwait(parser->arena, line, operand));
   }
 
   /* Prefix ++/--, which yields the value from *after* the update. */
@@ -769,16 +838,27 @@ static bool looksLikeArrowParams(Parser *parser) {
 /* Parses an arrow function's body: either an expression, which becomes an
  * implicit return, or a braced block. */
 static AstNode *finishArrow(Parser *parser, AstNode *function, int line) {
+  /* An arrow's body may await only if the arrow itself is async — and a plain
+   * arrow nested inside an async function may not, which is why this resets to
+   * zero rather than leaving the enclosing depth alone. */
+  int enclosingAsync = parser->asyncDepth;
+  parser->asyncDepth = function->as.function.isAsync ? enclosingAsync + 1 : 0;
+
   if (matchToken(parser, TOKEN_LEFT_BRACE)) {
     function->as.function.body = parseBlock(parser);
   } else {
     AstNode *value = parsePrecedence(parser, PREC_ASSIGNMENT);
-    if (value == NULL) return NULL;
+    if (value == NULL) {
+      parser->asyncDepth = enclosingAsync;
+      return NULL;
+    }
     /* `x => expr` is `x => { return expr; }`. */
     AstNode *body = csAstBlock(parser->arena, line);
     csAstProgramAdd(parser->arena, body, csAstReturn(parser->arena, line, value));
     function->as.function.body = body;
   }
+
+  parser->asyncDepth = enclosingAsync;
   return function->as.function.body != NULL ? function : NULL;
 }
 
@@ -788,6 +868,8 @@ static AstNode *finishArrow(Parser *parser, AstNode *function, int line) {
 static AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
                                   int nameLength, bool isMethod) {
   AstNode *function = csAstFunction(parser->arena, line, name, nameLength);
+  function->as.function.isAsync = parser->pendingAsync;
+  parser->pendingAsync = false;
 
   consume(parser, TOKEN_LEFT_PAREN,
           isMethod ? "expected '(' after the method name"
@@ -827,7 +909,10 @@ static AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
   consume(parser, TOKEN_LEFT_BRACE, "expected '{' to open the function body");
   if (parser->diag->panicMode) return NULL;
 
+  int enclosingAsync = parser->asyncDepth;
+  parser->asyncDepth = function->as.function.isAsync ? enclosingAsync + 1 : 0;
   function->as.function.body = parseBlock(parser);
+  parser->asyncDepth = enclosingAsync;
   if (function->as.function.body == NULL) return NULL;
 
   return function;
@@ -906,7 +991,20 @@ static AstNode *parseClass(Parser *parser) {
       return NULL;
     }
 
-    consume(parser, TOKEN_IDENTIFIER, "expected a member name");
+    /* `async m() {}` — an `async` followed by another name, rather than by
+     * `(`, is the modifier and not the method's own name. */
+    bool isAsyncMember = false;
+    if (checkWord(parser, "async")) {
+      Lexer probe = parser->lexer;
+      Token next = csLexerNext(&probe);
+      if (next.type != TOKEN_LEFT_PAREN && next.type != TOKEN_EQUAL &&
+          next.type != TOKEN_SEMICOLON && next.type != TOKEN_COLON) {
+        advanceToken(parser);
+        isAsyncMember = true;
+      }
+    }
+
+    if (!consumePropertyName(parser, "expected a member name")) return NULL;
     if (parser->diag->panicMode) return NULL;
     const char *memberName = parser->previous.start;
     int memberLength = parser->previous.length;
@@ -924,6 +1022,11 @@ static AstNode *parseClass(Parser *parser) {
        * arity error or a stack frame should say: `Dog expects 1 argument`
        * rather than `constructor expects 1 argument`. */
       bool isConstructor = nameIs(memberName, memberLength, "constructor");
+      if (isConstructor && isAsyncMember) {
+        errorAtCurrent(parser, "a constructor cannot be async");
+        return NULL;
+      }
+      parser->pendingAsync = isAsyncMember;
       AstNode *method = parseFunctionRest(parser, memberLine,
                                           isConstructor ? name : memberName,
                                           isConstructor ? nameLength : memberLength,
@@ -973,12 +1076,9 @@ static AstNode *parseClass(Parser *parser) {
   return node;
 }
 
-/* True when the current token is the given contextual keyword. `as` and `from`
- * are ordinary identifiers everywhere else, so they are matched by text rather
- * than reserved. */
+/* True when the current token is the given contextual keyword. */
 static bool checkContextual(Parser *parser, const char *word) {
-  return check(parser, TOKEN_IDENTIFIER) &&
-         nameIs(parser->current.start, parser->current.length, word);
+  return checkWord(parser, word);
 }
 
 static bool matchContextual(Parser *parser, const char *word) {
@@ -1554,6 +1654,15 @@ static AstNode *parseStatement(Parser *parser) {
 
   if (matchToken(parser, TOKEN_FUNCTION)) return parseFunction(parser, true);
 
+  /* `async function f() {}` — contextual, so only an `async` immediately
+   * followed by `function` means anything here. */
+  if (checkWord(parser, "async") && nextStartsFunction(parser)) {
+    advanceToken(parser);
+    advanceToken(parser);
+    parser->pendingAsync = true;
+    return parseFunction(parser, true);
+  }
+
   if (matchToken(parser, TOKEN_CLASS)) return parseClass(parser);
 
   if (matchToken(parser, TOKEN_IMPORT)) return parseImport(parser);
@@ -1589,6 +1698,8 @@ AstNode *csParse(const char *source, AstArena *arena, Diagnostics *diag) {
   Parser parser;
   parser.arena = arena;
   parser.diag = diag;
+  parser.pendingAsync = false;
+  parser.asyncDepth = 0;
   csLexerInit(&parser.lexer, source, diag);
 
   /* Prime `current`; `previous` is not read until after the first advance. */

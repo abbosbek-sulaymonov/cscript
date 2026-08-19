@@ -1,0 +1,10 @@
+before
+in main
+after
+sum 6
+all 1,3
+caught nope
+loop 0 1
+loop 1 1
+loop 2 1
+then done

@@ -1,0 +1,6 @@
+const pending = new Promise(() => {});
+console.log(Promise.resolve(1), Promise.resolve("s"), pending);
+const rejected = Promise.reject("why");
+rejected.catch(() => {});
+console.log(rejected);
+console.log([Promise.resolve(1)], { p: Promise.resolve(2) });

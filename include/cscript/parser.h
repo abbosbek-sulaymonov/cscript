@@ -18,6 +18,15 @@ typedef struct {
   Token previous;
   AstArena *arena;
   Diagnostics *diag;
+
+  /* Set between reading `async` and building the function node it belongs to.
+   * `async` is contextual, so it is recognised at the call site and handed to
+   * whichever of the three function forms follows it. */
+  bool pendingAsync;
+
+  /* How many async function bodies enclose the point being parsed, so `await`
+   * can be rejected where it means nothing. */
+  int asyncDepth;
 } Parser;
 
 /* Returns the program node, or NULL if the source had a syntax error. */

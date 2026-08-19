@@ -1217,6 +1217,7 @@ static void compileFunctionAs(const AstNode *node, FunctionKind kind) {
   Compiler compiler;
   beginFunction(&compiler, kind, node->as.function.name,
                 node->as.function.nameLength);
+  compiler.function->isAsync = node->as.function.isAsync;
   beginScope();
 
   compiler.function->arity = node->as.function.paramCount;
@@ -1953,6 +1954,11 @@ static void compileNode(const AstNode *node) {
       }
       unwindTryBlocks(-1, line);
       emitByte(OP_RETURN, line);
+      break;
+
+    case AST_AWAIT:
+      compileNode(node->as.unary.operand);
+      emitByte(OP_AWAIT, line);
       break;
 
     case AST_THIS:

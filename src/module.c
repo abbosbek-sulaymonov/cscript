@@ -229,5 +229,10 @@ InterpretResult csRunFile(const char *path) {
   }
 
   if (csModuleLoadResolved(resolved, path, NULL, 0) == NULL) return CS_COMPILE_ERROR;
-  return csVMRunPendingModules();
+
+  InterpretResult result = csVMRunPendingModules();
+  if (result != CS_OK) return result;
+
+  /* The program has run; anything it left pending runs now. */
+  return csVMRunEventLoop();
 }

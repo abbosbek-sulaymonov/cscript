@@ -1,0 +1,1 @@
+error_await_outside.cx:2: error: 'await' is only allowed inside an async function

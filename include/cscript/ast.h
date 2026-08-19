@@ -35,6 +35,7 @@ typedef enum {
   AST_CONDITIONAL,
   AST_THIS,
   AST_SUPER,
+  AST_AWAIT,
 
   /* Statements. */
   AST_EXPRESSION_STMT,
@@ -287,6 +288,7 @@ struct AstNode {
       AstNode *body;                     /*   an AST_BLOCK */
       TypeKind returnType;
       bool hasReturnAnnotation;
+      bool isAsync;                      /*   returns a promise, may await */
       /* True when the name came from the binding the function was assigned to
        * rather than from a `function name(...)` declaration. Such a name is
        * for diagnostics only: it must not declare anything, or `const f = () =>
@@ -349,6 +351,7 @@ AstNode *csAstUpdate(AstArena *arena, int line, AstNode *target, bool isIncremen
 AstNode *csAstCall(AstArena *arena, int line, AstNode *callee);
 AstNode *csAstNew(AstArena *arena, int line, AstNode *callee);
 AstNode *csAstThis(AstArena *arena, int line);
+AstNode *csAstAwait(AstArena *arena, int line, AstNode *operand);
 AstNode *csAstSuper(AstArena *arena, int line, const char *name, int length);
 AstNode *csAstImport(AstArena *arena, int line, const char *specifier, int length);
 void csAstImportAddName(AstArena *arena, AstNode *node, const char *name, int nameLength,

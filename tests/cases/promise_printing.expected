@@ -1,0 +1,3 @@
+Promise { 1 } Promise { 's' } Promise { <pending> }
+Promise { <rejected> 'why' }
+[ Promise { 1 } ] { p: Promise { 2 } }

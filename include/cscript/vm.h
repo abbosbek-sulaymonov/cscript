@@ -22,15 +22,52 @@ typedef enum {
 #define CS_HANDLERS_MAX 64
 #define CS_MODULES_MAX 256
 #define CS_NAMESPACE_MAX 256
+#define CS_TIMERS_MAX 1024
+
+/* One queued reaction. A microtask always ends by settling `result`, either
+ * with what `callback` returned or — when there is no callback — with the
+ * value that arrived, which is how an outcome passes through a `.then` that
+ * did not ask about it. `result` is NULL for queueMicrotask. */
+typedef struct {
+  Value callback;
+  Value argument;
+  ObjPromise *result;
+  bool isRejection;
+
+  /* Set when the waiter is a suspended `await` rather than a callback. */
+  struct ObjFiber *fiber;
+
+  /* See Reaction in object.h: set when the waiter is a combinator. */
+  struct ObjArray *combineState;
+  int combineIndex;
+} Microtask;
+
+/* A pending setTimeout. Ties are broken by `sequence` so two timers with the
+ * same delay fire in the order they were registered, which is what makes
+ * output reproducible. */
+typedef struct {
+  double dueMs;
+  long sequence;
+  int id;
+  Value callback;
+  bool cancelled;
+} Timer;
 
 /* Defined in object.h, which includes this header for Value. */
 struct ObjClosure;
 struct ObjUpvalue;
 
+/* How much of its own a suspended call carries. An async function's stack is
+ * shallow in practice — it awaits from its own frame — but it may call
+ * anything synchronously before it does, so the limits are real ones. */
+#define CS_FIBER_STACK 1024
+#define CS_FIBER_FRAMES 64
+#define CS_FIBER_HANDLERS 32
+
 /* One active call. `slots` points at the callee's window into the value stack:
  * slot 0 is the function itself, then the arguments, then its locals. That is
  * why a local's compile-time slot index is all the VM needs. */
-typedef struct {
+typedef struct CallFrame {
   struct ObjClosure *closure;
   const uint8_t *ip;
   Value *slots;
@@ -39,7 +76,7 @@ typedef struct {
 /* An active `try`. Unwinding restores the machine to exactly this state, which
  * is why all three depths are recorded rather than just the resume point: a
  * throw may cross any number of calls and leave any amount of stack behind. */
-typedef struct {
+typedef struct ExceptionHandler {
   int frameCount;      /* frames live when the handler was installed */
   Value *stackTop;     /* value stack depth at the same moment */
   const uint8_t *ip;   /* where to resume — the catch, or the finally */
@@ -47,11 +84,18 @@ typedef struct {
 } ExceptionHandler;
 
 typedef struct {
-  CallFrame frames[CS_FRAMES_MAX];
+  /* The state of whatever is executing right now, held inline rather than
+   * behind a pointer so csVMPush stays one store and the interpreter loop is
+   * untouched. `await` swaps it out to a fiber and another one in; see
+   * ObjFiber in object.h for why a suspended call needs its own stack rather
+   * than a copy of these slots. */
+  CallFrame *frames;
   int frameCount;
+  int frameCapacity;
 
-  ExceptionHandler handlers[CS_HANDLERS_MAX];
+  ExceptionHandler *handlers;
   int handlerCount;
+  int handlerCapacity;
 
   /* An exception on its way out of a nested interpreter loop.
    *
@@ -63,8 +107,9 @@ typedef struct {
   Value pendingException;
   bool hasPendingException;
 
-  Value stack[CS_STACK_MAX];
+  Value *stack;
   Value *stackTop;
+  int stackCapacity;
 
   /* Upvalues pointing at slots that are still live on the stack, kept sorted
    * by descending slot so closing a scope can stop early. */
@@ -84,6 +129,12 @@ typedef struct {
   /* Where `-e`, the REPL and any code with no file of its own live. */
   ObjModule *mainModule;
 
+  /* The fiber whose execution state is loaded right now, or NULL for the main
+   * program. `await` needs it to know what to suspend. */
+  ObjFiber *currentFiber;
+  /* Set by OP_AWAIT so run()'s caller can tell a suspension from a return. */
+  bool fiberSuspended;
+
   /* Modules compiled but not yet run, in dependency order. Kept alive by the
    * registry above; this only records the order. */
   ObjModule *pending[CS_MODULES_MAX];
@@ -96,6 +147,28 @@ typedef struct {
    * live on the value itself the way an object's do. */
   Table arrayMethods;
   Table stringMethods;
+  Table promiseMethods;
+
+  /* The microtask queue, drained completely between macrotasks. A ring would
+   * save the compaction; the queue is short-lived and this is one fewer index
+   * to get wrong. */
+  Microtask *microtasks;
+  int microtaskCount;
+  int microtaskCapacity;
+  int microtaskHead;
+
+  /* Timers, kept sorted by due time so the next one to run is always first. */
+  Timer timers[CS_TIMERS_MAX];
+  int timerCount;
+  int nextTimerId;
+  long timerSequence;
+
+  /* Rejected promises nothing has listened to yet. Checked when the loop runs
+   * dry: a rejection with no handler is a bug the program would otherwise
+   * swallow. */
+  ObjPromise **rejected;
+  int rejectedCount;
+  int rejectedCapacity;
 
   /* The layout every object starts from. Permanently rooted, so the shape
    * tree hanging off it is only as large as the layouts still in use — the
@@ -144,6 +217,25 @@ InterpretResult csVMRunBody(ObjFunction *body);
 
 /* Runs every module compiled but not yet executed, in dependency order. */
 InterpretResult csVMRunPendingModules(void);
+
+/* Queues a reaction to run once the current call finishes. */
+void csVMQueueMicrotask(Value callback, Value argument, ObjPromise *result,
+                        bool isRejection);
+
+/* Queues a Promise.all / Promise.race settlement. */
+void csVMQueueCombine(struct ObjArray *state, int index, Value argument,
+                      bool isRejection);
+
+/* Drains microtasks, then timers, until neither has anything left. Reports an
+ * unhandled rejection and fails if one is outstanding when it finishes. */
+InterpretResult csVMRunEventLoop(void);
+
+/* Records a rejection nothing is listening to yet. */
+void csVMNoteRejection(ObjPromise *promise);
+
+/* Continues a suspended async call with what it was waiting for, or throws
+ * inside it when the promise rejected. */
+void csVMResumeFiber(ObjFiber *fiber, Value value, bool isRejection);
 
 void csVMPush(Value value);
 Value csVMPop(void);
