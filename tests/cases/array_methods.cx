@@ -1,0 +1,55 @@
+// Mutating methods.
+let a = [3, 1, 2];
+console.log(a.push(4), a);
+console.log(a.pop(), a);
+console.log(a.shift(), a);
+console.log(a.unshift(0), a);
+console.log(a.reverse());
+console.log([1, 2, 3, 4].fill(0, 1, 3));
+
+// Non-mutating methods.
+const b = [1, 2, 3];
+console.log(b.slice(1), b.slice(-2), b.slice());
+console.log(b.concat([4, 5], 6));
+console.log(b.join(), b.join("-"), b.join(""));
+console.log(b.indexOf(2), b.indexOf(9), b.lastIndexOf(3));
+console.log(b.includes(2), b.includes(9));
+console.log([1, null, undefined, 2].join("-"));
+console.log([].join("-"), [].pop(), [].shift());
+
+// Sorting: the default compares as strings, which is why 10 sorts before 9.
+console.log([10, 9, 1].sort());
+console.log([10, 9, 1].sort(function (x, y) { return x - y; }));
+console.log(["pear", "apple"].sort());
+
+// Higher-order methods run user code from inside the interpreter.
+console.log([1, 2, 3].map(function (x) { return x * 2; }));
+console.log([1, 2, 3, 4].filter(function (x) { return x % 2 === 0; }));
+console.log([1, 2, 3, 4].reduce(function (acc, x) { return acc + x; }, 0));
+console.log([1, 2, 3].reduce(function (acc, x) { return acc + x; }));
+console.log([1, 2, 3].find(function (x) { return x > 1; }));
+console.log([1, 2, 3].findIndex(function (x) { return x > 1; }));
+console.log([1, 2, 3].some(function (x) { return x > 2; }));
+console.log([1, 2, 3].every(function (x) { return x > 0; }));
+console.log([1, 2, 3].every(function (x) { return x > 2; }));
+
+// A callback taking every argument the method offers.
+console.log([9, 8].map(function (value, index, whole) {
+  return value + index + whole.length;
+}));
+
+// Nested callbacks, each allocating.
+console.log([[1, 2], [3, 4]].map(function (row) {
+  return row.map(function (v) { return v + 1; });
+}));
+
+// A callback closing over an outer variable.
+let total = 0;
+[1, 2, 3].forEach(function (x) { total += x; });
+console.log(total);
+
+// Recursion through a callback.
+function countdown(n) {
+  return [n].map(function (v) { return v > 0 ? countdown(v - 1) : "done"; })[0];
+}
+console.log(countdown(5));

@@ -35,6 +35,8 @@ void csVMInit(void) {
   csTableInit(&vm.globals);
   csTableInit(&vm.globalConsts);
   csTableInit(&vm.strings);
+  csTableInit(&vm.arrayMethods);
+  csTableInit(&vm.stringMethods);
 
   csNativesInstall();
 }
@@ -46,6 +48,8 @@ void csVMMarkGlobalConst(ObjString *name) {
 void csVMFree(void) {
   csTableFree(&vm.globals);
   csTableFree(&vm.globalConsts);
+  csTableFree(&vm.arrayMethods);
+  csTableFree(&vm.stringMethods);
   csTableFree(&vm.strings);
   csFreeAllObjects();
 }
@@ -62,6 +66,8 @@ void csVMPush(Value value) {
 Value csVMPop(void) { return *(--vm.stackTop); }
 
 static Value peekStack(int distance) { return vm.stackTop[-1 - distance]; }
+
+Value csVMPeek(int distance) { return peekStack(distance); }
 
 /* True when a double holds an exact integer small enough to move into an
  * int64_t without loss. 2^53 is the largest such value for a double, and it is
@@ -166,7 +172,10 @@ static bool callClosure(ObjClosure *closure, int argCount) {
   return true;
 }
 
-static bool callNative(ObjNative *native, int argCount) {
+/* `receiver` is the value a method was invoked on, or undefined for a plain
+ * call. It sits on the stack below the arguments either way, so dropping
+ * `argCount + 1` slots discards it along with them. */
+static bool callNative(ObjNative *native, Value receiver, int argCount) {
   if (native->arity >= 0 && argCount != native->arity) {
     csVMRuntimeError("%s expects %d argument%s but got %d", native->name->chars,
                      native->arity, native->arity == 1 ? "" : "s", argCount);
@@ -174,7 +183,9 @@ static bool callNative(ObjNative *native, int argCount) {
   }
 
   Value result;
-  if (!native->function(argCount, vm.stackTop - argCount, &result)) return false;
+  if (!native->function(receiver, argCount, vm.stackTop - argCount, &result)) {
+    return false;
+  }
 
   /* Drop the arguments and the callee, then push the result in its place. */
   vm.stackTop -= argCount + 1;
@@ -184,9 +195,52 @@ static bool callNative(ObjNative *native, int argCount) {
 
 static bool callValue(Value callee, int argCount) {
   if (IS_CLOSURE(callee)) return callClosure(AS_CLOSURE(callee), argCount);
-  if (IS_NATIVE(callee)) return callNative(AS_NATIVE(callee), argCount);
+  if (IS_NATIVE(callee)) return callNative(AS_NATIVE(callee), UNDEFINED_VAL, argCount);
 
   csVMRuntimeError("%s is not a function", csValueTypeName(callee));
+  return false;
+}
+
+/* The method table a receiver's built-ins live in, or NULL when it has none. */
+static Table *methodTableFor(Value receiver) {
+  if (IS_ARRAY(receiver)) return &vm.arrayMethods;
+  if (IS_STRING(receiver)) return &vm.stringMethods;
+  return NULL;
+}
+
+/* Looks `name` up on `receiver` and calls it, leaving the result where the
+ * receiver was. Returns false with an error already reported.
+ *
+ * A plain object's own properties win over anything else, because a user
+ * function stored on an object is exactly what it looks like. */
+static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
+  if (IS_OBJECT(receiver)) {
+    Value method;
+    if (csTableGet(&AS_OBJECT(receiver)->properties, name, &method)) {
+      /* Overwrite the receiver slot so the callee sits directly below its
+       * arguments, which is the shape callValue expects. */
+      vm.stackTop[-argCount - 1] = method;
+      return callValue(method, argCount);
+    }
+    csVMRuntimeError("'%s' has no method '%s'", AS_OBJECT(receiver)->name->chars,
+                     name->chars);
+    return false;
+  }
+
+  Table *methods = methodTableFor(receiver);
+  if (methods != NULL) {
+    Value method;
+    if (csTableGet(methods, name, &method)) {
+      return callNative(AS_NATIVE(method), receiver, argCount);
+    }
+    /* typeof [] is "object", which would make the message confusing here. */
+    csVMRuntimeError("%s has no method '%s'",
+                     IS_ARRAY(receiver) ? "array" : csValueTypeName(receiver),
+                     name->chars);
+    return false;
+  }
+
+  csVMRuntimeError("cannot call '%s' on %s", name->chars, csValueTypeName(receiver));
   return false;
 }
 
@@ -319,7 +373,14 @@ void csVMDumpOpcodeProfile(void) {
 #pragma GCC diagnostic ignored "-Wpedantic"
 #endif
 
-static InterpretResult run(void) {
+/* Executes until the frame stack unwinds back to `baseFrame`.
+ *
+ * The top level passes 0, so the loop ends when the script returns. A native
+ * calling back into user code passes the depth it started at, which turns this
+ * into a nested interpreter that returns control as soon as that one call is
+ * finished — without which `map`, `filter` and a `sort` comparator could not
+ * run user code at all. */
+static InterpretResult run(int baseFrame) {
   CallFrame *frame = &vm.frames[vm.frameCount - 1];
 
 /* `frame` is cached in a local rather than re-read from vm.frames each time;
@@ -702,6 +763,17 @@ static InterpretResult run(void) {
         VM_NEXT();
       }
 
+      VM_CASE(OP_INVOKE) {
+        ObjString *name = READ_STRING();
+        int argCount = READ_BYTE();
+        if (!invokeMethod(peekStack(argCount), name, argCount)) {
+          return CS_RUNTIME_ERROR;
+        }
+        /* A method that turned out to be user code pushed a frame. */
+        frame = &vm.frames[vm.frameCount - 1];
+        VM_NEXT();
+      }
+
       VM_CASE(OP_CLOSURE) {
         ObjFunction *function = AS_FUNCTION(READ_CONSTANT());
         ObjClosure *closure = csClosureNew(function);
@@ -902,8 +974,12 @@ static InterpretResult run(void) {
         closeUpvalues(frame->slots);
         vm.frameCount--;
 
-        if (vm.frameCount == 0) {
-          csVMPop(); /* the script function itself */
+        /* Hand control back to whoever started this loop: the driver at depth
+         * 0, or a native that called into user code at some deeper level. The
+         * result is left on the stack in place of the callee. */
+        if (vm.frameCount == baseFrame) {
+          vm.stackTop = frame->slots;
+          csVMPush(result);
           return CS_OK;
         }
 
@@ -994,7 +1070,48 @@ InterpretResult csInterpret(const char *source, const char *sourceName) {
   csVMPush(OBJ_VAL(closure));
   callClosure(closure, 0);
 
-  InterpretResult result = run();
+  InterpretResult result = run(0);
   resetStack();
   return result;
+}
+
+bool csVMCallAdapted(Value callee, Value *args, int available, Value *result) {
+  int wanted = available;
+  if (IS_CLOSURE(callee)) {
+    wanted = AS_CLOSURE(callee)->function->arity;
+  } else if (IS_NATIVE(callee) && AS_NATIVE(callee)->arity >= 0) {
+    wanted = AS_NATIVE(callee)->arity;
+  }
+
+  csVMPush(callee);
+  for (int i = 0; i < wanted; i++) {
+    csVMPush(i < available ? args[i] : UNDEFINED_VAL);
+  }
+  return csVMCallCallback(callee, wanted, result);
+}
+
+bool csVMCallCallback(Value callee, int argCount, Value *result) {
+  /* A native calls into user code with the callee and its arguments already
+   * pushed, exactly as OP_CALL would leave them. */
+  int baseFrame = vm.frameCount;
+
+  if (IS_NATIVE(callee)) {
+    /* No frame to run — the native answers directly. */
+    if (!callNative(AS_NATIVE(callee), UNDEFINED_VAL, argCount)) return false;
+    *result = csVMPop();
+    return true;
+  }
+
+  if (!IS_CLOSURE(callee)) {
+    csVMRuntimeError("%s is not a function", csValueTypeName(callee));
+    return false;
+  }
+
+  if (!callClosure(AS_CLOSURE(callee), argCount)) return false;
+
+  /* Runs until that one call returns, leaving its result on the stack. */
+  if (run(baseFrame) != CS_OK) return false;
+
+  *result = csVMPop();
+  return true;
 }

@@ -33,19 +33,22 @@ static void writeArgs(FILE *out, int argCount, Value *args) {
   fputc('\n', out);
 }
 
-static bool consoleLog(int argCount, Value *args, Value *result) {
+static bool consoleLog(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
   writeArgs(stdout, argCount, args);
   *result = UNDEFINED_VAL;
   return true;
 }
 
-static bool consoleError(int argCount, Value *args, Value *result) {
+static bool consoleError(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
   writeArgs(stderr, argCount, args);
   *result = UNDEFINED_VAL;
   return true;
 }
 
-static bool mathFloor(int argCount, Value *args, Value *result) {
+static bool mathFloor(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
   if (argCount != 1 || !IS_NUMBER(args[0])) {
     csVMRuntimeError("Math.floor expects one number");
     return false;
@@ -54,7 +57,8 @@ static bool mathFloor(int argCount, Value *args, Value *result) {
   return true;
 }
 
-static bool mathAbs(int argCount, Value *args, Value *result) {
+static bool mathAbs(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
   if (argCount != 1 || !IS_NUMBER(args[0])) {
     csVMRuntimeError("Math.abs expects one number");
     return false;
@@ -63,7 +67,8 @@ static bool mathAbs(int argCount, Value *args, Value *result) {
   return true;
 }
 
-static bool mathMax(int argCount, Value *args, Value *result) {
+static bool mathMax(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
   if (argCount == 0) {
     *result = NUMBER_VAL(-INFINITY);
     return true;
@@ -80,7 +85,8 @@ static bool mathMax(int argCount, Value *args, Value *result) {
   return true;
 }
 
-static bool mathMin(int argCount, Value *args, Value *result) {
+static bool mathMin(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
   if (argCount == 0) {
     *result = NUMBER_VAL(INFINITY);
     return true;
@@ -98,7 +104,8 @@ static bool mathMin(int argCount, Value *args, Value *result) {
 }
 
 /* Number(x) — the explicit conversion that replaces JavaScript's unary '+'. */
-static bool numberConvert(int argCount, Value *args, Value *result) {
+static bool numberConvert(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
   if (argCount != 1) {
     csVMRuntimeError("Number expects exactly one argument");
     return false;
@@ -108,7 +115,8 @@ static bool numberConvert(int argCount, Value *args, Value *result) {
 }
 
 /* String(x) — the explicit conversion that replaces `"" + x`. */
-static bool stringConvert(int argCount, Value *args, Value *result) {
+static bool stringConvert(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
   if (argCount != 1) {
     csVMRuntimeError("String expects exactly one argument");
     return false;
@@ -125,7 +133,8 @@ static bool stringConvert(int argCount, Value *args, Value *result) {
   return true;
 }
 
-static bool booleanConvert(int argCount, Value *args, Value *result) {
+static bool booleanConvert(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
   if (argCount != 1) {
     csVMRuntimeError("Boolean expects exactly one argument");
     return false;
@@ -189,6 +198,8 @@ void csNativesInstall(void) {
   defineFunction("Number", numberConvert, 1);
   defineFunction("String", stringConvert, 1);
   defineFunction("Boolean", booleanConvert, 1);
+
+  csArrayMethodsInstall();
 
   defineGlobal("NaN", NUMBER_VAL(NAN));
   defineGlobal("Infinity", NUMBER_VAL(INFINITY));

@@ -901,17 +901,38 @@ static void compileNode(const AstNode *node) {
       break;
     }
 
-    case AST_CALL:
-      compileNode(node->as.call.callee);
-      for (int i = 0; i < node->as.call.argCount; i++) {
-        compileNode(node->as.call.arguments[i]);
-      }
+    case AST_CALL: {
       if (node->as.call.argCount > UINT8_MAX) {
         errorAt(line, "too many arguments (limit %d)", UINT8_MAX);
         break;
       }
-      emitBytes(OP_CALL, (uint8_t)node->as.call.argCount, line);
+      const AstNode *callee = node->as.call.callee;
+
+      /* `x.name(...)` becomes one instruction instead of a property load
+       * followed by a call, which also keeps the receiver available so a
+       * built-in method can see what it was called on. */
+      bool isMethodCall = callee->type == AST_PROPERTY;
+      if (isMethodCall) {
+        compileNode(callee->as.property.object);
+      } else {
+        compileNode(callee);
+      }
+
+      for (int i = 0; i < node->as.call.argCount; i++) {
+        compileNode(node->as.call.arguments[i]);
+      }
+
+      if (isMethodCall) {
+        emitConstantOp(OP_INVOKE,
+                       identifierConstant(callee->as.property.name,
+                                          callee->as.property.length, line),
+                       line);
+        emitByte((uint8_t)node->as.call.argCount, line);
+      } else {
+        emitBytes(OP_CALL, (uint8_t)node->as.call.argCount, line);
+      }
       break;
+    }
 
     case AST_UNARY:
       compileNode(node->as.unary.operand);

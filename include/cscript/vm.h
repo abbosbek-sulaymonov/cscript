@@ -51,6 +51,12 @@ typedef struct {
   Table globalConsts;
   Table strings; /* intern pool; weak — swept entries are removed */
 
+  /* Built-in methods, keyed by interned name and selected by the receiver's
+   * type. Arrays and strings are not property bags, so their methods cannot
+   * live on the value itself the way an object's do. */
+  Table arrayMethods;
+  Table stringMethods;
+
   Obj *objects; /* head of the intrusive list of every live object */
 
   /* Tri-colour marking worklist. Deliberately allocated with raw realloc so a
@@ -81,6 +87,30 @@ void csVMMarkGlobalConst(ObjString *name);
 
 void csVMPush(Value value);
 Value csVMPop(void);
+Value csVMPeek(int distance);
+
+/* Calls a CScript value from inside a native, running a nested interpreter loop
+ * until the call returns. This is what lets `map`, `filter`, `reduce` and a
+ * `sort` comparator invoke user code.
+ *
+ * The arguments must already be pushed, `callee` first. On success the result
+ * is written to `result` and the callee and arguments are gone from the stack;
+ * on failure the error has been reported and the caller should return false.
+ *
+ * Depth is bounded by CS_FRAMES_MAX, the same limit ordinary calls obey, so
+ * this adds no new way to run out of stack. */
+bool csVMCallCallback(Value callee, int argCount, Value *result);
+
+/* Calls `callee` with as many of `args` as it actually declares, padding with
+ * undefined if it declares more.
+ *
+ * Direct calls keep strict arity, because calling a function with the wrong
+ * number of arguments is nearly always a bug. That rule cannot hold for
+ * callbacks: `map` offers (element, index, array) and almost every callback
+ * wants only the first. JavaScript solves this by making every call variadic;
+ * CScript instead makes the *caller* adapt, so the strict check still protects
+ * ordinary code. */
+bool csVMCallAdapted(Value callee, Value *args, int available, Value *result);
 
 /* Reports a runtime error at the currently executing instruction and unwinds.
  * Native functions call this before returning false. */

@@ -104,6 +104,10 @@ static void markRoots(void) {
 
   csTableMark(&vm.globals);
   csTableMark(&vm.globalConsts);
+  /* Built-in methods live only in these tables, so nothing else keeps them
+   * alive between calls. */
+  csTableMark(&vm.arrayMethods);
+  csTableMark(&vm.stringMethods);
   for (int i = 0; i < vm.tempRootCount; i++) {
     csMarkObject(vm.tempRoots[i]);
   }

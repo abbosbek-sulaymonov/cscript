@@ -8,4 +8,8 @@
  * csVMInit and before interpreting anything. */
 void csNativesInstall(void);
 
+/* Registers the built-in array methods into vm.arrayMethods. Called by
+ * csNativesInstall; separated only because there are a lot of them. */
+void csArrayMethodsInstall(void);
+
 #endif /* CSCRIPT_NATIVE_H */

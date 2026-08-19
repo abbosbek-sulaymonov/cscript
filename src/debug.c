@@ -102,6 +102,15 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_SET_UPVALUE:       return byteInstruction("OP_SET_UPVALUE", chunk, offset);
     case OP_CLOSE_UPVALUE:     return simpleInstruction("OP_CLOSE_UPVALUE", offset);
     case OP_CALL:              return byteInstruction("OP_CALL", chunk, offset);
+    case OP_INVOKE: {
+      /* Two operands: the method name and the argument count. */
+      int constant = readConstantIndex(chunk, offset + 1);
+      uint8_t argCount = chunk->code[offset + 3];
+      printf("%-22s %4d '", "OP_INVOKE", argCount);
+      csValuePrint(chunk->constants.values[constant]);
+      printf("'\n");
+      return offset + 4;
+    }
     case OP_ADD:               return simpleInstruction("OP_ADD", offset);
     case OP_ADD_NUM:           return simpleInstruction("OP_ADD_NUM", offset);
     case OP_SUBTRACT:          return simpleInstruction("OP_SUBTRACT", offset);

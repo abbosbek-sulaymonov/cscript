@@ -36,8 +36,12 @@ struct ObjString {
 };
 
 /* Returns false to signal a runtime error; the callee reports it. `args` points
- * at the first argument on the VM stack, and the result goes through `result`. */
-typedef bool (*NativeFn)(int argCount, Value *args, Value *result);
+ * at the first argument on the VM stack, and the result goes through `result`.
+ *
+ * `receiver` is the value a method was invoked on — the array in `xs.push(1)`.
+ * Plain functions are called with `undefined` there and ignore it. One
+ * signature for both keeps a single call path in the VM. */
+typedef bool (*NativeFn)(Value receiver, int argCount, Value *args, Value *result);
 
 typedef struct {
   Obj obj;

@@ -57,6 +57,10 @@
   X(OP_OBJECT)            /* [count]  build from `count` key/value pairs    */ \
   X(OP_ARRAY)             /* [count]  build from the top `count` values     */ \
   X(OP_CALL)              /* [argc]   call the value below the arguments    */ \
+  /* Method call: looks the name up on the receiver and calls it in one step.  \
+   * The receiver stays on the stack below the arguments, so no bound-method   \
+   * object has to be allocated per call. */                                    \
+  X(OP_INVOKE)            /* [const16][argc]  receiver.name(args...)        */ \
                                                                               \
   /* Closures. OP_CLOSURE is followed by one (isLocal, index) pair per         \
    * upvalue, describing where each capture comes from. */                     \
