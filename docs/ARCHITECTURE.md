@@ -221,6 +221,33 @@ went from 16 instructions to 11.
 **An inlined numeric path for `+`**, skipping the call and two string checks
 that the general concatenate-or-add path performs.
 
+### What did not help: NaN-boxing (for speed)
+
+A `Value` is 8 bytes rather than 16 where the platform allows it: IEEE 754
+leaves roughly 2^51 bit patterns that all mean "not a number", and every
+non-number value hides in there. The expectation was 10–20%.
+
+The measured speed difference is **zero**:
+
+| Benchmark | NaN-boxed (8B) | tagged union (16B) |
+| --- | ---: | ---: |
+| `arrays` | 94 ms | 98 ms |
+| `loop_arith` | 335 ms | 345 ms |
+| `globals` | 266 ms | 286 ms |
+| `branches` | 423 ms | 396 ms |
+| total | 1835 ms | 1831 ms |
+
+What it does buy is **memory**, which the timings do not show at all:
+
+| Program | NaN-boxed | tagged union |
+| --- | ---: | ---: |
+| 200k-element array | 3.1 MB | 6.7 MB |
+| 1M-element array | 11.3 MB | 18.9 MB |
+
+So it stays on — halving the footprint of every array, object and stack slot is
+worth having — but it is filed as a memory optimisation, not a speed one.
+`make test-tagged` runs the whole suite through the other representation.
+
 ### What did not help: computed goto
 
 The interpreter dispatches through computed goto where the compiler supports it
@@ -252,6 +279,25 @@ This is the sort of thing the benchmark suite exists to catch. The optimisation
 was expected to be worth 15–25% and was worth nothing; without measuring, it
 would have been documented as a win.
 
+### What three measurements add up to
+
+Computed goto: predicted 15–25%, delivered 0%. NaN-boxing: predicted 10–20%,
+delivered 0% (but halved memory). Removing every type check: predicted a lot,
+delivered 2%.
+
+All three targeted the same thing — the cost of *executing* an instruction —
+and all three found it was already close to free. What is left is the cost of
+*dispatching* one. That is why the two ideas still on the list attack
+instruction **count** rather than instruction cost:
+
+- **Superinstructions** fuse a hot opcode pair into one, halving dispatches for
+  that pair.
+- **A register VM** removes the push/pop traffic entirely, so a three-address
+  operation is one instruction instead of four.
+
+Measuring first would have saved building two of the three. It is also why the
+benchmark suite exists.
+
 ### The interpreter ceiling
 
 Roughly 12× Go, and the remaining distance is architectural. Go compiles the
@@ -264,10 +310,12 @@ Ideas that would still help, in rough order of value per effort:
 | Idea | Expected | Effort |
 | --- | --- | --- |
 | Superinstructions (fuse hot opcode pairs) | 20–40% | medium |
-| NaN-boxing — `Value` 16 bytes to 8 | 10–20% | medium |
-| Inline caches for global and property lookup | 10–20% | medium |
 | Register-based bytecode instead of a stack | 20–40% | large |
+| Inline caches for global and property lookup | 10–20% | medium |
 | A JIT | order of magnitude | very large |
+
+Given the record above, treat those percentages as hypotheses to be measured
+rather than as savings already in hand.
 
 Only the last closes the gap with Go, and it is what makes Node 2.8× rather
 than 12×. It is also a multi-year project. A well-tuned bytecode interpreter

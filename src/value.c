@@ -29,85 +29,68 @@ void csValueArrayFree(ValueArray *array) {
 }
 
 bool csValuesStrictEqual(Value a, Value b) {
-  if (a.type != b.type) return false;
+  /* Numbers are compared as doubles rather than as bit patterns, which is what
+   * makes NaN !== NaN and -0 === 0 come out right. Under NaN-boxing a raw
+   * comparison would get both of those backwards. */
+  if (IS_NUMBER(a) && IS_NUMBER(b)) return AS_NUMBER(a) == AS_NUMBER(b);
+  if (IS_NUMBER(a) != IS_NUMBER(b)) return false;
 
-  switch (a.type) {
-    case VAL_UNDEFINED:
-    case VAL_NULL:
-      return true;
-    case VAL_BOOL:
-      return AS_BOOL(a) == AS_BOOL(b);
-    case VAL_NUMBER:
-      /* NaN !== NaN, per IEEE 754 and JS. The == does that for free. */
-      return AS_NUMBER(a) == AS_NUMBER(b);
-    case VAL_OBJ:
-      /* Strings are interned, so pointer identity is value equality. */
-      return AS_OBJ(a) == AS_OBJ(b);
+  if (IS_OBJ(a) && IS_OBJ(b)) {
+    /* Strings are interned, so pointer identity is value equality. */
+    return AS_OBJ(a) == AS_OBJ(b);
   }
+  if (IS_OBJ(a) != IS_OBJ(b)) return false;
+
+  if (IS_BOOL(a) && IS_BOOL(b)) return AS_BOOL(a) == AS_BOOL(b);
+  if (IS_NULL(a) && IS_NULL(b)) return true;
+  if (IS_UNDEFINED(a) && IS_UNDEFINED(b)) return true;
   return false;
 }
 
 /* Coerces a value to a number the way JS's abstract ToNumber does. This is only
  * ever reached through the Number() built-in — no operator applies it. */
 double csValueToNumber(Value value) {
-  switch (value.type) {
-    case VAL_UNDEFINED: return NAN;
-    case VAL_NULL:      return 0;
-    case VAL_BOOL:      return AS_BOOL(value) ? 1 : 0;
-    case VAL_NUMBER:    return AS_NUMBER(value);
-    case VAL_OBJ: {
-      if (IS_STRING(value)) {
-        ObjString *string = AS_STRING(value);
-        if (string->length == 0) return 0; /* Number("") is 0 */
-        char *end = NULL;
-        double result = strtod(string->chars, &end);
-        /* Trailing non-space means the whole string was not a number. */
-        while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
-        if (end != string->chars + string->length) return NAN;
-        return result;
-      }
-      return NAN;
-    }
+  if (IS_NUMBER(value)) return AS_NUMBER(value);
+  if (IS_UNDEFINED(value)) return NAN;
+  if (IS_NULL(value)) return 0;
+  if (IS_BOOL(value)) return AS_BOOL(value) ? 1 : 0;
+
+  if (IS_STRING(value)) {
+    ObjString *string = AS_STRING(value);
+    if (string->length == 0) return 0; /* Number("") is 0 */
+    char *end = NULL;
+    double result = strtod(string->chars, &end);
+    /* Trailing non-space means the whole string was not a number. */
+    while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
+    if (end != string->chars + string->length) return NAN;
+    return result;
   }
   return NAN;
 }
 
 bool csValueIsTruthy(Value value) {
-  switch (value.type) {
-    case VAL_UNDEFINED:
-    case VAL_NULL:
-      return false;
-    case VAL_BOOL:
-      return AS_BOOL(value);
-    case VAL_NUMBER: {
-      double n = AS_NUMBER(value);
-      return n != 0 && !isnan(n); /* 0, -0 and NaN are falsy */
-    }
-    case VAL_OBJ:
-      if (IS_STRING(value)) return AS_STRING(value)->length > 0;
-      return true;
+  if (IS_NUMBER(value)) {
+    double n = AS_NUMBER(value);
+    return n != 0 && !isnan(n); /* 0, -0 and NaN are falsy */
   }
-  return false;
+  if (IS_BOOL(value)) return AS_BOOL(value);
+  if (IS_NULL(value) || IS_UNDEFINED(value)) return false;
+  if (IS_STRING(value)) return AS_STRING(value)->length > 0;
+  return true; /* every other object is truthy */
 }
 
 const char *csValueTypeName(Value value) {
-  switch (value.type) {
-    case VAL_UNDEFINED: return "undefined";
-    /* JavaScript reports "object" here. That is a bug from 1995 that cannot be
-     * fixed without breaking the web; CScript is not bound by that. */
-    case VAL_NULL:      return "null";
-    case VAL_BOOL:      return "boolean";
-    case VAL_NUMBER:    return "number";
-    case VAL_OBJ:
-      if (IS_STRING(value)) return "string";
-      /* Natives, user functions and closures are all callable, so `typeof`
-       * cannot tell them apart — which matches JavaScript. */
-      if (IS_NATIVE(value) || IS_FUNCTION(value) || IS_CLOSURE(value)) {
-        return "function";
-      }
-      return "object";
-  }
-  return "undefined";
+  if (IS_NUMBER(value)) return "number";
+  if (IS_BOOL(value)) return "boolean";
+  if (IS_UNDEFINED(value)) return "undefined";
+  /* JavaScript reports "object" here. That is a bug from 1995 that cannot be
+   * fixed without breaking the web; CScript is not bound by that. */
+  if (IS_NULL(value)) return "null";
+  if (IS_STRING(value)) return "string";
+  /* Natives, user functions and closures are all callable, so `typeof` cannot
+   * tell them apart — which matches JavaScript. */
+  if (IS_NATIVE(value) || IS_FUNCTION(value) || IS_CLOSURE(value)) return "function";
+  return "object";
 }
 
 /* Formats a double the way JS does: integers without a decimal point, and the
@@ -132,25 +115,18 @@ static int formatNumber(char *buffer, size_t size, double value) {
 }
 
 void csValuePrint(Value value) {
-  switch (value.type) {
-    case VAL_UNDEFINED:
-      printf("undefined");
-      break;
-    case VAL_NULL:
-      printf("null");
-      break;
-    case VAL_BOOL:
-      printf(AS_BOOL(value) ? "true" : "false");
-      break;
-    case VAL_NUMBER: {
-      char buffer[32];
-      formatNumber(buffer, sizeof(buffer), AS_NUMBER(value));
-      printf("%s", buffer);
-      break;
-    }
-    case VAL_OBJ:
-      csObjectPrint(value);
-      break;
+  if (IS_NUMBER(value)) {
+    char buffer[32];
+    formatNumber(buffer, sizeof(buffer), AS_NUMBER(value));
+    printf("%s", buffer);
+  } else if (IS_BOOL(value)) {
+    printf(AS_BOOL(value) ? "true" : "false");
+  } else if (IS_NULL(value)) {
+    printf("null");
+  } else if (IS_UNDEFINED(value)) {
+    printf("undefined");
+  } else {
+    csObjectPrint(value);
   }
 }
 
@@ -221,6 +197,8 @@ static bool sbAppendValue(StringBuilder *builder, Value value, bool quoteStrings
     }
   }
 
+  /* Only scalars reach here; containers were handled above. Recursing into
+   * csValueToCString for a container would loop forever. */
   size_t length = 0;
   char *text = csValueToCString(value, &length);
   if (text == NULL) return false;
@@ -234,17 +212,18 @@ char *csValueToCString(Value value, size_t *lengthOut) {
   const char *text = buffer;
   size_t length;
 
-  switch (value.type) {
-    case VAL_UNDEFINED: text = "undefined"; length = 9; break;
-    case VAL_NULL:      text = "null";      length = 4; break;
-    case VAL_BOOL:
-      text = AS_BOOL(value) ? "true" : "false";
-      length = AS_BOOL(value) ? 4 : 5;
-      break;
-    case VAL_NUMBER:
-      length = (size_t)formatNumber(buffer, sizeof(buffer), AS_NUMBER(value));
-      break;
-    case VAL_OBJ:
+  if (IS_NUMBER(value)) {
+    length = (size_t)formatNumber(buffer, sizeof(buffer), AS_NUMBER(value));
+  } else if (IS_BOOL(value)) {
+    text = AS_BOOL(value) ? "true" : "false";
+    length = AS_BOOL(value) ? 4 : 5;
+  } else if (IS_NULL(value)) {
+    text = "null";
+    length = 4;
+  } else if (IS_UNDEFINED(value)) {
+    text = "undefined";
+    length = 9;
+  } else {
       if (IS_STRING(value)) {
         ObjString *string = AS_STRING(value);
         text = string->chars;
@@ -263,11 +242,6 @@ char *csValueToCString(Value value, size_t *lengthOut) {
         if (lengthOut != NULL) *lengthOut = builder.length;
         return builder.data;
       }
-      break;
-    default:
-      text = "undefined";
-      length = 9;
-      break;
   }
 
   char *result = (char *)malloc(length + 1);

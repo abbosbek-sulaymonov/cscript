@@ -9,6 +9,7 @@
 #   make test-gc    golden-file suite with a collection on every allocation
 #   make test-node  check the examples against Node.js (skipped if absent)
 #   make test-switch  same suite, forcing the portable switch dispatch
+#   make test-tagged  same suite, forcing the 16-byte tagged-union Value
 #   make run FILE=examples/hello.cx
 #   make clean
 #
@@ -41,7 +42,7 @@ ASAN          := -fsanitize=address
 TRACE_DEFINES := -DCS_DEBUG_PRINT_TOKENS -DCS_DEBUG_PRINT_AST \
                  -DCS_DEBUG_PRINT_CODE -DCS_DEBUG_TRACE_EXECUTION
 
-.PHONY: all release debug asan gcstress switch trace test test-asan test-gc test-node test-switch test-all run clean help
+.PHONY: all release debug asan gcstress switch tagged trace test test-asan test-gc test-node test-switch test-tagged test-all run clean help
 .DEFAULT_GOAL := release
 
 all: release
@@ -69,6 +70,7 @@ $(eval $(call BUILD_CONFIG,debug,-O0 -g3 $(UBSAN) -fno-omit-frame-pointer,$(UBSA
 $(eval $(call BUILD_CONFIG,asan,-O0 -g3 $(ASAN) $(UBSAN) -fno-omit-frame-pointer,$(ASAN) $(UBSAN)))
 $(eval $(call BUILD_CONFIG,gcstress,-O0 -g3 $(UBSAN) -DCS_DEBUG_STRESS_GC,$(UBSAN)))
 $(eval $(call BUILD_CONFIG,switch,-O2 -DNDEBUG -DCS_NO_COMPUTED_GOTO,))
+$(eval $(call BUILD_CONFIG,tagged,-O2 -DNDEBUG -DCS_NAN_BOXING=0,))
 $(eval $(call BUILD_CONFIG,trace,-O0 -g3 $(UBSAN) $(TRACE_DEFINES),$(UBSAN)))
 
 # Run against an instrumented build so undefined behaviour fails the suite.
@@ -95,7 +97,12 @@ test-node: release
 test-switch: switch
 	@BIN=$(BUILD)/switch/cscript tests/run_tests.sh $(FILTER)
 
-test-all: test test-gc test-switch test-node
+# Values are NaN-boxed into 8 bytes where the platform allows it, and a tagged
+# union everywhere else. Only one of those is exercised by a normal build.
+test-tagged: tagged
+	@BIN=$(BUILD)/tagged/cscript tests/run_tests.sh $(FILTER)
+
+test-all: test test-gc test-switch test-tagged test-node
 
 run: release
 	@$(BUILD)/release/cscript $(FILE)
@@ -113,6 +120,7 @@ help:
 	@echo "make test-gc    same suite, collecting on every allocation"
 	@echo "make test-node  check the examples against Node.js"
 	@echo "make test-switch same suite with switch dispatch"
+	@echo "make test-tagged same suite with the tagged-union Value"
 	@echo "make test-all   test + test-gc + test-switch + test-node"
 	@echo "make run FILE=examples/hello.cx"
 	@echo "make clean"

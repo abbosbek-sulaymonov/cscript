@@ -1,0 +1,15 @@
+// Memory-bound: builds and repeatedly scans a large array, so the size of a
+// Value shows up as cache pressure rather than as register moves.
+const size = 200000;
+let data = [];
+for (let i = 0; i < size; i++) {
+  data[i] = i;
+}
+
+let total = 0;
+for (let pass = 0; pass < 10; pass++) {
+  for (let i = 0; i < size; i++) {
+    total += data[i];
+  }
+}
+console.log(total);

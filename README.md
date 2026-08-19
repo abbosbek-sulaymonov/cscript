@@ -73,7 +73,7 @@ The full list, with the reasoning for each, is in
 
 ## Status
 
-**v0.6.0.** The language is feature-complete for everyday code: objects and
+**v0.7.0.** The language is feature-complete for everyday code: objects and
 arrays, functions and closures, gradual typing with inference, control flow,
 `switch`, template literals and the conditional operator. The pipeline is lexer
 → parser → type checker → bytecode compiler → stack VM, with a mark-sweep
@@ -227,10 +227,15 @@ worth more than the summary:
   produced. The canonical loop body went from 16 instructions to 11.
 - **Computed-goto dispatch turned out to be worth nothing.** It wins on four of
   six benchmarks and loses 19% on the branch-heavy one, netting a 0.5%
-  difference. It is kept as the default with the switch path still tested, and
-  the reasoning is written up in
-  [ARCHITECTURE.md](docs/ARCHITECTURE.md#what-did-not-help-computed-goto). This
-  is exactly why the benchmarks exist: it was expected to be worth 15–25%.
+  difference. Expected: 15–25%.
+- **NaN-boxing turned out to be worth nothing for speed either** — but it
+  halves memory, taking a million-element array from 18.9 MB to 11.3 MB. It is
+  filed as a memory optimisation for that reason.
+
+Three optimisations aimed at the cost of *executing* an instruction found it was
+already nearly free; what is left is the cost of *dispatching* one. The reasoning
+is in [ARCHITECTURE.md](docs/ARCHITECTURE.md#what-three-measurements-add-up-to),
+and it is the whole argument for keeping a benchmark suite.
 
 Closing the gap with Go needs a JIT, not another tweak — the reasoning and the
 remaining ideas are in
@@ -266,8 +271,9 @@ never leaves a stale object behind.
 make test         # golden-file suite under UBSan — UB aborts the run
 make test-gc      # same suite, collecting on every allocation
 make test-switch  # same suite, forcing the portable switch dispatch
+make test-tagged  # same suite, forcing the 16-byte tagged-union Value
 make test-node    # examples must match Node.js output
-make test-all     # all four
+make test-all     # all five
 make test FILTER=scoping
 UPDATE=1 tests/run_tests.sh    # rewrite .expected from actual output
 ```
@@ -332,7 +338,8 @@ cscript/
 | **4 ✅** | User functions, `return`, closures, typed signatures | — |
 | **5 ✅** | Object literals, arrays, indexing, `.length` | — |
 | **6 ✅** | `switch`, `break`/`continue`, template literals, ternary | — |
-| 7 | Unboxed typed locals — where typing pays off in speed | `Value`, VM, compiler |
+| **7 ✅** | NaN-boxed values — halves memory, measured | — |
+| next | Superinstructions and a register VM — cut dispatch count | VM and compiler |
 
 ---
 

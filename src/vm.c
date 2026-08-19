@@ -410,7 +410,10 @@ static InterpretResult run(void) {
                            csValueTypeName(*target));
           return CS_RUNTIME_ERROR;
         }
-        target->as.number += (instruction == OP_INC_LOCAL ? 1 : -1);
+        /* Goes through the macros rather than mutating the payload in place,
+         * so this works under either Value representation. */
+        *target = NUMBER_VAL(AS_NUMBER(*target) +
+                             (instruction == OP_INC_LOCAL ? 1 : -1));
         VM_NEXT();
       }
 
