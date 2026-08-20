@@ -533,6 +533,16 @@ void compileNode(const AstNode *node) {
       /* `this.x` and `local.x` fuse the load of the receiver into the read.
        * The pair profile puts this at 8.5% of a class-heavy program. */
       const AstNode *object = node->as.property.object;
+
+      if (isPrivateName(node->as.property.name, node->as.property.length)) {
+        compileNode(object);
+        emitConstantOp(OP_GET_PRIVATE,
+                       identifierConstant(node->as.property.name,
+                                          node->as.property.length, line),
+                       line);
+        break;
+      }
+
       /* The fusion loads the receiver and reads the property in one
        * instruction, which leaves nowhere to test the receiver for `?.`. */
       int slot = object->type == AST_IDENTIFIER && !node->as.property.optional

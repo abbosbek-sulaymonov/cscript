@@ -97,6 +97,7 @@ ObjObject *csObjectNew(const char *name) {
   object->shape = vm.emptyShape;
   object->klass = NULL;
   object->frozen = false;
+  object->privates = NULL;
   object->as.slots.values = NULL;
   object->as.slots.capacity = 0;
 
@@ -154,6 +155,26 @@ static void dictionaryPut(ObjObject *object, ObjString *key, Value value) {
                       object->as.dictionary.capacity);
   }
   object->as.dictionary.keys[object->as.dictionary.count++] = key;
+}
+
+bool csObjectGetPrivate(ObjObject *object, ObjString *key, Value *out) {
+  if (object->privates == NULL) return false;
+  return csTableGet(object->privates, key, out);
+}
+
+void csObjectPutPrivate(ObjObject *object, ObjString *key, Value value) {
+  if (object->privates == NULL) {
+    csPushTempRoot((Obj *)object);
+    csPushTempRoot((Obj *)key);
+    if (IS_OBJ(value)) csPushTempRoot(AS_OBJ(value));
+    Table *table = CS_ALLOCATE(Table, 1);
+    csTableInit(table);
+    object->privates = table;
+    if (IS_OBJ(value)) csPopTempRoot();
+    csPopTempRoot();
+    csPopTempRoot();
+  }
+  csTableSet(object->privates, key, value);
 }
 
 bool csObjectDelete(ObjObject *object, ObjString *key) {
@@ -758,6 +779,7 @@ void csObjectBlacken(Obj *object) {
           csMarkObject((Obj *)instance->as.dictionary.keys[i]);
         }
       }
+      if (instance->privates != NULL) csTableMark(instance->privates);
       break;
     }
 
@@ -900,6 +922,10 @@ void csObjectFree(Obj *object) {
         csTableFree(&instance->as.dictionary.table);
         CS_FREE_ARRAY(ObjString *, instance->as.dictionary.keys,
                       instance->as.dictionary.capacity);
+      }
+      if (instance->privates != NULL) {
+        csTableFree(instance->privates);
+        CS_FREE(Table, instance->privates);
       }
       CS_FREE(ObjObject, object);
       break;

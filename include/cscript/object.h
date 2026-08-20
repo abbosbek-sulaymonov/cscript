@@ -104,6 +104,12 @@ typedef struct ObjObject {
    * treats the standard library as part of the language rather than as an
    * object that happens to be lying around. User objects are never frozen. */
   bool frozen;
+
+  /* Private fields, or NULL. Off to the side of the shape on purpose: see
+   * csObjectPutPrivate. Allocated on the first write, so an object without
+   * any pays one pointer. */
+  Table *privates;
+
   union {
     struct {
       Value *values;
@@ -524,6 +530,16 @@ bool csObjectGet(ObjObject *object, ObjString *key, Value *out);
 /* Removes a property, answering whether it was there. Costs the object its
  * hidden class: see the comment on the definition. */
 bool csObjectDelete(ObjObject *object, ObjString *key);
+
+/* Private fields — `this.#count`.
+ *
+ * Kept beside the object rather than in it, because that is what "private"
+ * means here: they take no shape slot, so they cannot be reached by
+ * `Object.keys`, by `JSON.stringify`, by a subscript, or by anything else that
+ * walks an object's properties. The table is allocated on the first write, so
+ * an object with no private fields costs one NULL pointer. */
+bool csObjectGetPrivate(ObjObject *object, ObjString *key, Value *out);
+void csObjectPutPrivate(ObjObject *object, ObjString *key, Value value);
 
 /* Enumeration in insertion order — what Object.keys, JSON.stringify and
  * printing all need. `index` must be below csObjectCount(). */

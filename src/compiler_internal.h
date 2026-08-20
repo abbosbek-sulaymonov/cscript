@@ -184,6 +184,12 @@ void compileNode(const AstNode *node);
 
 /* src/compiler_expression.c */
 void compileOperandPair(const AstNode *left, const AstNode *right, int line);
+/* `#field`. The hash is part of the name, and only the lexer can produce it,
+ * so this is an exact test rather than a heuristic. */
+static inline bool isPrivateName(const char *name, int length) {
+  return length > 0 && name[0] == '#';
+}
+
 uint8_t binaryOpcode(BinaryOp op);
 void compileBinary(const AstNode *node);
 void compileLogical(const AstNode *node);

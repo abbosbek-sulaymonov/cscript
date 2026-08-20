@@ -358,6 +358,14 @@ Token csLexerNext(Lexer *lexer) {
   char c = advance(lexer);
 
   if (isAlpha(c)) return identifier(lexer);
+
+  /* `#name` is one token, `#` and all. Carrying the hash into the name is what
+   * keeps a private field out of reach: no other syntax can produce a property
+   * name that starts with one. */
+  if (c == '#' && isAlpha(peek(lexer))) {
+    while (isAlpha(peek(lexer)) || isDigit(peek(lexer))) advance(lexer);
+    return makeToken(lexer, TOKEN_PRIVATE_NAME);
+  }
   if (isDigit(c)) return number(lexer);
 
   switch (c) {
@@ -506,6 +514,7 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_PIPE_PIPE_EQUAL:   return "PIPE_PIPE_EQUAL";
     case TOKEN_QUESTION_QUESTION_EQUAL: return "QUESTION_QUESTION_EQUAL";
     case TOKEN_IDENTIFIER:        return "IDENTIFIER";
+    case TOKEN_PRIVATE_NAME:      return "PRIVATE_NAME";
     case TOKEN_STRING:            return "STRING";
     case TOKEN_NUMBER:            return "NUMBER";
     case TOKEN_TEMPLATE:          return "TEMPLATE";

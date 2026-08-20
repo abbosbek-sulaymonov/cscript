@@ -184,6 +184,12 @@ void compileLogical(const AstNode *node) {
 }
 
 void compileIdentifierLoad(const char *name, int length, int line) {
+  if (isPrivateName(name, length)) {
+    errorAt(line, "'%.*s' is a private name, which is only valid as a property "
+                  "inside the class that declares it", length, name);
+    return;
+  }
+
   int slot = resolveLocal(current, name, length);
   if (slot != -1) {
     emitBytes(OP_GET_LOCAL, (uint8_t)slot, line);
@@ -276,7 +282,11 @@ static void compileReadModifyWrite(const AstNode *node, bool discard) {
       emitByte(OP_DUP, line);
       nameConstant = identifierConstant(target->as.property.name,
                                         target->as.property.length, line);
-      emitPropertyOp(OP_GET_PROPERTY, nameConstant, line);
+      if (isPrivateName(target->as.property.name, target->as.property.length)) {
+        emitConstantOp(OP_GET_PRIVATE, nameConstant, line);
+      } else {
+        emitPropertyOp(OP_GET_PROPERTY, nameConstant, line);
+      }
       beneath = 1;
       break;
 
@@ -302,8 +312,13 @@ static void compileReadModifyWrite(const AstNode *node, bool discard) {
 
   switch (target->type) {
     case AST_PROPERTY:
-      emitPropertyOp(discard ? OP_SET_PROPERTY_POP : OP_SET_PROPERTY,
-                     nameConstant, line);
+      if (isPrivateName(target->as.property.name, target->as.property.length)) {
+        emitConstantOp(OP_SET_PRIVATE, nameConstant, line);
+        if (discard) emitByte(OP_POP, line);
+      } else {
+        emitPropertyOp(discard ? OP_SET_PROPERTY_POP : OP_SET_PROPERTY,
+                       nameConstant, line);
+      }
       break;
     case AST_INDEX:
       emitByte(OP_SET_INDEX, line);
@@ -334,6 +349,18 @@ void compileAssign(const AstNode *node, bool discard) {
 
   if (node->as.assign.kind != ASSIGN_PLAIN) {
     compileReadModifyWrite(node, discard);
+    return;
+  }
+
+  if (target->type == AST_PROPERTY &&
+      isPrivateName(target->as.property.name, target->as.property.length)) {
+    compileNode(target->as.property.object);
+    compileNode(node->as.assign.value);
+    emitConstantOp(OP_SET_PRIVATE,
+                   identifierConstant(target->as.property.name,
+                                      target->as.property.length, assignLine),
+                   assignLine);
+    if (discard) emitByte(OP_POP, assignLine);
     return;
   }
 

@@ -1,0 +1,52 @@
+// `static { … }` runs once, where the class is built, with `this` the class.
+class Config {
+  static values = [];
+  static {
+    Config.values.push("first");
+  }
+  static late = "set after the block";
+  static {
+    Config.values.push(Config.late);
+  }
+}
+console.log(Config.values);
+
+// A block sees the statics written above it and not the ones below, so the
+// order of the two kinds matters and is preserved.
+class Order {
+  static a = 1;
+  static {
+    console.log("block sees a:", Order.a, "b:", Order.b);
+  }
+  static b = 2;
+}
+console.log(Order.a, Order.b);
+
+// Methods are installed before any block runs, so a block can call one.
+class Uses {
+  static double(n) { return n * 2; }
+  static computed;
+  static {
+    Uses.computed = Uses.double(21);
+  }
+}
+console.log(Uses.computed);
+
+// `this` inside the block is the class.
+class Self {
+  static name2;
+  static {
+    this.name2 = "from this";
+  }
+}
+console.log(Self.name2);
+
+// A private static is reachable from a block.
+class Hidden {
+  static #seed = 6;
+  static result;
+  static {
+    Hidden.result = Hidden.#seed * 7;
+  }
+}
+console.log(Hidden.result);

@@ -434,6 +434,8 @@ void csAstClassAddField(AstArena *arena, AstNode *node, const char *name, int le
   if (node->as.classDecl.fields != NULL) {
     memcpy(grown, node->as.classDecl.fields, sizeof(AstClassField) * (size_t)count);
   }
+  grown[count].order =
+      node->as.classDecl.fieldCount + node->as.classDecl.memberCount;
   int stored = 0;
   grown[count].name = internName(arena, name, length, &stored);
   grown[count].length = stored;
@@ -458,6 +460,8 @@ void csAstClassAddMember(AstArena *arena, AstNode *node, AstNode *function,
   grown[count].function = function;
   grown[count].isStatic = isStatic;
   grown[count].kind = kind;
+  grown[count].order =
+      node->as.classDecl.fieldCount + node->as.classDecl.memberCount;
   node->as.classDecl.members = grown;
   node->as.classDecl.memberCount = count + 1;
 }

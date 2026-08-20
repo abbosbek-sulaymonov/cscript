@@ -48,6 +48,8 @@ asserted here.
 | Functions | declarations, expressions, arrows, closures |
 | `this` | lexical in arrows, receiver in methods |
 | Classes | fields, methods, `static`, getters and setters, `extends`, `super` |
+| Private members | `#field`, `#method()`, `static #field` — off the shape, so invisible to `Object.keys`, `JSON.stringify` and subscripts |
+| Static blocks | `static { … }`, interleaved with static fields in source order |
 | Destructuring | array and object, nested, defaults, renaming, rest elements and rest properties |
 | Parameters | patterns as parameters, in every function form |
 | Spread | array literals, object literals, call arguments, over strings |
@@ -163,7 +165,6 @@ Each of these produces an error that names it, rather than failing obscurely.
 | `for await`, async iterators | |
 | Top-level `await` | Would make running a module asynchronous and reorder every import |
 | Getters and setters on object *literals* | Methods and shorthand work; accessors do not |
-| Private `#fields`, `static` blocks | |
 | Computed member names in a class body | Computed keys work in object literals |
 | `new.target`, subclassing built-ins | |
 | Prototypes, `__proto__`, `Object.create` | Classes are the whole object model |

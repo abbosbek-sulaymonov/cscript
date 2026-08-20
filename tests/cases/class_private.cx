@@ -1,0 +1,54 @@
+// Private fields are stored beside the object rather than in it, so nothing
+// that walks an object's properties can see them.
+class Counter {
+  #count = 0;
+  #step;
+  label = "counter";
+
+  constructor(step) {
+    this.#step = step;
+  }
+
+  bump() {
+    this.#count += this.#step;
+    return this.#count;
+  }
+
+  get value() { return this.#count; }
+
+  #double() { return this.#count * 2; }
+  doubled() { return this.#double(); }
+}
+
+const c = new Counter(3);
+console.log(c.bump(), c.bump(), c.value, c.doubled());
+
+// Invisible to every way of asking what an object holds.
+console.log(Object.keys(c), JSON.stringify(c));
+console.log(c["#count"], "#count" in c);
+
+// Inherited methods still reach the fields they declared.
+class Base {
+  #secret = 7;
+  reveal() { return this.#secret; }
+}
+class Derived extends Base {}
+console.log(new Derived().reveal());
+
+// A private field holding a function is called, not looked up on the class.
+class Holder {
+  #fn = () => 11;
+  run() { return this.#fn(); }
+}
+console.log(new Holder().run());
+
+// Private statics belong to the class.
+class Registry {
+  static #next = 1;
+  static take() {
+    const id = Registry.#next;
+    Registry.#next += 1;
+    return id;
+  }
+}
+console.log(Registry.take(), Registry.take());

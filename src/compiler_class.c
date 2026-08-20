@@ -40,8 +40,15 @@ void emitFieldAssignments(const AstNode *node) {
        * one layout even before anything is assigned. */
       emitByte(OP_UNDEFINED, fieldLine);
     }
-    emitPropertyOp(OP_SET_PROPERTY,
-                   identifierConstant(field->name, field->length, fieldLine), fieldLine);
+    /* A private field never takes a shape slot, so it is written through the
+     * private path here as well — otherwise it would be declared into the
+     * layout and every read of it would look somewhere else. */
+    int name = identifierConstant(field->name, field->length, fieldLine);
+    if (isPrivateName(field->name, field->length)) {
+      emitConstantOp(OP_SET_PRIVATE, name, fieldLine);
+    } else {
+      emitPropertyOp(OP_SET_PROPERTY, name, fieldLine);
+    }
     emitByte(OP_POP, fieldLine);
   }
 }
@@ -173,25 +180,13 @@ void compileClassDecl(const AstNode *node) {
     emitByte(OP_FIELD_INIT, line);
   }
 
-  /* Static fields are set on the class itself, while it is still on the stack.
-   * They are ordinary values rather than per-instance work. */
-  for (int i = 0; i < node->as.classDecl.fieldCount; i++) {
-    const AstClassField *field = &node->as.classDecl.fields[i];
-    if (!field->isStatic) continue;
-    int fieldLine = field->initializer != NULL ? field->initializer->line : line;
-
-    if (field->initializer != NULL) {
-      compileNode(field->initializer);
-    } else {
-      emitByte(OP_UNDEFINED, fieldLine);
-    }
-    emitConstantOp(OP_STATIC_FIELD,
-                   identifierConstant(field->name, field->length, fieldLine),
-                   fieldLine);
-  }
-
+  /* Methods first, so a static initialiser can call one. JavaScript installs
+   * every method before it runs any static field or block, and a class whose
+   * static block calls its own static method depends on that. */
   for (int i = 0; i < node->as.classDecl.memberCount; i++) {
     const AstClassMember *member = &node->as.classDecl.members[i];
+    if (member->kind == MEMBER_STATIC_BLOCK) continue;
+
     compileFunctionAs(member->function, FUNCTION_METHOD);
 
     uint8_t opcode = OP_METHOD;
@@ -207,6 +202,49 @@ void compileClassDecl(const AstNode *node) {
                    identifierConstant(member->function->as.function.name,
                                       member->function->as.function.nameLength, line),
                    line);
+  }
+
+  /* Then the static fields and the static blocks, interleaved in the order
+   * they were written. A block sees the fields above it and not the ones
+   * below, which is observable and is why both carry a source index. */
+  int staticBlocks = 0;
+  int entries = node->as.classDecl.fieldCount + node->as.classDecl.memberCount;
+  for (int order = 0; order < entries; order++) {
+    for (int i = 0; i < node->as.classDecl.fieldCount; i++) {
+      const AstClassField *field = &node->as.classDecl.fields[i];
+      if (!field->isStatic || field->order != order) continue;
+      int fieldLine = field->initializer != NULL ? field->initializer->line : line;
+
+      if (field->initializer != NULL) {
+        compileNode(field->initializer);
+      } else {
+        emitByte(OP_UNDEFINED, fieldLine);
+      }
+      emitConstantOp(OP_STATIC_FIELD,
+                     identifierConstant(field->name, field->length, fieldLine),
+                     fieldLine);
+    }
+
+    for (int i = 0; i < node->as.classDecl.memberCount; i++) {
+      const AstClassMember *member = &node->as.classDecl.members[i];
+      if (member->kind != MEMBER_STATIC_BLOCK || member->order != order) continue;
+
+      /* A static block is installed like any static method and then called at
+       * once, on the class the stack is still holding. Going through the
+       * statics table is what gives it a receiver — and the name it is filed
+       * under starts with a space, so no source can name it again. */
+      compileFunctionAs(member->function, FUNCTION_METHOD);
+
+      char hidden[24];
+      int hiddenLength = snprintf(hidden, sizeof hidden, " static%d", staticBlocks++);
+      int hiddenName = identifierConstant(hidden, hiddenLength, line);
+
+      emitConstantOp(OP_STATIC_METHOD, hiddenName, line);
+      emitByte(OP_DUP, line); /* the receiver the call consumes */
+      emitConstantOp(OP_INVOKE, hiddenName, line);
+      emitByte(0, line);
+      emitByte(OP_POP, line); /* whatever the block returned */
+    }
   }
 
   emitByte(OP_POP, line);

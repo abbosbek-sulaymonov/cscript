@@ -94,6 +94,12 @@
    * is built up one entry at a time rather than from a run of stack pairs,    \
    * because `{ ...a, b: 1, ...c }` has to apply them in order — a later key   \
    * wins over an earlier spread, and a later spread wins over both. */         \
+  /* Private fields. A separate pair of instructions rather than a name the    \
+   * ordinary ones would accept, because the storage is separate: they never    \
+   * take a shape slot, so nothing that walks an object's properties can see    \
+   * them. */                                                                   \
+  X(OP_GET_PRIVATE)       /* [const16] pop object, push its private field     */ \
+  X(OP_SET_PRIVATE)       /* [const16] pop value and object, push the value   */ \
   X(OP_DELETE_PROPERTY)   /* [const16] pop object, push whether it had it    */ \
   X(OP_DELETE_INDEX)      /*          pop key and object, same answer        */ \
   X(OP_OBJECT_SET)        /*          pop value and key, set on the object    */ \

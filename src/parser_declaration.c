@@ -53,8 +53,20 @@ AstNode *parseClass(Parser *parser) {
 
     bool isStatic = matchToken(parser, TOKEN_STATIC);
     if (isStatic && check(parser, TOKEN_LEFT_BRACE)) {
-      errorAtCurrent(parser, "static initialisation blocks are not supported yet");
-      return NULL;
+      /* `static { … }` runs once, where the class is built, with `this` bound
+       * to the class. That is a method with no name and no parameters, so it
+       * is stored as one. */
+      int blockLine = parser->current.line;
+      advanceToken(parser);
+
+      AstNode *block = csAstFunction(parser->arena, blockLine, " static", 7);
+      if (block == NULL) return NULL;
+      block->as.function.isMethod = true;
+      block->as.function.body = parseBlock(parser);
+      if (block->as.function.body == NULL) return NULL;
+
+      csAstClassAddMember(parser->arena, node, block, true, MEMBER_STATIC_BLOCK);
+      continue;
     }
 
     /* `async m() {}` — an `async` followed by another name, rather than by

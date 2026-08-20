@@ -1,0 +1,6 @@
+[ 'first', 'set after the block' ]
+block sees a: 1 b: undefined
+1 2
+42
+from this
+42

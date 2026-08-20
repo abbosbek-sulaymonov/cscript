@@ -375,6 +375,14 @@ static Table *methodTableFor(Value receiver) {
 static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
   if (IS_OBJECT(receiver)) {
     Value method;
+    /* `this.#run()` where `#run` is a field holding a function. Private fields
+     * are not in the shape, so the ordinary lookup below would miss them and
+     * fall through to the class's private methods. */
+    if (name->length > 0 && name->chars[0] == '#' &&
+        csObjectGetPrivate(AS_OBJECT(receiver), name, &method)) {
+      vm.stackTop[-argCount - 1] = method;
+      return callValue(method, argCount);
+    }
     if (csObjectGet(AS_OBJECT(receiver), name, &method)) {
       /* A property written as a method — `{ m() {} }` — keeps the receiver,
        * because that is what its `this` resolves to. Anything else is just a
@@ -473,6 +481,11 @@ static bool receiverHasMethod(Value receiver, ObjString *name) {
 
   if (IS_OBJECT(receiver)) {
     ObjObject *instance = AS_OBJECT(receiver);
+    Value ignored;
+    if (name->length > 0 && name->chars[0] == '#' &&
+        csObjectGetPrivate(instance, name, &ignored)) {
+      return true;
+    }
     if (csObjectGet(instance, name, &found)) return true;
     return instance->klass != NULL &&
            csClassFindMethod(instance->klass, name) != NULL;
@@ -1567,6 +1580,50 @@ InterpretResult run(int baseFrame) {
         csPopTempRoot();
         vm.stackTop = elements;
         csVMPush(OBJ_VAL(array));
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_GET_PRIVATE) {
+        ObjString *name = READ_STRING();
+        Value target = csVMPop();
+        Value value;
+        /* `static #n` belongs to the class, where the statics already live —
+         * and a name with a hash in it is no more reachable there. */
+        if (IS_CLASS(target)) {
+          csVMPush(csTableGet(&AS_CLASS(target)->statics, name, &value)
+                       ? value
+                       : UNDEFINED_VAL);
+          VM_NEXT();
+        }
+        if (!IS_OBJECT(target)) {
+          csVMRuntimeError("cannot read %s of %s", name->chars,
+                           csValueTypeName(target));
+          return CS_RUNTIME_ERROR;
+        }
+        csVMPush(csObjectGetPrivate(AS_OBJECT(target), name, &value)
+                     ? value
+                     : UNDEFINED_VAL);
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_SET_PRIVATE) {
+        ObjString *name = READ_STRING();
+        Value value = peekStack(0);
+        Value target = peekStack(1);
+        if (IS_CLASS(target)) {
+          csTableSet(&AS_CLASS(target)->statics, name, value);
+          vm.stackTop -= 2;
+          csVMPush(value);
+          VM_NEXT();
+        }
+        if (!IS_OBJECT(target)) {
+          csVMRuntimeError("cannot write %s of %s", name->chars,
+                           csValueTypeName(target));
+          return CS_RUNTIME_ERROR;
+        }
+        csObjectPutPrivate(AS_OBJECT(target), name, value);
+        vm.stackTop -= 2;
+        csVMPush(value);
         VM_NEXT();
       }
 

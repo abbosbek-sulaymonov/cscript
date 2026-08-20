@@ -180,6 +180,8 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_ARRAY:             return byteInstruction("OP_ARRAY", chunk, offset);
     case OP_SPREAD_MARK:       return simpleInstruction("OP_SPREAD_MARK", offset);
     case OP_ARRAY_SPREAD:      return byteInstruction("OP_ARRAY_SPREAD", chunk, offset);
+    case OP_GET_PRIVATE:       return constantInstruction("OP_GET_PRIVATE", chunk, offset);
+    case OP_SET_PRIVATE:       return constantInstruction("OP_SET_PRIVATE", chunk, offset);
     case OP_DELETE_PROPERTY:
       return constantInstruction("OP_DELETE_PROPERTY", chunk, offset);
     case OP_DELETE_INDEX:      return simpleInstruction("OP_DELETE_INDEX", offset);

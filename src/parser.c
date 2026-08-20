@@ -194,6 +194,12 @@ bool rejectLooseEquality(Parser *parser) {
  * them only where they cannot be reserved would be a gratuitous difference.
  * Every keyword's lexeme starts with a letter, so that is the whole test. */
 bool consumePropertyName(Parser *parser, const char *message) {
+  /* `#field` is a property name wherever one is expected, and nowhere else. */
+  if (parser->current.type == TOKEN_PRIVATE_NAME) {
+    advanceToken(parser);
+    return true;
+  }
+
   bool wordLike = parser->current.length > 0 &&
                   ((parser->current.start[0] >= 'a' && parser->current.start[0] <= 'z') ||
                    (parser->current.start[0] >= 'A' && parser->current.start[0] <= 'Z') ||

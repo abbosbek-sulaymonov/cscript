@@ -41,6 +41,9 @@ typedef enum {
 
   /* Literals. */
   TOKEN_IDENTIFIER, TOKEN_STRING, TOKEN_NUMBER, TOKEN_TEMPLATE, TOKEN_REGEX,
+  /* `#field`. Lexed with the hash so it can never collide with a name any
+   * other syntax can write. */
+  TOKEN_PRIVATE_NAME,
 
   /* Keywords. */
   TOKEN_TRUE, TOKEN_FALSE, TOKEN_NULL, TOKEN_UNDEFINED,

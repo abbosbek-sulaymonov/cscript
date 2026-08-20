@@ -146,6 +146,10 @@ typedef struct AstClassField {
   TypeKind declaredType;
   bool hasAnnotation;
   bool isStatic;        /* belongs to the class, not to an instance */
+  /* Where this appeared in the class body, counting fields and members
+   * together. Static initialisers and static blocks run in that order, and
+   * a block can read a field written before it and not one after. */
+  int order;
 } AstClassField;
 
 /* One method in a class body. `constructor` is pulled out separately. */
@@ -153,12 +157,17 @@ typedef enum {
   MEMBER_METHOD,
   MEMBER_GETTER,
   MEMBER_SETTER,
+  /* `static { … }` — not a member at all, but it is built and run at the same
+   * point in the class body and in source order with the statics around it,
+   * so it rides along here. */
+  MEMBER_STATIC_BLOCK,
 } ClassMemberKind;
 
 typedef struct AstClassMember {
   AstNode *function; /* an AST_FUNCTION */
   bool isStatic;
   ClassMemberKind kind;
+  int order; /* see AstClassField.order */
 } AstClassMember;
 
 /* One declared parameter. Stored inline in the function node's array. */
