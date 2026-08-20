@@ -21,3 +21,17 @@ generated 20
 [ 0, 10, 20, 30 ] 40
 [ 1, 2 ] [ 'a', 'b' ] [ 3 ]
 k 9
+1
+true
+0
+0 1 2
+a [ 'b', 'c' ]
+k 1
+9
+async 1
+async 2
+promised 0
+promised 1
+sync in await a
+sync in await b
+sync in await c

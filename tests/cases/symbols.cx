@@ -56,3 +56,43 @@ console.log([...new Range(4)], Math.max(...new Range(5)));
 // Everything that was iterable still is.
 console.log([...[1, 2]], [..."ab"], [...new Set([3])]);
 for (const [key, value] of new Map([["k", 9]])) console.log(key, value);
+
+// The symbols an object is keyed by are asked for on their own, because
+// nothing that walks it by name reports them.
+const marker = Symbol("marker");
+const marked = { plain: 1, [marker]: 2 };
+console.log(Object.getOwnPropertySymbols(marked).length);
+console.log(Object.getOwnPropertySymbols(marked)[0] === marker);
+console.log(Object.getOwnPropertySymbols({}).length);
+
+// Destructuring pulls through the iterator, as far as the pattern reaches and
+// no further — so an endless sequence is fine.
+function* naturals() { let n = 0; while (true) yield n++; }
+const [zero, one, two] = naturals();
+console.log(zero, one, two);
+
+class Three { *[Symbol.iterator]() { yield "a"; yield "b"; yield "c"; } }
+const [head, ...tail] = new Three();
+console.log(head, tail);
+
+const [[mapKey, mapValue]] = new Map([["k", 1]]);
+console.log(mapKey, mapValue);
+const [setFirst] = new Set([9, 8]);
+console.log(setFirst);
+
+// `Symbol.asyncIterator` is what `for await` asks for first.
+const ticking = {
+  async *[Symbol.asyncIterator]() { yield 1; await null; yield 2; },
+};
+for await (const value of ticking) console.log("async", value);
+
+const promised = {
+  [Symbol.asyncIterator]() {
+    let at = 0;
+    return { next() { return Promise.resolve(at < 2 ? { value: at++, done: false } : { done: true }); } };
+  },
+};
+for await (const value of promised) console.log("promised", value);
+
+// And a sync iterable still works in a `for await`.
+for await (const value of new Three()) console.log("sync in await", value);

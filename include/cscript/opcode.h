@@ -77,6 +77,12 @@
    * running it to the end first, which is wrong for an infinite one and wrong \
    * for the order side effects happen in. Arrays keep a bounds check and a    \
    * load, and lose four dispatches. */                                        \
+  /* `const [a, b] = something`. An array or a string is already indexable and \
+   * is left alone; anything that offers `Symbol.iterator` is pulled from,      \
+   * exactly as far as the pattern reaches — so destructuring an endless        \
+   * sequence takes what it asked for and stops. `count` is 255 when a rest     \
+   * element means "and the remainder". */                                      \
+  X(OP_DESTRUCTURE_PREPARE) /* [count] */                                       \
   X(OP_ITER_STEP)         /* [hi][lo] pop index and iterable, push the next  \
                            *          element, or jump when there is none    */ \
                                                                               \
@@ -93,7 +99,11 @@
   /* `for...of` over a Map or Set. Arrays and strings are already iterable by  \
    * index, so this leaves them alone and only unpacks the collections that    \
    * are not — which keeps the loop itself one shape. */                        \
-  X(OP_ITER_PREPARE)      /*          replace a Map or Set with its entries  */ \
+  /* Turns whatever a `for...of` was given into something the loop can pull    \
+   * from: a Map or Set becomes its entries, and an object that offers          \
+   * `Symbol.iterator` becomes what that hands back. The flag says the loop is  \
+   * a `for await`, which asks for `Symbol.asyncIterator` first. */             \
+  X(OP_ITER_PREPARE)      /* [forAwait] */                                      \
   /* A regex literal. Compiled at run time rather than baked into the constant \
    * pool, because a fresh object is needed per evaluation: `lastIndex` is     \
    * mutable state that two evaluations of the same literal must not share. */  \

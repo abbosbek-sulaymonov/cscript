@@ -49,5 +49,6 @@ ObjString *csTableFindString(Table *table, const char *chars, int length,
 /* GC support. */
 void csTableMark(Table *table);
 void csTableRemoveWhite(Table *table);
+void csTableRemoveWhiteValues(Table *table);
 
 #endif /* CSCRIPT_TABLE_H */

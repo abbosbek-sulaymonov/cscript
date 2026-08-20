@@ -72,6 +72,7 @@ void csVMInit(void) {
   csTableInit(&vm.weakMethods);
   csTableInit(&vm.symbolMethods);
   csTableInit(&vm.symbolRegistry);
+  csTableInit(&vm.symbolsByKey);
   vm.iteratorSymbol = NULL;
   vm.asyncIteratorSymbol = NULL;
   csTableInit(&vm.regexMethods);
@@ -119,6 +120,7 @@ void csVMFree(void) {
   csTableFree(&vm.weakMethods);
   csTableFree(&vm.symbolMethods);
   csTableFree(&vm.symbolRegistry);
+  csTableFree(&vm.symbolsByKey);
   csTableFree(&vm.regexMethods);
   csTableFree(&vm.builtins);
   csTableFree(&vm.builtinConsts);
@@ -589,6 +591,25 @@ static ObjString *objectKeyFor(Value key) {
   return converted;
 }
 
+/* Every symbol whose property this object carries.
+ *
+ * A symbol-keyed property is filed under a string, so the string has to be
+ * mapped back — which is what `vm.symbolsByKey` is for. Nothing else needs it,
+ * and it is weak in the sense that matters: it holds only symbols that some
+ * object is already keyed by. */
+void csVMCollectSymbolKeys(ObjObject *object, ObjArray *into) {
+  if (object->privates == NULL) return;
+
+  for (int i = 0; i < object->privates->capacity; i++) {
+    ObjString *key = object->privates->entries[i].key;
+    if (key == NULL) continue;
+
+    Value symbol;
+    if (!csTableGet(&vm.symbolsByKey, key, &symbol)) continue;
+    csValueArrayWrite(&into->elements, symbol);
+  }
+}
+
 /* The function an object offers as its `Symbol.iterator`, or NULL.
  *
  * Looked for where a symbol-keyed property lives — beside the shape — and then
@@ -601,6 +622,23 @@ static bool findIteratorMethod(Value target, Value *out) {
   if (csObjectGetPrivate(object, vm.iteratorSymbol->key, out)) return true;
   if (object->klass != NULL) {
     ObjClosure *method = csClassFindMethod(object->klass, vm.iteratorSymbol->key);
+    if (method != NULL) {
+      *out = OBJ_VAL(method);
+      return true;
+    }
+  }
+  return false;
+}
+
+/* The same, for `Symbol.asyncIterator`. `for await` asks for this one first
+ * and falls back to the sync protocol, which is what JavaScript does. */
+static bool findAsyncIteratorMethod(Value target, Value *out) {
+  if (!IS_OBJECT(target) || vm.asyncIteratorSymbol == NULL) return false;
+  ObjObject *object = AS_OBJECT(target);
+
+  if (csObjectGetPrivate(object, vm.asyncIteratorSymbol->key, out)) return true;
+  if (object->klass != NULL) {
+    ObjClosure *method = csClassFindMethod(object->klass, vm.asyncIteratorSymbol->key);
     if (method != NULL) {
       *out = OBJ_VAL(method);
       return true;
@@ -1638,6 +1676,7 @@ InterpretResult run(int baseFrame) {
       }
 
       VM_CASE(OP_ITER_PREPARE) {
+        uint8_t forAwait = READ_BYTE();
         /* Arrays and strings are already indexable, so the common case is a
          * type test and nothing else. */
         Value target = peekStack(0);
@@ -1646,7 +1685,8 @@ InterpretResult run(int baseFrame) {
          * hands back, and the loop pulls from there — which is the whole of
          * what makes a user-defined type iterable. */
         Value iteratorMethod;
-        if (findIteratorMethod(target, &iteratorMethod)) {
+        if ((forAwait && findAsyncIteratorMethod(target, &iteratorMethod)) ||
+            findIteratorMethod(target, &iteratorMethod)) {
           Value iterator;
           if (!callWithReceiver(iteratorMethod, target, NULL, 0, &iterator)) {
             return CS_RUNTIME_ERROR;
@@ -1721,13 +1761,40 @@ InterpretResult run(int baseFrame) {
       VM_CASE(OP_JUMP_IF_ASYNC_ITER) {
         uint16_t offset = READ_SHORT();
         Value top = peekStack(0);
-        if (IS_GENERATOR(top) && AS_GENERATOR(top)->isAsync) frame->ip += offset;
+        /* An async generator, or any iterator object — the second may answer
+         * `next()` with a promise or with a record, and the await that follows
+         * handles both. */
+        if ((IS_GENERATOR(top) && AS_GENERATOR(top)->isAsync) || IS_OBJECT(top)) {
+          frame->ip += offset;
+        }
         VM_NEXT();
       }
 
       VM_CASE(OP_ASYNC_NEXT) {
         Value target = csVMPop();
-        csVMPush(OBJ_VAL(csGeneratorNextAsync(AS_GENERATOR(target), UNDEFINED_VAL)));
+        if (IS_GENERATOR(target)) {
+          csVMPush(OBJ_VAL(csGeneratorNextAsync(AS_GENERATOR(target), UNDEFINED_VAL)));
+          VM_NEXT();
+        }
+
+        Value next;
+        if (!IS_OBJECT(target) ||
+            !csObjectGet(AS_OBJECT(target), csStringCopy("next", 4), &next)) {
+          if (!IS_OBJECT(target) || AS_OBJECT(target)->klass == NULL ||
+              (next = OBJ_VAL(csClassFindMethod(AS_OBJECT(target)->klass,
+                                                csStringCopy("next", 4))),
+               !IS_CLOSURE(next))) {
+            csVMRuntimeError("an async iterator must have a 'next' method");
+            return CS_RUNTIME_ERROR;
+          }
+        }
+
+        Value answered;
+        if (!callWithReceiver(next, target, NULL, 0, &answered)) {
+          return CS_RUNTIME_ERROR;
+        }
+        csVMPush(answered);
+        frame = &vm.frames[vm.frameCount - 1];
         VM_NEXT();
       }
 
@@ -1753,6 +1820,58 @@ InterpretResult run(int baseFrame) {
           VM_NEXT();
         }
         csVMPush(produced);
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_DESTRUCTURE_PREPARE) {
+        uint8_t wanted = READ_BYTE();
+        Value target = peekStack(0);
+        if (IS_ARRAY(target) || IS_STRING(target)) VM_NEXT();
+
+        /* A Map or a Set walks to what iterating it yields, the same
+         * conversion `for...of` and a spread both make. */
+        if (IS_MAP(target)) {
+          if (AS_MAP(target)->isWeak) {
+            csVMRuntimeError("a %s cannot be destructured: what is left in it "
+                             "depends on when the collector last ran",
+                             AS_MAP(target)->isSet ? "WeakSet" : "WeakMap");
+            return CS_RUNTIME_ERROR;
+          }
+          ObjArray *items = csMapToArray(AS_MAP(target));
+          csVMPop();
+          csVMPush(OBJ_VAL(items));
+          VM_NEXT();
+        }
+
+        Value source = target;
+        if (!IS_GENERATOR(source)) {
+          Value iteratorMethod;
+          if (!findIteratorMethod(source, &iteratorMethod)) VM_NEXT();
+          if (!callWithReceiver(iteratorMethod, source, NULL, 0, &source)) {
+            return CS_RUNTIME_ERROR;
+          }
+        }
+
+        csPushTempRoot(AS_OBJ(source));
+        ObjArray *taken = csArrayNew();
+        csPushTempRoot((Obj *)taken);
+        for (int i = 0; wanted == 255 || i < wanted; i++) {
+          Value produced;
+          bool done;
+          if (!iteratorStep(source, &produced, &done)) {
+            csPopTempRoot();
+            csPopTempRoot();
+            return CS_RUNTIME_ERROR;
+          }
+          if (done) break;
+          csValueArrayWrite(&taken->elements, produced);
+        }
+        csPopTempRoot();
+        csPopTempRoot();
+
+        csVMPop();
+        csVMPush(OBJ_VAL(taken));
+        frame = &vm.frames[vm.frameCount - 1];
         VM_NEXT();
       }
 

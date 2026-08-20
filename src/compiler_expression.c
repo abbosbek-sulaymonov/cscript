@@ -462,7 +462,7 @@ static void compileYieldDelegate(const AstNode *node) {
   beginScope();
 
   compileNode(node->as.yield.value);
-  emitByte(OP_ITER_PREPARE, line);
+  emitBytes(OP_ITER_PREPARE, 0, line);
   addLocal(" delegate", 9, true, line);
   int sourceSlot = current->localCount - 1;
 

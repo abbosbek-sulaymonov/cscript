@@ -270,6 +270,24 @@ static bool objectIsFrozen(Value receiver, int argCount, Value *args, Value *res
   return true;
 }
 
+/* The symbol keys an object carries. They live beside the shape, so they are
+ * not among what `Object.keys` reports — this is the one way to ask for
+ * them, which is also true in JavaScript. */
+static bool objectGetOwnPropertySymbols(Value receiver, int argCount, Value *args,
+                                        Value *result) {
+  (void)receiver;
+  ObjArray *found = csArrayNew();
+  csPushTempRoot((Obj *)found);
+
+  if (argCount > 0 && IS_OBJECT(args[0])) {
+    csVMCollectSymbolKeys(AS_OBJECT(args[0]), found);
+  }
+
+  csPopTempRoot();
+  *result = OBJ_VAL(found);
+  return true;
+}
+
 static bool objectAssign(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   if (argCount < 1 || !IS_OBJECT(args[0])) {
@@ -674,6 +692,7 @@ void csNativesInstall(void) {
   /* Every own key, which for an object with no non-enumerable ones is the
    * same list `keys` gives — and here there are none. */
   defineMethod(objectNamespace, "getOwnPropertyNames", objectKeys, 1);
+  defineMethod(objectNamespace, "getOwnPropertySymbols", objectGetOwnPropertySymbols, 1);
 
   ObjObject *arrayNamespace = defineNamespace("Array");
   defineMethod(arrayNamespace, "isArray", arrayIsArray, 1);

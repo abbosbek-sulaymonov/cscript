@@ -143,6 +143,19 @@ void csTableMark(Table *table) {
   }
 }
 
+/* Drops entries whose *value* did not survive. For the map from a symbol's
+ * filing name back to the symbol: it must not be what keeps every symbol ever
+ * made alive, and a symbol nothing holds has nothing left to be enumerated
+ * by. */
+void csTableRemoveWhiteValues(Table *table) {
+  for (int i = 0; i < table->capacity; i++) {
+    Entry *entry = &table->entries[i];
+    if (entry->key == NULL) continue;
+    if (!IS_OBJ(entry->value) || AS_OBJ(entry->value)->isMarked) continue;
+    csTableDelete(table, entry->key);
+  }
+}
+
 void csTableRemoveWhite(Table *table) {
   for (int i = 0; i < table->capacity; i++) {
     Entry *entry = &table->entries[i];

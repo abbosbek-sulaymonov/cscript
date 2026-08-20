@@ -546,6 +546,13 @@ ObjSymbol *csSymbolNew(ObjString *description) {
   symbol->key = key;
   symbol->registered = false;
 
+  /* Filed both ways: the symbol knows its key, and the key finds the symbol
+   * again — which is the only way `Object.getOwnPropertySymbols` can say what
+   * a property belongs to. */
+  csPushTempRoot((Obj *)symbol);
+  csTableSet(&vm.symbolsByKey, key, OBJ_VAL(symbol));
+  csPopTempRoot();
+
   csPopTempRoot();
   if (description != NULL) csPopTempRoot();
   return symbol;
@@ -882,7 +889,18 @@ void csObjectBlacken(Obj *object) {
           csMarkObject((Obj *)instance->as.dictionary.keys[i]);
         }
       }
-      if (instance->privates != NULL) csTableMark(instance->privates);
+      if (instance->privates != NULL) {
+        csTableMark(instance->privates);
+        /* A property keyed by a symbol keeps that symbol alive, which is what
+         * lets Object.getOwnPropertySymbols still name it. The private table
+         * holds only the filing string, so the symbol is looked up from it. */
+        for (int i = 0; i < instance->privates->capacity; i++) {
+          ObjString *key = instance->privates->entries[i].key;
+          if (key == NULL) continue;
+          Value symbol;
+          if (csTableGet(&vm.symbolsByKey, key, &symbol)) csMarkValue(symbol);
+        }
+      }
       break;
     }
 

@@ -267,6 +267,9 @@ void csCollectGarbage(void) {
   /* The intern pool holds weak references: drop entries whose string died,
    * before sweeping frees the memory those keys point at. */
   csTableRemoveWhite(&vm.strings);
+  /* Weak by value: an object keyed by a symbol marks that symbol itself, so
+   * what is left here is only the symbols nothing at all refers to. */
+  csTableRemoveWhiteValues(&vm.symbolsByKey);
   pruneWeakReferences();
   sweep();
 

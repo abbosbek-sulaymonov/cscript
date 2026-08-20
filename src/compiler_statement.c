@@ -61,6 +61,21 @@ void unwindTryBlocks(int stopAtDepth, int line) {
 void compileDestructurePattern(const AstNode *node, int line) {
   bool isObject = node->as.destructure.isObject;
 
+  /* An array pattern reads its pieces by index, which an array and a string
+   * both answer to. Anything else that can be walked is pulled from first —
+   * as far as the pattern reaches and no further, so `const [a] = endless()`
+   * takes one and stops. */
+  if (!isObject) {
+    bool takesRest = false;
+    for (int i = 0; i < node->as.destructure.count; i++) {
+      if (node->as.destructure.bindings[i].isRest) takesRest = true;
+    }
+    int wanted = takesRest || node->as.destructure.count > 254
+                     ? 255
+                     : node->as.destructure.count;
+    emitBytes(OP_DESTRUCTURE_PREPARE, (uint8_t)wanted, line);
+  }
+
   /* The source, held in a slot the body cannot name. */
   addLocal(" source", 7, true, line);
   int sourceSlot = current->localCount - 1;
@@ -305,7 +320,7 @@ void compileForOf(const AstNode *node) {
   if (node->as.forOf.isForIn) {
     emitByte(OP_ENUM_KEYS, line);
   } else {
-    emitByte(OP_ITER_PREPARE, line);
+    emitBytes(OP_ITER_PREPARE, node->as.forOf.isAwait ? 1 : 0, line);
   }
   addLocal(" iterable", 9, true, line);
   int iterableSlot = current->localCount - 1;

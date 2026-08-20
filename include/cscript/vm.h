@@ -79,6 +79,9 @@ typedef enum {
   COMBINE_ANY,         /* first fulfilment wins; all rejected is an error */
 } CombineMode;
 
+/* Appends every symbol whose property `object` carries. */
+void csVMCollectSymbolKeys(struct ObjObject *object, struct ObjArray *into);
+
 /* Defined in object.h, which includes this header for Value. */
 struct ObjClosure;
 struct ObjUpvalue;
@@ -193,6 +196,9 @@ typedef struct {
   /* `Symbol.for`'s registry, keyed by description. Strong: a registered
    * symbol is meant to be findable again by name. */
   Table symbolRegistry;
+  /* Filing name back to symbol, so `Object.getOwnPropertySymbols` can say
+   * which symbol a property belongs to. */
+  Table symbolsByKey;
   /* The two the language itself looks for. */
   struct ObjSymbol *iteratorSymbol;
   struct ObjSymbol *asyncIteratorSymbol;
