@@ -1,1 +1,3 @@
-error_this_outside_method.cx:2: error: 'this' is only valid inside a class method
+cscript: runtime error: cannot read property 'x' of undefined
+  at plain (error_this_outside_method.cx:9)
+  at error_this_outside_method.cx:11

@@ -1,0 +1,16 @@
+1 2 3 point
+[ 'x', 'y' ] {"x":1,"y":2}
+true
+true
+Rex barks Rex 4
+true true
+Generic speaks false true
+[ 'name', 'legs' ]
+{ replaced: true }
+Returning { kept: true }
+held held
+called applied
+bound
+no receiver
+1 2
+base true true

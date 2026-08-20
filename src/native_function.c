@@ -36,8 +36,11 @@ static bool invokeWith(Value target, Value receiver, Value *args, int argCount,
 
   /* Going through a bound method is what puts the receiver in slot 0 — the
    * same path `obj.method` already takes, rather than a second way of doing
-   * the same thing. */
-  if (IS_CLOSURE(target) && AS_CLOSURE(target)->function->isMethod) {
+   * the same thing. A plain function counts here too when its body says
+   * `this`: `Animal.call(this, name)` is how a constructor function delegates
+   * to another, and the receiver is the entire point of the call. */
+  if (IS_CLOSURE(target) && (AS_CLOSURE(target)->function->isMethod ||
+                             AS_CLOSURE(target)->function->usesThis)) {
     ObjBoundMethod *bound = csBoundMethodNew(receiver, AS_OBJ(target));
     csPushTempRoot((Obj *)bound);
     bool ok = csVMCallAdapted(OBJ_VAL(bound), forwarded, argCount, result);

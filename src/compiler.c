@@ -433,8 +433,10 @@ void beginFunction(Compiler *compiler, FunctionKind kind, const char *name,
   compiler->function->isMethod = isMethodKind(kind);
 
   Local *local = &compiler->locals[compiler->localCount++];
-  local->name = isMethodKind(kind) ? "this" : "";
-  local->length = isMethodKind(kind) ? 4 : 0;
+  /* Everything but the top level and an arrow owns a `this` in slot 0. */
+  bool ownsThis = kind != FUNCTION_SCRIPT && kind != FUNCTION_ARROW;
+  local->name = ownsThis ? "this" : "";
+  local->length = ownsThis ? 4 : 0;
   local->depth = 0;
   local->isConst = true;
   local->isCaptured = false;

@@ -110,6 +110,11 @@ typedef struct ObjObject {
    * object that happens to be lying around. User objects are never frozen. */
   bool frozen;
 
+  /* Built by `new` on an ordinary function, so `name` is that function's name
+   * and printing shows it — `Point { x: 1 }`. A plain literal is left
+   * unlabelled, which is what Node does with one too. */
+  bool builtByConstructor;
+
   /* The object this one inherits from, or NULL.
    *
    * A miss on this object's own properties continues here, and so on up the
@@ -397,6 +402,11 @@ struct ObjFunction {
   bool isMethod;
   /* `function*`: calling it builds a generator instead of running anything. */
   bool isGenerator;
+  /* The body mentions `this`, directly or through an arrow nested in it. Set
+   * while the body is compiled, and read only at call time: a plain call has
+   * to blank slot 0, which otherwise still holds the callee. Functions that
+   * never say `this` pay nothing for it. */
+  bool usesThis;
 
   /* What the checker proved about each parameter, kept so it survives into
    * the run time. Without this an annotation stops at the compiler, and a
@@ -457,7 +467,16 @@ struct ObjClosure {
   ObjFunction *function;
   ObjUpvalue **upvalues;
   int upvalueCount;
+
+  /* The object `new` gives to everything this function constructs, or NULL
+   * until something asks for it. Built lazily because most functions are never
+   * used with `new`, and an object per closure would be a cost every call pays
+   * for a feature most calls do not use. */
+  ObjObject *prototype;
 };
+
+/* The prototype object for `closure`, creating it on the first ask. */
+ObjObject *csClosurePrototype(ObjClosure *closure);
 
 /* Methods are looked up through the superclass chain rather than copied down
  * into each subclass, so a method added to a base class is visible from every

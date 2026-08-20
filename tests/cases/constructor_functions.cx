@@ -1,0 +1,97 @@
+// A constructor function is an ordinary function used with `new`. What makes
+// it one is the `new`, not anything about how it was written — which is
+// JavaScript's rule exactly, and why `this` is decided by the call site.
+//
+// The expectations here come from Node run as an ES module rather than as
+// CommonJS. The two disagree on one line: a bare call's `this` is undefined
+// under a module and `globalThis` under sloppy-mode CommonJS. CScript files
+// are modules, so that is the comparison that means anything.
+function Point(x, y) {
+  this.x = x;
+  this.y = y;
+}
+Point.prototype.sum = function () {
+  return this.x + this.y;
+};
+Point.prototype.kind = "point";
+
+const p = new Point(1, 2);
+console.log(p.x, p.y, p.sum(), p.kind);
+
+// The fields are the object's own; the shared behaviour is not.
+console.log(Object.keys(p), JSON.stringify(p));
+console.log(Object.getPrototypeOf(p) === Point.prototype);
+console.log(p instanceof Point);
+
+// The classic chain: a constructor delegating to another, and a prototype
+// built from the parent's.
+function Animal(name) {
+  this.name = name;
+}
+Animal.prototype.speak = function () {
+  return `${this.name} speaks`;
+};
+
+function Dog(name) {
+  Animal.call(this, name);
+  this.legs = 4;
+}
+Dog.prototype = Object.create(Animal.prototype);
+Dog.prototype.speak = function () {
+  return `${this.name} barks`;
+};
+
+const d = new Dog("Rex");
+console.log(d.speak(), d.name, d.legs);
+console.log(d instanceof Dog, d instanceof Animal);
+const a = new Animal("Generic");
+console.log(a.speak(), a instanceof Dog, a instanceof Animal);
+console.log(Object.keys(d));
+
+// A constructor may return a different object, and anything that is not an
+// object is discarded in favour of what was being built.
+function Overriding() {
+  this.ignored = true;
+  return { replaced: true };
+}
+console.log(new Overriding());
+
+function Returning() {
+  this.kept = true;
+  return 42;
+}
+console.log(new Returning());
+
+// `this` follows the call site, so the same function means different things.
+function reveal() {
+  return this === undefined ? "no receiver" : this.tag;
+}
+const holder = { tag: "held", reveal };
+console.log(holder.reveal(), holder["reveal"]());
+console.log(reveal.call({ tag: "called" }), reveal.apply({ tag: "applied" }));
+console.log(reveal.bind({ tag: "bound" })());
+console.log(reveal());
+
+// An arrow has no `this` of its own, so it sees the one belonging to whatever
+// encloses it — including a constructor function's.
+function Counter() {
+  this.n = 0;
+  this.bump = () => {
+    this.n += 1;
+    return this.n;
+  };
+}
+const counter = new Counter();
+console.log(counter.bump(), counter.bump());
+
+// A method on the prototype reached through a chain of two links.
+function Base() {}
+Base.prototype.who = function () {
+  return "base";
+};
+function Middle() {}
+Middle.prototype = Object.create(Base.prototype);
+function Leaf() {}
+Leaf.prototype = Object.create(Middle.prototype);
+const leaf = new Leaf();
+console.log(leaf.who(), leaf instanceof Base, leaf instanceof Middle);

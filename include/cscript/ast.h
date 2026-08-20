@@ -428,6 +428,10 @@ struct AstNode {
       /* `function*`. The body does not run when it is called: the call builds
        * a generator and hands it back, paused before its first instruction. */
       bool isGenerator;
+      /* `x => e`. An arrow has no `this` of its own — it sees the one belonging
+       * to whatever encloses it — which is the whole difference between an
+       * arrow and a function expression. */
+      bool isArrow;
     } function;
     AstNode *returnValue;                /* AST_RETURN_STMT, may be NULL */
     struct {                             /* AST_FOR_OF_STMT */

@@ -98,6 +98,7 @@ ObjObject *csObjectNew(const char *name) {
   object->shape = vm.emptyShape;
   object->klass = NULL;
   object->frozen = false;
+  object->builtByConstructor = false;
   object->prototype = NULL;
   object->privates = NULL;
   object->as.slots.values = NULL;
@@ -330,6 +331,7 @@ ObjFunction *csFunctionNew(void) {
   function->isAsync = false;
   function->isMethod = false;
   function->isGenerator = false;
+  function->usesThis = false;
   function->paramTypes = NULL;
   function->hotness = 0;
   function->jitState = 0; /* JIT_INTERPRETED */
@@ -360,7 +362,19 @@ ObjClosure *csClosureNew(ObjFunction *function) {
   closure->function = function;
   closure->upvalues = upvalues;
   closure->upvalueCount = function->upvalueCount;
+  closure->prototype = NULL;
   return closure;
+}
+
+ObjObject *csClosurePrototype(ObjClosure *closure) {
+  if (closure->prototype == NULL) {
+    csPushTempRoot((Obj *)closure);
+    closure->prototype = csObjectNew(closure->function->name != NULL
+                                         ? closure->function->name->chars
+                                         : "Object");
+    csPopTempRoot();
+  }
+  return closure->prototype;
 }
 
 ObjModule *csModuleNew(ObjString *path) {
@@ -636,6 +650,7 @@ ObjObject *csInstanceNew(ObjClass *klass) {
   instance->shape = vm.emptyShape;
   instance->klass = klass;
   instance->frozen = false;
+  instance->builtByConstructor = false;
   instance->prototype = NULL;
   instance->privates = NULL;
   instance->as.slots.values = NULL;
@@ -1078,6 +1093,7 @@ void csObjectBlacken(Obj *object) {
     case OBJ_CLOSURE: {
       ObjClosure *closure = (ObjClosure *)object;
       csMarkObject((Obj *)closure->function);
+      csMarkObject((Obj *)closure->prototype);
       for (int i = 0; i < closure->upvalueCount; i++) {
         csMarkObject((Obj *)closure->upvalues[i]);
       }

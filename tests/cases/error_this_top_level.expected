@@ -1,0 +1,1 @@
+error_this_top_level.cx:4: error: 'this' is only valid inside a function or a method, and the top level of a module is neither

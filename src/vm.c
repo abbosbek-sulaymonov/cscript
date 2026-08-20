@@ -461,7 +461,23 @@ bool csVMCheckArity(ObjFunction *function, int *argCount) {
  * itself, so slot 0 is the function and slots 1..arity are the arguments —
  * exactly where the compiler assigned the parameters. */
 bool callClosure(ObjClosure *closure, int argCount) {
+  return csVMCallClosureWith(closure, argCount, false);
+}
+
+/* `hasReceiver` says slot 0 already holds what `this` should be — a method's
+ * receiver, or the object `new` is building. Without it the slot still holds
+ * the callee, and a function that says `this` would see itself. JavaScript
+ * answers `undefined` there in a module, and so does this. */
+bool csVMCallClosureWith(ObjClosure *closure, int argCount, bool hasReceiver) {
   ObjFunction *function = closure->function;
+
+  /* A method is never called without one: every path that reaches one puts the
+   * receiver in slot 0 first, including a native that pushes it by hand before
+   * running a getter. Only a plain function can arrive here with the callee
+   * still sitting in the slot its `this` will read. */
+  if (function->usesThis && !function->isMethod && !hasReceiver) {
+    vm.stackTop[-argCount - 1] = UNDEFINED_VAL;
+  }
 
   if (!csVMCheckArity(function, &argCount)) return false;
 
@@ -568,7 +584,7 @@ bool callValue(Value callee, int argCount) {
     /* The receiver goes back into slot 0, which is where the method's `this`
      * reads from — the same place OP_INVOKE would have left it. */
     vm.stackTop[-argCount - 1] = bound->receiver;
-    return callClosure((ObjClosure *)bound->method, argCount);
+    return csVMCallClosureWith((ObjClosure *)bound->method, argCount, true);
   }
 
   if (IS_CLASS(callee)) {
@@ -605,7 +621,19 @@ static bool callMethod(ObjClosure *method, int argCount) {
    * receiver already sits where that fiber's slot 0 will be. */
   if (method->function->isGenerator) return callGeneratorFunction(method, argCount);
   if (method->function->isAsync) return callAsyncFunction(method, argCount);
-  return callClosure(method, argCount);
+  return csVMCallClosureWith(method, argCount, true);
+}
+
+/* Does a call through a property have to hand this closure the receiver?
+ *
+ * In JavaScript `this` comes from the call site, not from how the function was
+ * written: `o.f()` passes `o` whatever `f` is. A function written as a method
+ * always wants it; a plain function wants it exactly when its body says
+ * `this`, which is what makes `Point.prototype.sum = function () { ... }` work.
+ * A function that never mentions `this` cannot tell the difference, so nothing
+ * else has to change. */
+static bool wantsReceiver(ObjClosure *closure) {
+  return closure->function->isMethod || closure->function->usesThis;
 }
 
 /* The method table a receiver's built-ins live in, or NULL when it has none. */
@@ -651,7 +679,7 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
       /* A property written as a method — `{ m() {} }` — keeps the receiver,
        * because that is what its `this` resolves to. Anything else is just a
        * function that happens to live on an object, and gets no receiver. */
-      if (IS_CLOSURE(method) && AS_CLOSURE(method)->function->isMethod) {
+      if (IS_CLOSURE(method) && wantsReceiver(AS_CLOSURE(method))) {
         return callMethod(AS_CLOSURE(method), argCount);
       }
 
@@ -1305,6 +1333,15 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
     }
   }
 
+  /* `F.prototype` — the object everything `new F()` builds inherits from. It
+   * is created on the first ask rather than with the closure, because most
+   * functions are never constructed from. */
+  if (IS_CLOSURE(receiver) && name->length == 9 &&
+      memcmp(name->chars, "prototype", 9) == 0) {
+    *out = OBJ_VAL(csClosurePrototype(AS_CLOSURE(receiver)));
+    return true;
+  }
+
   /* `length` is intrinsic rather than a stored property, so arrays and strings
    * answer it without carrying a table. A function's is how many arguments it
    * must be given, which is the same number its arity check uses. */
@@ -1401,6 +1438,19 @@ static bool propertyWriteSlow(ObjString *name, PropertyCache *cache, Value recei
    * the class is updated. It never enters a shape, so it never caches. */
   if (IS_CLASS(receiver)) {
     csTableSet(&AS_CLASS(receiver)->statics, name, value);
+    return true;
+  }
+
+  /* Replacing a function's prototype wholesale, which is how the pattern
+   * `F.prototype = { m() {} }` is written. */
+  if (IS_CLOSURE(receiver) && name->length == 9 &&
+      memcmp(name->chars, "prototype", 9) == 0) {
+    if (!IS_OBJECT(value)) {
+      csVMRuntimeError("a prototype must be an object, got %s",
+                       csValueTypeName(value));
+      return false;
+    }
+    AS_CLOSURE(receiver)->prototype = AS_OBJECT(value);
     return true;
   }
 
@@ -2546,7 +2596,7 @@ InterpretResult run(int baseFrame) {
         bool ok;
         if (!haveValue) {
           ok = invokeMethod(receiver, name, argCount);
-        } else if (IS_CLOSURE(found) && AS_CLOSURE(found)->function->isMethod) {
+        } else if (IS_CLOSURE(found) && wantsReceiver(AS_CLOSURE(found))) {
           /* callMethod reads the receiver out of the callee slot, so that slot
            * is left exactly as it is. */
           ok = callMethod(AS_CLOSURE(found), argCount);
@@ -2897,8 +2947,52 @@ InterpretResult run(int baseFrame) {
           VM_NEXT();
         }
 
+        /* A constructor function: `function Point(x) { this.x = x }`. What
+         * makes it one is the `new`, not anything about how it was written —
+         * which is JavaScript's rule exactly. The object being built inherits
+         * from the function's `prototype`, so behaviour written there is
+         * shared by everything the function constructs. */
+        if (IS_CLOSURE(target)) {
+          ObjClosure *constructor = AS_CLOSURE(target);
+          if (constructor->function->isGenerator || constructor->function->isAsync) {
+            csVMRuntimeError("'new' needs a class or an ordinary function, and "
+                             "%s is neither",
+                             constructor->function->isGenerator ? "a generator"
+                                                                : "an async function");
+            HANDLE_FAILED_CALL();
+            VM_NEXT();
+          }
+
+          ObjObject *built = csObjectNew(constructor->function->name != NULL
+                                             ? constructor->function->name->chars
+                                             : "Object");
+          csPushTempRoot((Obj *)built);
+          built->builtByConstructor = constructor->function->name != NULL;
+          built->prototype = csClosurePrototype(constructor);
+          /* Where the class path puts the instance: slot 0, which the body
+           * reads as `this`. */
+          vm.stackTop[-argCount - 1] = OBJ_VAL(built);
+
+          /* Run to completion in a loop of its own, because what the call
+           * answers with decides the result: JavaScript lets a constructor
+           * return a different object, and discards anything that is not one.
+           * That choice cannot be made by leaving the frame to unwind. */
+          Value returned;
+          bool ok = csVMCallCallbackWithReceiver(OBJ_VAL(constructor), argCount,
+                                                 &returned);
+          csPopTempRoot();
+          if (!ok) {
+            HANDLE_FAILED_CALL();
+            VM_NEXT();
+          }
+          frame = &vm.frames[vm.frameCount - 1];
+          csVMPush(IS_OBJECT(returned) ? returned : OBJ_VAL(built));
+          VM_NEXT();
+        }
+
         if (!IS_CLASS(target)) {
-          csVMRuntimeError("'new' needs a class, got %s", csValueTypeName(target));
+          csVMRuntimeError("'new' needs a class or a function, got %s",
+                           csValueTypeName(target));
           HANDLE_FAILED_CALL();
           VM_NEXT();
         }
@@ -3103,13 +3197,36 @@ InterpretResult run(int baseFrame) {
       VM_CASE(OP_INSTANCEOF) {
         Value target = peekStack(0);
         Value value = peekStack(1);
+
+        bool result;
+        if (IS_CLOSURE(target)) {
+          /* For a constructor function the question is the one JavaScript
+           * asks: is the function's `prototype` anywhere in the value's chain?
+           * A function nothing has been constructed from has no prototype
+           * object yet, and nothing can be an instance of it. */
+          ObjObject *prototype = AS_CLOSURE(target)->prototype;
+          result = false;
+          if (prototype != NULL && IS_OBJECT(value)) {
+            for (ObjObject *at = AS_OBJECT(value)->prototype; at != NULL;
+                 at = at->prototype) {
+              if (at != prototype) continue;
+              result = true;
+              break;
+            }
+          }
+          vm.stackTop -= 2;
+          csVMPush(BOOL_VAL(result));
+          VM_NEXT();
+        }
+
         if (!IS_CLASS(target)) {
-          csVMRuntimeError("the right side of 'instanceof' must be a class, got %s",
+          csVMRuntimeError("the right side of 'instanceof' must be a class or a "
+                           "function, got %s",
                            csValueTypeName(target));
           return CS_RUNTIME_ERROR;
         }
-        bool result = IS_OBJECT(value) && AS_OBJECT(value)->klass != NULL &&
-                      csClassDescendsFrom(AS_OBJECT(value)->klass, AS_CLASS(target));
+        result = IS_OBJECT(value) && AS_OBJECT(value)->klass != NULL &&
+                 csClassDescendsFrom(AS_OBJECT(value)->klass, AS_CLASS(target));
         vm.stackTop -= 2;
         csVMPush(BOOL_VAL(result));
         VM_NEXT();
@@ -3838,6 +3955,16 @@ bool csVMCallCallback(Value callee, int argCount, Value *result) {
       return true;
     }
     vm.stackTop[-argCount - 1] = bound->receiver;
+    /* The receiver is in place, so re-entering must not blank it. A generator
+     * or an async body pushes no frame here, so those take the ordinary path,
+     * which puts the receiver where their fiber's slot 0 will be. */
+    ObjClosure *method = bound->method->type == OBJ_CLOSURE
+                             ? (ObjClosure *)bound->method
+                             : NULL;
+    if (method != NULL && !method->function->isGenerator &&
+        !method->function->isAsync) {
+      return csVMCallCallbackWithReceiver(OBJ_VAL(method), argCount, result);
+    }
     return csVMCallCallback(OBJ_VAL(bound->method), argCount, result);
   }
 
@@ -3867,6 +3994,17 @@ bool csVMCallCallback(Value callee, int argCount, Value *result) {
   /* Runs until that one call returns, leaving its result on the stack. */
   if (run(baseFrame) != CS_OK) return false;
 
+  *result = csVMPop();
+  return true;
+}
+
+/* The same, for a call whose slot 0 already holds the receiver. `new` on a
+ * plain function needs it: the object being built is there, and blanking it
+ * the way an ordinary call does would take `this` away from the constructor. */
+bool csVMCallCallbackWithReceiver(Value callee, int argCount, Value *result) {
+  int baseFrame = vm.frameCount;
+  if (!csVMCallClosureWith(AS_CLOSURE(callee), argCount, true)) return false;
+  if (run(baseFrame) != CS_OK) return false;
   *result = csVMPop();
   return true;
 }

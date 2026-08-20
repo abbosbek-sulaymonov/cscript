@@ -27,6 +27,11 @@ typedef enum {
 /* vm.c — the interpreter loop and the machinery on its hot path */
 void resetStack(void);
 bool callClosure(ObjClosure *closure, int argCount);
+/* The same, but slot 0 already holds what `this` should be — a method's
+ * receiver, or the object `new` is building. */
+bool csVMCallClosureWith(ObjClosure *closure, int argCount, bool hasReceiver);
+/* csVMCallCallback for a call whose slot 0 already holds the receiver. */
+bool csVMCallCallbackWithReceiver(Value callee, int argCount, Value *result);
 bool callNative(ObjNative *native, Value receiver, int argCount);
 bool callValue(Value callee, int argCount);
 ThrowResult performThrow(Value thrown, int baseFrame, CallFrame **frame);

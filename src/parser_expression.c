@@ -1017,6 +1017,7 @@ bool looksLikeArrowParams(Parser *parser) {
 /* Parses an arrow function's body: either an expression, which becomes an
  * implicit return, or a braced block. */
 AstNode *finishArrow(Parser *parser, AstNode *function, int line) {
+  function->as.function.isArrow = true;
   /* An arrow's body may await only if the arrow itself is async — and a plain
    * arrow nested inside an async function may not, which is why this resets to
    * zero rather than leaving the enclosing depth alone. */

@@ -742,13 +742,26 @@ void compileFunctionAs(const AstNode *node, FunctionKind kind) {
 }
 
 void compileFunction(const AstNode *node) {
-  compileFunctionAs(node, node->as.function.isMethod ? FUNCTION_METHOD : FUNCTION_BODY);
+  FunctionKind kind = FUNCTION_BODY;
+  if (node->as.function.isMethod) kind = FUNCTION_METHOD;
+  else if (node->as.function.isArrow) kind = FUNCTION_ARROW;
+  compileFunctionAs(node, kind);
 }
 
 /* Pushes `this`, which is slot 0 of the nearest enclosing method — directly
  * when compiling that method, and through the upvalue machinery from an arrow
  * function nested inside it. */
 bool compileThisLoad(int line) {
+  /* Whichever function owns slot 0 has to be told, because that is the one
+   * whose calls must put something there: a plain call blanks it, and `new`
+   * puts the object being built in it. Arrows are skipped — they have no slot
+   * 0 of their own, which is exactly why `this` reads through them. */
+  for (Compiler *owner = current; owner != NULL; owner = owner->enclosing) {
+    if (owner->kind == FUNCTION_ARROW) continue;
+    if (owner->kind != FUNCTION_SCRIPT) owner->function->usesThis = true;
+    break;
+  }
+
   int slot = resolveLocal(current, "this", 4);
   if (slot != -1) {
     emitBytes(OP_GET_LOCAL, (uint8_t)slot, line);
@@ -759,7 +772,8 @@ bool compileThisLoad(int line) {
     emitBytes(OP_GET_UPVALUE, (uint8_t)upvalue, line);
     return true;
   }
-  errorAt(line, "'this' is only valid inside a class method");
+  errorAt(line, "'this' is only valid inside a function or a method, and the "
+                "top level of a module is neither");
   return false;
 }
 

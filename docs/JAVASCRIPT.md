@@ -157,7 +157,12 @@ through a prototype: reading either produces a bound method. In JavaScript
 `this` is lost and the call throws, which is why `.bind(this)` is scattered
 through real code.
 
-The rule stops at *own* methods — `const f = ({ m() {} }).m` is the plain
+The rule is about *reading* a method. Calling one always supplies the receiver,
+whatever kind of function it is: `o.f()` passes `o` even when `f` is a plain
+function that happens to say `this`, which is what makes
+`Point.prototype.sum = function () { ... }` work.
+
+Reading stops at *own* methods — `const f = ({ m() {} }).m` is the plain
 function. An own method lives in the object's shape and so is served by the
 inline cache, and binding it would mean testing every property read in the VM
 for whether it happened to produce a method. A class method and an inherited
@@ -299,6 +304,27 @@ bit at a time. Knuth's algorithm D is much faster and much easier to get subtly
 wrong; the numbers a script divides are small, and being able to read the code
 and believe it is worth more than the constant factor here.
 
+### Constructor functions
+
+`function Point(x) { this.x = x }` with `new Point(1)` works, and so does the
+whole classic pattern built on it: `Point.prototype.method = ...`,
+`Child.prototype = Object.create(Parent.prototype)`, `Parent.call(this, ...)`
+to delegate, and `instanceof` against the function.
+
+What makes a function a constructor is the `new`, not anything about how it was
+written — JavaScript's rule exactly. `this` follows from that: `new F()` puts
+the object being built in it, a call through a property puts the receiver
+there, `call`/`apply`/`bind` put what they were given, and a bare call leaves
+it undefined. A constructor may return a different object, and anything that is
+not an object is discarded in favour of what was being built.
+
+`F.prototype` is created the first time something asks for it, because most
+functions are never constructed from and an object per closure would be a cost
+every call pays for a feature most calls do not use.
+
+Only the top level of a module has no `this`, and that is a compile error
+rather than `undefined` — the same answer, said earlier.
+
 ### Prototypes
 
 An object may inherit from another. `Object.create(proto)`, `__proto__` — read
@@ -342,7 +368,6 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Regex lookbehind — `(?<=…)` — and named groups | Lookahead and backreferences work |
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
 | `Date` parsing beyond ISO, and its locale formats | `toLocaleString`, `Date.parse` of anything else, `setFullYear` and the other setters |
-| Constructor functions — `function F() { this.x = 1 }` with `new` | Prototypes work; `this` is still only valid in a method, so shared behaviour is written as an object and `Object.create`d from |
 | `Object.defineProperty` and property descriptors | Writability, enumerability and configurability are not modelled, so `Object.create` refuses a second argument rather than ignoring it |
 | `arguments` | A rest parameter does the same job and says what it collects |
 | `new.target`, subclassing built-ins | |

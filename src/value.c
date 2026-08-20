@@ -316,13 +316,20 @@ static bool sbAppendArray(StringBuilder *builder, ObjArray *array) {
 }
 
 static bool sbAppendObject(StringBuilder *builder, ObjObject *object) {
-  /* An instance prints under its class name — `Dog { name: 'Rex' }` — which is
-   * what makes one distinguishable from a plain literal at a glance. */
+  /* An instance prints under the name of whatever built it — `Dog { name: 'Rex' }`
+   * — which is what makes one distinguishable from a plain literal at a
+   * glance. A class instance is named by its class; one built by `new` on a
+   * function is named by the function, which is how Node labels it too. A
+   * plain literal carries the name "Object" and prints without a label, the
+   * same way Node leaves that one out. */
+  ObjString *label = NULL;
   if (object->klass != NULL) {
-    if (!sbAppend(builder, object->klass->name->chars,
-                  (size_t)object->klass->name->length)) {
-      return false;
-    }
+    label = object->klass->name;
+  } else if (object->builtByConstructor && object->name != NULL) {
+    label = object->name;
+  }
+  if (label != NULL) {
+    if (!sbAppend(builder, label->chars, (size_t)label->length)) return false;
     if (!sbAppend(builder, " ", 1)) return false;
   }
   if (!sbAppend(builder, "{", 1)) return false;

@@ -629,13 +629,19 @@ class's constructor, and directly after `super(...)` in a derived one. That
 ordering is observable through key order, which is why it is matched exactly
 rather than simplified.
 
-**`this` is slot 0 of a method's frame**, which means an arrow function inside a
-method captures it through the ordinary closure machinery and gets JavaScript's
-lexical `this` with no rule of its own. `this` outside a class method is an
-error rather than `undefined`.
+**`this` is slot 0 of the frame**, for a method and for an ordinary function
+alike, which means an arrow function inside either captures it through the
+ordinary closure machinery and gets JavaScript's lexical `this` with no rule of
+its own. An arrow has no slot 0 of its own, which is the whole of why.
 
-**A method keeps its receiver.** `const f = obj.method; f()` works — in
-JavaScript it loses `this`, which is the reason `.bind(this)` exists. This is a
+What `this` means is decided by the call, not by how the function was written:
+`new F()` puts the object being built there, a call through a property puts the
+receiver there, and a bare call leaves it undefined — the same three rules
+JavaScript has. Only the top level of a module has no `this` at all, and naming
+that at compile time says the same thing as JavaScript's `undefined`, earlier.
+
+**A class method keeps its receiver.** `const f = instance.method; f()` works —
+in JavaScript it loses `this`, which is the reason `.bind(this)` exists. This is a
 deliberate divergence; see `examples/fixes.cx`.
 
 Two rules are stricter than JavaScript's, both to keep the order above legible:

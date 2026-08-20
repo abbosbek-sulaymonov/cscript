@@ -1,3 +1,10 @@
+// A plain function may say `this` — what it means is decided by the call, not
+// by how the function was written. Called with `new` it is the object being
+// built; called through a property it is that object; called on its own it is
+// undefined, and reading a property of undefined is the error below.
+//
+// This is what an ES module does too. Only the sloppy-mode CommonJS default
+// hands a bare call `globalThis` instead, and CScript has no sloppy mode.
 function plain() {
   return this.x;
 }

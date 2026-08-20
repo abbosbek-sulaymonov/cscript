@@ -342,6 +342,8 @@ AstNode *csAstFunction(AstArena *arena, int line, const char *name, int nameLeng
   node->as.function.nameIsInferred = false;
   node->as.function.isDeclaration = false;
   node->as.function.isMethod = false;
+  node->as.function.isGenerator = false;
+  node->as.function.isArrow = false;
   return node;
 }
 

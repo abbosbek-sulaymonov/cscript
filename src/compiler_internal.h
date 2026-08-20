@@ -56,7 +56,16 @@ typedef struct {
 
 typedef enum {
   FUNCTION_SCRIPT, /* the implicit top-level function */
+  /* An ordinary function. Slot 0 is named `this` for the same reason a
+   * method's is: a function called with `new` receives the object being built
+   * there, and one called plainly receives undefined. What makes it a
+   * constructor is the `new`, not anything about how it was written — which is
+   * exactly JavaScript's rule. */
   FUNCTION_BODY,
+  /* An arrow. Slot 0 is nameless, so `this` written inside one resolves past
+   * it to whatever encloses the arrow — which is the whole point of an arrow
+   * and needs no rule of its own beyond this. */
+  FUNCTION_ARROW,
   /* A method's slot 0 holds the receiver rather than the callee, and is named
    * `this` so an ordinary local lookup finds it — which also means an arrow
    * function inside a method captures it as an upvalue and gets JavaScript's

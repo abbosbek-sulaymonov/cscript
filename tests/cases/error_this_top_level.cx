@@ -1,0 +1,4 @@
+// The top level of a module is not a function, so there is no `this` for it to
+// mean. JavaScript answers `undefined` in an ES module; naming it at compile
+// time says the same thing earlier.
+console.log(this);
