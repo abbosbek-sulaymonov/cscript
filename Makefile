@@ -42,7 +42,7 @@ ASAN          := -fsanitize=address
 TRACE_DEFINES := -DCS_DEBUG_PRINT_TOKENS -DCS_DEBUG_PRINT_AST \
                  -DCS_DEBUG_PRINT_CODE -DCS_DEBUG_TRACE_EXECUTION
 
-.PHONY: all release debug asan gcstress switch tagged profile trace test test-asan test-gc test-node test-switch test-tagged test-all run clean help
+.PHONY: all release debug asan gcstress switch tagged profile jit trace test test-asan test-gc test-node test-switch test-tagged test-all run clean help
 .DEFAULT_GOAL := release
 
 all: release
@@ -72,6 +72,7 @@ $(eval $(call BUILD_CONFIG,gcstress,-O0 -g3 $(UBSAN) -DCS_DEBUG_STRESS_GC,$(UBSA
 $(eval $(call BUILD_CONFIG,switch,-O2 -DNDEBUG -DCS_NO_COMPUTED_GOTO,))
 $(eval $(call BUILD_CONFIG,tagged,-O2 -DNDEBUG -DCS_NAN_BOXING=0,))
 $(eval $(call BUILD_CONFIG,profile,-O2 -DNDEBUG -DCS_DEBUG_PROFILE_OPCODES,))
+$(eval $(call BUILD_CONFIG,jit,-O2 -DNDEBUG -DCS_DEBUG_JIT,))
 $(eval $(call BUILD_CONFIG,trace,-O0 -g3 $(UBSAN) $(TRACE_DEFINES),$(UBSAN)))
 
 # Run against an instrumented build so undefined behaviour fails the suite.
@@ -123,5 +124,6 @@ help:
 	@echo "make test-switch same suite with switch dispatch"
 	@echo "make test-tagged same suite with the tagged-union Value"
 	@echo "make test-all   test + test-gc + test-switch + test-node"
+	@echo "make jit           report what a JIT would compile"
 	@echo "make run FILE=examples/hello.cx"
 	@echo "make clean"

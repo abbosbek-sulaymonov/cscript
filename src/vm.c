@@ -7,6 +7,7 @@
 
 #include "cscript/compiler.h"
 #include "cscript/debug.h"
+#include "cscript/jit.h"
 #include "cscript/memory.h"
 #include "cscript/module.h"
 #include "cscript/native.h"
@@ -229,6 +230,8 @@ bool callClosure(ObjClosure *closure, int argCount) {
     csVMRuntimeError("call stack overflow (limit %d frames)", vm.frameCapacity);
     return false;
   }
+
+  CS_JIT_TICK(function);
 
   CallFrame *frame = &vm.frames[vm.frameCount++];
   frame->closure = closure;
@@ -2031,6 +2034,10 @@ InterpretResult run(int baseFrame) {
       VM_CASE(OP_LOOP) {
         uint16_t offset = READ_SHORT();
         frame->ip -= offset;
+        /* A back-edge counts as much as a call: a function called once around
+         * a millionfold loop is as hot as one called a million times, and only
+         * this catches the first kind. */
+        CS_JIT_TICK(frame->closure->function);
         VM_NEXT();
       }
 

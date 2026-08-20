@@ -73,7 +73,7 @@ The full list, with the reasoning for each, is in
 
 ## Status
 
-**v0.18.0.** The language is feature-complete for everyday code: objects and
+**v0.19.0.** The language is feature-complete for everyday code: objects and
 arrays, functions and closures, classes and inheritance, modules, promises and
 `async`/`await`, gradual typing with inference, control flow, `switch`,
 template literals and the conditional operator. The pipeline is lexer → parser → type checker → bytecode
@@ -436,7 +436,8 @@ cscript/
 | **17 ✅** | Promises, timers, the event loop, `async`/`await` | — |
 | **18 ✅** | The rest of the syntax: patterns, accessors, `do`/`for...in` | — |
 | **19 ✅** | Split the three largest files; documented against JavaScript | — |
-| next | `Map` and `Set`, or regular expressions | — |
+| **20 ✅** | Tiering: what gets hot, and how much of it is already typed | — |
+| next | A type-directed code generator, or `Map` and `Set` | — |
 
 ---
 

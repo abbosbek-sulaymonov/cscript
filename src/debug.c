@@ -1,3 +1,4 @@
+#include <stdarg.h>
 #include <stdio.h>
 
 #include "cscript/debug.h"
@@ -6,6 +7,22 @@
 #include "cscript/opcode.h"
 #include "cscript/type.h"
 #include "cscript/value.h"
+
+/* The disassembler doubles as the one place that knows how long each
+ * instruction is. Anything else needing that — the tiering pass, which walks a
+ * chunk looking for opcodes a backend could not emit — would otherwise have to
+ * keep a second copy of the operand layout, and the two would drift.
+ *
+ * So it can run silently: same walk, no output, just the next offset. */
+static bool quiet = false;
+
+static void emit(const char *format, ...) {
+  if (quiet) return;
+  va_list args;
+  va_start(args, format);
+  vprintf(format, args);
+  va_end(args);
+}
 
 const char *csOpcodeName(OpCode opcode) {
   switch (opcode) {
@@ -20,8 +37,14 @@ const char *csOpcodeName(OpCode opcode) {
   return "OP_UNKNOWN";
 }
 
+/* csValuePrint writes straight to stdout, so it needs the same gate. */
+static void debugPrintValue(Value value) {
+  if (quiet) return;
+  csValuePrint(value);
+}
+
 static int simpleInstruction(const char *name, int offset) {
-  printf("%s\n", name);
+  emit("%s\n", name);
   return offset + 1;
 }
 
@@ -32,9 +55,9 @@ static int readConstantIndex(const Chunk *chunk, int offset) {
 
 static int constantInstruction(const char *name, const Chunk *chunk, int offset) {
   int constant = readConstantIndex(chunk, offset + 1);
-  printf("%-22s %4d '", name, constant);
-  csValuePrint(chunk->constants.values[constant]);
-  printf("'\n");
+  emit("%-22s %4d '", name, constant);
+  debugPrintValue(chunk->constants.values[constant]);
+  emit("'\n");
   return offset + 3;
 }
 
@@ -44,9 +67,9 @@ static int constantInstruction(const char *name, const Chunk *chunk, int offset)
 static int cachedInstruction(const char *name, const Chunk *chunk, int offset) {
   int constant = readConstantIndex(chunk, offset + 1);
   int cache = readConstantIndex(chunk, offset + 3);
-  printf("%-22s %4d '", name, constant);
-  csValuePrint(chunk->constants.values[constant]);
-  printf("'  cache %d\n", cache);
+  emit("%-22s %4d '", name, constant);
+  debugPrintValue(chunk->constants.values[constant]);
+  emit("'  cache %d\n", cache);
   return offset + 5;
 }
 
@@ -54,15 +77,15 @@ static int cachedInstruction(const char *name, const Chunk *chunk, int offset) {
 static int invokeInstruction(const char *name, const Chunk *chunk, int offset) {
   int constant = readConstantIndex(chunk, offset + 1);
   uint8_t argCount = chunk->code[offset + 3];
-  printf("%-22s %4d '", name, argCount);
-  csValuePrint(chunk->constants.values[constant]);
-  printf("'\n");
+  emit("%-22s %4d '", name, argCount);
+  debugPrintValue(chunk->constants.values[constant]);
+  emit("'\n");
   return offset + 4;
 }
 
 static int byteInstruction(const char *name, const Chunk *chunk, int offset) {
   uint8_t operand = chunk->code[offset + 1];
-  printf("%-22s %4d\n", name, operand);
+  emit("%-22s %4d\n", name, operand);
   return offset + 2;
 }
 
@@ -70,27 +93,35 @@ static int byteInstruction(const char *name, const Chunk *chunk, int offset) {
 static int slotConstantInstruction(const char *name, const Chunk *chunk, int offset) {
   uint8_t slot = chunk->code[offset + 1];
   int constant = readConstantIndex(chunk, offset + 2);
-  printf("%-22s %4d %4d '", name, slot, constant);
-  csValuePrint(chunk->constants.values[constant]);
-  printf("'\n");
+  emit("%-22s %4d %4d '", name, slot, constant);
+  debugPrintValue(chunk->constants.values[constant]);
+  emit("'\n");
   return offset + 4;
 }
 
 static int jumpInstruction(const char *name, int sign, const Chunk *chunk, int offset) {
   uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8);
   jump |= chunk->code[offset + 2];
-  printf("%-22s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
+  emit("%-22s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
   return offset + 3;
 }
 
+/* The offset just past the instruction at `offset`, without printing it. */
+int csInstructionLength(const Chunk *chunk, int offset) {
+  quiet = true;
+  int next = csDisassembleInstruction(chunk, offset);
+  quiet = false;
+  return next;
+}
+
 int csDisassembleInstruction(const Chunk *chunk, int offset) {
-  printf("%04d ", offset);
+  emit("%04d ", offset);
 
   /* Repeat the line number only when it changes, so runs read as blocks. */
   if (offset > 0 && chunk->lines[offset] == chunk->lines[offset - 1]) {
-    printf("   | ");
+    emit("   | ");
   } else {
-    printf("%4d ", chunk->lines[offset]);
+    emit("%4d ", chunk->lines[offset]);
   }
 
   uint8_t instruction = chunk->code[offset];
@@ -117,16 +148,16 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_GET_PROPERTY:      return cachedInstruction("OP_GET_PROPERTY", chunk, offset);
     case OP_SET_PROPERTY_POP:  return cachedInstruction("OP_SET_PROPERTY_POP", chunk, offset);
     case OP_GET_LOCAL_LOCAL: {
-      printf("%-22s %4d %d\n", "OP_GET_LOCAL_LOCAL", chunk->code[offset + 1],
+      emit("%-22s %4d %d\n", "OP_GET_LOCAL_LOCAL", chunk->code[offset + 1],
              chunk->code[offset + 2]);
       return offset + 3;
     }
     case OP_GET_LOCAL_PROPERTY: {
       /* A slot, then the same constant-and-cache pair OP_GET_PROPERTY takes. */
       int constant = readConstantIndex(chunk, offset + 2);
-      printf("%-22s %4d '", "OP_GET_LOCAL_PROPERTY", chunk->code[offset + 1]);
-      csValuePrint(chunk->constants.values[constant]);
-      printf("'  cache %d\n", readConstantIndex(chunk, offset + 4));
+      emit("%-22s %4d '", "OP_GET_LOCAL_PROPERTY", chunk->code[offset + 1]);
+      debugPrintValue(chunk->constants.values[constant]);
+      emit("'  cache %d\n", readConstantIndex(chunk, offset + 4));
       return offset + 6;
     }
     case OP_SET_PROPERTY:      return cachedInstruction("OP_SET_PROPERTY", chunk, offset);
@@ -144,15 +175,15 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
       /* Followed by one (isLocal, index) pair per upvalue, which are operands
        * rather than instructions. */
       int constant = readConstantIndex(chunk, offset + 1);
-      printf("%-22s %4d '", "OP_CLOSURE", constant);
-      csValuePrint(chunk->constants.values[constant]);
-      printf("'\n");
+      emit("%-22s %4d '", "OP_CLOSURE", constant);
+      debugPrintValue(chunk->constants.values[constant]);
+      emit("'\n");
 
       int next = offset + 3;
       Value function = chunk->constants.values[constant];
       if (IS_FUNCTION(function)) {
         for (int i = 0; i < AS_FUNCTION(function)->upvalueCount; i++) {
-          printf("%04d      |                     %s %d\n", next,
+          emit("%04d      |                     %s %d\n", next,
                  chunk->code[next] ? "local" : "upvalue", chunk->code[next + 1]);
           next += 2;
         }
@@ -213,7 +244,7 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_JUMP_IF_EQUAL:             return jumpInstruction("OP_JUMP_IF_EQUAL", 1, chunk, offset);
     case OP_RETURN:            return simpleInstruction("OP_RETURN", offset);
     default:
-      printf("unknown opcode %d\n", instruction);
+      emit("unknown opcode %d\n", instruction);
       return offset + 1;
   }
 }

@@ -628,6 +628,58 @@ an async call suspends, and the event loop, which runs only after the program
 does. Benchmarks were flat across the whole change, which is what said the line
 was drawn in the right place.
 
+## Tiering: what a JIT would compile
+
+There is no code generator. There is the thing that has to come before one: a
+count of what gets hot, and a verdict on how much of it could be compiled
+without guarding every operation.
+
+`make jit` builds it; it prints when the program ends.
+
+```
+  function                        hotness    typed  generic  verdict
+  dist                             200000        3        0  compilable
+  untyped                          200000        1        2  compilable
+
+  3 of 3 compilable without falling back to the interpreter
+  6 of 9 arithmetic sites (67%) have both operand types known
+```
+
+**Why this measurement and not another.** The obvious first JIT is a template
+JIT — one machine-code stub per opcode, concatenated — which removes dispatch
+and nothing else. The opcode-pair work priced that: removing an instruction
+here buys about a third of an instruction, because each one already does real
+work. A template JIT would be worth 10–15% for an assembler, a code cache and
+a new class of bug.
+
+The win has to come from deleting the work *inside* instructions — the box
+tests, the cache probes, the guards. And CScript has something a JavaScript
+engine cannot have for that: **declared types**. `function dist(x: number, y:
+number): number` is a proof, not a guess, so a compiler can emit unboxed
+arithmetic with no guard and no deoptimisation point. V8 must speculate,
+because JavaScript promises nothing about a value until it sees one.
+
+That is why the profile counts typed against generic sites rather than
+instructions. `dist` above is 3 of 3 — every operation in it could be compiled
+with no guard at all. `untyped` is 1 of 3, and the one is instructive: `*`
+yields a number whatever its operands are, so the checker proves the outer `+`
+numeric even with nothing annotated.
+
+**What the counter costs, measured before it was switched on.** A back-edge
+counter is two loads, an increment and a compare on every iteration of every
+loop: 4.8% on `loop_arith`, 2.8% on `locals`. That is a fair price for a
+compiler that pays it back and no price worth paying for instrumentation, so
+it is compiled only into the `jit` configuration. Release is byte-identical in
+speed — measured interleaved to cancel drift, −0.1%.
+
+The number is kept because it is an input to the decision rather than a
+footnote: **a code generator has to beat about 5% on tight loops before it is
+even break-even.**
+
+The refusal list in `src/jit.c` is what a *first* backend would leave to the
+interpreter — anything that suspends a frame, unwinds past one, or builds a
+class. Everything else is arithmetic, moves and branches.
+
 ## Build configurations
 
 Each configuration compiles into its own directory under `build/`. Sharing one

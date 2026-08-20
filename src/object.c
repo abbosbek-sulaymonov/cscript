@@ -241,6 +241,11 @@ ObjFunction *csFunctionNew(void) {
   function->name = NULL;
   function->module = NULL;
   function->isAsync = false;
+  function->hotness = 0;
+  function->jitState = 0; /* JIT_INTERPRETED */
+  function->jitCode = NULL;
+  function->typedSites = 0;
+  function->genericSites = 0;
   csChunkInit(&function->chunk);
   return function;
 }

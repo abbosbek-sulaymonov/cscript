@@ -58,6 +58,16 @@ void compileBinary(const AstNode *node) {
   bool bothNumbers = node->as.binary.left->resolvedType == TYPE_NUMBER &&
                      node->as.binary.right->resolvedType == TYPE_NUMBER;
 
+  /* Recorded for tiering: an operation whose operand types are known is one a
+   * compiler could emit unboxed, with no guard and nothing to deoptimise to.
+   * The ratio across a hot function is what decides whether a type-directed
+   * backend is worth building — see jit.h. */
+  if (bothNumbers) {
+    current->function->typedSites++;
+  } else {
+    current->function->genericSites++;
+  }
+
   switch (node->as.binary.op) {
     case BINARY_ADD:
       emitByte(bothNumbers ? OP_ADD_NUM : OP_ADD, line);

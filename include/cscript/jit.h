@@ -1,0 +1,73 @@
+/* jit.h — tiering: deciding what is worth compiling, and holding what was.
+ *
+ * This is the plumbing a just-in-time compiler needs before it has a code
+ * generator. It answers two questions and nothing else yet:
+ *
+ *   Which functions are hot?          — counted at calls and loop back-edges
+ *   Which of those could be compiled  — and, crucially, *how much guarding*
+ *   without guarding everything?        each would need
+ *
+ * The second question is the one worth asking here. CScript has optional
+ * TypeScript-style annotations, and a checker that proves them before the
+ * program runs. Where a function is fully annotated, a compiler can emit
+ * unboxed arithmetic with no type guards and no deoptimisation points at all —
+ * something a JavaScript engine can never do, because JavaScript promises
+ * nothing about a value until it sees one.
+ *
+ * So the profile records, per function, how many operations the compiler could
+ * already specialise from a declared type against how many it had to leave
+ * generic. That ratio decides whether a type-directed compiler is worth
+ * building, and it is measured rather than assumed — which is how every other
+ * optimisation in this project was decided.
+ */
+#ifndef CSCRIPT_JIT_H
+#define CSCRIPT_JIT_H
+
+#include "cscript/common.h"
+#include "cscript/object.h"
+
+/* How much work a function has to do before it is worth compiling. Calls and
+ * loop back-edges both count, because a function called a million times and a
+ * function called once around a million-iteration loop are equally hot. */
+#define CS_JIT_THRESHOLD 10000
+
+typedef enum {
+  JIT_INTERPRETED, /* below the threshold, or not looked at yet */
+  JIT_HOT,         /* over the threshold; a backend would compile it here */
+  JIT_COMPILED,    /* machine code exists — no backend yet, so unreachable */
+  JIT_REFUSED,     /* hot, but holds something the backend cannot handle */
+} JitState;
+
+/* Counting a call or a back-edge, and tiering up on the way past the
+ * threshold.
+ *
+ * Measured before being switched on: the back-edge counter costs 4.8% on
+ * `loop_arith` and 2.8% on `locals`, because it is two loads, an increment and
+ * a compare on every iteration of every loop. That is a fair price for a
+ * compiler that pays it back and no price at all worth paying for
+ * instrumentation, so it is built only into the `jit` configuration until
+ * there is a backend to earn it. The number is recorded because it is a real
+ * input to the decision: a code generator has to beat 5% on tight loops before
+ * it is even break-even.
+ */
+#ifdef CS_DEBUG_JIT
+#define CS_JIT_TICK(fn)                                        \
+  do {                                                         \
+    if (++(fn)->hotness == CS_JIT_THRESHOLD) csJitConsider(fn); \
+  } while (false)
+#else
+#define CS_JIT_TICK(fn) ((void)0)
+#endif
+
+/* Called when a function crosses the threshold. With no code generator behind
+ * it this only records the decision, which is the point of the stage: the
+ * decision is what has to be shown to be right before the generator exists. */
+void csJitConsider(ObjFunction *function);
+
+/* Why a function was refused, or NULL when it was not. */
+const char *csJitRefusalReason(const ObjFunction *function);
+
+/* Prints what tiering saw. Built into the `jit` configuration only. */
+void csJitDumpProfile(void);
+
+#endif /* CSCRIPT_JIT_H */

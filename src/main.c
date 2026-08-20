@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "cscript/common.h"
+#include "cscript/jit.h"
 #include "cscript/module.h"
 #include "cscript/vm.h"
 
@@ -81,6 +82,9 @@ int main(int argc, const char *argv[]) {
 
 #ifdef CS_DEBUG_PROFILE_OPCODES
   csVMDumpOpcodeProfile();
+#endif
+#ifdef CS_DEBUG_JIT
+  csJitDumpProfile();
 #endif
 
   csVMFree();

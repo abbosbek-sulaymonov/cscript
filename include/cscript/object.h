@@ -237,6 +237,19 @@ struct ObjFunction {
   /* Calling this returns a promise and runs the body on a fiber of its own, so
    * an `await` inside it can suspend without disturbing its caller. */
   bool isAsync;
+
+  /* Tiering. `hotness` counts calls and loop back-edges together, because a
+   * function called a million times and one called once around a millionfold
+   * loop are equally worth compiling. See jit.h. */
+  int hotness;
+  int jitState;
+  void *jitCode; /* NULL until a backend exists */
+
+  /* Set while compiling: how many operations the declared types let the
+   * compiler specialise, against how many it had to leave generic. The ratio
+   * is what says whether a type-directed compiler is worth building. */
+  int typedSites;
+  int genericSites;
 };
 
 /* A captured variable.
