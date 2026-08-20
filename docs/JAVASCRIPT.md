@@ -32,6 +32,8 @@ asserted here.
 | Arithmetic | `+ - * / % **`, with `**` right-associative |
 | Comparison | `< <= > >=`, `=== !==` |
 | Logical | `&& ||` evaluate to an operand, not a boolean |
+| Nullish coalescing | `??`, and mixing it with `&&`/`||` without parentheses is an error, as in JavaScript |
+| Logical assignment | `&&= ||= ??=`, short-circuiting — no store when the operator says not to |
 | Conditional | `c ? a : b`, right-associative |
 | Truthiness | `0`, `""`, `NaN`, `null`, `undefined`, `false` are falsy |
 | `instanceof` | walks the class chain |
@@ -47,7 +49,8 @@ asserted here.
 | Destructuring | array and object, nested, defaults, renaming, rest elements |
 | Parameters | patterns as parameters, in every function form |
 | Spread | array literals, call arguments, over strings |
-| Object literals | shorthand `{ x }`, computed keys `{ [k]: v }` |
+| Object literals | shorthand `{ x }`, computed keys `{ [k]: v }`, methods `{ m() {} }` |
+| Optional chaining | `?.`, `?.[ ]`, `?.()`, short-circuiting the whole chain |
 | Control flow | `if`, `while`, `do`/`while`, `for`, `for...of`, `for...in`, `switch` |
 | `break` / `continue` | including out of `try` with a `finally` |
 | Exceptions | `try`/`catch`/`finally`/`throw`, any value throwable |
@@ -159,7 +162,7 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Labelled statements | |
 | Object rest — `const { a, ...rest } = o` | Array rest works |
 | `delete` | |
-| Getters and setters on object *literals* | They work on classes |
+| Getters and setters on object *literals* | Methods and shorthand work; accessors do not |
 | Private `#fields`, `static` blocks | |
 | Computed member names in a class body | Computed keys work in object literals |
 | `new.target`, subclassing built-ins | |

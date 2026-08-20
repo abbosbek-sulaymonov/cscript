@@ -75,6 +75,11 @@ void synchronize(Parser *parser) {
 Precedence binaryPrecedence(TokenType type) {
   switch (type) {
     case TOKEN_PIPE_PIPE:           return PREC_OR;
+    /* `??` sits on the same tier as `||`. JavaScript then forbids mixing the
+     * two without parentheses rather than picking a winner, because either
+     * choice would be a coin-flip for the reader; parsePrecedence enforces
+     * that separately. */
+    case TOKEN_QUESTION_QUESTION:   return PREC_OR;
     case TOKEN_AMP_AMP:             return PREC_AND;
     case TOKEN_EQUAL_EQUAL_EQUAL:
     case TOKEN_BANG_EQUAL_EQUAL:    return PREC_EQUALITY;
@@ -237,6 +242,18 @@ bool nextStartsArrowParams(Parser *parser) {
 
 
 /* Maps a compound assignment token to the operation it expands to. */
+/* `&&= ||= ??=`. Not compound assignment: these short-circuit, so the right
+ * side is not evaluated and no store happens when the left side already
+ * decides the answer. */
+bool logicalAssignKind(TokenType type, AssignKind *out) {
+  switch (type) {
+    case TOKEN_AMP_AMP_EQUAL:           *out = ASSIGN_AND; return true;
+    case TOKEN_PIPE_PIPE_EQUAL:         *out = ASSIGN_OR; return true;
+    case TOKEN_QUESTION_QUESTION_EQUAL: *out = ASSIGN_NULLISH; return true;
+    default: return false;
+  }
+}
+
 bool compoundAssignOp(TokenType type, BinaryOp *out) {
   switch (type) {
     case TOKEN_PLUS_EQUAL:    *out = BINARY_ADD; return true;

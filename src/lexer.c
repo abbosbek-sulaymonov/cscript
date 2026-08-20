@@ -378,7 +378,20 @@ Token csLexerNext(Lexer *lexer) {
       return makeToken(lexer, TOKEN_DOT);
     case ';': return makeToken(lexer, TOKEN_SEMICOLON);
     case ':': return makeToken(lexer, TOKEN_COLON);
-    case '?': return makeToken(lexer, TOKEN_QUESTION);
+    case '?':
+      if (match(lexer, '?')) {
+        if (match(lexer, '=')) return makeToken(lexer, TOKEN_QUESTION_QUESTION_EQUAL);
+        return makeToken(lexer, TOKEN_QUESTION_QUESTION);
+      }
+      /* `?.` only when a digit does not follow, so the conditional in
+       * `x ? .5 : .2` still lexes as a question mark and a number. This is
+       * the one place JavaScript's grammar needs two characters of
+       * lookahead, and it is why the standard spells the rule out. */
+      if (peek(lexer) == '.' && !isDigit(peekNext(lexer))) {
+        advance(lexer);
+        return makeToken(lexer, TOKEN_QUESTION_DOT);
+      }
+      return makeToken(lexer, TOKEN_QUESTION);
     case '+':
       if (match(lexer, '+')) return makeToken(lexer, TOKEN_PLUS_PLUS);
       if (match(lexer, '=')) return makeToken(lexer, TOKEN_PLUS_EQUAL);
@@ -421,11 +434,17 @@ Token csLexerNext(Lexer *lexer) {
     case '>': return makeToken(lexer, match(lexer, '=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
 
     case '&':
-      if (match(lexer, '&')) return makeToken(lexer, TOKEN_AMP_AMP);
+      if (match(lexer, '&')) {
+        if (match(lexer, '=')) return makeToken(lexer, TOKEN_AMP_AMP_EQUAL);
+        return makeToken(lexer, TOKEN_AMP_AMP);
+      }
       return errorToken(lexer, "unexpected '&' (did you mean '&&'?)");
 
     case '|':
-      if (match(lexer, '|')) return makeToken(lexer, TOKEN_PIPE_PIPE);
+      if (match(lexer, '|')) {
+        if (match(lexer, '=')) return makeToken(lexer, TOKEN_PIPE_PIPE_EQUAL);
+        return makeToken(lexer, TOKEN_PIPE_PIPE);
+      }
       return errorToken(lexer, "unexpected '|' (did you mean '||'?)");
 
     case '"':
@@ -453,6 +472,7 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_SEMICOLON:         return "SEMICOLON";
     case TOKEN_COLON:             return "COLON";
     case TOKEN_QUESTION:          return "QUESTION";
+    case TOKEN_QUESTION_DOT:      return "QUESTION_DOT";
     case TOKEN_PLUS:              return "PLUS";
     case TOKEN_MINUS:             return "MINUS";
     case TOKEN_STAR:              return "STAR";
@@ -481,6 +501,10 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_LESS_EQUAL:        return "LESS_EQUAL";
     case TOKEN_AMP_AMP:           return "AMP_AMP";
     case TOKEN_PIPE_PIPE:         return "PIPE_PIPE";
+    case TOKEN_QUESTION_QUESTION: return "QUESTION_QUESTION";
+    case TOKEN_AMP_AMP_EQUAL:     return "AMP_AMP_EQUAL";
+    case TOKEN_PIPE_PIPE_EQUAL:   return "PIPE_PIPE_EQUAL";
+    case TOKEN_QUESTION_QUESTION_EQUAL: return "QUESTION_QUESTION_EQUAL";
     case TOKEN_IDENTIFIER:        return "IDENTIFIER";
     case TOKEN_STRING:            return "STRING";
     case TOKEN_NUMBER:            return "NUMBER";

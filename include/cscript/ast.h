@@ -37,6 +37,7 @@ typedef enum {
   AST_SUPER,
   AST_AWAIT,
   AST_REGEX_LITERAL,
+  AST_OPTIONAL_CHAIN,
 
   /* Statements. */
   AST_EXPRESSION_STMT,
@@ -75,9 +76,24 @@ typedef enum {
 } BinaryOp;
 
 typedef enum {
-  LOGICAL_AND, /* && */
-  LOGICAL_OR,  /* || */
+  LOGICAL_AND,     /* &&  */
+  LOGICAL_OR,      /* ||  */
+  LOGICAL_NULLISH, /* ??  — present-or-default, not truthy-or-default */
 } LogicalOp;
+
+/* What an assignment does with the value already there.
+ *
+ * Kept on the node rather than desugared by the parser, because every form
+ * but the first has to read the target as well as write it — and reading it
+ * twice would evaluate the object expression twice. `f().x += 1` must call
+ * `f` once. */
+typedef enum {
+  ASSIGN_PLAIN,    /* =                     */
+  ASSIGN_COMPOUND, /* += -= *= /= %= **=    */
+  ASSIGN_AND,      /* &&=                   */
+  ASSIGN_OR,       /* ||=                   */
+  ASSIGN_NULLISH,  /* ??=                   */
+} AssignKind;
 
 typedef struct AstNode AstNode;
 
@@ -191,8 +207,10 @@ struct AstNode {
       int length;
     } identifier;
     struct {                             /* AST_ASSIGN */
-      AstNode *target;                   /*   an identifier for now */
+      AstNode *target;                   /*   identifier, property or index */
       AstNode *value;
+      AssignKind kind;
+      BinaryOp compoundOp;               /*   ASSIGN_COMPOUND only */
     } assign;
     struct {                             /* AST_UPDATE — ++x, x++, --x, x-- */
       AstNode *target;
@@ -204,6 +222,7 @@ struct AstNode {
       AstNode **arguments;
       int argCount;
       bool isNew;                        /*   construction rather than a call */
+      bool optional;                     /*   written `?.(` */
     } call;
     struct {                             /* AST_REGEX_LITERAL */
       const char *source;                /*   the pattern, no slashes */
@@ -243,6 +262,7 @@ struct AstNode {
       AstNode *object;
       const char *name;
       int length;
+      bool optional;                     /*   written `?.` */
     } property;
     struct {                             /* AST_VAR_DECL */
       const char *name;
@@ -295,6 +315,7 @@ struct AstNode {
     struct {                             /* AST_INDEX — target[index] */
       AstNode *target;
       AstNode *index;
+      bool optional;                     /*   written `?.[` */
     } index;
     struct {                             /* AST_OBJECT_LITERAL */
       AstNode **keys;                    /*   string literal nodes */
@@ -319,6 +340,15 @@ struct AstNode {
        * for diagnostics only: it must not declare anything, or `const f = () =>
        * 1;` would bind `f` twice. */
       bool nameIsInferred;
+      /* True only in statement position. A *named function expression* —
+       * `{ m: function m() {} }` — carries a name for stack traces but binds
+       * nothing in the enclosing scope, and treating it as a declaration
+       * pushed a second value that silently shifted every object literal it
+       * appeared in. */
+      bool isDeclaration;
+      /* `{ m() {} }`. Written as a method, so `this` is the object it was
+       * called on — the same rule a class body follows. */
+      bool isMethod;
     } function;
     AstNode *returnValue;                /* AST_RETURN_STMT, may be NULL */
     struct {                             /* AST_FOR_OF_STMT */
@@ -373,6 +403,18 @@ AstNode *csAstLogical(AstArena *arena, int line, LogicalOp op, AstNode *left,
 AstNode *csAstGrouping(AstArena *arena, int line, AstNode *inner);
 AstNode *csAstIdentifier(AstArena *arena, int line, const char *name, int length);
 AstNode *csAstAssign(AstArena *arena, int line, AstNode *target, AstNode *value);
+
+/* `target op= value`, with the kind kept rather than expanded. */
+AstNode *csAstAssignKind(AstArena *arena, int line, AstNode *target,
+                         AstNode *value, AssignKind kind, BinaryOp compoundOp);
+
+/* Wraps the whole of a postfix chain containing at least one `?.`.
+ *
+ * Optional chaining short-circuits the chain, not the link: in `a?.b.c()` a
+ * nullish `a` skips the `.c` and the call too. The links therefore cannot
+ * decide on their own where to jump, so the outermost expression carries the
+ * landing site and each link jumps to it. */
+AstNode *csAstOptionalChain(AstArena *arena, int line, AstNode *expression);
 AstNode *csAstUpdate(AstArena *arena, int line, AstNode *target, bool isIncrement,
                      bool isPrefix);
 AstNode *csAstCall(AstArena *arena, int line, AstNode *callee);

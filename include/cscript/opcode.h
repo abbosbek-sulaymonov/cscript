@@ -27,6 +27,8 @@
   X(OP_POP)               /*          discard top                          */ \
   X(OP_POP_N)             /* [count]  discard `count` values               */ \
   X(OP_DUP)               /*          duplicate top                        */ \
+  X(OP_DUP2)              /*          duplicate the top two, in order       */ \
+  X(OP_POP_UNDER)         /*          discard the value beneath the top     */ \
                                                                               \
   /* Variables. Locals live in stack slots resolved at compile time; globals  \
    * go through a hash lookup, which is why locals are the fast path. */       \
@@ -171,6 +173,17 @@
   X(OP_JUMP_IF_FALSE)     /* [hi][lo] jump if top is falsy, leaving it      */ \
   X(OP_JUMP_IF_TRUE)      /* [hi][lo] jump if top is truthy, leaving it     */ \
   X(OP_POP_JUMP_IF_FALSE) /* [hi][lo] pop, then jump if it was falsy        */ \
+                                                                              \
+  /* Nullish tests, for `??` and `?.`. Neither is a truthiness test: 0 and ""  \
+   * are falsy but present, and the whole point of both operators is to tell   \
+   * the difference. */                                                        \
+  X(OP_JUMP_IF_NULLISH)     /* [hi][lo] jump if top is null/undefined, leaving it */ \
+  X(OP_JUMP_IF_NOT_NULLISH) /* [hi][lo] jump if it is not, leaving it        */ \
+  /* `o.m?.()`. Asks the receiver on top whether it has the method, without    \
+   * producing it: a built-in lives in a per-type table that OP_GET_PROPERTY   \
+   * does not read, so testing the value would answer "absent" for every       \
+   * `xs.map?.()`. The receiver is left in place for the invoke. */            \
+  X(OP_JUMP_IF_NO_METHOD) /* [const16][hi][lo] */                              \
   X(OP_LOOP)              /* [hi][lo] jump backward                         */ \
                                                                               \
   /* Fused compare-and-branch. A loop condition otherwise materialises a       \

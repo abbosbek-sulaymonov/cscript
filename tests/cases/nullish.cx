@@ -1,0 +1,59 @@
+// `??` asks whether a value is present, not whether it is truthy.
+console.log(null ?? "d", undefined ?? "d");
+console.log(0 ?? "d", "" ?? "d", false ?? "d", NaN ?? "d");
+
+// Right-associative, and short-circuiting.
+let calls = 0;
+function side() { calls = calls + 1; return "s"; }
+console.log(1 ?? side(), calls);
+console.log(null ?? null ?? "last");
+
+// Parentheses are required to mix with && and ||, so these are explicit.
+console.log((null || 0) ?? "d", (null ?? 0) || "d");
+
+// Logical assignment stores only when the operator says to.
+let a = 0;
+a ||= 5;
+console.log(a);
+let b = 1;
+b ||= 9;
+console.log(b);
+let c = null;
+c ??= 3;
+console.log(c);
+let d = 0;
+d ??= 3;
+console.log(d);
+let e = 1;
+e &&= 8;
+console.log(e);
+let f = 0;
+f &&= 8;
+console.log(f);
+
+// They evaluate to what the variable ends up holding.
+let g = 2;
+console.log((g ||= 7), g);
+let h = 0;
+console.log((h ||= 7), h);
+
+// On properties and elements, with the target read once.
+const o = { x: 0, y: 5 };
+o.x ??= 1;
+o.y ??= 1;
+console.log(o.x, o.y);
+o.x ||= 42;
+console.log(o.x);
+
+const xs = [0, 3];
+xs[0] ||= 11;
+xs[1] ||= 11;
+console.log(xs[0], xs[1]);
+
+// The object expression is evaluated once, not once per mention.
+let evaluations = 0;
+const holder = [{ n: 1 }];
+function pick() { evaluations = evaluations + 1; return holder[0]; }
+pick().n += 1;
+pick().n ||= 99;
+console.log(evaluations, holder[0].n);

@@ -147,6 +147,7 @@ int makeConstant(Value value, int line);
 void emitConstant(Value value, int line);
 int identifierConstant(const char *name, int length, int line);
 int emitJump(uint8_t instruction, int line);
+int emitJump16(int line);
 void patchJump(int offset, int line);
 void emitLoop(int loopStart, int line);
 void beginScope(void);
@@ -173,8 +174,12 @@ void compileNode(const AstNode *node);
 
 /* src/compiler_expression.c */
 void compileOperandPair(const AstNode *left, const AstNode *right, int line);
+uint8_t binaryOpcode(BinaryOp op);
 void compileBinary(const AstNode *node);
 void compileLogical(const AstNode *node);
+void compileOptionalChain(const AstNode *node);
+void emitOptionalGuard(int line);
+void emitOptionalJump(int line);
 void compileIdentifierLoad(const char *name, int length, int line);
 void compileAssign(const AstNode *node, bool discard);
 void compileUpdate(const AstNode *node);

@@ -1,0 +1,27 @@
+// `?.` short-circuits the whole chain, not the link.
+const deep = { a: { b: { c: 7 } } };
+console.log(deep?.a.b.c, deep?.a?.b?.c);
+
+const shallow = { a: null };
+console.log(shallow.a?.b, shallow.a?.b.c.d);
+
+const absent = null;
+console.log(absent?.a, absent?.a.b.c, absent?.[0], absent?.());
+
+// Nothing past a short circuit is evaluated — not an index, not an argument.
+let calls = 0;
+function bump() { calls = calls + 1; return 0; }
+console.log(absent?.[bump()], absent?.(bump()), calls);
+
+// Optional calls keep their receiver, including for built-ins.
+const counter = { n: 4, get() { return this.n; } };
+console.log(counter.get?.(), counter.missing?.());
+console.log([1, 2, 3].map?.((x) => x * 2));
+console.log("ab".toUpperCase?.(), "ab".nope?.());
+console.log(Math.max?.(1, 5, 2));
+
+class Box { value() { return 9; } }
+console.log(new Box().value?.(), new Box().other?.());
+
+// Literals take suffixes too, which is what makes this parse at all.
+console.log(null?.x === undefined, undefined?.x);

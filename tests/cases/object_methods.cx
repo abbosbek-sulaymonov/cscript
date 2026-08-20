@@ -1,0 +1,19 @@
+// Method shorthand, and the `this` that comes with it.
+const counter = {
+  n: 1,
+  get() { return this.n; },
+  add(by) { this.n = this.n + by; return this.n; },
+};
+console.log(counter.get(), counter.add(4), counter.get());
+
+// Keys stay in order and keep their own names.
+const mixed = { a: 1, m() { return 2; }, b: 3 };
+console.log(Object.keys(mixed), mixed.a, mixed.m(), mixed.b);
+
+// A named function *expression* binds nothing in the enclosing scope.
+const holder = { m: function m() { return 4; } };
+console.log(Object.keys(holder), holder.m());
+
+// A plain function on an object is not a method, so it gets no receiver.
+const plain = { f: function () { return 5; } };
+console.log(plain.f());

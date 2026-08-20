@@ -48,6 +48,28 @@ void compileOperandPair(const AstNode *left, const AstNode *right, int line) {
   compileNode(right);
 }
 
+/* The instruction a binary operator compiles to, ignoring specialisation.
+ * Shared with compound assignment, which builds the same operation without an
+ * AST_BINARY node to hang resolved types off. */
+uint8_t binaryOpcode(BinaryOp op) {
+  switch (op) {
+    case BINARY_ADD:           return OP_ADD;
+    case BINARY_SUBTRACT:      return OP_SUBTRACT;
+    case BINARY_MULTIPLY:      return OP_MULTIPLY;
+    case BINARY_DIVIDE:        return OP_DIVIDE;
+    case BINARY_MODULO:        return OP_MODULO;
+    case BINARY_EXPONENT:      return OP_EXPONENT;
+    case BINARY_EQUAL:         return OP_EQUAL;
+    case BINARY_NOT_EQUAL:     return OP_NOT_EQUAL;
+    case BINARY_GREATER:       return OP_GREATER;
+    case BINARY_GREATER_EQUAL: return OP_GREATER_EQUAL;
+    case BINARY_LESS:          return OP_LESS;
+    case BINARY_LESS_EQUAL:    return OP_LESS_EQUAL;
+    case BINARY_INSTANCEOF:    return OP_INSTANCEOF;
+  }
+  return OP_ADD;
+}
+
 void compileBinary(const AstNode *node) {
   compileOperandPair(node->as.binary.left, node->as.binary.right, node->line);
 
@@ -69,23 +91,76 @@ void compileBinary(const AstNode *node) {
     current->function->genericSites++;
   }
 
-  switch (node->as.binary.op) {
-    case BINARY_ADD:
-      emitByte(bothNumbers ? OP_ADD_NUM : OP_ADD, line);
-      break;
-    case BINARY_SUBTRACT:      emitByte(OP_SUBTRACT, line); break;
-    case BINARY_MULTIPLY:      emitByte(OP_MULTIPLY, line); break;
-    case BINARY_DIVIDE:        emitByte(OP_DIVIDE, line); break;
-    case BINARY_MODULO:        emitByte(OP_MODULO, line); break;
-    case BINARY_EXPONENT:      emitByte(OP_EXPONENT, line); break;
-    case BINARY_EQUAL:         emitByte(OP_EQUAL, line); break;
-    case BINARY_NOT_EQUAL:     emitByte(OP_NOT_EQUAL, line); break;
-    case BINARY_GREATER:       emitByte(OP_GREATER, line); break;
-    case BINARY_GREATER_EQUAL: emitByte(OP_GREATER_EQUAL, line); break;
-    case BINARY_LESS:          emitByte(OP_LESS, line); break;
-    case BINARY_LESS_EQUAL:    emitByte(OP_LESS_EQUAL, line); break;
-    case BINARY_INSTANCEOF:    emitByte(OP_INSTANCEOF, line); break;
+  emitByte(node->as.binary.op == BINARY_ADD && bothNumbers
+               ? OP_ADD_NUM
+               : binaryOpcode(node->as.binary.op),
+           line);
+}
+
+/* Optional chaining.
+ *
+ * `a?.b.c()` short-circuits the *chain*, not the link: a nullish `a` skips the
+ * `.c` and the call as well. So every `?.` in one chain jumps to the same
+ * place, and only the outermost expression knows where that is — which is why
+ * the parser wraps the chain in a node of its own.
+ *
+ * Chains nest only as expressions nest (`a?.b(c?.d)`), so a small fixed stack
+ * is enough; nothing a program can grow feeds it. */
+#define CS_MAX_CHAIN_DEPTH 16
+#define CS_MAX_CHAIN_LINKS 32
+
+typedef struct {
+  int jumps[CS_MAX_CHAIN_LINKS];
+  int count;
+} OptionalChain;
+
+static OptionalChain chains[CS_MAX_CHAIN_DEPTH];
+static int chainDepth = 0;
+
+/* Emitted with the value that `?.` tests on top of the stack, and nothing of
+ * the chain's below it — which is what lets the landing site replace exactly
+ * one value regardless of which link jumped. */
+void emitOptionalGuard(int line) {
+  if (chainDepth == 0) return;
+  OptionalChain *chain = &chains[chainDepth - 1];
+  if (chain->count >= CS_MAX_CHAIN_LINKS) {
+    errorAt(line, "too many '?.' links in one chain (limit %d)", CS_MAX_CHAIN_LINKS);
+    return;
   }
+  chain->jumps[chain->count++] = emitJump(OP_JUMP_IF_NULLISH, line);
+}
+
+/* An unconditional jump into the same landing site. Used where a link has to
+ * tidy the stack before it short-circuits. */
+void emitOptionalJump(int line) {
+  if (chainDepth == 0) return;
+  OptionalChain *chain = &chains[chainDepth - 1];
+  if (chain->count >= CS_MAX_CHAIN_LINKS) {
+    errorAt(line, "too many '?.' links in one chain (limit %d)", CS_MAX_CHAIN_LINKS);
+    return;
+  }
+  chain->jumps[chain->count++] = emitJump(OP_JUMP, line);
+}
+
+void compileOptionalChain(const AstNode *node) {
+  int line = node->line;
+  if (chainDepth >= CS_MAX_CHAIN_DEPTH) {
+    errorAt(line, "'?.' chains nested too deeply (limit %d)", CS_MAX_CHAIN_DEPTH);
+    return;
+  }
+
+  chains[chainDepth++].count = 0;
+  compileNode(node->as.expression);
+  OptionalChain *chain = &chains[--chainDepth];
+  if (chain->count == 0) return;
+
+  int over = emitJump(OP_JUMP, line);
+  for (int i = 0; i < chain->count; i++) patchJump(chain->jumps[i], line);
+  /* The result of a short-circuit is undefined even when the value that
+   * caused it was null: `null?.x` is undefined, which is observable. */
+  emitByte(OP_POP, line);
+  emitByte(OP_UNDEFINED, line);
+  patchJump(over, line);
 }
 
 /* && and || evaluate to an operand, not to a boolean, so they compile to a
@@ -94,8 +169,11 @@ void compileLogical(const AstNode *node) {
   int line = node->line;
   compileNode(node->as.logical.left);
 
-  uint8_t jumpOp =
-      node->as.logical.op == LOGICAL_AND ? OP_JUMP_IF_FALSE : OP_JUMP_IF_TRUE;
+  /* `??` asks a different question from `||`: whether the left side is
+   * *present*, not whether it is truthy. `0 ?? 1` is 0. */
+  uint8_t jumpOp = node->as.logical.op == LOGICAL_AND    ? OP_JUMP_IF_FALSE
+                   : node->as.logical.op == LOGICAL_OR   ? OP_JUMP_IF_TRUE
+                                                         : OP_JUMP_IF_NOT_NULLISH;
   int endJump = emitJump(jumpOp, line);
 
   /* Not short-circuiting: drop the left value, the right one is the result. */
@@ -122,9 +200,141 @@ void compileIdentifierLoad(const char *name, int length, int line) {
 
 /* `discard` is set when the assignment's value is thrown away, which lets the
  * store and the pop fuse into one instruction. */
+/* Stores into a variable target, with the value already on the stack. The
+ * const check lives here so every path through assignment gets it. */
+static void emitIdentifierStore(const AstNode *target, bool discard, int line) {
+  const char *name = target->as.identifier.name;
+  int length = target->as.identifier.length;
+
+  int slot = resolveLocal(current, name, length);
+  if (slot != -1) {
+    if (current->locals[slot].isConst) {
+      errorAt(line, "'%.*s' is declared const and cannot be reassigned", length, name);
+      return;
+    }
+    emitBytes(discard ? OP_SET_LOCAL_POP : OP_SET_LOCAL, (uint8_t)slot, line);
+    return;
+  }
+
+  int upvalue = resolveUpvalue(current, name, length, line);
+  if (upvalue != -1) {
+    if (enclosingLocalIsConst(current, name, length)) {
+      errorAt(line, "'%.*s' is declared const and cannot be reassigned", length, name);
+      return;
+    }
+    emitBytes(OP_SET_UPVALUE, (uint8_t)upvalue, line);
+    if (discard) emitByte(OP_POP, line);
+    return;
+  }
+
+  GlobalDecl *global = findGlobal(name, length);
+  if (global != NULL && global->isConst) {
+    errorAt(line, "'%.*s' is declared const and cannot be reassigned", length, name);
+    return;
+  }
+  emitGlobalOp(discard ? OP_SET_GLOBAL_POP : OP_SET_GLOBAL,
+               identifierConstant(name, length, line), line);
+}
+
+/* The jump that skips the store, for `&&=`, `||=` and `??=`.
+ *
+ * Each is taken when the value already there settles the question, so the
+ * right side is never evaluated and no store happens — which is the whole
+ * difference between `a ||= b` and `a = a || b`, and matters when the target
+ * is a property with a setter or a value someone is watching. */
+static uint8_t logicalSkipJump(AssignKind kind) {
+  switch (kind) {
+    case ASSIGN_AND:     return OP_JUMP_IF_FALSE;
+    case ASSIGN_OR:      return OP_JUMP_IF_TRUE;
+    default:             return OP_JUMP_IF_NOT_NULLISH;
+  }
+}
+
+/* `target op= value`, where the old value has to be read before the new one
+ * is written.
+ *
+ * The target's own operands — the object of a property, the target and index
+ * of a subscript — are evaluated *once* and duplicated. Expanding these into
+ * `target = target op value` in the parser instead was what made `f().x += 1`
+ * call `f` twice.
+ */
+static void compileReadModifyWrite(const AstNode *node, bool discard) {
+  const AstNode *target = node->as.assign.target;
+  AssignKind kind = node->as.assign.kind;
+  int line = node->line;
+  bool isLogical = kind != ASSIGN_COMPOUND;
+
+  /* How many values sit under the old one and have to be cleared if the
+   * store is skipped: the object, or the target and the index. */
+  int beneath = 0;
+  int nameConstant = -1;
+
+  switch (target->type) {
+    case AST_PROPERTY:
+      compileNode(target->as.property.object);
+      emitByte(OP_DUP, line);
+      nameConstant = identifierConstant(target->as.property.name,
+                                        target->as.property.length, line);
+      emitPropertyOp(OP_GET_PROPERTY, nameConstant, line);
+      beneath = 1;
+      break;
+
+    case AST_INDEX:
+      compileNode(target->as.index.target);
+      compileNode(target->as.index.index);
+      emitByte(OP_DUP2, line);
+      emitByte(OP_GET_INDEX, line);
+      beneath = 2;
+      break;
+
+    default:
+      compileIdentifierLoad(target->as.identifier.name,
+                            target->as.identifier.length, line);
+      break;
+  }
+
+  int skip = isLogical ? emitJump(logicalSkipJump(kind), line) : -1;
+  if (isLogical) emitByte(OP_POP, line); /* the old value; the new one replaces it */
+
+  compileNode(node->as.assign.value);
+  if (!isLogical) emitByte(binaryOpcode(node->as.assign.compoundOp), line);
+
+  switch (target->type) {
+    case AST_PROPERTY:
+      emitPropertyOp(discard ? OP_SET_PROPERTY_POP : OP_SET_PROPERTY,
+                     nameConstant, line);
+      break;
+    case AST_INDEX:
+      emitByte(OP_SET_INDEX, line);
+      if (discard) emitByte(OP_POP, line);
+      break;
+    default:
+      emitIdentifierStore(target, discard, line);
+      break;
+  }
+
+  if (!isLogical) return;
+
+  /* The short-circuit path still holds the target's operands under the old
+   * value, and the two paths have to leave the stack the same height. */
+  int over = emitJump(OP_JUMP, line);
+  patchJump(skip, line);
+  if (discard) {
+    for (int i = 0; i < beneath + 1; i++) emitByte(OP_POP, line);
+  } else {
+    for (int i = 0; i < beneath; i++) emitByte(OP_POP_UNDER, line);
+  }
+  patchJump(over, line);
+}
+
 void compileAssign(const AstNode *node, bool discard) {
   const AstNode *target = node->as.assign.target;
   int assignLine = node->line;
+
+  if (node->as.assign.kind != ASSIGN_PLAIN) {
+    compileReadModifyWrite(node, discard);
+    return;
+  }
 
   if (target->type == AST_PROPERTY) {
     compileNode(target->as.property.object);
@@ -141,44 +351,12 @@ void compileAssign(const AstNode *node, bool discard) {
     compileNode(target->as.index.index);
     compileNode(node->as.assign.value);
     emitByte(OP_SET_INDEX, assignLine);
-    return;
-  }
-
-  const char *name = target->as.identifier.name;
-  int length = target->as.identifier.length;
-  int line = node->line;
-
-  int slot = resolveLocal(current, name, length);
-  if (slot != -1) {
-    if (current->locals[slot].isConst) {
-      errorAt(line, "'%.*s' is declared const and cannot be reassigned", length, name);
-      return;
-    }
-    compileNode(node->as.assign.value);
-    emitBytes(discard ? OP_SET_LOCAL_POP : OP_SET_LOCAL, (uint8_t)slot, line);
-    return;
-  }
-
-  int upvalue = resolveUpvalue(current, name, length, line);
-  if (upvalue != -1) {
-    if (enclosingLocalIsConst(current, name, length)) {
-      errorAt(line, "'%.*s' is declared const and cannot be reassigned", length, name);
-      return;
-    }
-    compileNode(node->as.assign.value);
-    emitBytes(OP_SET_UPVALUE, (uint8_t)upvalue, line);
-    return;
-  }
-
-  GlobalDecl *global = findGlobal(name, length);
-  if (global != NULL && global->isConst) {
-    errorAt(line, "'%.*s' is declared const and cannot be reassigned", length,
-            name);
+    if (discard) emitByte(OP_POP, assignLine);
     return;
   }
 
   compileNode(node->as.assign.value);
-  emitGlobalOp(discard ? OP_SET_GLOBAL_POP : OP_SET_GLOBAL, identifierConstant(name, length, line), line);
+  emitIdentifierStore(target, discard, assignLine);
 }
 
 /* ++x / x++ / --x / x--
@@ -445,7 +623,7 @@ void compileFunctionAs(const AstNode *node, FunctionKind kind) {
 }
 
 void compileFunction(const AstNode *node) {
-  compileFunctionAs(node, FUNCTION_BODY);
+  compileFunctionAs(node, node->as.function.isMethod ? FUNCTION_METHOD : FUNCTION_BODY);
 }
 
 /* Pushes `this`, which is slot 0 of the nearest enclosing method — directly

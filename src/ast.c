@@ -165,6 +165,22 @@ AstNode *csAstAssign(AstArena *arena, int line, AstNode *target, AstNode *value)
   return node;
 }
 
+AstNode *csAstAssignKind(AstArena *arena, int line, AstNode *target,
+                         AstNode *value, AssignKind kind, BinaryOp compoundOp) {
+  AstNode *node = csAstAssign(arena, line, target, value);
+  if (node == NULL) return NULL;
+  node->as.assign.kind = kind;
+  node->as.assign.compoundOp = compoundOp;
+  return node;
+}
+
+AstNode *csAstOptionalChain(AstArena *arena, int line, AstNode *expression) {
+  AstNode *node = newNode(arena, AST_OPTIONAL_CHAIN, line);
+  if (node == NULL) return NULL;
+  node->as.expression = expression;
+  return node;
+}
+
 AstNode *csAstUpdate(AstArena *arena, int line, AstNode *target, bool isIncrement,
                      bool isPrefix) {
   AstNode *node = newNode(arena, AST_UPDATE, line);
@@ -283,6 +299,8 @@ AstNode *csAstFunction(AstArena *arena, int line, const char *name, int nameLeng
   node->as.function.hasReturnAnnotation = false;
   node->as.function.isAsync = false;
   node->as.function.nameIsInferred = false;
+  node->as.function.isDeclaration = false;
+  node->as.function.isMethod = false;
   return node;
 }
 
@@ -724,8 +742,9 @@ const char *csBinaryOpName(BinaryOp op) {
 
 const char *csLogicalOpName(LogicalOp op) {
   switch (op) {
-    case LOGICAL_AND: return "&&";
-    case LOGICAL_OR:  return "||";
+    case LOGICAL_AND:     return "&&";
+    case LOGICAL_OR:      return "||";
+    case LOGICAL_NULLISH: return "?\?";
   }
   return "?";
 }

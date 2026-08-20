@@ -10,8 +10,78 @@
 
 
 /* Postfix `.name` and `(args)`, which bind tighter than any unary operator. */
+/* The argument list of a call, after its '(' has been consumed. Shared by the
+ * plain and optional forms so the two cannot drift apart. */
+static bool parseCallArguments(Parser *parser, AstNode *call, int line) {
+  if (!check(parser, TOKEN_RIGHT_PAREN)) {
+    do {
+      bool isSpread = matchToken(parser, TOKEN_ELLIPSIS);
+      AstNode *argument = parsePrecedence(parser, PREC_ASSIGNMENT);
+      if (argument == NULL) return false;
+      if (isSpread) argument = csAstSpread(parser->arena, line, argument);
+      csAstCallAddArgument(parser->arena, call, argument);
+    } while (matchToken(parser, TOKEN_COMMA));
+  }
+  consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after arguments");
+  return !parser->diag->panicMode;
+}
+
+/* True when a logical operator is being written next to `?\?` without
+ * parentheses, which JavaScript rejects outright. */
+static bool rejectMixedNullish(Parser *parser, const AstNode *left,
+                               TokenType operatorType, int line) {
+  bool joiningNullish = operatorType == TOKEN_QUESTION_QUESTION;
+  bool joiningLogical =
+      operatorType == TOKEN_AMP_AMP || operatorType == TOKEN_PIPE_PIPE;
+  if (!joiningNullish && !joiningLogical) return false;
+  if (left == NULL || left->type != AST_LOGICAL) return false;
+
+  bool leftIsNullish = left->as.logical.op == LOGICAL_NULLISH;
+  if (joiningNullish == leftIsNullish) return false;
+
+  csDiagnosticError(parser->diag, line, NULL, 0,
+                    "'?\?' cannot be mixed with '&&' or '||' without "
+                    "parentheses saying which was meant");
+  return true;
+}
+
 AstNode *parseCallSuffixes(Parser *parser, AstNode *expression) {
+  /* Set by the first `?.`. See csAstOptionalChain: the links short-circuit
+   * the whole chain, so the chain has to exist as a node. */
+  bool sawOptional = false;
+
   for (;;) {
+    if (check(parser, TOKEN_QUESTION_DOT)) {
+      int line = parser->current.line;
+      advanceToken(parser);
+      sawOptional = true;
+
+      if (matchToken(parser, TOKEN_LEFT_BRACKET)) {
+        AstNode *index = parseExpression(parser);
+        consume(parser, TOKEN_RIGHT_BRACKET, "expected ']' after the index");
+        if (index == NULL || parser->diag->panicMode) return NULL;
+        expression = csAstIndex(parser->arena, line, expression, index);
+        expression->as.index.optional = true;
+        continue;
+      }
+
+      if (check(parser, TOKEN_LEFT_PAREN)) {
+        advanceToken(parser);
+        AstNode *call = csAstCall(parser->arena, line, expression);
+        if (!parseCallArguments(parser, call, line)) return NULL;
+        call->as.call.optional = true;
+        expression = call;
+        continue;
+      }
+
+      if (!consumePropertyName(parser, "expected a property name after '?.'")) return NULL;
+      if (parser->diag->panicMode) return NULL;
+      expression = csAstProperty(parser->arena, line, expression,
+                                 parser->previous.start, parser->previous.length);
+      expression->as.property.optional = true;
+      continue;
+    }
+
     if (matchToken(parser, TOKEN_DOT)) {
       int line = parser->previous.line;
       if (!consumePropertyName(parser, "expected a property name after '.'")) return NULL;
@@ -33,17 +103,7 @@ AstNode *parseCallSuffixes(Parser *parser, AstNode *expression) {
     if (matchToken(parser, TOKEN_LEFT_PAREN)) {
       int line = parser->previous.line;
       AstNode *call = csAstCall(parser->arena, line, expression);
-      if (!check(parser, TOKEN_RIGHT_PAREN)) {
-        do {
-          bool isSpread = matchToken(parser, TOKEN_ELLIPSIS);
-          AstNode *argument = parsePrecedence(parser, PREC_ASSIGNMENT);
-          if (argument == NULL) return NULL;
-          if (isSpread) argument = csAstSpread(parser->arena, line, argument);
-          csAstCallAddArgument(parser->arena, call, argument);
-        } while (matchToken(parser, TOKEN_COMMA));
-      }
-      consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after arguments");
-      if (parser->diag->panicMode) return NULL;
+      if (!parseCallArguments(parser, call, line)) return NULL;
       expression = call;
       continue;
     }
@@ -63,6 +123,10 @@ AstNode *parseCallSuffixes(Parser *parser, AstNode *expression) {
       continue;
     }
 
+    /* The chain is complete, so this is where a nullish link lands. */
+    if (sawOptional) {
+      expression = csAstOptionalChain(parser->arena, expression->line, expression);
+    }
     return expression;
   }
 }
@@ -88,14 +152,21 @@ AstNode *parsePrimary(Parser *parser) {
     if (template == NULL) return NULL;
     return parseCallSuffixes(parser, template);
   }
+  /* The literals take suffixes like anything else, which is what makes
+   * `null?.x` parse — and it has to, because that is the case `?.` exists
+   * for. */
   if (matchToken(parser, TOKEN_TRUE)) {
-    return csAstBool(parser->arena, line, true);
+    return parseCallSuffixes(parser, csAstBool(parser->arena, line, true));
   }
   if (matchToken(parser, TOKEN_FALSE)) {
-    return csAstBool(parser->arena, line, false);
+    return parseCallSuffixes(parser, csAstBool(parser->arena, line, false));
   }
-  if (matchToken(parser, TOKEN_NULL)) return csAstNull(parser->arena, line);
-  if (matchToken(parser, TOKEN_UNDEFINED)) return csAstUndefined(parser->arena, line);
+  if (matchToken(parser, TOKEN_NULL)) {
+    return parseCallSuffixes(parser, csAstNull(parser->arena, line));
+  }
+  if (matchToken(parser, TOKEN_UNDEFINED)) {
+    return parseCallSuffixes(parser, csAstUndefined(parser->arena, line));
+  }
 
   if (matchToken(parser, TOKEN_THIS)) {
     return parseCallSuffixes(parser, csAstThis(parser->arena, line));
@@ -252,6 +323,17 @@ AstNode *parsePrimary(Parser *parser) {
           if (parser->diag->panicMode) return NULL;
           key = csAstString(parser->arena, parser->previous.line,
                             parser->previous.start, parser->previous.length);
+        }
+
+        /* `{ m() {} }` is `{ m: function m() {} }`. Named after the key, so a
+         * stack trace says which method it was. */
+        if (check(parser, TOKEN_LEFT_PAREN)) {
+          AstNode *method = parseFunctionRest(parser, key->line, key->as.string.chars,
+                                              key->as.string.length, true);
+          if (method == NULL) return NULL;
+          method->as.function.isMethod = true;
+          csAstObjectLiteralAdd(parser->arena, object, key, method);
+          continue;
         }
 
         /* `{ x }` is `{ x: x }`. The key was just read, so the value is an
@@ -418,11 +500,13 @@ AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence) {
   for (;;) {
     /* Assignment, handled before the table because it is right-associative and
      * needs the left side to be a valid target rather than a value. */
-    BinaryOp compound;
+    BinaryOp compound = BINARY_ADD;
+    AssignKind logical;
     bool isPlain = check(parser, TOKEN_EQUAL);
     bool isCompound = compoundAssignOp(parser->current.type, &compound);
+    bool isLogical = logicalAssignKind(parser->current.type, &logical);
 
-    if ((isPlain || isCompound) && minPrecedence <= PREC_ASSIGNMENT) {
+    if ((isPlain || isCompound || isLogical) && minPrecedence <= PREC_ASSIGNMENT) {
       int line = parser->current.line;
       advanceToken(parser);
 
@@ -436,9 +520,13 @@ AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence) {
 
       AstNode *value = parsePrecedence(parser, PREC_ASSIGNMENT);
       if (value == NULL) return NULL;
-      if (isCompound) value = csAstBinary(parser->arena, line, compound, left, value);
 
-      left = csAstAssign(parser->arena, line, left, value);
+      /* The kind travels on the node rather than being expanded into
+       * `target = target op value` here. Expanding it would compile the
+       * target twice, so `f().x += 1` would call `f` twice — which it did,
+       * until this stopped being a desugaring. */
+      AssignKind kind = isPlain ? ASSIGN_PLAIN : isCompound ? ASSIGN_COMPOUND : logical;
+      left = csAstAssignKind(parser->arena, line, left, value, kind, compound);
       continue;
     }
 
@@ -467,6 +555,13 @@ AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence) {
 
     TokenType operatorType = parser->current.type;
     int line = parser->current.line;
+
+    /* `a || b ?? c` is a syntax error in JavaScript, not a precedence
+     * question. The two operators disagree about what counts as "no value",
+     * so any grouping the language picked would be a coin-flip for whoever
+     * reads it next; requiring the parentheses says which was meant. */
+    if (rejectMixedNullish(parser, left, operatorType, line)) return NULL;
+
     advanceToken(parser);
 
     /* ** is the one right-associative binary operator, so 2 ** 3 ** 2 groups
@@ -481,6 +576,8 @@ AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence) {
       left = csAstLogical(parser->arena, line, LOGICAL_AND, left, right);
     } else if (operatorType == TOKEN_PIPE_PIPE) {
       left = csAstLogical(parser->arena, line, LOGICAL_OR, left, right);
+    } else if (operatorType == TOKEN_QUESTION_QUESTION) {
+      left = csAstLogical(parser->arena, line, LOGICAL_NULLISH, left, right);
     } else {
       left = csAstBinary(parser->arena, line, binaryOpFor(operatorType), left, right);
     }
@@ -736,5 +833,9 @@ AstNode *parseFunction(Parser *parser, bool requireName) {
     return NULL;
   }
 
-  return parseFunctionRest(parser, line, name, nameLength, false);
+  AstNode *function = parseFunctionRest(parser, line, name, nameLength, false);
+  /* `requireName` is exactly statement position, which is exactly where a
+   * function declares its name. */
+  if (function != NULL) function->as.function.isDeclaration = requireName;
+  return function;
 }

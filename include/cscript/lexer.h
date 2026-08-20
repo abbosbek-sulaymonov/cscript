@@ -16,6 +16,7 @@ typedef enum {
   TOKEN_LEFT_BRACE, TOKEN_RIGHT_BRACE,
   TOKEN_LEFT_BRACKET, TOKEN_RIGHT_BRACKET,
   TOKEN_COMMA, TOKEN_DOT, TOKEN_ELLIPSIS, TOKEN_SEMICOLON, TOKEN_COLON, TOKEN_QUESTION,
+  TOKEN_QUESTION_DOT, /* optional chaining: ?. and, with a lookahead, ?.[ ?.( */
 
   /* Arithmetic. */
   TOKEN_PLUS, TOKEN_MINUS, TOKEN_STAR, TOKEN_SLASH, TOKEN_PERCENT,
@@ -32,7 +33,11 @@ typedef enum {
   TOKEN_LESS, TOKEN_LESS_EQUAL,
 
   /* Logical. */
-  TOKEN_AMP_AMP, TOKEN_PIPE_PIPE,
+  TOKEN_AMP_AMP, TOKEN_PIPE_PIPE, TOKEN_QUESTION_QUESTION,
+  /* Logical assignment. Short-circuiting, so these are not sugar for the
+   * matching binary operator: `a ||= b` must not read `a`'s setter twice, and
+   * `a ??= b` must not evaluate `b` when `a` is already there. */
+  TOKEN_AMP_AMP_EQUAL, TOKEN_PIPE_PIPE_EQUAL, TOKEN_QUESTION_QUESTION_EQUAL,
 
   /* Literals. */
   TOKEN_IDENTIFIER, TOKEN_STRING, TOKEN_NUMBER, TOKEN_TEMPLATE, TOKEN_REGEX,

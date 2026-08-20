@@ -134,6 +134,8 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_POP:               return simpleInstruction("OP_POP", offset);
     case OP_POP_N:             return byteInstruction("OP_POP_N", chunk, offset);
     case OP_DUP:               return simpleInstruction("OP_DUP", offset);
+    case OP_DUP2:              return simpleInstruction("OP_DUP2", offset);
+    case OP_POP_UNDER:         return simpleInstruction("OP_POP_UNDER", offset);
     case OP_DEFINE_GLOBAL:     return constantInstruction("OP_DEFINE_GLOBAL", chunk, offset);
     case OP_DEFINE_CONST:      return constantInstruction("OP_DEFINE_CONST", chunk, offset);
     case OP_GET_GLOBAL:        return cachedInstruction("OP_GET_GLOBAL", chunk, offset);
@@ -240,6 +242,19 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_JUMP:              return jumpInstruction("OP_JUMP", 1, chunk, offset);
     case OP_JUMP_IF_FALSE:     return jumpInstruction("OP_JUMP_IF_FALSE", 1, chunk, offset);
     case OP_JUMP_IF_TRUE:      return jumpInstruction("OP_JUMP_IF_TRUE", 1, chunk, offset);
+    case OP_JUMP_IF_NO_METHOD: {
+      /* [const16][hi][lo] — a name and then an offset. */
+      uint16_t constant = (uint16_t)((chunk->code[offset + 1] << 8) | chunk->code[offset + 2]);
+      uint16_t jump = (uint16_t)((chunk->code[offset + 3] << 8) | chunk->code[offset + 4]);
+      emit("%-24s %4d '", "OP_JUMP_IF_NO_METHOD", constant);
+      if (!quiet) csValuePrint(chunk->constants.values[constant]);
+      emit("' -> %d\n", offset + 5 + jump);
+      return offset + 5;
+    }
+    case OP_JUMP_IF_NULLISH:
+      return jumpInstruction("OP_JUMP_IF_NULLISH", 1, chunk, offset);
+    case OP_JUMP_IF_NOT_NULLISH:
+      return jumpInstruction("OP_JUMP_IF_NOT_NULLISH", 1, chunk, offset);
     case OP_POP_JUMP_IF_FALSE: return jumpInstruction("OP_POP_JUMP_IF_FALSE", 1, chunk, offset);
     case OP_LOOP:              return jumpInstruction("OP_LOOP", -1, chunk, offset);
     case OP_TRY:               return jumpInstruction("OP_TRY", 1, chunk, offset);
@@ -322,6 +337,10 @@ static void printNode(const AstNode *node, int depth) {
     case AST_GROUPING:
       printf("Grouping\n");
       printNode(node->as.grouping, depth + 1);
+      break;
+    case AST_OPTIONAL_CHAIN:
+      printf("OptionalChain\n");
+      printNode(node->as.expression, depth + 1);
       break;
     case AST_IDENTIFIER:
       printf("Identifier %.*s", node->as.identifier.length, node->as.identifier.name);

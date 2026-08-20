@@ -107,11 +107,17 @@ int identifierConstant(const char *name, int length, int line) {
 }
 
 /* Writes a jump with a placeholder operand and returns the offset to patch. */
-int emitJump(uint8_t instruction, int line) {
-  emitByte(instruction, line);
+/* The two-byte placeholder alone, for a jump whose opcode and other operands
+ * are already written — OP_JUMP_IF_NO_METHOD carries a constant first. */
+int emitJump16(int line) {
   emitByte(0xff, line);
   emitByte(0xff, line);
   return currentChunk()->count - 2;
+}
+
+int emitJump(uint8_t instruction, int line) {
+  emitByte(instruction, line);
+  return emitJump16(line);
 }
 
 /* Fills in a jump emitted earlier, now that the target is known. */
@@ -381,6 +387,8 @@ void beginFunction(Compiler *compiler, FunctionKind kind, const char *name,
 
   /* Slot 0 belongs to the running function, and naming it "" keeps it
    * unreachable — except in a method, where it holds the receiver instead. */
+  compiler->function->isMethod = isMethodKind(kind);
+
   Local *local = &compiler->locals[compiler->localCount++];
   local->name = isMethodKind(kind) ? "this" : "";
   local->length = isMethodKind(kind) ? 4 : 0;
@@ -482,7 +490,9 @@ void compileNode(const AstNode *node) {
       /* `this.x` and `local.x` fuse the load of the receiver into the read.
        * The pair profile puts this at 8.5% of a class-heavy program. */
       const AstNode *object = node->as.property.object;
-      int slot = object->type == AST_IDENTIFIER
+      /* The fusion loads the receiver and reads the property in one
+       * instruction, which leaves nowhere to test the receiver for `?.`. */
+      int slot = object->type == AST_IDENTIFIER && !node->as.property.optional
                      ? resolveLocal(current, object->as.identifier.name,
                                     object->as.identifier.length)
                      : -1;
@@ -498,6 +508,7 @@ void compileNode(const AstNode *node) {
         break;
       }
       compileNode(object);
+      if (node->as.property.optional) emitOptionalGuard(line);
       emitPropertyOp(OP_GET_PROPERTY,
                      identifierConstant(node->as.property.name,
                                         node->as.property.length, line),
@@ -505,8 +516,15 @@ void compileNode(const AstNode *node) {
       break;
     }
 
+    case AST_OPTIONAL_CHAIN:
+      compileOptionalChain(node);
+      break;
+
     case AST_INDEX:
       compileNode(node->as.index.target);
+      /* Before the subscript: `a?.[f()]` must not call `f` when `a` is
+       * absent. */
+      if (node->as.index.optional) emitOptionalGuard(line);
       compileNode(node->as.index.index);
       emitByte(OP_GET_INDEX, line);
       break;
@@ -607,6 +625,7 @@ void compileNode(const AstNode *node) {
       if (hasSpread) {
         if (callee->type == AST_PROPERTY) {
           compileNode(callee->as.property.object);
+          if (callee->as.property.optional) emitOptionalGuard(line);
           emitPropertyOp(OP_GET_PROPERTY,
                          identifierConstant(callee->as.property.name,
                                             callee->as.property.length, line),
@@ -615,6 +634,7 @@ void compileNode(const AstNode *node) {
           compileNode(callee);
         }
 
+        if (node->as.call.optional) emitOptionalGuard(line);
         for (int i = 0; i < node->as.call.argCount; i++) {
           compileNode(node->as.call.arguments[i]);
         }
@@ -626,12 +646,46 @@ void compileNode(const AstNode *node) {
       /* `x.name(...)` becomes one instruction instead of a property load
        * followed by a call, which also keeps the receiver available so a
        * built-in method can see what it was called on. */
+      /* `o.m?.()` tests the method but still calls it on `o`, so the property
+       * is read twice: once to see whether it is there, and once by the invoke
+       * that keeps the receiver. Loading it as a plain value and calling that
+       * would be one lookup, but it would also silently bind `this` to the
+       * function — wrong quietly, which is worse than not compiling. */
+      if (node->as.call.optional && callee->type == AST_PROPERTY) {
+        compileNode(callee->as.property.object);
+        if (callee->as.property.optional) emitOptionalGuard(line);
+
+        int nameConstant = identifierConstant(callee->as.property.name,
+                                              callee->as.property.length, line);
+        emitConstantOp(OP_JUMP_IF_NO_METHOD, nameConstant, line);
+        int missing = emitJump16(line);
+
+        for (int i = 0; i < node->as.call.argCount; i++) {
+          compileNode(node->as.call.arguments[i]);
+        }
+        emitConstantOp(OP_INVOKE, nameConstant, line);
+        emitByte((uint8_t)node->as.call.argCount, line);
+        int over = emitJump(OP_JUMP, line);
+
+        /* Absent: the receiver is still on top, and the chain's landing site
+         * turns exactly one value into undefined. */
+        patchJump(missing, line);
+        emitOptionalJump(line);
+        patchJump(over, line);
+        break;
+      }
+
       bool isMethodCall = callee->type == AST_PROPERTY;
       if (isMethodCall) {
         compileNode(callee->as.property.object);
+        if (callee->as.property.optional) emitOptionalGuard(line);
       } else {
         compileNode(callee);
       }
+      /* Before the arguments: `f?.(g())` must not call `g` when `f` is
+       * absent. Only a plain callee reaches here; the property form is
+       * handled above. */
+      if (node->as.call.optional) emitOptionalGuard(line);
 
       for (int i = 0; i < node->as.call.argCount; i++) {
         compileNode(node->as.call.arguments[i]);
@@ -707,7 +761,7 @@ void compileNode(const AstNode *node) {
       /* A declaration binds the closure to its name; an expression leaves it
        * on the stack for whatever wanted it. An inferred name is not a
        * declaration — the binding it was named after does its own. */
-      if (node->as.function.name != NULL && !node->as.function.nameIsInferred) {
+      if (node->as.function.isDeclaration) {
         if (current->scopeDepth > 0) {
           addLocal(node->as.function.name, node->as.function.nameLength, false, line);
         } else {

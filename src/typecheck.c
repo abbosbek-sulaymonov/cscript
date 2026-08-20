@@ -199,7 +199,7 @@ static const Signature *declareFunction(Checker *checker, AstNode *node) {
     signature->paramTypes[i] = param->hasAnnotation ? param->type : TYPE_ANY;
   }
 
-  if (node->as.function.name != NULL && !node->as.function.nameIsInferred) {
+  if (node->as.function.isDeclaration) {
     declareVariable(checker, node->as.function.name, node->as.function.nameLength,
                     TYPE_FUNCTION);
     checker->variables[checker->count - 1].signature = signature;
@@ -402,6 +402,13 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
       result = checkNode(checker, node->as.grouping);
       break;
 
+    /* A chain can short-circuit to undefined whatever its links say, so the
+     * type it produces is not the type of the last one. */
+    case AST_OPTIONAL_CHAIN:
+      checkNode(checker, node->as.expression);
+      result = TYPE_ANY;
+      break;
+
     case AST_PROPERTY: {
       TypeKind object = checkNode(checker, node->as.property.object);
       bool isLength = node->as.property.length == 6 &&
@@ -428,6 +435,14 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
       /* A callable may carry statics — `Number.isInteger` sits on the same
        * value `Number(x)` calls — so a property read on a function is allowed
        * and simply dynamic. */
+      /* `?.` says the receiver may be absent, so a null or undefined one is
+       * the case being handled rather than a mistake. */
+      if (node->as.property.optional &&
+          (object == TYPE_NULL || object == TYPE_UNDEFINED)) {
+        result = TYPE_ANY;
+        break;
+      }
+
       if (csTypeIsKnown(object) && object != TYPE_OBJECT && object != TYPE_FUNCTION) {
         typeError(checker, node->line, "cannot read property '%.*s' of %s",
                   node->as.property.length, node->as.property.name, csTypeName(object));
@@ -446,12 +461,28 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
     }
 
     case AST_CALL: {
-      TypeKind callee = checkNode(checker, node->as.call.callee);
+      /* `o.m?.()` is written precisely because `m` might not be there, so the
+       * callee is not checked as a property read at all — only the thing it
+       * is read from. Otherwise `"ab".nope?.()`, whose whole point is that
+       * `nope` is absent, would be a type error. */
+      TypeKind callee;
+      if (node->as.call.optional && node->as.call.callee->type == AST_PROPERTY) {
+        checkNode(checker, node->as.call.callee->as.property.object);
+        callee = TYPE_ANY;
+      } else {
+        callee = checkNode(checker, node->as.call.callee);
+      }
 
       TypeKind argTypes[UINT8_MAX];
       for (int i = 0; i < node->as.call.argCount; i++) {
         TypeKind argType = checkNode(checker, node->as.call.arguments[i]);
         if (i < UINT8_MAX) argTypes[i] = argType;
+      }
+
+      if (node->as.call.optional &&
+          (callee == TYPE_NULL || callee == TYPE_UNDEFINED)) {
+        result = TYPE_ANY;
+        break;
       }
 
       if (csTypeIsKnown(callee) && callee != TYPE_FUNCTION) {
@@ -462,7 +493,7 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
 
       /* A built-in method's result is known even though its receiver's element
        * types are not. */
-      if (node->as.call.callee->type == AST_PROPERTY) {
+      if (node->as.call.callee->type == AST_PROPERTY && !node->as.call.optional) {
         AstNode *property = node->as.call.callee;
         const MethodSignature *builtin =
             findMethod(property->as.property.object->resolvedType,
@@ -515,6 +546,12 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
     case AST_INDEX: {
       TypeKind target = checkNode(checker, node->as.index.target);
       checkNode(checker, node->as.index.index);
+      /* `?.[` says the target may be absent; that is the case being handled. */
+      if (node->as.index.optional &&
+          (target == TYPE_NULL || target == TYPE_UNDEFINED)) {
+        result = TYPE_ANY;
+        break;
+      }
       if (csTypeIsKnown(target) && target != TYPE_OBJECT && target != TYPE_STRING) {
         typeError(checker, node->line, "cannot index %s", csTypeName(target));
         result = TYPE_ERROR;
@@ -614,8 +651,16 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
         }
       } else if (node->as.varDecl.initializer != NULL) {
         /* Inference: an unannotated declaration takes its initialiser's type,
-         * which is what lets unannotated code still be checked. */
-        declared = initializer;
+         * which is what lets unannotated code still be checked.
+         *
+         * Except `null` and `undefined`, which say "nothing yet" rather than
+         * name a type. `let x;` is already `any` and `let x = undefined;` is
+         * the same declaration written out, so inferring from either would
+         * make them disagree — and would make `x ??= 1` an error, which is
+         * the case `??=` exists for. */
+        declared = initializer == TYPE_NULL || initializer == TYPE_UNDEFINED
+                       ? TYPE_ANY
+                       : initializer;
       } else {
         declared = TYPE_ANY;
       }

@@ -243,6 +243,7 @@ ObjFunction *csFunctionNew(void) {
   function->name = NULL;
   function->module = NULL;
   function->isAsync = false;
+  function->isMethod = false;
   function->paramTypes = NULL;
   function->hotness = 0;
   function->jitState = 0; /* JIT_INTERPRETED */

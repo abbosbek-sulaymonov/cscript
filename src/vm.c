@@ -376,6 +376,13 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
   if (IS_OBJECT(receiver)) {
     Value method;
     if (csObjectGet(AS_OBJECT(receiver), name, &method)) {
+      /* A property written as a method — `{ m() {} }` — keeps the receiver,
+       * because that is what its `this` resolves to. Anything else is just a
+       * function that happens to live on an object, and gets no receiver. */
+      if (IS_CLOSURE(method) && AS_CLOSURE(method)->function->isMethod) {
+        return callMethod(AS_CLOSURE(method), argCount);
+      }
+
       /* Overwrite the receiver slot so the callee sits directly below its
        * arguments, which is the shape callValue expects. */
       vm.stackTop[-argCount - 1] = method;
@@ -437,6 +444,37 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
 
   csVMRuntimeError("cannot call '%s' on %s", name->chars, csValueTypeName(receiver));
   return false;
+}
+
+/* Whether `invokeMethod` would find something to call.
+ *
+ * Deliberately the same walk in the same order, because an answer that
+ * disagreed with the call that follows it would turn `o.m?.()` into either a
+ * skipped call or a runtime error. */
+static bool receiverHasMethod(Value receiver, ObjString *name) {
+  Value found;
+
+  if (IS_OBJECT(receiver)) {
+    ObjObject *instance = AS_OBJECT(receiver);
+    if (csObjectGet(instance, name, &found)) return true;
+    return instance->klass != NULL &&
+           csClassFindMethod(instance->klass, name) != NULL;
+  }
+
+  if (IS_CLASS(receiver)) {
+    for (ObjClass *klass = AS_CLASS(receiver); klass != NULL;
+         klass = klass->superclass) {
+      if (csTableGet(&klass->statics, name, &found)) return true;
+    }
+    return false;
+  }
+
+  if (IS_NATIVE(receiver) && AS_NATIVE(receiver)->statics != NULL) {
+    return csObjectGet(AS_NATIVE(receiver)->statics, name, &found);
+  }
+
+  Table *methods = methodTableFor(receiver);
+  return methods != NULL && csTableGet(methods, name, &found);
 }
 
 /* Finds or creates the upvalue for a stack slot.
@@ -1026,6 +1064,22 @@ InterpretResult run(int baseFrame) {
       VM_CASE(OP_POP) csVMPop(); VM_NEXT();
       VM_CASE(OP_POP_N) vm.stackTop -= READ_BYTE(); VM_NEXT();
       VM_CASE(OP_DUP) csVMPush(peekStack(0)); VM_NEXT();
+
+      /* Both exist for reading a target that is also being written: `o.x += 1`
+       * needs `o` on the stack twice, and `xs[i] += 1` needs `xs` and `i`. */
+      VM_CASE(OP_DUP2) {
+        Value under = peekStack(1);
+        Value top = peekStack(0);
+        csVMPush(under);
+        csVMPush(top);
+        VM_NEXT();
+      }
+      VM_CASE(OP_POP_UNDER) {
+        Value top = csVMPop();
+        csVMPop();
+        csVMPush(top);
+        VM_NEXT();
+      }
 
       VM_CASE(OP_DEFINE_GLOBAL) {
         ObjString *name = READ_STRING();
@@ -2091,6 +2145,27 @@ InterpretResult run(int baseFrame) {
       VM_CASE(OP_JUMP_IF_TRUE) {
         uint16_t offset = READ_SHORT();
         if (csValueIsTruthy(peekStack(0))) frame->ip += offset;
+        VM_NEXT();
+      }
+      /* Nullish, not falsy: `0 ?? 1` is 0 and `"" ?? "x"` is "". Getting this
+       * wrong would make `??` an alias for `||`, which is the whole reason the
+       * operator was added to JavaScript. */
+      VM_CASE(OP_JUMP_IF_NULLISH) {
+        uint16_t offset = READ_SHORT();
+        Value top = peekStack(0);
+        if (IS_NULL(top) || IS_UNDEFINED(top)) frame->ip += offset;
+        VM_NEXT();
+      }
+      VM_CASE(OP_JUMP_IF_NO_METHOD) {
+        ObjString *name = READ_STRING();
+        uint16_t offset = READ_SHORT();
+        if (!receiverHasMethod(peekStack(0), name)) frame->ip += offset;
+        VM_NEXT();
+      }
+      VM_CASE(OP_JUMP_IF_NOT_NULLISH) {
+        uint16_t offset = READ_SHORT();
+        Value top = peekStack(0);
+        if (!IS_NULL(top) && !IS_UNDEFINED(top)) frame->ip += offset;
         VM_NEXT();
       }
       VM_CASE(OP_POP_JUMP_IF_FALSE) {

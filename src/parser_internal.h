@@ -55,6 +55,7 @@ bool checkWord(Parser *parser, const char *word);
 bool nextStartsFunction(Parser *parser);
 bool nextStartsArrowParams(Parser *parser);
 bool compoundAssignOp(TokenType type, BinaryOp *out);
+bool logicalAssignKind(TokenType type, AssignKind *out);
 bool parseTypeAnnotation(Parser *parser, TypeKind *type, bool *present);
 bool nameIs(const char *name, int length, const char *word);
 bool checkContextual(Parser *parser, const char *word);

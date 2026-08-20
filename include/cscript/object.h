@@ -291,6 +291,9 @@ struct ObjFunction {
   /* Calling this returns a promise and runs the body on a fiber of its own, so
    * an `await` inside it can suspend without disturbing its caller. */
   bool isAsync;
+  /* Written as a method, so a call through a property keeps the receiver in
+   * slot 0 instead of overwriting it with the function. */
+  bool isMethod;
 
   /* What the checker proved about each parameter, kept so it survives into
    * the run time. Without this an annotation stops at the compiler, and a
