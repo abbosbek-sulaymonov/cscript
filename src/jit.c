@@ -113,6 +113,29 @@ int csJitThreshold(void) {
   return threshold;
 }
 
+/* Whether the assumptions the compiled code was built on still hold.
+ *
+ * Two of them. The addresses it holds for globals point into a hash table, and
+ * are only meaningful while that table has not rehashed — the version says.
+ * And every one of those globals was a number when the code was built, which
+ * is what let the arithmetic be compiled with no guard around it; the language
+ * will not let a declared binding change type, but an undeclared one reached
+ * through a namespace could, so it is checked rather than assumed.
+ *
+ * Checked once on the way in rather than at every access. Nothing inside a
+ * compiled region can call anything, so nothing can invalidate either between
+ * the check and the end of the run. */
+static bool assumptionsHold(const JitCode *code) {
+  if (code->globalCount == 0) return true;
+  if (code->globalTable == NULL) return false;
+  if (code->globalTable->version != code->globalVersion) return false;
+
+  for (int g = 0; g < code->globalCount; g++) {
+    if (!IS_NUMBER(*code->globalAddress[g])) return false;
+  }
+  return true;
+}
+
 bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *out) {
   /* Both states are runnable: JIT_HOT has lowered IR, JIT_COMPILED also has
    * machine code. Admitting only the first rejected exactly the functions that
@@ -138,6 +161,8 @@ bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *
       }
       /* A call entry cannot take an exit: there is no frame to hand back, and
        * csIrLower only produces one for code the interpreter would resume. */
+      if (!assumptionsHold(hot[i].code)) return false;
+
       int exit = -1;
       uint64_t bits = hot[i].code->entry(slots, hot[i].scratch, &exit);
       if (exit >= 0) return false;
@@ -166,6 +191,7 @@ bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots,
        * belonging to a scope the interpreter has not opened yet. Those sit
        * above the frame's current top, so the room has to be there. */
       if (slots + hot[i].ir->slotCount >= vm.stack + vm.stackCapacity) return false;
+      if (!assumptionsHold(hot[i].code)) return false;
 
       int exit = -1;
       uint64_t bits = hot[i].code->osr[o].entry(slots, hot[i].scratch, &exit);

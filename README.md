@@ -345,12 +345,18 @@ now, and on the code it compiles it does close most of it:
 | --- | ---: | ---: | ---: | ---: |
 | `bench/jit/jit_calls.cx` — 3M calls | 136 ms | 112 ms | 1.2× | 8 ms |
 | `bench/jit/jit_loop.cx` — one call, 20M iterations | 492 ms | **55 ms** | **8.9×** | 35 ms |
-| `bench/locals.cx` — an ordinary script, no annotations | 165 ms | **18 ms** | **9.4×** | 6 ms |
+| `bench/locals.cx` — an ordinary script, no annotations | 149 ms | **18 ms** | **8.3×** | 7 ms |
+| `bench/loop_empty.cx` — loop overhead alone, over a global | 170 ms | **20 ms** | **8.6×** | 7 ms |
+| `bench/globals.cx` — reads and writes of module bindings | 211 ms | **41 ms** | **5.2×** | 7 ms |
 
-The last of those has no type annotations in it at all. Its types come from
-the checker's inference of `let a = 0`, and its loop reaches the compiler
+The last three have no type annotations in them at all. Their types come from
+the checker's inference of `let a = 0`, and their loops reach the compiler
 because everything the compiler cannot express — the `console.log` at the end —
 is handed back to the interpreter rather than refusing the whole function.
+
+`bench/loop_arith.cx` and `bench/branches.cx` are still interpreted: both use
+`%` in the loop, and arm64 has no floating-point remainder instruction. `fmod`
+is a call, and a call needs a frame this backend does not set up.
 
 Both columns are the same binary; only the tiering threshold differs. The
 backend compiles functions whose arithmetic the type checker has already
@@ -491,7 +497,8 @@ cscript/
 | **34 ✅** | `Promise.allSettled` / `.any`, `AggregateError`, `setInterval` | — |
 | **35 ✅** | Async generators — `async function*`, `for await` over one | — |
 | **36 ✅** | Side exits — the compiler takes the loop and leaves the rest | — |
-| next | Globals in a compiled loop, which is what most scripts need next | — |
+| **37 ✅** | Globals in a compiled loop — `loop_empty` **8.6×**, `globals` **5.2×** | — |
+| next | Calling out of compiled code, which `%` and `Math.*` both need | — |
 | next | Inlining, so a small function is worth compiling | — |
 | next | Guards and deoptimisation, for code the types do not prove | — |
 

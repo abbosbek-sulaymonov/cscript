@@ -43,6 +43,17 @@ typedef enum {
 
   IR_LT, IR_LE, IR_GT, IR_GE, IR_EQ, IR_NE,
 
+  /* A module-level binding. `a` is the index of its name in the constant
+   * pool, which is how the address is found again at compile time.
+   *
+   * Only ever emitted where the global already holds a number: what makes
+   * that safe is not a guess but the language — the checker refuses to assign
+   * a different type to a declared binding, and nothing inside a compiled
+   * region can call anything, so the only writer is the compiled code itself
+   * and every store it makes is proved numeric. */
+  IR_LOAD_GLOBAL,  /* a := globals[name a]                  */
+  IR_STORE_GLOBAL, /* globals[name a] := b                  */
+
   IR_JUMP,        /* -> block a                             */
   IR_BRANCH,      /* if a then block b else block c         */
   IR_RETURN,      /* return a                               */
@@ -108,6 +119,18 @@ typedef struct {
 IrFunction *csIrLower(ObjFunction *function, const char **reason);
 
 void csIrFree(IrFunction *ir);
+
+/* Which of an instruction's `a` and `b` fields name virtual registers.
+ *
+ * They do not always. The same two fields hold a slot number, a block index, a
+ * constant-pool index, a bytecode offset and an operand-stack height depending
+ * on the opcode — and every pass that walked them assuming otherwise
+ * introduced a bug: one marked constants as escaping, one renamed a bytecode
+ * offset into a register number, one read a stack height as a value. It is
+ * answered here so there is one place to be right.
+ *
+ * Writes -1 for a field that is not a register. */
+void csIrRegisterOperands(const IrInst *inst, int *a, int *b);
 
 /* Makes every slot's type the meet of what is stored into it, and downgrades
  * loads that claimed more. Must run before the IR is trusted: the lowering's

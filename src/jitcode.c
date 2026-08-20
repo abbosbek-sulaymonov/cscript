@@ -17,6 +17,7 @@
 #include <sys/mman.h>
 
 #include "cscript/jitcode.h"
+#include "cscript/object.h"
 
 /* NaN boxing is not an optimisation here, it is the premise.
  *
@@ -211,6 +212,8 @@ void csJitCodeFree(JitCode *code) {
 #define REG_SLOTS 0
 #define REG_SCRATCH 1
 #define REG_EXIT 2 /* int *exitTarget, the third argument */
+/* x3..x8 hold the address of one global each, materialised on entry. */
+#define REG_FIRST_GLOBAL 3
 #define REG_TEMP 9
 
 /* A branch whose target block is not laid out yet. */
@@ -346,7 +349,8 @@ static int *allocateRegisters(const IrFunction *ir, int reserved) {
        * bytecode offset and a stack height. */
       if (inst->op == IR_LOAD_LOCAL || inst->op == IR_JUMP) operands[0] = -1;
       if (inst->op == IR_STORE_LOCAL || inst->op == IR_EXIT) operands[0] = -1;
-      if (inst->op == IR_EXIT) operands[1] = -1;
+      if (inst->op == IR_LOAD_GLOBAL || inst->op == IR_STORE_GLOBAL) operands[0] = -1;
+      if (inst->op == IR_EXIT || inst->op == IR_LOAD_GLOBAL) operands[1] = -1;
       if (inst->op == IR_BRANCH || inst->op == IR_RETURN || inst->op == IR_NEG ||
           inst->op == IR_CONST || inst->op == IR_LOAD_LOCAL) {
         operands[1] = -1;
@@ -446,17 +450,8 @@ static bool blocksAreSelfContained(const IrFunction *ir) {
     for (int i = 0; i < ir->blocks[b].count && clean; i++) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
 
-      /* Only the operands that name registers. `a` is a slot on a load and a
-       * block on a jump, so the distinction has to be made per opcode. */
-      int reads[2] = {-1, -1};
-      switch (inst->op) {
-        case IR_STORE_LOCAL: reads[0] = inst->b; break;
-        case IR_ADD: case IR_SUB: case IR_MUL: case IR_DIV: case IR_MOD:
-        case IR_LT: case IR_LE: case IR_GT: case IR_GE: case IR_EQ: case IR_NE:
-          reads[0] = inst->a; reads[1] = inst->b; break;
-        case IR_NEG: case IR_BRANCH: case IR_RETURN: reads[0] = inst->a; break;
-        default: break;
-      }
+      int reads[2];
+      csIrRegisterOperands(inst, &reads[0], &reads[1]);
 
       for (int r = 0; r < 2; r++) {
         if (reads[r] >= 0 && reads[r] <= ir->registerCount && !written[reads[r]]) {
@@ -543,6 +538,43 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
     }
   }
 
+  /* One address register per distinct global. Resolved here, while the
+   * program is running and the binding certainly exists — the function only
+   * reached this point by being hot, which is after its module ran. */
+  int globalName[CS_JIT_MAX_GLOBALS];
+  Value *globalAddress[CS_JIT_MAX_GLOBALS];
+  int globalCount = 0;
+  Table *globalTable =
+      ir->source->module != NULL ? &ir->source->module->globals : NULL;
+
+  for (int b = 0; b < ir->blockCount; b++) {
+    for (int i = 0; i < ir->blocks[b].count; i++) {
+      const IrInst *inst = &ir->blocks[b].instructions[i];
+      if (inst->op != IR_LOAD_GLOBAL && inst->op != IR_STORE_GLOBAL) continue;
+
+      bool seen = false;
+      for (int g = 0; g < globalCount; g++) {
+        if (globalName[g] == inst->a) { seen = true; break; }
+      }
+      if (seen) continue;
+      if (globalCount >= CS_JIT_MAX_GLOBALS || globalTable == NULL) {
+        *why = "more globals than there are registers to hold them";
+        return NULL;
+      }
+
+      Value name = ir->source->chunk.constants.values[inst->a];
+      Entry *entry = IS_STRING(name) ? csTableFindEntry(globalTable, AS_STRING(name))
+                                     : NULL;
+      if (entry == NULL || entry->key == NULL) {
+        *why = "a global that is not there yet";
+        return NULL;
+      }
+      globalName[globalCount] = inst->a;
+      globalAddress[globalCount] = &entry->value;
+      globalCount++;
+    }
+  }
+
   JitExit *exits = NULL;
   int exitCount = 0, exitCapacity = 0;
 
@@ -556,6 +588,9 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   for (int k = 0; k < constantCount; k++) {
     movImmediate(&encoder, REG_TEMP, constantValue[k]);
     fmovToDouble(&encoder, constantHome[k], REG_TEMP);
+  }
+  for (int g = 0; g < globalCount; g++) {
+    movImmediate(&encoder, REG_FIRST_GLOBAL + g, (uint64_t)(uintptr_t)globalAddress[g]);
   }
   Fixup *fixups = NULL;
   int fixupCount = 0, fixupCapacity = 0;
@@ -588,6 +623,29 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
           if (home[inst->result] < 0) {
             strDouble(&encoder, destination, REG_SCRATCH, inst->result * 8);
           }
+          break;
+        }
+
+        case IR_LOAD_GLOBAL: {
+          int slotOf = -1;
+          for (int g = 0; g < globalCount; g++) {
+            if (globalName[g] == inst->a) { slotOf = g; break; }
+          }
+          int destination = home[inst->result] >= 0 ? home[inst->result] : 0;
+          ldrDouble(&encoder, destination, REG_FIRST_GLOBAL + slotOf, 0);
+          if (home[inst->result] < 0) {
+            strDouble(&encoder, destination, REG_SCRATCH, inst->result * 8);
+          }
+          break;
+        }
+
+        case IR_STORE_GLOBAL: {
+          int slotOf = -1;
+          for (int g = 0; g < globalCount; g++) {
+            if (globalName[g] == inst->a) { slotOf = g; break; }
+          }
+          int source = readOperand(&encoder, home, inst->b, ALLOC_FIRST_SCRATCH);
+          strDouble(&encoder, source, REG_FIRST_GLOBAL + slotOf, 0);
           break;
         }
 
@@ -798,6 +856,10 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
         movImmediate(&encoder, REG_TEMP, constantValue[k]);
         fmovToDouble(&encoder, constantHome[k], REG_TEMP);
       }
+      for (int g = 0; g < globalCount; g++) {
+        movImmediate(&encoder, REG_FIRST_GLOBAL + g,
+                     (uint64_t)(uintptr_t)globalAddress[g]);
+      }
 
       if (fixupCapacity < fixupCount + 1) {
         fixupCapacity = fixupCapacity < 8 ? 8 : fixupCapacity * 2;
@@ -830,6 +892,10 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   if (code != NULL) {
     code->exits = exits;
     code->exitCount = exitCount;
+    code->globalTable = globalTable;
+    code->globalVersion = globalTable != NULL ? globalTable->version : 0;
+    for (int g = 0; g < globalCount; g++) code->globalAddress[g] = globalAddress[g];
+    code->globalCount = globalCount;
     for (int o = 0; o < osrCount; o++) {
       code->osr[o].bytecodeOffset = ir->blocks[osrBlock[o]].bytecodeStart;
       code->osr[o].entry = (CompiledFn)((uint32_t *)code->memory + osrWord[o]);

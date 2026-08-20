@@ -95,6 +95,24 @@ static bool markLeaders(const Chunk *chunk, bool *leader, const char **reason) {
   return true;
 }
 
+/* Whether the module already has a number under that name.
+ *
+ * Read at the moment the function turns hot, which is the only moment the
+ * lowering has a running program to ask. What keeps the answer true
+ * afterwards is checked again at every entry — see the guards on JitCode. */
+static bool globalHoldsNumber(const ObjFunction *function, const Chunk *chunk,
+                              int nameIndex) {
+  if (function->module == NULL) return false;
+  if (nameIndex < 0 || nameIndex >= chunk->constants.count) return false;
+
+  Value name = chunk->constants.values[nameIndex];
+  if (!IS_STRING(name)) return false;
+
+  Value current;
+  if (!csTableGet(&function->module->globals, AS_STRING(name), &current)) return false;
+  return IS_NUMBER(current);
+}
+
 /* ---- lowering ---------------------------------------------------------- */
 
 typedef struct {
@@ -375,6 +393,53 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
         inst->constant = constant;
         inst->type = type;
         if (!push(&low, block, result, line)) goto failed;
+        break;
+      }
+
+      /* Globals. Only where the module already holds a number under that name:
+       * the checker will not let a declared binding change type, and nothing a
+       * compiled region can do calls anything, so the only writer is this code
+       * and every store it makes is proved numeric. Anything else hands the
+       * frame back. */
+      case OP_GET_GLOBAL: {
+        int index = (chunk->code[offset + 1] << 8) | chunk->code[offset + 2];
+        if (!globalHoldsNumber(function, chunk, index)) goto handOver;
+
+        int result = newRegister(ir, IR_TYPE_NUMBER);
+        IrInst *inst = append(block, IR_LOAD_GLOBAL, line);
+        inst->result = result;
+        inst->a = index;
+        inst->type = IR_TYPE_NUMBER;
+        if (!push(&low, block, result, line)) goto failed;
+        break;
+      }
+
+      /* A definition is a store by the time this runs. The function only
+       * lowers once it is hot, which is after the top level has already
+       * defined its bindings — so the entry exists, and re-running the define
+       * as a store to it is what the interpreter would do anyway. */
+      case OP_DEFINE_GLOBAL:
+      case OP_DEFINE_CONST:
+      case OP_SET_GLOBAL:
+      case OP_SET_GLOBAL_POP: {
+        int index = (chunk->code[offset + 1] << 8) | chunk->code[offset + 2];
+        if (!globalHoldsNumber(function, chunk, index)) goto handOver;
+        if (low.stackTop < 1) {
+          low.reason = "operand stack underflow while lowering";
+          goto failed;
+        }
+        if (ir->registerTypes[low.stack[low.stackTop - 1]] != IR_TYPE_NUMBER) {
+          goto handOver;
+        }
+
+        /* OP_SET_GLOBAL leaves the value; the other three consume it. */
+        int value = opcode == OP_SET_GLOBAL ? low.stack[low.stackTop - 1]
+                                            : pop(&low, block, line);
+        if (low.reason != NULL) goto failed;
+
+        IrInst *inst = append(block, IR_STORE_GLOBAL, line);
+        inst->a = index;
+        inst->b = value;
         break;
       }
 
@@ -763,6 +828,37 @@ failed:
   return NULL;
 }
 
+void csIrRegisterOperands(const IrInst *inst, int *a, int *b) {
+  *a = -1;
+  *b = -1;
+
+  switch (inst->op) {
+    case IR_CONST:
+    case IR_JUMP:
+    case IR_EXIT:
+    case IR_LOAD_LOCAL:
+    case IR_LOAD_GLOBAL:
+      break; /* neither field is a register */
+
+    case IR_STORE_LOCAL:
+    case IR_STORE_GLOBAL:
+      *b = inst->b; /* `a` is the destination, not a value */
+      break;
+
+    case IR_NEG:
+    case IR_RETURN:
+    case IR_BRANCH:
+      *a = inst->a; /* a branch's `b` and `c` are blocks */
+      break;
+
+    case IR_ADD: case IR_SUB: case IR_MUL: case IR_DIV: case IR_MOD:
+    case IR_LT: case IR_LE: case IR_GT: case IR_GE: case IR_EQ: case IR_NE:
+      *a = inst->a;
+      *b = inst->b;
+      break;
+  }
+}
+
 void csIrForwardSlots(IrFunction *ir) {
   /* Within a block only. Across one, a slot may be written by another path,
    * and proving it is not needs the dataflow this deliberately does without. */
@@ -781,18 +877,12 @@ void csIrForwardSlots(IrFunction *ir) {
     for (int i = 0; i < block->count; i++) {
       IrInst inst = block->instructions[i];
 
-      /* Operands first: an earlier forward may have renamed them. */
-      if (inst.a >= 0 && inst.op != IR_LOAD_LOCAL && inst.op != IR_STORE_LOCAL &&
-          inst.op != IR_JUMP && inst.a < ir->registerCount) {
-        inst.a = rename[inst.a];
-      }
-      if (inst.b >= 0 && inst.op != IR_LOAD_LOCAL && inst.op != IR_STORE_LOCAL &&
-          inst.op != IR_JUMP && inst.b < ir->registerCount) {
-        inst.b = rename[inst.b];
-      }
-      if (inst.op == IR_STORE_LOCAL && inst.b >= 0 && inst.b < ir->registerCount) {
-        inst.b = rename[inst.b];
-      }
+      /* Operands first: an earlier forward may have renamed them. Only the
+       * fields that really are registers — see csIrRegisterOperands. */
+      int operandA, operandB;
+      csIrRegisterOperands(&inst, &operandA, &operandB);
+      if (operandA >= 0 && operandA < ir->registerCount) inst.a = rename[operandA];
+      if (operandB >= 0 && operandB < ir->registerCount) inst.b = rename[operandB];
 
       if (inst.op == IR_LOAD_LOCAL && inst.a >= 0 && inst.a < IR_MAX_STACK &&
           slotHolder[inst.a] >= 0) {
@@ -990,6 +1080,8 @@ static const char *opName(IrOp op) {
     case IR_BRANCH: return "branch";
     case IR_RETURN: return "return";
     case IR_EXIT:   return "exit";
+    case IR_LOAD_GLOBAL:  return "loadg";
+    case IR_STORE_GLOBAL: return "storeg";
   }
   return "?";
 }
@@ -1031,6 +1123,8 @@ void csIrPrint(const IrFunction *ir) {
         case IR_BRANCH: printf(" r%d ? block%d : block%d", inst->a, inst->b, inst->c); break;
         case IR_RETURN: printf(" r%d", inst->a); break;
         case IR_EXIT: printf("  -> bytecode %d, stack %d", inst->a, inst->b); break;
+        case IR_LOAD_GLOBAL: printf(" global%d", inst->a); break;
+        case IR_STORE_GLOBAL: printf(" global%d, r%d", inst->a, inst->b); break;
         case IR_NEG: printf(" r%d", inst->a); break;
         default: printf(" r%d, r%d", inst->a, inst->b); break;
       }
@@ -1089,8 +1183,13 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
         goto done;
       }
       if (inst->op == IR_EXIT) goto done;
+      if (inst->op == IR_STORE_GLOBAL &&
+          (inst->b < 0 || inst->b >= ir->registerCount)) {
+        goto done;
+      }
       if (inst->op != IR_CONST && inst->op != IR_LOAD_LOCAL &&
-          inst->op != IR_STORE_LOCAL && inst->op != IR_JUMP) {
+          inst->op != IR_STORE_LOCAL && inst->op != IR_JUMP &&
+          inst->op != IR_LOAD_GLOBAL && inst->op != IR_STORE_GLOBAL) {
         if (inst->a < 0 || inst->a >= ir->registerCount) goto done;
         if (inst->op != IR_NEG && inst->op != IR_RETURN && inst->op != IR_BRANCH &&
             (inst->b < 0 || inst->b >= ir->registerCount)) {
@@ -1172,6 +1271,25 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
         case IR_BRANCH:
           nextBlock = AS_BOOL(registers[inst->a]) ? inst->b : inst->c;
           goto blockDone;
+        case IR_LOAD_GLOBAL: {
+          Value key = ir->source->chunk.constants.values[inst->a];
+          Value held;
+          if (!IS_STRING(key) || ir->source->module == NULL ||
+              !csTableGet(&ir->source->module->globals, AS_STRING(key), &held)) {
+            goto done;
+          }
+          registers[inst->result] = held;
+          break;
+        }
+
+        case IR_STORE_GLOBAL: {
+          Value key = ir->source->chunk.constants.values[inst->a];
+          if (!IS_STRING(key) || ir->source->module == NULL) goto done;
+          csTableSet(&ir->source->module->globals, AS_STRING(key),
+                     registers[inst->b]);
+          break;
+        }
+
         case IR_RETURN:
           *out = registers[inst->a];
           ok = true;

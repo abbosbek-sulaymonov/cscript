@@ -15,6 +15,7 @@
 
 #include "cscript/common.h"
 #include "cscript/ir.h"
+#include "cscript/table.h"
 #include "cscript/value.h"
 
 /* A compiled function.
@@ -31,6 +32,10 @@ typedef uint64_t (*CompiledFn)(Value *slots, Value *scratch, int *exitTarget);
 /* How many loop headers may get their own entry point. A function with more
  * loops than this is not the kind this backend is for. */
 #define CS_JIT_MAX_OSR 8
+
+/* How many distinct globals one compiled function may touch. Each takes a
+ * general-purpose register for its address, and there are six to spare. */
+#define CS_JIT_MAX_GLOBALS 6
 
 /* An alternate entry point, for a loop that is already running.
  *
@@ -69,6 +74,19 @@ typedef struct {
   /* Indexed by what the compiled code writes through `exitTarget`. */
   JitExit *exits;
   int exitCount;
+
+  /* Globals the code reads and writes through a baked address.
+   *
+   * Baking the address is what makes a global as cheap as a local — one load,
+   * no hash, no cache check — and it is only safe because nothing inside a
+   * compiled region can call anything, so nothing can add a binding and force
+   * the table to rehash while the code runs. Between runs it can, so the
+   * version is checked on the way in, along with each value still being a
+   * number. */
+  Table *globalTable;
+  uint32_t globalVersion;
+  Value *globalAddress[CS_JIT_MAX_GLOBALS];
+  int globalCount;
 } JitCode;
 
 /* Compiles the IR, or returns NULL when it holds something the encoder does
