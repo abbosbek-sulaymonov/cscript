@@ -120,8 +120,11 @@ static bool regexExec(Value receiver, int argCount, Value *args, Value *result) 
 
   ObjArray *array = buildMatchArray(&match, subject->chars);
   csPushTempRoot((Obj *)array);
-  /* `index` and `input`, as JavaScript hangs them off the result. Arrays here
-   * are not property bags, so they are reported through a wrapper object. */
+  /* `index` and `input`, as JavaScript hangs them off the result. An array
+   * carries no properties until one is put on it, so an ordinary array pays
+   * nothing for these. */
+  csArrayPutExtra(array, "index", 5, NUMBER_VAL(match.groups[0].start));
+  csArrayPutExtra(array, "input", 5, OBJ_VAL(subject));
   csPopTempRoot();
   *result = OBJ_VAL(array);
   return true;
@@ -168,7 +171,17 @@ bool csRegexStringMatch(Value receiver, int argCount, Value *args, Value *result
     RegexMatch match;
     bool found;
     if (!search(regex, subject->chars, subject->length, 0, &match, &found)) return false;
-    *result = found ? OBJ_VAL(buildMatchArray(&match, subject->chars)) : NULL_VAL;
+    if (!found) {
+      *result = NULL_VAL;
+      return true;
+    }
+    /* Without `g`, `match` answers what `exec` would — including where. */
+    ObjArray *array = buildMatchArray(&match, subject->chars);
+    csPushTempRoot((Obj *)array);
+    csArrayPutExtra(array, "index", 5, NUMBER_VAL(match.groups[0].start));
+    csArrayPutExtra(array, "input", 5, OBJ_VAL(subject));
+    csPopTempRoot();
+    *result = OBJ_VAL(array);
     return true;
   }
 
@@ -203,19 +216,76 @@ bool csRegexStringMatch(Value receiver, int argCount, Value *args, Value *result
   return true;
 }
 
-/* `replace` and `replaceAll` with a pattern. `$1`..`$9` and `$&` in the
- * replacement stand for the groups and the whole match; `$$` is a literal
- * dollar. A function replacer is not supported and says so. */
+/* Calls a replacer with what JavaScript hands one: the whole match, then each
+ * capture, then where it started, then the subject.
+ *
+ * The callee is user code, so it can allocate and collect. Every string built
+ * here is rooted across the call, and the caller's output buffer is plain
+ * malloc rather than GC memory, so nothing it holds can move. */
+static bool callReplacer(Value replacer, ObjString *subject,
+                         const RegexMatch *match, ObjString **out) {
+  Value argv[16];
+  int argc = 0;
+  int rooted = 0;
+
+  ObjString *whole = csStringCopy(subject->chars + match->groups[0].start,
+                                  match->groups[0].end - match->groups[0].start);
+  csPushTempRoot((Obj *)whole);
+  rooted++;
+  argv[argc++] = OBJ_VAL(whole);
+
+  for (int i = 1; i < match->groupCount && argc < 14; i++) {
+    if (match->groups[i].start < 0) {
+      argv[argc++] = UNDEFINED_VAL;
+      continue;
+    }
+    ObjString *piece = csStringCopy(subject->chars + match->groups[i].start,
+                                    match->groups[i].end - match->groups[i].start);
+    csPushTempRoot((Obj *)piece);
+    rooted++;
+    argv[argc++] = OBJ_VAL(piece);
+  }
+
+  argv[argc++] = NUMBER_VAL(match->groups[0].start);
+  argv[argc++] = OBJ_VAL(subject);
+
+  Value produced;
+  bool ok = csVMCallAdapted(replacer, argv, argc, &produced);
+  for (int i = 0; i < rooted; i++) csPopTempRoot();
+  if (!ok) return false;
+
+  /* Whatever it returned becomes text, as it does in JavaScript. */
+  if (IS_STRING(produced)) {
+    *out = AS_STRING(produced);
+    return true;
+  }
+  size_t length = 0;
+  char *text = csValueToCString(produced, &length);
+  if (text == NULL) {
+    csVMRuntimeError("out of memory building a replacement");
+    return false;
+  }
+  *out = csStringCopy(text, (int)length);
+  free(text);
+  return true;
+}
+
+/* `replace` and `replaceAll` with a pattern.
+ *
+ * The replacement is either a string, in which case `$1`..`$9` and `$&` stand
+ * for the groups and the whole match and `$$` is a literal dollar, or a
+ * function called once per match with what it matched. */
 bool csRegexStringReplace(Value receiver, int argCount, Value *args, Value *result,
                           bool all) {
   ObjString *subject = AS_STRING(receiver);
   ObjRegex *regex = AS_REGEX(args[0]);
 
-  if (argCount < 2 || !IS_STRING(args[1])) {
-    csVMRuntimeError("replacing with a pattern needs a string replacement");
+  bool byFunction = argCount >= 2 && csValueIsCallable(args[1]);
+  if (argCount < 2 || (!IS_STRING(args[1]) && !byFunction)) {
+    csVMRuntimeError("replacing with a pattern needs a string or a function");
     return false;
   }
-  ObjString *replacement = AS_STRING(args[1]);
+  ObjString *replacement = byFunction ? NULL : AS_STRING(args[1]);
 
   /* `replace` with a `g` pattern replaces every match, which is the one place
    * the flag changes what a method does rather than where it resumes. */
@@ -236,7 +306,8 @@ bool csRegexStringReplace(Value receiver, int argCount, Value *args, Value *resu
     if (!found) break;
 
     size_t needed = length + (size_t)(match.groups[0].start - from) +
-                    (size_t)replacement->length + (size_t)subject->length;
+                    (size_t)(replacement != NULL ? replacement->length : 0) +
+                    (size_t)subject->length;
     if (needed > capacity) {
       capacity = needed * 2;
       out = (char *)realloc(out, capacity);
@@ -245,6 +316,21 @@ bool csRegexStringReplace(Value receiver, int argCount, Value *args, Value *resu
     memcpy(out + length, subject->chars + from,
            (size_t)(match.groups[0].start - from));
     length += (size_t)(match.groups[0].start - from);
+
+    if (byFunction) {
+      ObjString *produced = NULL;
+      if (!callReplacer(args[1], subject, &match, &produced)) {
+        free(out);
+        return false;
+      }
+      if (length + (size_t)produced->length + 1 > capacity) {
+        capacity = (length + (size_t)produced->length + 1) * 2;
+        out = (char *)realloc(out, capacity);
+      }
+      memcpy(out + length, produced->chars, (size_t)produced->length);
+      length += (size_t)produced->length;
+      goto advance;
+    }
 
     for (int i = 0; i < replacement->length; i++) {
       char c = replacement->chars[i];
@@ -274,6 +360,7 @@ bool csRegexStringReplace(Value receiver, int argCount, Value *args, Value *resu
       }
     }
 
+  advance:;
     int next = match.groups[0].end;
     if (next == match.groups[0].start) {
       /* An empty match must still advance, or this never terminates. */

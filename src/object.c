@@ -615,7 +615,31 @@ ObjArray *csArrayNew(void) {
   registerObject((Obj *)array, OBJ_ARRAY);
   csValueArrayInit(&array->elements);
   array->isSpreadMarker = false;
+  array->extras = NULL;
   return array;
+}
+
+bool csArrayGetExtra(ObjArray *array, ObjString *key, Value *out) {
+  if (array->extras == NULL) return false;
+  return csTableGet(array->extras, key, out);
+}
+
+void csArrayPutExtra(ObjArray *array, const char *name, int length, Value value) {
+  csPushTempRoot((Obj *)array);
+  if (IS_OBJ(value)) csPushTempRoot(AS_OBJ(value));
+
+  if (array->extras == NULL) {
+    Table *table = CS_ALLOCATE(Table, 1);
+    csTableInit(table);
+    array->extras = table;
+  }
+  ObjString *key = csStringCopy(name, length);
+  csPushTempRoot((Obj *)key);
+  csTableSet(array->extras, key, value);
+  csPopTempRoot();
+
+  if (IS_OBJ(value)) csPopTempRoot();
+  csPopTempRoot();
 }
 
 void csObjectFreeze(ObjObject *object) { object->frozen = true; }
@@ -922,6 +946,7 @@ void csObjectBlacken(Obj *object) {
 
     case OBJ_ARRAY: {
       ObjArray *array = (ObjArray *)object;
+      if (array->extras != NULL) csTableMark(array->extras);
       for (int i = 0; i < array->elements.count; i++) {
         csMarkValue(array->elements.values[i]);
       }
@@ -1046,6 +1071,10 @@ void csObjectFree(Obj *object) {
     case OBJ_ARRAY: {
       ObjArray *array = (ObjArray *)object;
       csValueArrayFree(&array->elements);
+      if (array->extras != NULL) {
+        csTableFree(array->extras);
+        CS_FREE(Table, array->extras);
+      }
       CS_FREE(ObjArray, object);
       break;
     }

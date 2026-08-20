@@ -871,6 +871,17 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
     return true;
   }
 
+  /* Named properties on an array — only `exec` results have any. Checked
+   * before `length`, which no caller can shadow anyway, and after nothing:
+   * an ordinary array has no table and this is one NULL test. */
+  if (IS_ARRAY(receiver)) {
+    Value extra;
+    if (csArrayGetExtra(AS_ARRAY(receiver), name, &extra)) {
+      *out = extra;
+      return true;
+    }
+  }
+
   /* `length` is intrinsic rather than a stored property, so arrays and strings
    * answer it without carrying a table. */
   if (name->length == 6 && memcmp(name->chars, "length", 6) == 0) {

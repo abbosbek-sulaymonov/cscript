@@ -293,9 +293,14 @@ static bool stringReplaceImpl(Value receiver, int argCount, Value *args, Value *
   }
 
   ObjString *needle;
-  ObjString *replacement;
   if (!stringArg(argCount, args, 0, method, &needle)) return false;
-  if (!stringArg(argCount, args, 1, method, &replacement)) return false;
+
+  /* A function replacer is called once per hit with the match, where it
+   * started and the whole subject — the same three arguments the pattern form
+   * passes, minus the captures a plain string has none of. */
+  bool byFunction = argCount > 1 && csValueIsCallable(args[1]);
+  ObjString *replacement = NULL;
+  if (!byFunction && !stringArg(argCount, args, 1, method, &replacement)) return false;
 
   ObjString *string = AS_STRING(receiver);
 
@@ -311,7 +316,40 @@ static bool stringReplaceImpl(Value receiver, int argCount, Value *args, Value *
     /* An empty needle would match forever; stop after the first. */
     if (hit < 0 || (needle->length == 0 && replaced)) break;
 
-    size_t needed = length + (size_t)(hit - cursor) + (size_t)replacement->length + 1;
+    /* The callee is user code and may allocate, so it runs before the buffer
+     * is sized — its result is what has to fit. */
+    ObjString *piece = replacement;
+    if (byFunction) {
+      Value argv[3];
+      ObjString *matched = csStringCopy(string->chars + hit, needle->length);
+      csPushTempRoot((Obj *)matched);
+      argv[0] = OBJ_VAL(matched);
+      argv[1] = NUMBER_VAL(hit);
+      argv[2] = OBJ_VAL(string);
+
+      Value produced;
+      bool ok = csVMCallAdapted(args[1], argv, 3, &produced);
+      csPopTempRoot();
+      if (!ok) {
+        free(buffer);
+        return false;
+      }
+
+      if (IS_STRING(produced)) {
+        piece = AS_STRING(produced);
+      } else {
+        size_t textLength = 0;
+        char *text = csValueToCString(produced, &textLength);
+        if (text == NULL) {
+          free(buffer);
+          return finishString(NULL, 0, result);
+        }
+        piece = csStringCopy(text, (int)textLength);
+        free(text);
+      }
+    }
+
+    size_t needed = length + (size_t)(hit - cursor) + (size_t)piece->length + 1;
     if (needed > capacity) {
       while (capacity < needed) capacity *= 2;
       char *grown = (char *)realloc(buffer, capacity);
@@ -324,8 +362,8 @@ static bool stringReplaceImpl(Value receiver, int argCount, Value *args, Value *
 
     memcpy(buffer + length, string->chars + cursor, (size_t)(hit - cursor));
     length += (size_t)(hit - cursor);
-    memcpy(buffer + length, replacement->chars, (size_t)replacement->length);
-    length += (size_t)replacement->length;
+    memcpy(buffer + length, piece->chars, (size_t)piece->length);
+    length += (size_t)piece->length;
 
     cursor = hit + (needle->length > 0 ? needle->length : 1);
     replaced = true;

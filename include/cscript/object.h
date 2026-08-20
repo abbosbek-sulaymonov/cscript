@@ -370,6 +370,12 @@ typedef struct ObjArray {
    * being built knows to splice it rather than nest it. Never observable from
    * CScript: the marked array exists for exactly one instruction. */
   bool isSpreadMarker;
+
+  /* Named properties, or NULL — which is what it is for every array a program
+   * builds. Only `exec` uses this, to hang `index` and `input` off its result
+   * the way JavaScript does. Giving every array a table for the sake of one
+   * caller would cost every array; allocating it on demand costs a pointer. */
+  Table *extras;
 } ObjArray;
 
 struct ObjClosure {
@@ -439,6 +445,12 @@ typedef struct ObjBoundMethod {
 #define AS_GENERATOR(v) ((ObjGenerator *)AS_OBJ(v))
 #define IS_REGEX(v)    csIsObjType(v, OBJ_REGEX)
 #define IS_BOUND_METHOD(v) csIsObjType(v, OBJ_BOUND_METHOD)
+
+/* Anything a call expression could name. Not a type in the checker's lattice —
+ * a native, a closure and a bound method are three object kinds that happen to
+ * share the one thing callers care about. */
+#define csValueIsCallable(v) \
+  (IS_CLOSURE(v) || IS_NATIVE(v) || IS_BOUND_METHOD(v) || IS_CLASS(v))
 
 #define AS_STRING(v)   ((ObjString *)AS_OBJ(v))
 #define AS_CSTRING(v)  (((ObjString *)AS_OBJ(v))->chars)
@@ -567,6 +579,10 @@ bool csObjectDelete(ObjObject *object, ObjString *key);
  * walks an object's properties. The table is allocated on the first write, so
  * an object with no private fields costs one NULL pointer. */
 bool csObjectGetPrivate(ObjObject *object, ObjString *key, Value *out);
+
+/* A named property on an array. See ObjArray.extras. */
+bool csArrayGetExtra(ObjArray *array, ObjString *key, Value *out);
+void csArrayPutExtra(ObjArray *array, const char *name, int length, Value value);
 void csObjectPutPrivate(ObjObject *object, ObjString *key, Value value);
 
 /* Enumeration in insertion order — what Object.keys, JSON.stringify and

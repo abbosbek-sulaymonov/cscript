@@ -1,0 +1,36 @@
+// Backreferences and lookahead — the two things a backtracking engine can do
+// and an NFA simulation cannot.
+console.log(/(a)\1/.test("aa"), /(a)\1/.test("ab"));
+console.log(/(a)(b)\2\1/.test("abba"));
+console.log(/(A)\1/i.test("aA"));
+console.log("hello world world".replace(/(\w+) \1/, "$1"));
+
+// A group that has not matched stands for the empty string.
+console.log(/(a)?\1b/.test("b"));
+
+// Doubled letters, every one of them.
+console.log("bookkeeper".replace(/(\w)\1/g, "[$1$1]"));
+
+console.log(/a(?=b)/.test("ab"), /a(?=b)/.test("ac"));
+console.log(/a(?!b)/.test("ac"), /a(?!b)/.test("ab"));
+
+// The assertion consumes nothing, so what follows starts where it began.
+console.log(/x(?=y)z/.test("xyz"), /x(?=y)y/.test("xyz"));
+console.log("ab".replace(/a(?=b)/, "X"));
+
+// Several assertions at one position, which is how a rule like "has a digit
+// and a letter and is long enough" is written.
+const strong = /^(?=.*\d)(?=.*[a-z]).{6,}$/;
+console.log(strong.test("abc123"), strong.test("abcdef"), strong.test("ab1"));
+
+// Thousands separators: the classic use for a negative lookahead.
+console.log("1234567".replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+
+// A capture inside a failed assertion leaves nothing behind.
+const failed = /(?:(?=(a))b)?c/.exec("c");
+console.log(failed[0], failed[1], failed.index, failed.input);
+
+// Replacing with a function, which sees the match, its captures and where it
+// started.
+console.log("a1b22".replace(/(\d+)/g, (whole, digits, at) => `<${digits}@${at}>`));
+console.log("ab".replace("a", (m, at, all) => `${m}/${at}/${all}`));

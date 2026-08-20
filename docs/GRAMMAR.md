@@ -771,8 +771,8 @@ Each of these produces an error that names it:
 - `yield*` inside a larger expression (it works as a statement of its own)
 - `Function.prototype.call` / `.apply` / `.bind`
 - Tagged template literals
-- A function as the replacement argument to `replace`
-- Regex backreferences, lookaround and named groups
+- Regex lookbehind — `(?<=…)` — and named groups; lookahead and
+  backreferences work
 - Prototypes, `__proto__`, `Object.create` — classes are the whole object model
 - `arguments`, `new.target`, subclassing built-ins
 - Dynamic `import()`, and bare specifiers like `import x from "lodash"`

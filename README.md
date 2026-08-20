@@ -481,6 +481,7 @@ cscript/
 | **30 ✅** | Default exports, re-exports, `export *` | — |
 | **31 ✅** | Generators — `function*`, `yield`, `yield*`, pull-driven `for...of` | — |
 | **32 ✅** | Top-level `await`, `for await` over sync iterables | — |
+| **33 ✅** | Regex backreferences and lookahead, function replacers, `exec().index` | — |
 | next | Async generators — `async function*` and the async iterator protocol | — |
 | next | Lowering top-level code, so a script reaches the compiler | — |
 | next | Inlining, so a small function is worth compiling | — |
