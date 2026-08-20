@@ -791,13 +791,27 @@ be unchanged.
 
 | | interpreted | compiled | Node |
 | --- | ---: | ---: | ---: |
-| 3M calls to a two-multiply function | 136 ms | 137 ms | 6 ms |
-| one call, 20M-iteration loop | 473 ms | 485 ms | 35 ms |
+| 3M calls to a two-multiply function | 138 ms | **131 ms** (−5%) | 6 ms |
+| one call, 20M-iteration loop | 473 ms | 484 ms (+2%) | 34 ms |
 
-The first attempt was 26% *slower*. Forwarding redundant slot round-trips in
-the IR brought it to parity. The second row is the diagnosis: with a single
-call there is no per-call overhead left, and the compiled code is still 3%
-behind — so the problem is the code, not the call path.
+Three attempts to get there, and the shape of them is the useful part.
+
+**Naive: 26% slower.** Every IR value went to memory and came back, so a
+two-multiply function did more loads than the bytecode did.
+
+**Forwarding redundant slot round-trips: parity.** A load whose slot has not
+been written since the store that fed it reads a value already in hand.
+
+**A per-block linear-scan register allocator: −5% on calls, +2% on loops.**
+Values get `d2`–`d7` and `d16`–`d31`; `d8`–`d15` are skipped because they are
+callee-saved and using them would need a prologue.
+
+One measurement inside that one is worth keeping. Giving comparison results a
+floating-point home made the loop benchmark **15% worse**, because a boolean is
+a NaN-boxed singleton rather than a double: it has to cross to the general
+register file to be produced and back again to be tested. Two moves to save one
+store. Booleans now stay in memory, and that single change is the difference
+between +15% and +2%.
 
 ### Why
 
@@ -814,10 +828,16 @@ and `ip` and `stackTop` live in registers across the loop. Naive machine code
 competes with that badly. A JIT beats an interpreter by keeping values in
 registers, not by removing the switch.
 
-So the next step is not more opcodes or a better encoder — it is a register
-allocator, keeping IR values in `d0`–`d15` instead of a scratch array. That is
-the change with the measurement attached, and it can be made without touching
-anything above it.
+The allocator is per-block, and that is exactly why the loop case has not
+moved: a value used across a block boundary keeps a memory home, and a loop
+body is several blocks. The loop counter and accumulator are frame *locals*,
+loaded and stored every iteration — which is what the interpreter does too, so
+there is nothing gained.
+
+Beating an interpreter on a loop means keeping loop-carried locals in registers
+*across* iterations. That needs liveness over the whole control-flow graph
+rather than one block, and it is the next change with a measurement attached.
+Everything above the allocator stays as it is.
 
 ## Build configurations
 

@@ -222,6 +222,140 @@ static uint32_t conditionFor(IrOp op) {
 }
 
 
+/* ---- register allocation ------------------------------------------------
+ *
+ * Without this the compiled code was *slower* than the interpreter: every IR
+ * value went to memory and came back, so a two-multiply function did more
+ * loads than the bytecode did. Removing dispatch bought less than that cost.
+ *
+ * A linear scan per block, which is enough because the IR is nearly all
+ * block-local once redundant slot round-trips have been forwarded. A value
+ * used outside the block that defined it keeps a memory home — proving when
+ * that is safe needs liveness across the whole graph, and the values it would
+ * catch are rare.
+ *
+ * d0 and d1 stay free as scratch for operands that did not get a register.
+ * d8–d15 are avoided because they are callee-saved and using them would mean
+ * a prologue; d2–d7 and d16–d31 are free for the taking, which is 22 and more
+ * than any block here needs.
+ */
+#define ALLOC_FIRST_SCRATCH 0
+#define ALLOC_SECOND_SCRATCH 1
+#define ALLOC_POOL_SIZE 22
+
+static int allocPool(int index) {
+  /* d2..d7, then d16..d31 — skipping the callee-saved bank entirely. */
+  return index < 6 ? 2 + index : 16 + (index - 6);
+}
+
+/* -1 means the value lives in the scratch array rather than a register. */
+static int *allocateRegisters(const IrFunction *ir) {
+  int *assignment = (int *)malloc(sizeof(int) * (size_t)(ir->registerCount + 1));
+  int *definedIn = (int *)malloc(sizeof(int) * (size_t)(ir->registerCount + 1));
+  bool *escapes = (bool *)calloc((size_t)ir->registerCount + 1, sizeof(bool));
+
+  for (int r = 0; r <= ir->registerCount; r++) {
+    assignment[r] = -1;
+    definedIn[r] = -1;
+  }
+
+  for (int b = 0; b < ir->blockCount; b++) {
+    for (int i = 0; i < ir->blocks[b].count; i++) {
+      const IrInst *inst = &ir->blocks[b].instructions[i];
+      if (inst->result >= 0) definedIn[inst->result] = b;
+    }
+  }
+
+  /* A value read in a block other than the one that defined it — or read
+   * before it, which a loop back-edge makes possible — stays in memory. */
+  for (int b = 0; b < ir->blockCount; b++) {
+    for (int i = 0; i < ir->blocks[b].count; i++) {
+      const IrInst *inst = &ir->blocks[b].instructions[i];
+      int operands[2] = {inst->a, inst->b};
+      /* For these, `a` is a slot number rather than a value. */
+      if (inst->op == IR_LOAD_LOCAL || inst->op == IR_JUMP) operands[0] = -1;
+      if (inst->op == IR_STORE_LOCAL) operands[0] = -1;
+      if (inst->op == IR_BRANCH || inst->op == IR_RETURN || inst->op == IR_NEG ||
+          inst->op == IR_CONST || inst->op == IR_LOAD_LOCAL) {
+        operands[1] = -1;
+      }
+      for (int k = 0; k < 2; k++) {
+        int value = operands[k];
+        if (value < 0 || value >= ir->registerCount) continue;
+        if (definedIn[value] != b) escapes[value] = true;
+      }
+    }
+  }
+
+  /* Last use within the defining block, so a register can be handed back. */
+  int *lastUse = (int *)malloc(sizeof(int) * (size_t)(ir->registerCount + 1));
+  for (int r = 0; r <= ir->registerCount; r++) lastUse[r] = -1;
+
+  for (int b = 0; b < ir->blockCount; b++) {
+    for (int r = 0; r <= ir->registerCount; r++) lastUse[r] = -1;
+    for (int i = 0; i < ir->blocks[b].count; i++) {
+      const IrInst *inst = &ir->blocks[b].instructions[i];
+      if (inst->a >= 0 && inst->a < ir->registerCount && inst->op != IR_LOAD_LOCAL &&
+          inst->op != IR_STORE_LOCAL && inst->op != IR_JUMP) {
+        lastUse[inst->a] = i;
+      }
+      if (inst->op == IR_STORE_LOCAL && inst->b >= 0 && inst->b < ir->registerCount) {
+        lastUse[inst->b] = i;
+      }
+      if (inst->b >= 0 && inst->b < ir->registerCount && inst->op != IR_STORE_LOCAL &&
+          inst->op != IR_BRANCH && inst->op != IR_RETURN && inst->op != IR_NEG &&
+          inst->op != IR_CONST && inst->op != IR_LOAD_LOCAL && inst->op != IR_JUMP) {
+        lastUse[inst->b] = i;
+      }
+    }
+
+    bool taken[ALLOC_POOL_SIZE];
+    int holder[ALLOC_POOL_SIZE];
+    for (int k = 0; k < ALLOC_POOL_SIZE; k++) { taken[k] = false; holder[k] = -1; }
+
+    for (int i = 0; i < ir->blocks[b].count; i++) {
+      const IrInst *inst = &ir->blocks[b].instructions[i];
+
+      /* Free anything whose last use was the previous instruction. */
+      for (int k = 0; k < ALLOC_POOL_SIZE; k++) {
+        if (taken[k] && holder[k] >= 0 && lastUse[holder[k]] >= 0 &&
+            lastUse[holder[k]] < i) {
+          taken[k] = false;
+          holder[k] = -1;
+        }
+      }
+
+      if (inst->result < 0 || escapes[inst->result]) continue;
+      /* Comparison results live in memory; see the encoder. */
+      if (inst->op == IR_LT || inst->op == IR_LE || inst->op == IR_GT ||
+          inst->op == IR_GE || inst->op == IR_EQ || inst->op == IR_NE) {
+        continue;
+      }
+      if (lastUse[inst->result] < 0) continue; /* never read: no register needed */
+
+      for (int k = 0; k < ALLOC_POOL_SIZE; k++) {
+        if (taken[k]) continue;
+        taken[k] = true;
+        holder[k] = inst->result;
+        assignment[inst->result] = allocPool(k);
+        break;
+      }
+    }
+  }
+
+  free(definedIn);
+  free(escapes);
+  free(lastUse);
+  return assignment;
+}
+
+/* The register holding a value: its own, or a scratch one it is loaded into. */
+static int readOperand(Encoder *encoder, const int *home, int value, int scratch) {
+  if (home[value] >= 0) return home[value];
+  ldrDouble(encoder, scratch, REG_SCRATCH, value * 8);
+  return scratch;
+}
+
 JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   *why = NULL;
 #ifndef CS_JIT_APPLE_SILICON
@@ -231,6 +365,7 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   Encoder encoder;
   memset(&encoder, 0, sizeof encoder);
 
+  int *home = allocateRegisters(ir);
   int *blockStart = (int *)malloc(sizeof(int) * (size_t)ir->blockCount);
   Fixup *fixups = NULL;
   int fixupCount = 0, fixupCapacity = 0;
@@ -247,36 +382,52 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
           uint64_t bits;
           memcpy(&bits, &inst->constant, sizeof bits);
           movImmediate(&encoder, REG_TEMP, bits);
-          fmovToDouble(&encoder, 0, REG_TEMP);
-          strDouble(&encoder, 0, REG_SCRATCH, inst->result * 8);
+          int destination = home[inst->result] >= 0 ? home[inst->result] : 0;
+          fmovToDouble(&encoder, destination, REG_TEMP);
+          if (home[inst->result] < 0) {
+            strDouble(&encoder, 0, REG_SCRATCH, inst->result * 8);
+          }
           break;
         }
 
-        case IR_LOAD_LOCAL:
-          ldrDouble(&encoder, 0, REG_SLOTS, inst->a * 8);
-          strDouble(&encoder, 0, REG_SCRATCH, inst->result * 8);
+        case IR_LOAD_LOCAL: {
+          int destination = home[inst->result] >= 0 ? home[inst->result] : 0;
+          ldrDouble(&encoder, destination, REG_SLOTS, inst->a * 8);
+          if (home[inst->result] < 0) {
+            strDouble(&encoder, 0, REG_SCRATCH, inst->result * 8);
+          }
           break;
+        }
 
-        case IR_STORE_LOCAL:
-          ldrDouble(&encoder, 0, REG_SCRATCH, inst->b * 8);
-          strDouble(&encoder, 0, REG_SLOTS, inst->a * 8);
+        case IR_STORE_LOCAL: {
+          int source = readOperand(&encoder, home, inst->b, ALLOC_FIRST_SCRATCH);
+          strDouble(&encoder, source, REG_SLOTS, inst->a * 8);
           break;
+        }
 
-        case IR_ADD: case IR_SUB: case IR_MUL: case IR_DIV:
-          ldrDouble(&encoder, 0, REG_SCRATCH, inst->a * 8);
-          ldrDouble(&encoder, 1, REG_SCRATCH, inst->b * 8);
-          if (inst->op == IR_ADD) fadd(&encoder, 0, 0, 1);
-          else if (inst->op == IR_SUB) fsub(&encoder, 0, 0, 1);
-          else if (inst->op == IR_MUL) fmul(&encoder, 0, 0, 1);
-          else fdiv(&encoder, 0, 0, 1);
-          strDouble(&encoder, 0, REG_SCRATCH, inst->result * 8);
+        case IR_ADD: case IR_SUB: case IR_MUL: case IR_DIV: {
+          int left = readOperand(&encoder, home, inst->a, ALLOC_FIRST_SCRATCH);
+          int right = readOperand(&encoder, home, inst->b, ALLOC_SECOND_SCRATCH);
+          int destination = home[inst->result] >= 0 ? home[inst->result] : 0;
+          if (inst->op == IR_ADD) fadd(&encoder, destination, left, right);
+          else if (inst->op == IR_SUB) fsub(&encoder, destination, left, right);
+          else if (inst->op == IR_MUL) fmul(&encoder, destination, left, right);
+          else fdiv(&encoder, destination, left, right);
+          if (home[inst->result] < 0) {
+            strDouble(&encoder, 0, REG_SCRATCH, inst->result * 8);
+          }
           break;
+        }
 
-        case IR_NEG:
-          ldrDouble(&encoder, 0, REG_SCRATCH, inst->a * 8);
-          fneg(&encoder, 0, 0);
-          strDouble(&encoder, 0, REG_SCRATCH, inst->result * 8);
+        case IR_NEG: {
+          int operand = readOperand(&encoder, home, inst->a, ALLOC_FIRST_SCRATCH);
+          int destination = home[inst->result] >= 0 ? home[inst->result] : 0;
+          fneg(&encoder, destination, operand);
+          if (home[inst->result] < 0) {
+            strDouble(&encoder, 0, REG_SCRATCH, inst->result * 8);
+          }
           break;
+        }
 
         case IR_MOD:
           /* fmod is a libm call, and calling out needs a frame this does not
@@ -294,9 +445,9 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
            * value through its frame slot. Encoding the general case first
            * means every comparison compiles; fusing them is an optimisation
            * with its own measurement, not a prerequisite. */
-          ldrDouble(&encoder, 0, REG_SCRATCH, inst->a * 8);
-          ldrDouble(&encoder, 1, REG_SCRATCH, inst->b * 8);
-          fcmp(&encoder, 0, 1);
+          int left = readOperand(&encoder, home, inst->a, ALLOC_FIRST_SCRATCH);
+          int right = readOperand(&encoder, home, inst->b, ALLOC_SECOND_SCRATCH);
+          fcmp(&encoder, left, right);
 
           uint64_t trueBits, falseBits;
           Value yes = BOOL_VAL(true), no = BOOL_VAL(false);
@@ -305,6 +456,10 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
           movImmediate(&encoder, 10, trueBits);
           movImmediate(&encoder, 11, falseBits);
           csel(&encoder, REG_TEMP, 10, 11, conditionFor(inst->op));
+          /* A boolean stays in a general register and goes to memory. Giving
+           * it a floating-point home would mean moving it across the register
+           * files here and back again at the branch — two instructions to
+           * avoid one store, which measured worse. */
           strGeneral(&encoder, REG_TEMP, REG_SCRATCH, inst->result * 8);
           break;
         }
@@ -337,11 +492,12 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
           word(&encoder, 0x14000000u);
           break;
 
-        case IR_RETURN:
-          ldrDouble(&encoder, 0, REG_SCRATCH, inst->a * 8);
-          fmovToGeneral(&encoder, 0, 0); /* the Value's bits */
+        case IR_RETURN: {
+          int value = readOperand(&encoder, home, inst->a, ALLOC_FIRST_SCRATCH);
+          fmovToGeneral(&encoder, 0, value); /* the Value's bits */
           ret(&encoder);
           break;
+        }
       }
 
       if (encoder.failed) {
@@ -370,6 +526,7 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   }
 
   JitCode *code = publish(&encoder, ir->registerCount);
+  free(home);
   free(blockStart);
   free(fixups);
   free(encoder.words);
@@ -377,6 +534,7 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   return code;
 
 unsupported:
+  free(home);
   free(blockStart);
   free(fixups);
   free(encoder.words);

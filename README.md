@@ -454,6 +454,8 @@ cscript/
 | **20 ✅** | Tiering: what gets hot, and how much of it is already typed | — |
 | **23 ✅** | A typed IR, verified by running it instead of the interpreter | — |
 | **24 ✅** | An arm64 backend — correct, verified, and not yet faster | — |
+| **25 ✅** | Register allocation: −5% on calls, still level on loops | — |
+| next | Liveness across blocks, so loop locals stay in registers | — |
 | **21 ✅** | `Map` and `Set`, patterns as `for...of` bindings | — |
 | **22 ✅** | Regular expressions: literals, `test`/`exec`, string methods | — |
 | next | A type-directed code generator | — |
