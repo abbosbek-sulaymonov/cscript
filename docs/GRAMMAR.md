@@ -50,7 +50,7 @@ objectEntry    = IDENTIFIER ( ":" ( IDENTIFIER | pattern ) )? ( "=" expression )
 functionDecl   = "async"? "function" "*"? IDENTIFIER
                  "(" parameters? ")" typeAnnotation? block ;
 parameters     = parameter ( "," parameter )* ;
-parameter      = ( IDENTIFIER typeAnnotation? | pattern ) ( "=" expression )? ;
+parameter      = "..."? ( IDENTIFIER typeAnnotation? | pattern ) ( "=" expression )? ;
 
 classDecl      = "class" IDENTIFIER ( "extends" IDENTIFIER )? "{" member* "}" ;
 member         = "static" block                        (* static initialiser *)
@@ -122,6 +122,7 @@ postfix        = primary ( "." propertyName
                          | "[" expression "]"
                          | "?." "[" expression "]"
                          | "(" arguments? ")"
+                         | TEMPLATE                    (* a tagged template *)
                          | "?." "(" arguments? ")"
                          | "++" | "--" )* ;
 arguments      = argument ( "," argument )* ;
@@ -785,12 +786,11 @@ Each of these produces an error that names it:
 - Getters and setters on object *literals* (they work on classes)
 - Computed member names in a class body (computed keys work in object literals)
 - `yield*` inside a larger expression (it works as a statement of its own)
-- `Function.prototype.call` / `.apply` / `.bind`
-- Tagged template literals
 - Regex lookbehind — `(?<=…)` — and named groups; lookahead and
   backreferences work
 - Prototypes, `__proto__`, `Object.create` — classes are the whole object model
-- `arguments`, `new.target`, subclassing built-ins
+- `arguments` (a rest parameter does the same job), `new.target`,
+  subclassing built-ins
 - Dynamic `import()`, and bare specifiers like `import x from "lodash"`
 - Sparse arrays and holes, which are why engines need a second array
   representation

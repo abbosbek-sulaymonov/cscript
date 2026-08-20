@@ -320,6 +320,9 @@ struct ObjFunction {
    * the defaults are applied. */
   int arity;
   int paramCount;
+  /* When set, the last parameter is an array of every argument past the
+   * others, and `paramCount` stops being an upper bound on the call. */
+  bool hasRest;
   int upvalueCount;
   Chunk chunk;
   ObjString *name; /* NULL for the implicit top-level function */
@@ -439,6 +442,11 @@ typedef struct ObjBoundMethod {
   Obj obj;
   Value receiver;
   Obj *method; /* an ObjClosure or an ObjNative */
+
+  /* Arguments `bind` was given beyond the receiver, or NULL. They go in front
+   * of whatever the eventual call supplies, which is the whole of what makes
+   * `bind` partial application rather than only receiver-fixing. */
+  struct ObjArray *presets;
 } ObjBoundMethod;
 
 #define OBJ_TYPE(v)   (AS_OBJ(v)->type)

@@ -1,0 +1,57 @@
+// `call`, `apply` and `bind`. A method already keeps its receiver here, so
+// what these are for is an argument list you have rather than one you can
+// write, and fixing arguments in front of a function.
+function add(a, b) { return a + b; }
+console.log(add.call(null, 1, 2), add.apply(null, [3, 4]));
+
+const increment = add.bind(null, 1);
+console.log(increment(5), increment(9));
+
+function three(a, b, c) { return [a, b, c].join("-"); }
+console.log(three.bind(null, 1, 2)(3), three.bind(null, 1)(2, 3));
+
+// A function written as a method has somewhere to put a receiver.
+const counter = { n: 7, get() { return this.n; } };
+const detached = counter.get;
+console.log(detached.call({ n: 1 }), counter.get.bind({ n: 3 })());
+
+console.log(Math.max.apply(null, [1, 9, 4]));
+console.log(typeof add.bind(null));
+
+// Rest parameters, which is what makes a variadic function possible at all.
+function count(...xs) { return xs.length + ":" + xs.join(","); }
+console.log(count(), count(1), count(1, 2, 3));
+
+function tail(first, ...rest) { return first + "|" + rest.join(","); }
+console.log(tail(1), tail(1, 2, 3));
+
+const spread = (...xs) => xs.length;
+console.log(spread(1, 2), spread.length);
+
+class Collector { take(...items) { return items.join("/"); } }
+console.log(new Collector().take("a", "b"));
+
+console.log(count(...[1, 2], 3));
+
+// Tagged templates: the pieces as an array, the interpolations after them.
+function describe(strings, ...values) {
+  return strings.join("|") + " :: " + values.join(",");
+}
+console.log(describe`a${1}b${2}c`);
+console.log(describe`only`);
+
+// `raw` keeps the text exactly as written, which is all it is for.
+function raw(strings) { return strings.raw[0] + " vs " + strings[0]; }
+console.log(raw`a\nb`);
+
+const shorthand = (s, x) => s[0] + x;
+console.log(shorthand`v=${9}`);
+
+// A function assigned to a binding takes its name — and everything else it
+// already was, which used to be copied field by field and lose the rest.
+const named = function (...xs) { return xs.length; };
+console.log(named.name, named(1, 2));
+const asyncNamed = async function () { return "async"; };
+console.log(asyncNamed.name, await asyncNamed());
+const generated = function* () { yield 1; };
+console.log([...generated()]);

@@ -108,6 +108,17 @@ AstNode *parseCallSuffixes(Parser *parser, AstNode *expression) {
       continue;
     }
 
+    /* `` tag`…` `` — a template right after an expression is a call, with the
+     * literal's pieces as the first argument. */
+    if (check(parser, TOKEN_TEMPLATE)) {
+      advanceToken(parser);
+      expression = parseTaggedTemplate(parser, expression, parser->previous.start,
+                                       parser->previous.length,
+                                       parser->previous.line);
+      if (expression == NULL) return NULL;
+      continue;
+    }
+
     /* Postfix ++/--. It binds tighter than any unary operator, and yields the
      * value from *before* the update, which is why it needs its own node
      * rather than desugaring to an assignment. */
@@ -220,6 +231,18 @@ AstNode *parsePrimary(Parser *parser) {
       if (parser->diag->panicMode) return NULL;
     }
     return parseCallSuffixes(parser, node);
+  }
+
+  /* `async function () { … }` as a value, which is the one place `async` is
+   * followed by a keyword rather than by parameters. */
+  if (checkWord(parser, "async")) {
+    Lexer probe = parser->lexer;
+    if (csLexerNext(&probe).type == TOKEN_FUNCTION) {
+      advanceToken(parser); /* async */
+      advanceToken(parser); /* function */
+      parser->pendingAsync = true;
+      return parseCallSuffixes(parser, parseFunction(parser, false));
+    }
   }
 
   /* `async x => ...` and `async (a, b) => ...`. Only an `async` that is
@@ -412,6 +435,8 @@ AstNode *parsePrimary(Parser *parser) {
             csAstParamPattern(arrow, pattern);
             continue;
           }
+          bool isRest = matchToken(parser, TOKEN_ELLIPSIS);
+
           consume(parser, TOKEN_IDENTIFIER, "expected a parameter name");
           if (parser->diag->panicMode) return NULL;
           const char *paramName = parser->previous.start;
@@ -422,6 +447,13 @@ AstNode *parsePrimary(Parser *parser) {
           if (!parseTypeAnnotation(parser, &paramType, &annotated)) return NULL;
           csAstFunctionAddParam(parser->arena, arrow, paramName, paramLength,
                                 paramType, annotated);
+          if (isRest) {
+            arrow->as.function.hasRest = true;
+            if (check(parser, TOKEN_COMMA)) {
+              errorAtCurrent(parser, "a rest parameter has to be the last one");
+              return NULL;
+            }
+          }
 
           if (matchToken(parser, TOKEN_EQUAL)) {
             AstNode *fallback = parsePrecedence(parser, PREC_ASSIGNMENT);
@@ -713,16 +745,34 @@ AstNode *parseExpression(Parser *parser) {
  * a nested parser over a NUL-terminated copy. Its diagnostics share this
  * parser's, and line numbers are reported relative to the template's own line,
  * which is exact unless the template spans lines. */
-AstNode *parseTemplate(Parser *parser, const char *start, int length, int line) {
+/* Walks a template literal once, collecting the literal pieces and the
+ * expressions between them.
+ *
+ * Both users need the same walk: an untagged template joins the pieces with
+ * `+`, and a tagged one hands them to a function as an array. `raw` keeps the
+ * text exactly as written, escapes and all, which is the only thing `String.raw`
+ * is for.
+ *
+ * The whole literal arrived as one token, so each `${...}` is re-lexed here by
+ * a nested parser over a NUL-terminated copy. Its diagnostics share this
+ * parser's, and line numbers are reported relative to the template's own line,
+ * which is exact unless the template spans lines. */
+static bool scanTemplate(Parser *parser, const char *start, int length, int line,
+                         AstNode ***cookedOut, AstNode ***rawOut,
+                         AstNode ***expressionsOut, int *pieceCount) {
   const char *cursor = start + 1;      /* skip the opening backtick */
   const char *end = start + length - 1; /* and the closing one */
 
-  AstNode *result = NULL;
-  char chunk[1024];
+  AstNode **cooked = NULL;
+  AstNode **raw = NULL;
+  AstNode **expressions = NULL;
+  int pieces = 0;
 
-  while (cursor < end) {
-    /* Literal run up to the next interpolation. */
+  for (;;) {
+    char chunk[1024];
     int chunkLength = 0;
+    const char *rawStart = cursor;
+
     while (cursor < end && !(cursor[0] == '$' && cursor + 1 < end && cursor[1] == '{')) {
       char c = *cursor++;
       if (c == '\\' && cursor < end) {
@@ -740,14 +790,21 @@ AstNode *parseTemplate(Parser *parser, const char *start, int length, int line) 
       if (chunkLength < (int)sizeof(chunk) - 1) chunk[chunkLength++] = c;
     }
 
-    /* An empty leading chunk still matters: it forces the result to be a
-     * string even when the template starts with an interpolation. */
-    if (chunkLength > 0 || result == NULL) {
-      AstNode *piece = csAstString(parser->arena, line, chunk, chunkLength);
-      result = result == NULL
-                   ? piece
-                   : csAstBinary(parser->arena, line, BINARY_ADD, result, piece);
+    AstNode **grownCooked =
+        (AstNode **)csAstArenaAlloc(parser->arena, sizeof(AstNode *) * (size_t)(pieces + 1));
+    AstNode **grownRaw =
+        (AstNode **)csAstArenaAlloc(parser->arena, sizeof(AstNode *) * (size_t)(pieces + 1));
+    if (grownCooked == NULL || grownRaw == NULL) return false;
+    if (pieces > 0) {
+      memcpy(grownCooked, cooked, sizeof(AstNode *) * (size_t)pieces);
+      memcpy(grownRaw, raw, sizeof(AstNode *) * (size_t)pieces);
     }
+    grownCooked[pieces] = csAstString(parser->arena, line, chunk, chunkLength);
+    grownRaw[pieces] =
+        csAstString(parser->arena, line, rawStart, (int)(cursor - rawStart));
+    cooked = grownCooked;
+    raw = grownRaw;
+    pieces++;
 
     if (cursor >= end) break;
 
@@ -762,37 +819,100 @@ AstNode *parseTemplate(Parser *parser, const char *start, int length, int line) 
     if (depth != 0) {
       csDiagnosticError(parser->diag, line, start, length,
                         "unterminated '${' in template literal");
-      return NULL;
+      return false;
     }
 
     int exprLength = (int)(cursor - exprStart);
     cursor++; /* consume "}" */
 
     char *source = (char *)csAstArenaAlloc(parser->arena, (size_t)exprLength + 1);
-    if (source == NULL) return NULL;
+    if (source == NULL) return false;
     memcpy(source, exprStart, (size_t)exprLength);
     source[exprLength] = '\0';
 
-    Parser nested;
-    nested.arena = parser->arena;
-    nested.diag = parser->diag;
+    /* The whole parser is copied, not three of its fields: an interpolation
+     * inside an async function may await, and inside a generator may yield. */
+    Parser nested = *parser;
     csLexerInit(&nested.lexer, source, parser->diag);
     nested.lexer.line = line;
-    nested.previous = parser->previous;
     advanceToken(&nested);
 
     AstNode *expression = parseExpression(&nested);
-    if (expression == NULL) return NULL;
+    if (expression == NULL) return false;
     if (!check(&nested, TOKEN_EOF)) {
       csDiagnosticError(parser->diag, line, start, length,
                         "unexpected trailing text in a template interpolation");
-      return NULL;
+      return false;
     }
 
-    result = csAstBinary(parser->arena, line, BINARY_ADD, result, expression);
+    AstNode **grown = (AstNode **)csAstArenaAlloc(
+        parser->arena, sizeof(AstNode *) * (size_t)pieces);
+    if (grown == NULL) return false;
+    if (pieces > 1) memcpy(grown, expressions, sizeof(AstNode *) * (size_t)(pieces - 1));
+    grown[pieces - 1] = expression;
+    expressions = grown;
   }
 
-  return result != NULL ? result : csAstString(parser->arena, line, "", 0);
+  *cookedOut = cooked;
+  *rawOut = raw;
+  *expressionsOut = expressions;
+  *pieceCount = pieces;
+  return true;
+}
+
+/* Builds the concatenation an untagged template desugars to.
+ *
+ * `` `a ${x} b` `` becomes `"a" + x + " b"`, which reuses the existing string
+ * semantics of `+` — including the rule that a string on either side wins — so
+ * interpolating a number needs no extra machinery. */
+AstNode *parseTemplate(Parser *parser, const char *start, int length, int line) {
+  AstNode **cooked;
+  AstNode **raw;
+  AstNode **expressions;
+  int pieces;
+  if (!scanTemplate(parser, start, length, line, &cooked, &raw, &expressions,
+                    &pieces)) {
+    return NULL;
+  }
+
+  /* The first piece is always emitted, even when empty: it is what forces the
+   * result to be a string when the template starts with an interpolation. */
+  AstNode *result = cooked[0];
+  for (int i = 1; i < pieces; i++) {
+    result = csAstBinary(parser->arena, line, BINARY_ADD, result, expressions[i - 1]);
+    if (cooked[i]->as.string.length > 0) {
+      result = csAstBinary(parser->arena, line, BINARY_ADD, result, cooked[i]);
+    }
+  }
+  return result;
+}
+
+/* `` tag`a${x}b` `` — a call, with the pieces as its first argument. */
+AstNode *parseTaggedTemplate(Parser *parser, AstNode *tag, const char *start,
+                             int length, int line) {
+  AstNode **cooked;
+  AstNode **raw;
+  AstNode **expressions;
+  int pieces;
+  if (!scanTemplate(parser, start, length, line, &cooked, &raw, &expressions,
+                    &pieces)) {
+    return NULL;
+  }
+
+  AstNode *cookedArray = csAstArrayLiteral(parser->arena, line);
+  AstNode *rawArray = csAstArrayLiteral(parser->arena, line);
+  for (int i = 0; i < pieces; i++) {
+    csAstArrayLiteralAdd(parser->arena, cookedArray, cooked[i]);
+    csAstArrayLiteralAdd(parser->arena, rawArray, raw[i]);
+  }
+
+  AstNode *strings = csAstTemplateStrings(parser->arena, line, cookedArray, rawArray);
+  AstNode *call = csAstCall(parser->arena, line, tag);
+  csAstCallAddArgument(parser->arena, call, strings);
+  for (int i = 0; i + 1 < pieces; i++) {
+    csAstCallAddArgument(parser->arena, call, expressions[i]);
+  }
+  return call;
 }
 
 /* Looks past a '(' for the ')' that closes it and reports whether '=>' follows.
@@ -906,6 +1026,9 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
         continue;
       }
 
+      /* `...rest` collects the arguments past every parameter before it. */
+      bool isRest = matchToken(parser, TOKEN_ELLIPSIS);
+
       consume(parser, TOKEN_IDENTIFIER, "expected a parameter name");
       if (parser->diag->panicMode) return NULL;
 
@@ -918,6 +1041,13 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
 
       csAstFunctionAddParam(parser->arena, function, paramName, paramLength, paramType,
                             annotated);
+      if (isRest) {
+        function->as.function.hasRest = true;
+        if (check(parser, TOKEN_COMMA)) {
+          errorAtCurrent(parser, "a rest parameter has to be the last one");
+          return NULL;
+        }
+      }
 
       /* `function f(a = 1)`. The expression is kept on the parameter and run
        * at the top of the body, so it can refer to the parameters before it —

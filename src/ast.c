@@ -174,6 +174,15 @@ AstNode *csAstAssignKind(AstArena *arena, int line, AstNode *target,
   return node;
 }
 
+AstNode *csAstTemplateStrings(AstArena *arena, int line, AstNode *cooked,
+                              AstNode *raw) {
+  AstNode *node = newNode(arena, AST_TEMPLATE_STRINGS, line);
+  if (node == NULL) return NULL;
+  node->as.templateStrings.cooked = cooked;
+  node->as.templateStrings.raw = raw;
+  return node;
+}
+
 AstNode *csAstSequence(AstArena *arena, int line, AstNode *first, AstNode *second) {
   AstNode *node = newNode(arena, AST_SEQUENCE, line);
   if (node == NULL) return NULL;

@@ -722,6 +722,7 @@ void csNativesInstall(void) {
   csMapMethodsInstall();
   csGeneratorMethodsInstall();
   csNumberMethodsInstall();
+  csFunctionMethodsInstall();
   csRegexMethodsInstall();
   defineFunction("Map", csMapConstructorFn(), -1);
   defineFunction("Set", csSetConstructorFn(), -1);

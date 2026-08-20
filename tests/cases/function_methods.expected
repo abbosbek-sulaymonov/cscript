@@ -1,0 +1,19 @@
+3 7
+6 10
+1-2-3 1-2-3
+1 3
+9
+function
+0: 1:1 3:1,2,3
+1| 1|2,3
+2 0
+a/b
+3:1,2,3
+a|b|c :: 1,2
+only :: 
+a\nb vs a
+b
+v=9
+named 2
+asyncNamed async
+[ 1 ]

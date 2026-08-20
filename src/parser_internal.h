@@ -66,6 +66,8 @@ AstNode *parsePrimary(Parser *parser);
 AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence);
 AstNode *parseExpression(Parser *parser);
 AstNode *parseTemplate(Parser *parser, const char *start, int length, int line);
+AstNode *parseTaggedTemplate(Parser *parser, AstNode *tag, const char *start,
+                             int length, int line);
 bool looksLikeArrowParams(Parser *parser);
 AstNode *finishArrow(Parser *parser, AstNode *function, int line);
 AstNode *parseFunctionRest(Parser *parser, int line, const char *name,

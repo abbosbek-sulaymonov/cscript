@@ -67,6 +67,7 @@ void csVMInit(void) {
   csTableInit(&vm.mapMethods);
   csTableInit(&vm.generatorMethods);
   csTableInit(&vm.numberMethods);
+  csTableInit(&vm.functionMethods);
   csTableInit(&vm.regexMethods);
 
   vm.microtasks = NULL;
@@ -107,6 +108,7 @@ void csVMFree(void) {
   csTableFree(&vm.mapMethods);
   csTableFree(&vm.generatorMethods);
   csTableFree(&vm.numberMethods);
+  csTableFree(&vm.functionMethods);
   csTableFree(&vm.regexMethods);
   csTableFree(&vm.builtins);
   csTableFree(&vm.builtinConsts);
@@ -224,6 +226,29 @@ static bool concatenateOrAdd(void) {
   return true;
 }
 
+/* Slides the arguments a call supplied up and drops `bind`'s in front of them.
+ *
+ * The stack already holds [callee][supplied…], and the callee's own slot is
+ * about to be overwritten with the receiver, so the presets go exactly where
+ * the arguments a direct call would have pushed first belong. */
+static bool spliceBoundArguments(ObjBoundMethod *bound, int *argCount) {
+  if (bound->presets == NULL || bound->presets->elements.count == 0) return true;
+
+  int extra = bound->presets->elements.count;
+  if (vm.stackTop + extra >= vm.stack + vm.stackCapacity) {
+    csVMRuntimeError("call stack overflow while applying a bound function");
+    return false;
+  }
+
+  Value *supplied = vm.stackTop - *argCount;
+  memmove(supplied + extra, supplied, sizeof(Value) * (size_t)*argCount);
+  for (int i = 0; i < extra; i++) supplied[i] = bound->presets->elements.values[i];
+
+  vm.stackTop += extra;
+  *argCount += extra;
+  return true;
+}
+
 /* Checks the argument count and pads the frame out to the parameter count.
  *
  * A parameter with a default is optional, so a call may supply fewer than
@@ -232,6 +257,36 @@ static bool concatenateOrAdd(void) {
  * That is also what makes an argument written as `undefined` and one left out
  * the same thing, which is what JavaScript says. */
 bool csVMCheckArity(ObjFunction *function, int *argCount) {
+  /* A rest parameter takes whatever is left, so there is no upper bound and
+   * the leftovers become one array in its slot. */
+  if (function->hasRest) {
+    int fixed = function->paramCount - 1;
+    if (*argCount < function->arity) {
+      const char *name =
+          function->name != NULL ? function->name->chars : "<anonymous>";
+      csVMRuntimeError("%s expects at least %d argument%s but got %d", name,
+                       function->arity, function->arity == 1 ? "" : "s", *argCount);
+      return false;
+    }
+
+    while (*argCount < fixed) {
+      csVMPush(UNDEFINED_VAL);
+      (*argCount)++;
+    }
+
+    ObjArray *rest = csArrayNew();
+    csPushTempRoot((Obj *)rest);
+    for (int i = fixed; i < *argCount; i++) {
+      csValueArrayWrite(&rest->elements, vm.stackTop[i - *argCount]);
+    }
+    csPopTempRoot();
+
+    vm.stackTop -= *argCount - fixed;
+    csVMPush(OBJ_VAL(rest));
+    *argCount = fixed + 1;
+    return true;
+  }
+
   if (*argCount < function->arity || *argCount > function->paramCount) {
     const char *name =
         function->name != NULL ? function->name->chars : "<anonymous>";
@@ -347,6 +402,7 @@ bool callValue(Value callee, int argCount) {
 
   if (IS_BOUND_METHOD(callee)) {
     ObjBoundMethod *bound = AS_BOUND_METHOD(callee);
+    if (!spliceBoundArguments(bound, &argCount)) return false;
     if (bound->method->type == OBJ_NATIVE) {
       /* Natives already take a receiver, so a bound one is simply called with
        * the value it was bound to. */
@@ -403,6 +459,11 @@ static Table *methodTableFor(Value receiver) {
   if (IS_MAP(receiver)) return &vm.mapMethods;
   if (IS_GENERATOR(receiver)) return &vm.generatorMethods;
   if (IS_NUMBER(receiver)) return &vm.numberMethods;
+  /* A closure or a bound method; a native's own statics are looked at first,
+   * so `Number.isInteger` still wins over `Number.call`. */
+  if (IS_CLOSURE(receiver) || IS_BOUND_METHOD(receiver) || IS_NATIVE(receiver)) {
+    return &vm.functionMethods;
+  }
   if (IS_REGEX(receiver)) return &vm.regexMethods;
   return NULL;
 }
@@ -1954,6 +2015,14 @@ InterpretResult run(int baseFrame) {
         /* Replaces the source and the names, the shape OP_ARRAY_REST leaves. */
         vm.stackTop = names - 1;
         csVMPush(OBJ_VAL(rest));
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_TEMPLATE_STRINGS) {
+        Value raw = peekStack(0);
+        Value cooked = peekStack(1);
+        csArrayPutExtra(AS_ARRAY(cooked), "raw", 3, raw);
+        csVMPop();
         VM_NEXT();
       }
 

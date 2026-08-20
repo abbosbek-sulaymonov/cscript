@@ -38,6 +38,7 @@ typedef enum {
   AST_AWAIT,
   AST_YIELD,
   AST_SEQUENCE,
+  AST_TEMPLATE_STRINGS,
   AST_REGEX_LITERAL,
   AST_OPTIONAL_CHAIN,
   AST_DELETE,
@@ -220,6 +221,10 @@ struct AstNode {
     } logical;
     AstNode *grouping;                   /* AST_GROUPING */
     AstNode *deleteTarget;               /* AST_DELETE — a property or index */
+    struct {                             /* AST_TEMPLATE_STRINGS */
+      AstNode *cooked;                   /*   escapes resolved */
+      AstNode *raw;                      /*   exactly as written */
+    } templateStrings;
     struct {                             /* AST_SEQUENCE — `a, b` */
       AstNode *first;                    /*   evaluated and discarded */
       AstNode *second;                   /*   the value of the whole */
@@ -383,6 +388,10 @@ struct AstNode {
       TypeKind returnType;
       bool hasReturnAnnotation;
       bool isAsync;                      /*   returns a promise, may await */
+      /* `function f(a, ...rest)`. The last parameter collects every argument
+       * past the ones before it, as an array — so the call's arity stops
+       * being fixed. */
+      bool hasRest;
       /* True when the name came from the binding the function was assigned to
        * rather than from a `function name(...)` declaration. Such a name is
        * for diagnostics only: it must not declare anything, or `const f = () =>
@@ -479,6 +488,11 @@ AstNode *csAstYield(AstArena *arena, int line, AstNode *value, bool isDelegate);
 
 /* `a, b` — the comma operator, not a separator. */
 AstNode *csAstSequence(AstArena *arena, int line, AstNode *first, AstNode *second);
+
+/* The first argument a tagged template hands its tag: the literal pieces, with
+ * the unescaped text hung off them as `raw`. */
+AstNode *csAstTemplateStrings(AstArena *arena, int line, AstNode *cooked,
+                              AstNode *raw);
 AstNode *csAstUpdate(AstArena *arena, int line, AstNode *target, bool isIncrement,
                      bool isPrefix);
 AstNode *csAstCall(AstArena *arena, int line, AstNode *callee);

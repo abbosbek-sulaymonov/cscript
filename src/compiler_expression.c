@@ -694,7 +694,11 @@ void compileFunctionAs(const AstNode *node, FunctionKind kind) {
    * the first one that has it — which is also why JavaScript will not let a
    * required parameter follow an optional one. */
   compiler.function->paramCount = node->as.function.paramCount;
+  compiler.function->hasRest = node->as.function.hasRest;
   compiler.function->arity = node->as.function.paramCount;
+  /* A rest parameter is never required: it is an empty array when nothing is
+   * left over. */
+  if (node->as.function.hasRest) compiler.function->arity--;
   for (int i = 0; i < node->as.function.paramCount; i++) {
     if (node->as.function.params[i].defaultValue != NULL) {
       compiler.function->arity = i;

@@ -54,7 +54,9 @@ asserted here.
 | Private members | `#field`, `#method()`, `static #field` — off the shape, so invisible to `Object.keys`, `JSON.stringify` and subscripts |
 | Static blocks | `static { … }`, interleaved with static fields in source order |
 | Destructuring | array and object, nested, defaults, renaming, rest elements and rest properties |
-| Parameters | patterns as parameters and defaults, in every function form |
+| Parameters | patterns, defaults and `...rest`, in every function form |
+| `call` / `apply` / `bind` | including partial application, on any callable |
+| Tagged templates | `` tag`a${x}b` ``, with `raw` |
 | Spread | array literals, object literals, call arguments, over strings |
 | Object literals | shorthand `{ x }`, computed keys `{ [k]: v }`, numeric keys `{ 1: v }`, methods `{ m() {} }`, spread `{ ...o }` |
 | Optional chaining | `?.`, `?.[ ]`, `?.()`, short-circuiting the whole chain |
@@ -194,16 +196,15 @@ Each of these produces an error that names it, rather than failing obscurely.
 
 | Missing | Note |
 | --- | --- |
-| Tagged template literals | Ordinary template literals work |
 | Regex lookbehind — `(?<=…)` — and named groups | Lookahead and backreferences work |
 | `WeakMap`, `WeakSet` | Would need weak references in the collector |
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
 | `Symbol`, `BigInt` | No plans |
 | Getters and setters on object *literals* | Methods and shorthand work; accessors do not |
 | Computed member names in a class body | Computed keys work in object literals |
+| `arguments` | A rest parameter does the same job and says what it collects |
 | `new.target`, subclassing built-ins | |
 | Prototypes, `__proto__`, `Object.create` | Classes are the whole object model |
-| `arguments`, `Function.prototype.call` / `.apply` / `.bind` | A method already keeps its receiver |
 | Dynamic `import()` | Static `import` and `export` are resolved before the program runs |
 | Bare import specifiers — `import x from "lodash"` | No package system to resolve against |
 | Sparse arrays and holes | Deliberate: they are why engines need a second array representation |

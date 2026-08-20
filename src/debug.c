@@ -193,6 +193,7 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_OBJECT_SET:        return simpleInstruction("OP_OBJECT_SET", offset);
     case OP_OBJECT_MERGE:      return simpleInstruction("OP_OBJECT_MERGE", offset);
     case OP_OBJECT_REST:       return byteInstruction("OP_OBJECT_REST", chunk, offset);
+    case OP_TEMPLATE_STRINGS:  return simpleInstruction("OP_TEMPLATE_STRINGS", offset);
     case OP_ARRAY_REST:        return byteInstruction("OP_ARRAY_REST", chunk, offset);
     case OP_CALL_SPREAD:       return simpleInstruction("OP_CALL_SPREAD", offset);
     case OP_CLOSURE: {
@@ -360,6 +361,10 @@ static void printNode(const AstNode *node, int depth) {
     case AST_LABELED_STMT:
       printf("Label %.*s\n", node->as.labeled.length, node->as.labeled.name);
       printNode(node->as.labeled.body, depth + 1);
+      break;
+    case AST_TEMPLATE_STRINGS:
+      printf("TemplateStrings\n");
+      printNode(node->as.templateStrings.cooked, depth + 1);
       break;
     case AST_SEQUENCE:
       printf("Sequence\n");

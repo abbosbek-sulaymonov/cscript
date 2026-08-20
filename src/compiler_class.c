@@ -105,7 +105,9 @@ void compileConstructor(const AstNode *classNode) {
   /* Same rule as any other function: a parameter with a default is optional,
    * so the required count stops at the first one that has one. */
   compiler.function->paramCount = fn->as.function.paramCount;
+  compiler.function->hasRest = fn->as.function.hasRest;
   compiler.function->arity = fn->as.function.paramCount;
+  if (fn->as.function.hasRest) compiler.function->arity--;
   for (int i = 0; i < fn->as.function.paramCount; i++) {
     if (fn->as.function.params[i].defaultValue != NULL) {
       compiler.function->arity = i;

@@ -19,6 +19,7 @@ typedef struct {
   /* How many a call must supply. A parameter with a default is optional, so
    * this stops at the first one that has one. */
   int requiredCount;
+  bool hasRest; /* no upper bound on the arguments */
   TypeKind paramTypes[UINT8_MAX];
 } Signature;
 
@@ -206,7 +207,9 @@ static const Signature *declareFunction(Checker *checker, AstNode *node) {
       node->as.function.hasReturnAnnotation ? node->as.function.returnType : TYPE_ANY;
   signature->hasReturnAnnotation = node->as.function.hasReturnAnnotation;
   signature->paramCount = node->as.function.paramCount;
+  signature->hasRest = node->as.function.hasRest;
   signature->requiredCount = node->as.function.paramCount;
+  if (node->as.function.hasRest) signature->requiredCount--;
   for (int i = 0; i < node->as.function.paramCount; i++) {
     if (node->as.function.params[i].defaultValue != NULL) {
       signature->requiredCount = i;
@@ -437,6 +440,12 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
       result = TYPE_UNDEFINED;
       break;
 
+    case AST_TEMPLATE_STRINGS:
+      checkNode(checker, node->as.templateStrings.cooked);
+      checkNode(checker, node->as.templateStrings.raw);
+      result = TYPE_OBJECT;
+      break;
+
     case AST_SEQUENCE:
       checkNode(checker, node->as.sequence.first);
       result = checkNode(checker, node->as.sequence.second);
@@ -583,8 +592,10 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
         if (node->as.call.arguments[i]->type == AST_SPREAD) hasSpread = true;
       }
 
-      if (!hasSpread && (node->as.call.argCount < signature->requiredCount ||
-                         node->as.call.argCount > signature->paramCount)) {
+      bool tooMany = !signature->hasRest &&
+                     node->as.call.argCount > signature->paramCount;
+      if (!hasSpread &&
+          (node->as.call.argCount < signature->requiredCount || tooMany)) {
         if (signature->requiredCount == signature->paramCount) {
           typeError(checker, node->line, "expected %d argument%s but got %d",
                     signature->paramCount, signature->paramCount == 1 ? "" : "s",

@@ -124,6 +124,10 @@
   X(OP_OBJECT_MERGE)      /*          pop a source, copy its keys in          */ \
   X(OP_OBJECT_REST)       /* [count]  pop `count` keys and a source, push the \
                            *          rest of it as a new object              */ \
+  /* `tag`a${x}b`` — hangs the unescaped pieces off the cooked ones as `raw`,   \
+   * which is the only thing `String.raw` reads. Two arrays go in, one comes    \
+   * out. */                                                                    \
+  X(OP_TEMPLATE_STRINGS)                                                        \
   X(OP_ARRAY_REST)        /* [index]  push a copy from `index` onward       */ \
   /* A call whose arguments were spread: they arrive as one array, because      \
    * their number is only known at run time. Unpacks it and calls. */            \

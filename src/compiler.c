@@ -573,6 +573,12 @@ void compileNode(const AstNode *node) {
       compileOptionalChain(node);
       break;
 
+    case AST_TEMPLATE_STRINGS:
+      compileNode(node->as.templateStrings.cooked);
+      compileNode(node->as.templateStrings.raw);
+      emitByte(OP_TEMPLATE_STRINGS, line);
+      break;
+
     case AST_SEQUENCE:
       /* The first operand is evaluated only for what it does. */
       compileForEffect(node->as.sequence.first);

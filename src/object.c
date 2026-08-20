@@ -292,6 +292,7 @@ ObjFunction *csFunctionNew(void) {
   registerObject((Obj *)function, OBJ_FUNCTION);
   function->arity = 0;
   function->paramCount = 0;
+  function->hasRest = false;
   function->upvalueCount = 0;
   function->name = NULL;
   function->module = NULL;
@@ -573,6 +574,7 @@ ObjBoundMethod *csBoundMethodNew(Value receiver, Obj *method) {
   registerObject((Obj *)bound, OBJ_BOUND_METHOD);
   bound->receiver = receiver;
   bound->method = method;
+  bound->presets = NULL;
   csPopTempRoot();
   if (IS_OBJ(receiver)) csPopTempRoot();
   return bound;
@@ -849,6 +851,7 @@ void csObjectBlacken(Obj *object) {
       ObjBoundMethod *bound = (ObjBoundMethod *)object;
       csMarkValue(bound->receiver);
       csMarkObject(bound->method);
+      csMarkObject((Obj *)bound->presets);
       break;
     }
 

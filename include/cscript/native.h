@@ -18,6 +18,7 @@ void csNativesInstall(void);
 Value csAggregateError(ObjArray *errors);
 void csGeneratorMethodsInstall(void);
 void csNumberMethodsInstall(void);
+void csFunctionMethodsInstall(void);
 
 /* Registers the built-in array methods into vm.arrayMethods. Called by
  * csNativesInstall; separated only because there are a lot of them. */

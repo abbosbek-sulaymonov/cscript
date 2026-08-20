@@ -420,12 +420,19 @@ AstNode *finishVarDeclaration(Parser *parser, int line, const char *name,
       initializer->as.function.name == NULL) {
     AstNode *named = csAstFunction(parser->arena, initializer->line, name, nameLength);
     if (named != NULL) {
-      named->as.function.params = initializer->as.function.params;
-      named->as.function.paramCount = initializer->as.function.paramCount;
-      named->as.function.body = initializer->as.function.body;
-      named->as.function.returnType = initializer->as.function.returnType;
-      named->as.function.hasReturnAnnotation =
-          initializer->as.function.hasReturnAnnotation;
+      /* Everything the function already was, and then the name.
+       *
+       * This used to copy the fields it knew about one by one, which meant
+       * every field added afterwards was silently dropped — `async`, `*` and
+       * a rest parameter all stopped working the moment a function was
+       * assigned to a binding rather than declared. Copying the node and
+       * putting the name back cannot go out of date. */
+      const char *inferred = named->as.function.name;
+      int inferredLength = named->as.function.nameLength;
+
+      *named = *initializer;
+      named->as.function.name = inferred;
+      named->as.function.nameLength = inferredLength;
       named->as.function.nameIsInferred = true;
       initializer = named;
     }
