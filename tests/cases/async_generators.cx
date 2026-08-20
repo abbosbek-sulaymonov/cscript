@@ -1,0 +1,72 @@
+// An async generator suspends for two different reasons: `await`, which the
+// event loop resumes, and `yield`, which whoever called `next` resumes. Its
+// `next()` answers with a promise because the body may await any number of
+// times before it reaches the yield that has the value.
+async function* mixed() {
+  yield await Promise.resolve("awaited");
+  await null;
+  yield "after another await";
+  return "done";
+}
+
+const it = mixed();
+console.log(await it.next());
+console.log(await it.next());
+console.log(await it.next());
+console.log(await it.next());
+
+// `for await` drives it one value at a time, so side effects interleave with
+// the body of the loop.
+async function* noisy() {
+  console.log("producing 1");
+  yield 1;
+  console.log("producing 2");
+  yield 2;
+}
+for await (const value of noisy()) console.log("consumed", value);
+
+// An endless one is fine as long as the loop leaves.
+async function* naturals() {
+  let n = 0;
+  while (true) {
+    await null;
+    yield n++;
+  }
+}
+for await (const n of naturals()) {
+  if (n > 2) break;
+  console.log("n", n);
+}
+
+// The same loop still handles everything it did before: a sync generator, an
+// array of promises, and plain values.
+function* three() { yield 1; yield 2; }
+for await (const v of three()) console.log("sync gen", v);
+for await (const v of [Promise.resolve("p"), "plain"]) console.log("array", v);
+
+// A throw out of the body rejects the promise the pull was waiting on.
+async function* fails() {
+  yield 1;
+  throw new Error("from inside");
+}
+const fuse = fails();
+console.log((await fuse.next()).value);
+try {
+  await fuse.next();
+} catch (error) {
+  console.log("caught", error.message);
+}
+
+// Async generator methods, on a class and on an object literal.
+class Source {
+  items = ["x", "y"];
+  async *each() {
+    for (const item of this.items) yield item;
+  }
+}
+for await (const item of new Source().each()) console.log("class", item);
+
+const holder = {
+  async *twice() { yield 1; yield 1; },
+};
+for await (const v of holder.twice()) console.log("literal", v);

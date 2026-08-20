@@ -13,27 +13,6 @@
 #include "cscript/vm.h"
 #include "vm_internal.h"
 
-/* `{ value, done }`, the one shape every one of these returns. */
-static Value iterationResult(Value value, bool done) {
-  ObjObject *result = csObjectNew("Object");
-  csPushTempRoot((Obj *)result);
-  if (IS_OBJ(value)) csPushTempRoot(AS_OBJ(value));
-
-  ObjString *valueKey = csStringCopy("value", 5);
-  csPushTempRoot((Obj *)valueKey);
-  csObjectPut(result, valueKey, value);
-  csPopTempRoot();
-
-  ObjString *doneKey = csStringCopy("done", 4);
-  csPushTempRoot((Obj *)doneKey);
-  csObjectPut(result, doneKey, BOOL_VAL(done));
-  csPopTempRoot();
-
-  if (IS_OBJ(value)) csPopTempRoot();
-  csPopTempRoot();
-  return OBJ_VAL(result);
-}
-
 static bool requireGenerator(Value receiver, const char *method) {
   if (IS_GENERATOR(receiver)) return true;
   csVMRuntimeError("'%s' needs a generator, got %s", method,
@@ -44,13 +23,22 @@ static bool requireGenerator(Value receiver, const char *method) {
 static bool generatorNext(Value receiver, int argCount, Value *args, Value *result) {
   if (!requireGenerator(receiver, "next")) return false;
 
+  /* An async generator answers with a promise, because the body may await any
+   * number of times before it reaches the `yield` that has the value. */
+  if (AS_GENERATOR(receiver)->isAsync) {
+    ObjPromise *pending = csGeneratorNextAsync(
+        AS_GENERATOR(receiver), argCount > 0 ? args[0] : UNDEFINED_VAL);
+    *result = OBJ_VAL(pending);
+    return true;
+  }
+
   Value value;
   bool done;
   if (!csGeneratorNext(AS_GENERATOR(receiver),
                        argCount > 0 ? args[0] : UNDEFINED_VAL, &value, &done)) {
     return false;
   }
-  *result = iterationResult(value, done);
+  *result = csIterationResult(value, done);
   return true;
 }
 
@@ -69,7 +57,19 @@ static bool generatorReturn(Value receiver, int argCount, Value *args, Value *re
 
   csGeneratorFinish(generator, returned);
   generator->yielded = UNDEFINED_VAL;
-  *result = iterationResult(returned, true);
+
+  Value record = csIterationResult(returned, true);
+  if (!generator->isAsync) {
+    *result = record;
+    return true;
+  }
+  /* An async generator answers in a promise even when it has nothing left to
+   * do, so `await it.return()` reads the same as `await it.next()`. */
+  csPushTempRoot(AS_OBJ(record));
+  ObjPromise *pending = csPromiseNew();
+  csPromiseFulfill(pending, record);
+  csPopTempRoot();
+  *result = OBJ_VAL(pending);
   return true;
 }
 

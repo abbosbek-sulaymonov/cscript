@@ -1,0 +1,21 @@
+{ value: 'awaited', done: false }
+{ value: 'after another await', done: false }
+{ value: 'done', done: true }
+{ value: undefined, done: true }
+producing 1
+consumed 1
+producing 2
+consumed 2
+n 0
+n 1
+n 2
+sync gen 1
+sync gen 2
+array p
+array plain
+1
+caught from inside
+class x
+class y
+literal 1
+literal 1

@@ -299,6 +299,20 @@ AstNode *parsePrimary(Parser *parser) {
           continue;
         }
 
+        /* `async m() {}` and `async *m() {}`. An `async` followed by anything
+         * but `:` or `(` is the modifier rather than the key's own name — the
+         * same test a class body makes, for the same reason. */
+        bool isAsyncEntry = false;
+        if (checkWord(parser, "async")) {
+          Lexer probe = parser->lexer;
+          Token next = csLexerNext(&probe);
+          if (next.type != TOKEN_COLON && next.type != TOKEN_LEFT_PAREN &&
+              next.type != TOKEN_COMMA && next.type != TOKEN_RIGHT_BRACE) {
+            advanceToken(parser);
+            isAsyncEntry = true;
+          }
+        }
+
         /* `*m() {}` — a generator method, read before the key. */
         bool isGeneratorEntry = matchToken(parser, TOKEN_STAR);
 
@@ -346,6 +360,7 @@ AstNode *parsePrimary(Parser *parser) {
         /* `{ m() {} }` is `{ m: function m() {} }`. Named after the key, so a
          * stack trace says which method it was. */
         if (check(parser, TOKEN_LEFT_PAREN)) {
+          parser->pendingAsync = isAsyncEntry;
           parser->pendingGenerator = isGeneratorEntry;
           AstNode *method = parseFunctionRest(parser, key->line, key->as.string.chars,
                                               key->as.string.length, true);
@@ -819,14 +834,8 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
   parser->pendingAsync = false;
   parser->pendingGenerator = false;
 
-  /* An async generator needs `for await`, which does not exist here, so one
-   * would be a generator whose `async` quietly meant nothing. */
-  if (wasAsync && wasGenerator) {
-    csDiagnosticError(parser->diag, line, NULL, 0,
-                      "an async generator is not supported; a function can be "
-                      "'async' or 'function*', not both");
-    return NULL;
-  }
+  (void)wasAsync;
+  (void)wasGenerator;
 
   consume(parser, TOKEN_LEFT_PAREN,
           isMethod ? "expected '(' after the method name"

@@ -62,6 +62,16 @@ bool callGeneratorFunction(ObjClosure *closure, int argCount);
  * which has already been reported. */
 bool csGeneratorNext(ObjGenerator *generator, Value sent, Value *value, bool *done);
 
+/* `next()` on an async generator: a promise for the next `{ value, done }`. */
+ObjPromise *csGeneratorNextAsync(ObjGenerator *generator, Value sent);
+
+/* Settles a pending `next()` after the event loop resumed the body. */
+void csGeneratorResumed(ObjGenerator *generator, bool yielded, bool failed,
+                        Value reason);
+
+/* `{ value, done }`. */
+Value csIterationResult(Value value, bool done);
+
 /* Marks a generator finished without running any more of it, for `.return()`. */
 void csGeneratorFinish(ObjGenerator *generator, Value returned);
 void csVMResumeFiber(ObjFiber *fiber, Value value, bool isRejection);

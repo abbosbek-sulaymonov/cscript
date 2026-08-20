@@ -79,6 +79,14 @@
    * load, and lose four dispatches. */                                        \
   X(OP_ITER_STEP)         /* [hi][lo] pop index and iterable, push the next  \
                            *          element, or jump when there is none    */ \
+                                                                              \
+  /* `for await` over an async generator, which cannot be driven by an index: \
+   * `next()` answers with a promise, so the loop has to await before it can  \
+   * even know whether there is another value. The three below are the second \
+   * shape of the loop, chosen at run time by the first of them. */            \
+  X(OP_JUMP_IF_ASYNC_ITER) /* [hi][lo] jump if top is an async generator      */ \
+  X(OP_ASYNC_NEXT)        /*          pop it, push the promise from next()   */ \
+  X(OP_ITER_UNPACK)       /* [hi][lo] pop {value,done}; push value, or jump  */ \
   /* `for...in` desugars to `for...of` over this: an object's own keys, or an  \
    * array's indices as strings, which is what JavaScript enumerates. */        \
   X(OP_ENUM_KEYS)         /*          replace top with its keys as an array */ \

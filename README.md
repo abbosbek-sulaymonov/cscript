@@ -483,7 +483,7 @@ cscript/
 | **32 ✅** | Top-level `await`, `for await` over sync iterables | — |
 | **33 ✅** | Regex backreferences and lookahead, function replacers, `exec().index` | — |
 | **34 ✅** | `Promise.allSettled` / `.any`, `AggregateError`, `setInterval` | — |
-| next | Async generators — `async function*` and the async iterator protocol | — |
+| **35 ✅** | Async generators — `async function*`, `for await` over one | — |
 | next | Lowering top-level code, so a script reaches the compiler | — |
 | next | Inlining, so a small function is worth compiling | — |
 | next | Guards and deoptimisation, for code the types do not prove | — |

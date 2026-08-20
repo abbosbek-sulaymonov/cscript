@@ -87,10 +87,12 @@ void runFiber(ObjFiber *fiber) {
   swapExecutionState(fiber);
 
   vm.fiberSuspended = false;
+  vm.fiberYielded = false;
   InterpretResult result = run(0);
 
   if (vm.fiberSuspended) {
     vm.fiberSuspended = false;
+  vm.fiberYielded = false;
     fiber->state = FIBER_SUSPENDED;
     swapExecutionState(fiber);
     vm.currentFiber = enclosing;
@@ -161,14 +163,46 @@ void csVMResumeFiber(ObjFiber *fiber, Value value, bool isRejection) {
   }
 
   vm.fiberSuspended = false;
+  vm.fiberYielded = false;
   InterpretResult result = run(0);
+
   if (vm.fiberSuspended) {
+    bool yielded = vm.fiberYielded;
     vm.fiberSuspended = false;
+    vm.fiberYielded = false;
     fiber->state = FIBER_SUSPENDED;
     swapExecutionState(fiber);
     vm.currentFiber = enclosing;
+
+    /* An async generator that reached a `yield` has an answer for the `next()`
+     * that is still waiting on a promise. One that merely reached another
+     * `await` has not, and comes back here again later. */
+    if (fiber->generator != NULL) {
+      csGeneratorResumed(fiber->generator, yielded, false, UNDEFINED_VAL);
+    }
     return;
   }
+
+  /* The body finished. A generator has no promise of its own to settle —
+   * finishFiber would find NULL — so the outcome is taken here instead and
+   * handed to whichever `next()` is waiting. */
+  if (fiber->generator != NULL) {
+    ObjGenerator *generator = fiber->generator;
+    bool failed = result != CS_OK;
+    Value reason = UNDEFINED_VAL;
+    if (failed && vm.hasPendingException) {
+      reason = vm.pendingException;
+      vm.hasPendingException = false;
+    }
+    generator->yielded = !failed && vm.stackTop > vm.stack ? csVMPop() : UNDEFINED_VAL;
+    generator->done = true;
+    fiber->state = FIBER_DONE;
+    swapExecutionState(fiber);
+    vm.currentFiber = enclosing;
+    csGeneratorResumed(generator, false, failed, reason);
+    return;
+  }
+
   finishFiber(fiber, enclosing, result);
 }
 
@@ -179,8 +213,13 @@ void csVMResumeFiber(ObjFiber *fiber, Value value, bool isRejection) {
  * The same swap-run-swap as an async resume: what differs is only where the
  * value goes. `pushValue` is false the first time, because there is no
  * suspended `yield` waiting to receive one. */
+/* Runs a generator's body until it next stops, and says how it stopped.
+ *
+ * `*yielded` distinguishes the two: a `yield` has a value for whoever pulled,
+ * while an `await` in an async generator means the body is not finished and
+ * not ready either — the event loop will bring it back. */
 static InterpretResult driveGenerator(ObjGenerator *generator, bool pushValue,
-                                      Value sent) {
+                                      Value sent, bool *yielded) {
   ObjFiber *fiber = generator->fiber;
   ObjFiber *enclosing = vm.currentFiber;
 
@@ -191,10 +230,13 @@ static InterpretResult driveGenerator(ObjGenerator *generator, bool pushValue,
   if (pushValue) csVMPush(sent);
 
   vm.fiberSuspended = false;
+  vm.fiberYielded = false;
   InterpretResult result = run(0);
 
   if (vm.fiberSuspended) {
+    *yielded = vm.fiberYielded;
     vm.fiberSuspended = false;
+    vm.fiberYielded = false;
     fiber->state = FIBER_SUSPENDED;
     swapExecutionState(fiber);
     vm.currentFiber = enclosing;
@@ -203,6 +245,7 @@ static InterpretResult driveGenerator(ObjGenerator *generator, bool pushValue,
 
   /* Off the end, or an explicit `return`. Either way the body is finished and
    * whatever it left on its own stack is the result. */
+  *yielded = false;
   generator->yielded = result == CS_OK && vm.stackTop > vm.stack ? csVMPop()
                                                                  : UNDEFINED_VAL;
   generator->done = true;
@@ -210,6 +253,86 @@ static InterpretResult driveGenerator(ObjGenerator *generator, bool pushValue,
   swapExecutionState(fiber);
   vm.currentFiber = enclosing;
   return result;
+}
+
+/* `{ value, done }`, the shape the iterator protocol reports in. */
+Value csIterationResult(Value value, bool done) {
+  ObjObject *record = csObjectNew("Object");
+  csPushTempRoot((Obj *)record);
+  if (IS_OBJ(value)) csPushTempRoot(AS_OBJ(value));
+  csObjectSetProperty(record, "value", value);
+  csObjectSetProperty(record, "done", BOOL_VAL(done));
+  if (IS_OBJ(value)) csPopTempRoot();
+  csPopTempRoot();
+  return OBJ_VAL(record);
+}
+
+/* Settles the promise the last `next()` handed out, if the body has now
+ * reached somewhere worth reporting. Called from both places a generator's
+ * body can stop: the `next()` that started it, and the event loop resuming it
+ * after an `await`. */
+static void settleGeneratorStep(ObjGenerator *generator, bool yielded,
+                                bool failed, Value reason) {
+  ObjPromise *waiting = generator->pendingResult;
+  if (waiting == NULL) return;
+
+  /* Still awaiting: not finished, and nothing to report yet. */
+  if (!yielded && !generator->done && !failed) return;
+
+  generator->pendingResult = NULL;
+  csPushTempRoot((Obj *)waiting);
+  if (failed) {
+    csPromiseReject(waiting, reason);
+  } else {
+    Value produced = generator->yielded;
+    if (generator->done) generator->yielded = UNDEFINED_VAL;
+    csPromiseFulfill(waiting, csIterationResult(produced, generator->done));
+  }
+  csPopTempRoot();
+}
+
+/* An async generator's `next()`: a promise, settled wherever the body stops. */
+ObjPromise *csGeneratorNextAsync(ObjGenerator *generator, Value sent) {
+  ObjPromise *result = csPromiseNew();
+  csPushTempRoot((Obj *)result);
+
+  if (generator->done || generator->running) {
+    /* A finished generator answers `{ undefined, true }` for ever, and one
+     * that is already running is a program error rather than a queue. */
+    if (generator->running) {
+      csPromiseReject(result, OBJ_VAL(csStringCopy(
+          "this generator is already running", 33)));
+    } else {
+      csPromiseFulfill(result, csIterationResult(UNDEFINED_VAL, true));
+    }
+    csPopTempRoot();
+    return result;
+  }
+
+  generator->pendingResult = result;
+
+  bool started = generator->fiber->state != FIBER_READY;
+  bool yielded = false;
+  generator->running = true;
+  InterpretResult ran = driveGenerator(generator, started, sent, &yielded);
+  generator->running = false;
+
+  if (ran != CS_OK) {
+    Value reason = vm.hasPendingException ? vm.pendingException : UNDEFINED_VAL;
+    vm.hasPendingException = false;
+    settleGeneratorStep(generator, false, true, reason);
+  } else {
+    settleGeneratorStep(generator, yielded, false, UNDEFINED_VAL);
+  }
+
+  csPopTempRoot();
+  return result;
+}
+
+/* The event loop brought an async generator's body back after an `await`. */
+void csGeneratorResumed(ObjGenerator *generator, bool yielded, bool failed,
+                        Value reason) {
+  settleGeneratorStep(generator, yielded, failed, reason);
 }
 
 bool csGeneratorNext(ObjGenerator *generator, Value sent, Value *value, bool *done) {
@@ -224,8 +347,9 @@ bool csGeneratorNext(ObjGenerator *generator, Value sent, Value *value, bool *do
   }
 
   bool started = generator->fiber->state != FIBER_READY;
+  bool yielded = false;
   generator->running = true;
-  InterpretResult result = driveGenerator(generator, started, sent);
+  InterpretResult result = driveGenerator(generator, started, sent, &yielded);
   generator->running = false;
   if (result != CS_OK) return false;
 
@@ -270,6 +394,7 @@ bool callGeneratorFunction(ObjClosure *closure, int argCount) {
   frame->slots = fiber->stack;
 
   ObjGenerator *generator = csGeneratorNew(fiber);
+  generator->isAsync = function->isAsync;
   csPopTempRoot();
 
   vm.stackTop = base;

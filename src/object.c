@@ -528,6 +528,8 @@ ObjGenerator *csGeneratorNew(ObjFiber *fiber) {
   generator->yielded = UNDEFINED_VAL;
   generator->done = false;
   generator->running = false;
+  generator->isAsync = false;
+  generator->pendingResult = NULL;
   fiber->generator = generator;
   csPopTempRoot();
   return generator;
@@ -890,6 +892,7 @@ void csObjectBlacken(Obj *object) {
     case OBJ_GENERATOR: {
       ObjGenerator *generator = (ObjGenerator *)object;
       csMarkObject((Obj *)generator->fiber);
+      csMarkObject((Obj *)generator->pendingResult);
       csMarkValue(generator->yielded);
       break;
     }

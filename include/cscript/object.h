@@ -248,6 +248,13 @@ typedef struct ObjGenerator {
   Value yielded;  /* what the last `yield` produced, or the return value */
   bool done;      /* the body ran off its end or returned */
   bool running;   /* inside next(): re-entering would corrupt the fiber */
+
+  /* An async generator's `next()` answers with a promise, because the body may
+   * await any number of times before it reaches the `yield` that has the
+   * value. The promise is settled wherever the body next stops — which may be
+   * here, or may be in the event loop several turns later. */
+  bool isAsync;
+  ObjPromise *pendingResult;
 } ObjGenerator;
 
 /* One entry of a Map or Set. `present` is false for a tombstone: a deleted

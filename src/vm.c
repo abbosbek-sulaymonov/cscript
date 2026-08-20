@@ -57,6 +57,7 @@ void csVMInit(void) {
   vm.mainModule = NULL;
   vm.currentFiber = NULL;
   vm.fiberSuspended = false;
+  vm.fiberYielded = false;
   vm.deferUncaught = false;
   vm.pendingCount = 0;
   csTableInit(&vm.strings);
@@ -289,6 +290,10 @@ bool callNative(ObjNative *native, Value receiver, int argCount) {
 bool callValue(Value callee, int argCount) {
   if (IS_CLOSURE(callee)) {
     ObjClosure *closure = AS_CLOSURE(callee);
+    /* A generator is a generator whether or not it is async: the call builds
+     * the handle either way, and `async` only changes what `next()` answers
+     * with. Checked first, because the async path would run the body. */
+    if (closure->function->isGenerator) return callGeneratorFunction(closure, argCount);
     if (closure->function->isAsync) return callAsyncFunction(closure, argCount);
 
 #ifdef CS_DEBUG_JIT
@@ -360,6 +365,7 @@ static ObjClosure *findSuperMember(ObjClass *superclass, ObjString *name,
 static bool callMethod(ObjClosure *method, int argCount) {
   /* An async method is still an async call: it needs its own fiber, and the
    * receiver already sits where that fiber's slot 0 will be. */
+  if (method->function->isGenerator) return callGeneratorFunction(method, argCount);
   if (method->function->isAsync) return callAsyncFunction(method, argCount);
   return callClosure(method, argCount);
 }
@@ -1459,6 +1465,44 @@ InterpretResult run(int baseFrame) {
         return CS_RUNTIME_ERROR;
       }
 
+      VM_CASE(OP_JUMP_IF_ASYNC_ITER) {
+        uint16_t offset = READ_SHORT();
+        Value top = peekStack(0);
+        if (IS_GENERATOR(top) && AS_GENERATOR(top)->isAsync) frame->ip += offset;
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_ASYNC_NEXT) {
+        Value target = csVMPop();
+        csVMPush(OBJ_VAL(csGeneratorNextAsync(AS_GENERATOR(target), UNDEFINED_VAL)));
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_ITER_UNPACK) {
+        uint16_t offset = READ_SHORT();
+        Value record = peekStack(0);
+        if (!IS_OBJECT(record)) {
+          csVMRuntimeError("an async iterator must answer with an object, got %s",
+                           csValueTypeName(record));
+          return CS_RUNTIME_ERROR;
+        }
+
+        Value done, produced;
+        ObjObject *object = AS_OBJECT(record);
+        if (!csObjectGet(object, csStringCopy("done", 4), &done)) done = BOOL_VAL(true);
+        if (!csObjectGet(object, csStringCopy("value", 5), &produced)) {
+          produced = UNDEFINED_VAL;
+        }
+
+        csVMPop();
+        if (csValueIsTruthy(done)) {
+          frame->ip += offset;
+          VM_NEXT();
+        }
+        csVMPush(produced);
+        VM_NEXT();
+      }
+
       VM_CASE(OP_ITER_STEP) {
         uint16_t offset = READ_SHORT();
         Value index = peekStack(0);
@@ -2316,6 +2360,7 @@ InterpretResult run(int baseFrame) {
          * the yielded value was, which is what makes `const x = yield v` a
          * two-way exchange. */
         vm.fiberSuspended = true;
+        vm.fiberYielded = true;
         return CS_OK;
       }
 
@@ -2915,6 +2960,14 @@ bool csVMCallCallback(Value callee, int argCount, Value *result) {
   if (!IS_CLOSURE(callee)) {
     csVMRuntimeError("%s is not a function", csValueTypeName(callee));
     return false;
+  }
+
+  /* Same again: a generator call pushes no frame either, because none of the
+   * body runs until something pulls. */
+  if (AS_CLOSURE(callee)->function->isGenerator) {
+    if (!callGeneratorFunction(AS_CLOSURE(callee), argCount)) return false;
+    *result = csVMPop();
+    return true;
   }
 
   /* An async function returns its promise without pushing a frame, so there is

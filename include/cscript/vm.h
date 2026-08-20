@@ -160,6 +160,10 @@ typedef struct {
   ObjFiber *currentFiber;
   /* Set by OP_AWAIT so run()'s caller can tell a suspension from a return. */
   bool fiberSuspended;
+  /* And why. An `await` is resumed by the event loop when a promise settles;
+   * a `yield` is resumed by whoever calls `next`. An async generator does
+   * both, so the two have to be told apart at the point the fiber stops. */
+  bool fiberYielded;
 
   /* True while something is running that can be handed an escaping throw — a
    * promise reaction, whose promise becomes the rejection. Without it an

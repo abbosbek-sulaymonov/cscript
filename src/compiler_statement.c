@@ -322,14 +322,34 @@ void compileForOf(const AstNode *node) {
 
   /* One step: the next element, or out. Asking for a length first would work
    * for an array and not for a generator, which has no length short of running
-   * it to the end. */
+   * it to the end.
+   *
+   * `for await` has a second shape for the one thing an index cannot drive:
+   * an async generator answers `next()` with a promise, so the loop must
+   * await before it can know whether there is another value at all. Which
+   * shape runs is decided per iteration by looking at the iterable, which
+   * costs one type test and keeps the sync path exactly as it was. */
+  int asyncPath = -1;
   emitBytes(OP_GET_LOCAL, (uint8_t)iterableSlot, line);
+  if (node->as.forOf.isAwait) asyncPath = emitJump(OP_JUMP_IF_ASYNC_ITER, line);
+
   emitBytes(OP_GET_LOCAL, (uint8_t)indexSlot, line);
   int exitJump = emitJump(OP_ITER_STEP, line);
 
   /* `for await` awaits each element before the body sees it, which is what
    * makes a list of promises iterate as the values they settle to. */
-  if (node->as.forOf.isAwait) emitAwait(line);
+  int asyncExit = -1;
+  if (node->as.forOf.isAwait) {
+    emitAwait(line);
+    int boundJump = emitJump(OP_JUMP, line);
+
+    patchJump(asyncPath, line);
+    emitByte(OP_ASYNC_NEXT, line);
+    emitAwait(line);
+    asyncExit = emitJump(OP_ITER_UNPACK, line);
+
+    patchJump(boundJump, line);
+  }
 
   /* The binding is a fresh local per iteration, so a closure made in the body
    * captures that iteration's value rather than sharing one cell. The element
@@ -352,7 +372,11 @@ void compileForOf(const AstNode *node) {
   emitBytes(OP_INC_LOCAL, (uint8_t)indexSlot, line);
   emitLoop(loopStart, line);
 
+  /* Both shapes leave the stack at the height the loop started at, so one
+   * exit serves both: ITER_STEP drops the iterable and the index before it
+   * jumps, and ITER_UNPACK drops the record. */
   patchJump(exitJump, line);
+  if (asyncExit != -1) patchJump(asyncExit, line);
   endLoop(&loop, line);
   endScope(line);
 }

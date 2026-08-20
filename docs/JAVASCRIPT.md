@@ -63,8 +63,9 @@ asserted here.
 | Asynchrony | `async`/`await`, promises, `setTimeout`/`setInterval`, the microtask queue |
 | Promise combinators | `all`, `race`, `allSettled`, `any` — with `AggregateError` |
 | Generators | `function*`, `yield`, `yield*`, `next(v)`, `for...of`, spread |
+| Async generators | `async function*`, `next()` answering with a promise, `for await` |
 | Top-level `await` | In any file, including one another file imports |
-| `for await` | Over any sync iterable, awaiting each element |
+| `for await` | Over an async generator, and over any sync iterable, awaiting each element |
 
 ### The standard library
 
@@ -145,6 +146,13 @@ As it is in Node — listed because it is a deliberate choice rather than an
 accident. A promise that failed with nobody watching is a bug, and the
 alternative is a program that silently does half its work.
 
+### The async iterator protocol is generators only
+
+`for await` drives an async generator or any sync iterable. It does not look
+for a `Symbol.asyncIterator` method on an arbitrary object, because `Symbol`
+does not exist here — so an object cannot make itself async-iterable the way
+one can in JavaScript.
+
 ### A generator's `.return()` does not run a pending `finally`
 
 ```js
@@ -181,7 +189,6 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Regex lookbehind — `(?<=…)` — and named groups | Lookahead and backreferences work |
 | `WeakMap`, `WeakSet` | Would need weak references in the collector |
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
-| Async generators — `async function*` | Refused rather than accepted; `for await` over a *sync* iterable works |
 | `Symbol`, `BigInt` | No plans |
 | Getters and setters on object *literals* | Methods and shorthand work; accessors do not |
 | Computed member names in a class body | Computed keys work in object literals |

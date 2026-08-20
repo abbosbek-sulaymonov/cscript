@@ -758,17 +758,24 @@ functions do. What differs is only who resumes them: the event loop when a
 promise settles, or `next()` when someone pulls. `for...of` over a generator
 is pull-driven, so an endless one is fine as long as the loop leaves.
 
-**`for await`** awaits each element of any sync iterable. **Async generators**
-(`async function*`) are refused: driving one needs `next()` to return a promise
-and `for await` to run the async iterator protocol, which is a different loop
-shape from the one that works today.
+**Async generators** — `async function*` — suspend for two different reasons:
+an `await`, which the event loop resumes, and a `yield`, which whoever called
+`next` resumes. Their `next()` answers with a promise, because the body may
+await any number of times before it reaches the yield that has the value.
+
+**`for await`** drives an async generator, and awaits each element of any sync
+iterable. Which of the two shapes runs is decided per iteration by looking at
+the iterable, so the sync path is unchanged. There is no way for an ordinary
+object to make itself async-iterable: that needs `Symbol.asyncIterator`.
 
 ## Not implemented yet
 
 Each of these produces an error that names it:
 
 - `Symbol`, `BigInt`, `WeakMap`, `WeakSet`
-- Async generators — `async function*` — and the async iterator protocol
+- The async iterator protocol on arbitrary objects, which needs
+  `Symbol.asyncIterator`; `for await` drives async generators and sync
+  iterables
 - Getters and setters on object *literals* (they work on classes)
 - Computed member names in a class body (computed keys work in object literals)
 - `yield*` inside a larger expression (it works as a statement of its own)
