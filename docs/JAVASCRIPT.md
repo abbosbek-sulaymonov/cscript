@@ -59,7 +59,7 @@ asserted here.
 | `call` / `apply` / `bind` | including partial application, on any callable |
 | Tagged templates | `` tag`a${x}b` ``, with `raw` |
 | Spread | array literals, object literals, call arguments, over strings |
-| Object literals | shorthand `{ x }`, computed keys `{ [k]: v }`, numeric keys `{ 1: v }`, methods `{ m() {} }`, spread `{ ...o }` |
+| Object literals | shorthand `{ x }`, computed keys `{ [k]: v }`, numeric keys `{ 1: v }`, methods `{ m() {} }`, accessors `{ get x() {} }`, spread `{ ...o }` |
 | Optional chaining | `?.`, `?.[ ]`, `?.()`, short-circuiting the whole chain |
 | Control flow | `if`, `while`, `do`/`while`, `for`, `for...of`, `for...in`, `switch` |
 | `break` / `continue` | including labelled, and out of `try` with a `finally` |
@@ -158,6 +158,25 @@ As it is in Node — listed because it is a deliberate choice rather than an
 accident. A promise that failed with nobody watching is a bug, and the
 alternative is a program that silently does half its work.
 
+### An object literal's accessors are not enumerated
+
+```js
+const o = { a: 1, get b() { return 2; } };
+o.b;                 // 2, as in JavaScript
+Object.keys(o);      // [ 'a' ] here; [ 'a', 'b' ] in JavaScript
+JSON.stringify(o);   // {"a":1} here; {"a":1,"b":2} in JavaScript
+```
+
+An accessor lives on a hidden class the object gets for itself, which is where
+the property paths already look — so reading and writing one costs nothing at
+all for every object that has none. The alternative is a slot in the object's
+shape holding a marker, and a test for that marker on every property read in
+the program.
+
+Property reads are the hot path and already the widest gap against Node, so
+that tax is not worth paying for a feature whose point is the reading rather
+than the listing. It is a real difference and it is here rather than buried.
+
 ### The async iterator protocol is generators only
 
 `for await` drives an async generator or any sync iterable. It does not look
@@ -201,7 +220,6 @@ Each of these produces an error that names it, rather than failing obscurely.
 | `WeakMap`, `WeakSet` | Would need weak references in the collector |
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
 | `Symbol`, `BigInt` | No plans |
-| Getters and setters on object *literals* | Methods and shorthand work; accessors do not |
 | `arguments` | A rest parameter does the same job and says what it collects |
 | `new.target`, subclassing built-ins | |
 | Prototypes, `__proto__`, `Object.create` | Classes are the whole object model |

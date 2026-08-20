@@ -633,16 +633,18 @@ void compileNode(const AstNode *node) {
                 UINT8_MAX);
         break;
       }
-      bool hasSpread = false;
+      /* A spread or an accessor means the entries have to be applied one at a
+       * time, in order — the run-of-pairs form can express neither. */
+      bool oneAtATime = false;
       for (int i = 0; i < node->as.objectLiteral.count; i++) {
-        if (node->as.objectLiteral.keys[i] == NULL) hasSpread = true;
+        if (node->as.objectLiteral.kinds[i] != OBJECT_ENTRY_VALUE) oneAtATime = true;
       }
 
       /* Without a spread the whole literal is one instruction over a run of
        * stack pairs. With one it is built up entry by entry, because the
        * entries have to be applied in source order for the last mention of a
        * key to win. */
-      if (!hasSpread) {
+      if (!oneAtATime) {
         /* Keys and values alternate on the stack; OP_OBJECT consumes the pairs. */
         for (int i = 0; i < node->as.objectLiteral.count; i++) {
           compileNode(node->as.objectLiteral.keys[i]);
@@ -654,13 +656,19 @@ void compileNode(const AstNode *node) {
 
       emitBytes(OP_OBJECT, 0, line);
       for (int i = 0; i < node->as.objectLiteral.count; i++) {
-        if (node->as.objectLiteral.keys[i] == NULL) {
+        ObjectEntryKind kind = (ObjectEntryKind)node->as.objectLiteral.kinds[i];
+        if (kind == OBJECT_ENTRY_SPREAD) {
           compileNode(node->as.objectLiteral.values[i]);
           emitByte(OP_OBJECT_MERGE, line);
-        } else {
-          compileNode(node->as.objectLiteral.keys[i]);
-          compileNode(node->as.objectLiteral.values[i]);
+          continue;
+        }
+
+        compileNode(node->as.objectLiteral.keys[i]);
+        compileNode(node->as.objectLiteral.values[i]);
+        if (kind == OBJECT_ENTRY_VALUE) {
           emitByte(OP_OBJECT_SET, line);
+        } else {
+          emitBytes(OP_OBJECT_ACCESSOR, kind == OBJECT_ENTRY_GETTER ? 1 : 0, line);
         }
       }
       break;

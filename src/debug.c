@@ -191,6 +191,7 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
       return constantInstruction("OP_DELETE_PROPERTY", chunk, offset);
     case OP_DELETE_INDEX:      return simpleInstruction("OP_DELETE_INDEX", offset);
     case OP_OBJECT_SET:        return simpleInstruction("OP_OBJECT_SET", offset);
+    case OP_OBJECT_ACCESSOR:   return byteInstruction("OP_OBJECT_ACCESSOR", chunk, offset);
     case OP_OBJECT_MERGE:      return simpleInstruction("OP_OBJECT_MERGE", offset);
     case OP_OBJECT_REST:       return byteInstruction("OP_OBJECT_REST", chunk, offset);
     case OP_TEMPLATE_STRINGS:  return simpleInstruction("OP_TEMPLATE_STRINGS", offset);

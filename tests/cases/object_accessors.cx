@@ -1,0 +1,35 @@
+// Getters and setters on an object literal. `this` is the object, the same as
+// in a method.
+const temperature = {
+  celsius: 100,
+  get fahrenheit() { return this.celsius * 9 / 5 + 32; },
+  set fahrenheit(value) { this.celsius = (value - 32) * 5 / 9; },
+};
+console.log(temperature.fahrenheit);
+temperature.fahrenheit = 32;
+console.log(temperature.celsius, temperature.fahrenheit);
+
+// A getter with no setter, and a setter with no getter.
+const readOnly = { get answer() { return 42; } };
+console.log(readOnly.answer);
+
+const writeOnly = { seen: null, set take(value) { this.seen = value; } };
+writeOnly.take = "kept";
+console.log(writeOnly.seen);
+
+// `get` is only a modifier when a name follows it.
+console.log({ get: 1 }.get);
+console.log({ get() { return 2; } }.get());
+console.log({ set: 3 }.set);
+
+// Accessors sit beside ordinary properties without disturbing them.
+const mixed = { a: 1, get b() { return this.a + 1; }, c: 3 };
+console.log(mixed.a, mixed.b, mixed.c);
+
+// A computed one is not a special case of anything: the name is still a name.
+const source = { values: [1, 2, 3], get total() {
+  let sum = 0;
+  for (const v of this.values) sum += v;
+  return sum;
+} };
+console.log(source.total);

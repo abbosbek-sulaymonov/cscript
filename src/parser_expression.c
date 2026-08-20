@@ -363,15 +363,17 @@ AstNode *parsePrimary(Parser *parser) {
         /* `*m() {}` — a generator method, read before the key. */
         bool isGeneratorEntry = matchToken(parser, TOKEN_STAR);
 
-        /* `get x() {}` in an object literal is an accessor, which only classes
-         * support — worth naming rather than failing at the missing colon. */
+        /* `get x() {}` — an accessor. `get` is only a modifier when a name
+         * follows it; `{ get: 1 }` and `{ get() {} }` are an ordinary property
+         * and an ordinary method. */
+        ObjectEntryKind entryKind = OBJECT_ENTRY_VALUE;
         if (checkWord(parser, "get") || checkWord(parser, "set")) {
           Lexer probe = parser->lexer;
           Token next = csLexerNext(&probe);
-          if (next.type == TOKEN_IDENTIFIER) {
-            errorAtCurrent(parser, "getters and setters on an object literal are not "
-                                   "supported yet; declare a class instead");
-            return NULL;
+          if (next.type == TOKEN_IDENTIFIER || next.type == TOKEN_STRING) {
+            entryKind = parser->current.start[0] == 'g' ? OBJECT_ENTRY_GETTER
+                                                        : OBJECT_ENTRY_SETTER;
+            advanceToken(parser);
           }
         }
 
@@ -413,8 +415,13 @@ AstNode *parsePrimary(Parser *parser) {
                                               key->as.string.length, true);
           if (method == NULL) return NULL;
           method->as.function.isMethod = true;
-          csAstObjectLiteralAdd(parser->arena, object, key, method);
+          csAstObjectLiteralAddKind(parser->arena, object, key, method, entryKind);
           continue;
+        }
+
+        if (entryKind != OBJECT_ENTRY_VALUE) {
+          errorAtCurrent(parser, "expected '(' after an accessor name");
+          return NULL;
         }
 
         /* `{ x }` is `{ x: x }`. The key was just read, so the value is an

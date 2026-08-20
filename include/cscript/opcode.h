@@ -121,6 +121,10 @@
   X(OP_DELETE_PROPERTY)   /* [const16] pop object, push whether it had it    */ \
   X(OP_DELETE_INDEX)      /*          pop key and object, same answer        */ \
   X(OP_OBJECT_SET)        /*          pop value and key, set on the object    */ \
+  /* `{ get x() { … } }`. The accessor goes on a class the object gets for      \
+   * itself, which is where the property paths already look for one — so an     \
+   * object without accessors pays nothing at all for these existing. */         \
+  X(OP_OBJECT_ACCESSOR)   /* [isGetter] pop a closure and a name             */ \
   X(OP_OBJECT_MERGE)      /*          pop a source, copy its keys in          */ \
   X(OP_OBJECT_REST)       /* [count]  pop `count` keys and a source, push the \
                            *          rest of it as a new object              */ \

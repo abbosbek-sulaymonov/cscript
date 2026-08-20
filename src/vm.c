@@ -1947,6 +1947,32 @@ InterpretResult run(int baseFrame) {
         VM_NEXT();
       }
 
+      VM_CASE(OP_OBJECT_ACCESSOR) {
+        uint8_t isGetter = READ_BYTE();
+        Value closure = peekStack(0);
+        ObjObject *object = AS_OBJECT(peekStack(2));
+
+        ObjString *name = objectKeyFor(peekStack(1));
+        if (name == NULL) {
+          csVMRuntimeError("out of memory building an accessor name");
+          return CS_RUNTIME_ERROR;
+        }
+        csPushTempRoot((Obj *)name);
+
+        /* One class per object that needs one, made on demand. The property
+         * paths already consult `klass` for accessors, so nothing else has to
+         * learn about this. */
+        if (object->klass == NULL) {
+          object->klass = csClassNew(object->name);
+        }
+        csTableSet(isGetter ? &object->klass->getters : &object->klass->setters,
+                   name, closure);
+        csPopTempRoot();
+
+        vm.stackTop -= 2;
+        VM_NEXT();
+      }
+
       VM_CASE(OP_OBJECT_MERGE) {
         Value source = peekStack(0);
         ObjObject *object = AS_OBJECT(peekStack(1));

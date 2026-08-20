@@ -82,6 +82,14 @@ typedef enum {
   BINARY_IN,
 } BinaryOp;
 
+/* What one entry of an object literal is. */
+typedef enum {
+  OBJECT_ENTRY_VALUE,
+  OBJECT_ENTRY_SPREAD,
+  OBJECT_ENTRY_GETTER,
+  OBJECT_ENTRY_SETTER,
+} ObjectEntryKind;
+
 typedef enum {
   LOGICAL_AND,     /* &&  */
   LOGICAL_OR,      /* ||  */
@@ -377,6 +385,7 @@ struct AstNode {
       AstNode **keys;                    /*   string literal nodes, or NULL
                                           *   for a `...spread` entry */
       AstNode **values;
+      uint8_t *kinds;                    /*   see ObjectEntryKind */
       int count;
     } objectLiteral;
     struct {                             /* AST_ARRAY_LITERAL */
@@ -552,6 +561,9 @@ AstNode *csAstObjectLiteral(AstArena *arena, int line);
 /* `key` is NULL for a `...value` entry, which has no key. */
 void csAstObjectLiteralAdd(AstArena *arena, AstNode *object, AstNode *key,
                            AstNode *value);
+/* Same, for an entry that is not a plain `key: value`. */
+void csAstObjectLiteralAddKind(AstArena *arena, AstNode *object, AstNode *key,
+                               AstNode *value, ObjectEntryKind kind);
 AstNode *csAstArrayLiteral(AstArena *arena, int line);
 void csAstArrayLiteralAdd(AstArena *arena, AstNode *array, AstNode *element);
 AstNode *csAstForOf(AstArena *arena, int line, const char *name, int nameLength,

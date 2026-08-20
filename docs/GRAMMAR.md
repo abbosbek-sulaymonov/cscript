@@ -147,6 +147,7 @@ objectProperty = propertyName                         (* shorthand: { x } *)
                | NUMBER ":" expression                (* { 1: v } *)
                | "[" expression "]" ":" expression    (* computed key *)
                | "*"? propertyName "(" parameters? ")" block  (* method *)
+               | ( "get" | "set" ) propertyName "(" parameters? ")" block
                | "..." expression ;                   (* spread *)
 arrowFunction  = "async"? ( IDENTIFIER | "(" parameters? ")" typeAnnotation? )
                  "=>" ( expression | block ) ;
@@ -785,7 +786,6 @@ Each of these produces an error that names it:
 - The async iterator protocol on arbitrary objects, which needs
   `Symbol.asyncIterator`; `for await` drives async generators and sync
   iterables
-- Getters and setters on object *literals* (they work on classes)
 - `yield*` inside a larger expression (it works as a statement of its own)
 - Regex lookbehind — `(?<=…)` — and named groups; lookahead and
   backreferences work

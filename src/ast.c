@@ -597,6 +597,13 @@ AstNode *csAstObjectLiteral(AstArena *arena, int line) {
   return node;
 }
 
+void csAstObjectLiteralAddKind(AstArena *arena, AstNode *object, AstNode *key,
+                               AstNode *value, ObjectEntryKind kind) {
+  csAstObjectLiteralAdd(arena, object, key, value);
+  if (object == NULL || object->as.objectLiteral.count == 0) return;
+  object->as.objectLiteral.kinds[object->as.objectLiteral.count - 1] = (uint8_t)kind;
+}
+
 void csAstObjectLiteralAdd(AstArena *arena, AstNode *object, AstNode *key,
                            AstNode *value) {
   /* A NULL key marks `...value`, which has no key by construction. */
@@ -607,10 +614,17 @@ void csAstObjectLiteralAdd(AstArena *arena, AstNode *object, AstNode *key,
   AstNode **values = growList(arena, object->as.objectLiteral.values, count);
   if (keys == NULL || values == NULL) return;
 
+  uint8_t *kinds = (uint8_t *)csAstArenaAlloc(arena, (size_t)(count + 1));
+  if (kinds == NULL) return;
+  if (count > 0) memcpy(kinds, object->as.objectLiteral.kinds, (size_t)count);
+
   keys[count] = key;
   values[count] = value;
+  kinds[count] = key == NULL ? (uint8_t)OBJECT_ENTRY_SPREAD
+                             : (uint8_t)OBJECT_ENTRY_VALUE;
   object->as.objectLiteral.keys = keys;
   object->as.objectLiteral.values = values;
+  object->as.objectLiteral.kinds = kinds;
   object->as.objectLiteral.count = count + 1;
 }
 
