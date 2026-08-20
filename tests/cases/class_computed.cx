@@ -1,0 +1,38 @@
+// A member name that is not known until the class is built.
+const key = "run";
+const prefix = "on";
+
+class Handlers {
+  [key]() { return "ran"; }
+  [prefix + "Click"]() { return "clicked"; }
+  static [key]() { return "static ran"; }
+  static [prefix + "Load"] = "loaded";
+  get [key + "Count"]() { return 3; }
+  set [key + "Count"](value) { this.stored = value; }
+}
+
+const handlers = new Handlers();
+console.log(handlers.run(), handlers.onClick());
+console.log(Handlers.run(), Handlers.onLoad);
+console.log(handlers.runCount);
+handlers.runCount = 9;
+console.log(handlers.stored);
+
+// A plain member beside a computed one, and the order of both preserved.
+class Mixed {
+  a = 1;
+  [key] = 2;
+  b = 3;
+}
+const mixed = new Mixed();
+console.log(mixed.a, mixed.run, mixed.b, Object.keys(mixed));
+
+// `new` reaches its class through whatever expression names it.
+class Boxed { constructor(v = 0) { this.v = v; } peek() { return this.v; } }
+const registry = [Boxed];
+const holder = { Boxed };
+const supplier = () => Boxed;
+console.log(new registry[0](1).peek());
+console.log(new holder.Boxed(2).peek());
+console.log(new (supplier())(3).peek());
+console.log(new (Boxed)(4).peek());

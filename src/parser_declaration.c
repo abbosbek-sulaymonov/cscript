@@ -49,10 +49,6 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
     /* A stray ';' between members is legal and means nothing. */
     if (matchToken(parser, TOKEN_SEMICOLON)) continue;
 
-    if (check(parser, TOKEN_LEFT_BRACKET)) {
-      errorAtCurrent(parser, "computed member names are not supported yet");
-      return NULL;
-    }
 
     bool isStatic = matchToken(parser, TOKEN_STATIC);
     if (isStatic && check(parser, TOKEN_LEFT_BRACE)) {
@@ -88,11 +84,27 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
     /* `*next() {}` — a generator method. Read before the name, like `async`. */
     bool isGeneratorMember = matchToken(parser, TOKEN_STAR);
 
-    if (!consumePropertyName(parser, "expected a member name")) return NULL;
-    if (parser->diag->panicMode) return NULL;
-    const char *memberName = parser->previous.start;
-    int memberLength = parser->previous.length;
-    int memberLine = parser->previous.line;
+    /* `[key]() {}` — the name is an expression, evaluated where the class is
+     * built. The member still needs a name to compile under; this one is
+     * unwritable and never reaches the class. */
+    AstNode *computedKey = NULL;
+    const char *memberName;
+    int memberLength;
+    int memberLine = parser->current.line;
+
+    if (matchToken(parser, TOKEN_LEFT_BRACKET)) {
+      computedKey = parseExpression(parser);
+      consume(parser, TOKEN_RIGHT_BRACKET, "expected ']' after a computed name");
+      if (computedKey == NULL || parser->diag->panicMode) return NULL;
+      memberName = " computed";
+      memberLength = 9;
+    } else {
+      if (!consumePropertyName(parser, "expected a member name")) return NULL;
+      if (parser->diag->panicMode) return NULL;
+      memberName = parser->previous.start;
+      memberLength = parser->previous.length;
+      memberLine = parser->previous.line;
+    }
 
     /* `get x() {}` — an accessor, unless `get` is the member's own name, which
      * it is whenever `(` follows it directly. */
@@ -101,12 +113,22 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
          nameIs(memberName, memberLength, "set")) &&
         !check(parser, TOKEN_LEFT_PAREN)) {
       memberKind = memberName[0] == 'g' ? MEMBER_GETTER : MEMBER_SETTER;
-      if (!consumePropertyName(parser, "expected a name after 'get' or 'set'")) {
-        return NULL;
+
+      /* `get [key]() {}` — the accessor's name may be computed too. */
+      if (matchToken(parser, TOKEN_LEFT_BRACKET)) {
+        computedKey = parseExpression(parser);
+        consume(parser, TOKEN_RIGHT_BRACKET, "expected ']' after a computed name");
+        if (computedKey == NULL || parser->diag->panicMode) return NULL;
+        memberName = " computed";
+        memberLength = 9;
+      } else {
+        if (!consumePropertyName(parser, "expected a name after 'get' or 'set'")) {
+          return NULL;
+        }
+        memberName = parser->previous.start;
+        memberLength = parser->previous.length;
+        memberLine = parser->previous.line;
       }
-      memberName = parser->previous.start;
-      memberLength = parser->previous.length;
-      memberLine = parser->previous.line;
     }
 
     if (check(parser, TOKEN_LEFT_PAREN)) {
@@ -138,6 +160,8 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
         node->as.classDecl.constructor = method;
       } else {
         csAstClassAddMember(parser->arena, node, method, isStatic, memberKind);
+        node->as.classDecl.members[node->as.classDecl.memberCount - 1].computedKey =
+            computedKey;
       }
       continue;
     }
@@ -156,6 +180,8 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
 
     csAstClassAddField(parser->arena, node, memberName, memberLength, initializer,
                        fieldType, annotated, isStatic);
+    node->as.classDecl.fields[node->as.classDecl.fieldCount - 1].computedKey =
+        computedKey;
   }
 
   consume(parser, TOKEN_RIGHT_BRACE, "expected '}' after the class body");

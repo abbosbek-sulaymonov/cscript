@@ -154,6 +154,7 @@ typedef struct AstClassField {
    * together. Static initialisers and static blocks run in that order, and
    * a block can read a field written before it and not one after. */
   int order;
+  AstNode *computedKey; /* see AstClassMember.computedKey */
 } AstClassField;
 
 /* One method in a class body. `constructor` is pulled out separately. */
@@ -172,6 +173,9 @@ typedef struct AstClassMember {
   bool isStatic;
   ClassMemberKind kind;
   int order; /* see AstClassField.order */
+  /* `class C { [key]() {} }`. The name is not known until the class is built,
+   * so it is an expression rather than a constant. */
+  AstNode *computedKey;
 } AstClassMember;
 
 /* One declared parameter. Stored inline in the function node's array. */

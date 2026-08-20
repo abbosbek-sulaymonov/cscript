@@ -33,6 +33,21 @@ void emitFieldAssignments(const AstNode *node) {
     int fieldLine = field->initializer != NULL ? field->initializer->line : node->line;
 
     emitBytes(OP_GET_LOCAL, 0, fieldLine);
+
+    /* `class C { [key] = 1 }` — a subscript rather than a named property,
+     * because the name is not known until this runs. */
+    if (field->computedKey != NULL) {
+      compileNode(field->computedKey);
+      if (field->initializer != NULL) {
+        compileNode(field->initializer);
+      } else {
+        emitByte(OP_UNDEFINED, fieldLine);
+      }
+      emitByte(OP_SET_INDEX, fieldLine);
+      emitByte(OP_POP, fieldLine);
+      continue;
+    }
+
     if (field->initializer != NULL) {
       compileNode(field->initializer);
     } else {
@@ -210,15 +225,28 @@ void compileClassDecl(const AstNode *node) {
     const AstClassMember *member = &node->as.classDecl.members[i];
     if (member->kind == MEMBER_STATIC_BLOCK) continue;
 
+    /* A computed name is an expression, so it goes on the stack under the
+     * closure and the installing instruction reads it from there. */
+    if (member->computedKey != NULL) compileNode(member->computedKey);
+
     compileFunctionAs(member->function, FUNCTION_METHOD);
 
     uint8_t opcode = OP_METHOD;
+    uint8_t computedKind = 0;
     if (member->kind == MEMBER_GETTER) {
       opcode = OP_GETTER;
+      computedKind = 2;
     } else if (member->kind == MEMBER_SETTER) {
       opcode = OP_SETTER;
+      computedKind = 3;
     } else if (member->isStatic) {
       opcode = OP_STATIC_METHOD;
+      computedKind = 1;
+    }
+
+    if (member->computedKey != NULL) {
+      emitBytes(OP_CLASS_MEMBER, computedKind, line);
+      continue;
     }
 
     emitConstantOp(opcode,
@@ -238,14 +266,19 @@ void compileClassDecl(const AstNode *node) {
       if (!field->isStatic || field->order != order) continue;
       int fieldLine = field->initializer != NULL ? field->initializer->line : line;
 
+      if (field->computedKey != NULL) compileNode(field->computedKey);
       if (field->initializer != NULL) {
         compileNode(field->initializer);
       } else {
         emitByte(OP_UNDEFINED, fieldLine);
       }
-      emitConstantOp(OP_STATIC_FIELD,
-                     identifierConstant(field->name, field->length, fieldLine),
-                     fieldLine);
+      if (field->computedKey != NULL) {
+        emitBytes(OP_CLASS_MEMBER, 4, fieldLine);
+      } else {
+        emitConstantOp(OP_STATIC_FIELD,
+                       identifierConstant(field->name, field->length, fieldLine),
+                       fieldLine);
+      }
     }
 
     for (int i = 0; i < node->as.classDecl.memberCount; i++) {

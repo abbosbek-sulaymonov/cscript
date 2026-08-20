@@ -50,7 +50,8 @@ asserted here.
 | `void` and the comma operator | `void x`, `(a, b)` — the operator, not the separator |
 | Functions | declarations, expressions, arrows, closures |
 | `this` | lexical in arrows, receiver in methods |
-| Classes | fields, methods, `static`, getters and setters, `extends`, `super` |
+| Classes | fields, methods, `static`, getters and setters, `extends`, `super`, computed member names |
+| `new` | on any expression that names a class, not only a name |
 | Private members | `#field`, `#method()`, `static #field` — off the shape, so invisible to `Object.keys`, `JSON.stringify` and subscripts |
 | Static blocks | `static { … }`, interleaved with static fields in source order |
 | Destructuring | array and object, nested, defaults, renaming, rest elements and rest properties |
@@ -201,7 +202,6 @@ Each of these produces an error that names it, rather than failing obscurely.
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
 | `Symbol`, `BigInt` | No plans |
 | Getters and setters on object *literals* | Methods and shorthand work; accessors do not |
-| Computed member names in a class body | Computed keys work in object literals |
 | `arguments` | A rest parameter does the same job and says what it collects |
 | `new.target`, subclassing built-ins | |
 | Prototypes, `__proto__`, `Object.create` | Classes are the whole object model |

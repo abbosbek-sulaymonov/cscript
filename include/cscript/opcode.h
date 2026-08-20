@@ -152,6 +152,10 @@
   X(OP_STATIC_FIELD)      /* [const16]  pop a value onto its statics        */ \
   X(OP_GETTER)            /* [const16]  pop a closure onto its getters      */ \
   X(OP_SETTER)            /* [const16]  pop a closure onto its setters      */ \
+  /* The same five, with the name taken from the stack rather than the         \
+   * constant pool — `class C { [key]() {} }` does not know it until the class \
+   * is being built. `kind` picks which table. */                              \
+  X(OP_CLASS_MEMBER)      /* [kind]  pop a value and a name onto the class    */ \
   X(OP_CONSTRUCTOR)       /*          pop a closure as the constructor      */ \
   /* The field initialisers, kept apart from the constructor so a class with    \
    * no constructor still runs them and a subclass never has to. */             \

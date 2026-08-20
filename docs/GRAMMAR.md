@@ -60,7 +60,7 @@ method         = ( "get" | "set" )? memberName "(" parameters? ")"
                | ( "async" | "*" ) memberName "(" parameters? ")"
                  typeAnnotation? block ;
 field          = memberName typeAnnotation? ( "=" expression )? ";" ;
-memberName     = propertyName | PRIVATE_NAME ;
+memberName     = propertyName | PRIVATE_NAME | "[" expression "]" ;
 propertyName   = IDENTIFIER | KEYWORD ;
 
 importDecl     = "import" importClause "from" STRING ";" ;
@@ -131,7 +131,9 @@ argument       = "..."? expression ;
 primary        = NUMBER | STRING | TEMPLATE | REGEX | IDENTIFIER
                | "true" | "false" | "null" | "undefined"
                | "this" | "super" ( "." propertyName | "(" arguments? ")" )
-               | "new" IDENTIFIER ( "." propertyName )* ( "(" arguments? ")" )?
+               | "new" ( IDENTIFIER | "(" expression ")" )
+                       ( "." propertyName | "[" expression "]" )*
+                       ( "(" arguments? ")" )?
                | arrayLiteral | objectLiteral | arrowFunction
                | "async"? "function" "*"? IDENTIFIER? "(" parameters? ")" block
                | "class" IDENTIFIER? ( "extends" IDENTIFIER )? "{" member* "}"
@@ -784,7 +786,6 @@ Each of these produces an error that names it:
   `Symbol.asyncIterator`; `for await` drives async generators and sync
   iterables
 - Getters and setters on object *literals* (they work on classes)
-- Computed member names in a class body (computed keys work in object literals)
 - `yield*` inside a larger expression (it works as a statement of its own)
 - Regex lookbehind — `(?<=…)` — and named groups; lookahead and
   backreferences work

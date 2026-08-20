@@ -461,6 +461,7 @@ void csAstClassAddField(AstArena *arena, AstNode *node, const char *name, int le
   }
   grown[count].order =
       node->as.classDecl.fieldCount + node->as.classDecl.memberCount;
+  grown[count].computedKey = NULL;
   int stored = 0;
   grown[count].name = internName(arena, name, length, &stored);
   grown[count].length = stored;

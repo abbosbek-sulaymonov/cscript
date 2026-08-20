@@ -201,17 +201,41 @@ AstNode *parsePrimary(Parser *parser) {
   }
 
   if (matchToken(parser, TOKEN_NEW)) {
-    consume(parser, TOKEN_IDENTIFIER, "expected a class name after 'new'");
-    if (parser->diag->panicMode) return NULL;
-
-    AstNode *callee = csAstIdentifier(parser->arena, line, parser->previous.start,
-                                      parser->previous.length);
-    /* `new a.B()` — a class reached through a property. */
-    while (matchToken(parser, TOKEN_DOT)) {
-      if (!consumePropertyName(parser, "expected a property name after '.'")) return NULL;
+    /* Whatever the class is reached through: a name, a property of one, an
+     * element of an array, or a parenthesised expression. The one thing it may
+     * not swallow is the argument list, which belongs to `new` rather than to
+     * the expression naming the class. */
+    AstNode *callee;
+    if (matchToken(parser, TOKEN_LEFT_PAREN)) {
+      callee = parseExpression(parser);
+      consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the expression");
+      if (callee == NULL || parser->diag->panicMode) return NULL;
+    } else {
+      consume(parser, TOKEN_IDENTIFIER, "expected a class after 'new'");
       if (parser->diag->panicMode) return NULL;
-      callee = csAstProperty(parser->arena, line, callee, parser->previous.start,
-                             parser->previous.length);
+      callee = csAstIdentifier(parser->arena, line, parser->previous.start,
+                               parser->previous.length);
+    }
+
+    /* `new a.B()` and `new registry[0]()`. */
+    for (;;) {
+      if (matchToken(parser, TOKEN_DOT)) {
+        if (!consumePropertyName(parser, "expected a property name after '.'")) {
+          return NULL;
+        }
+        if (parser->diag->panicMode) return NULL;
+        callee = csAstProperty(parser->arena, line, callee, parser->previous.start,
+                               parser->previous.length);
+        continue;
+      }
+      if (matchToken(parser, TOKEN_LEFT_BRACKET)) {
+        AstNode *index = parseExpression(parser);
+        consume(parser, TOKEN_RIGHT_BRACKET, "expected ']' after the index");
+        if (index == NULL || parser->diag->panicMode) return NULL;
+        callee = csAstIndex(parser->arena, line, callee, index);
+        continue;
+      }
+      break;
     }
 
     AstNode *node = csAstNew(parser->arena, line, callee);

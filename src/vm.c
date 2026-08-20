@@ -2145,6 +2145,30 @@ InterpretResult run(int baseFrame) {
         VM_NEXT();
       }
 
+      VM_CASE(OP_CLASS_MEMBER) {
+        uint8_t kind = READ_BYTE();
+        Value value = peekStack(0);
+        ObjClass *klass = AS_CLASS(peekStack(2));
+
+        ObjString *name = objectKeyFor(peekStack(1));
+        if (name == NULL) {
+          csVMRuntimeError("out of memory building a member name");
+          return CS_RUNTIME_ERROR;
+        }
+        csPushTempRoot((Obj *)name);
+
+        Table *into = kind == 0   ? &klass->methods
+                      : kind == 1 ? &klass->statics
+                      : kind == 2 ? &klass->getters
+                      : kind == 3 ? &klass->setters
+                                  : &klass->statics;
+        csTableSet(into, name, value);
+        csPopTempRoot();
+
+        vm.stackTop -= 2;
+        VM_NEXT();
+      }
+
       VM_CASE(OP_GETTER)
       VM_CASE(OP_SETTER) {
         ObjString *name = READ_STRING();
