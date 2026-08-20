@@ -27,7 +27,9 @@ statement      = varDeclaration | destructuring
                | ifStatement | whileStatement | doWhileStatement
                | forStatement | forOfStatement
                | switchStatement | tryStatement
-               | "break" ";" | "continue" ";" | "throw" expression ";"
+               | labelledStatement
+               | "break" IDENTIFIER? ";" | "continue" IDENTIFIER? ";"
+               | "throw" expression ";"
                | "return" expression? ";"
                | expressionStatement ;
 
@@ -40,35 +42,47 @@ pattern        = "[" arrayElement? ( "," arrayElement? )* "]"
                | "{" objectEntry  ( "," objectEntry  )* "}" ;
 arrayElement   = ( IDENTIFIER | pattern ) ( "=" expression )?
                | "..." IDENTIFIER ;
-objectEntry    = IDENTIFIER ( ":" ( IDENTIFIER | pattern ) )? ( "=" expression )? ;
+objectEntry    = IDENTIFIER ( ":" ( IDENTIFIER | pattern ) )? ( "=" expression )?
+               | "..." IDENTIFIER ;                    (* rest property *)
 
-functionDecl   = "async"? "function" IDENTIFIER "(" parameters? ")"
-                 typeAnnotation? block ;
+functionDecl   = "async"? "function" "*"? IDENTIFIER
+                 "(" parameters? ")" typeAnnotation? block ;
 parameters     = parameter ( "," parameter )* ;
 parameter      = ( IDENTIFIER typeAnnotation? | pattern ) ;
 
 classDecl      = "class" IDENTIFIER ( "extends" IDENTIFIER )? "{" member* "}" ;
-member         = "static"? ( method | field ) ;
-method         = ( "get" | "set" )? propertyName "(" parameters? ")"
+member         = "static" block                        (* static initialiser *)
+               | "static"? ( method | field ) ;
+method         = ( "get" | "set" )? memberName "(" parameters? ")"
                  typeAnnotation? block
-               | "async" propertyName "(" parameters? ")" typeAnnotation? block ;
-field          = propertyName typeAnnotation? ( "=" expression )? ";" ;
+               | ( "async" | "*" ) memberName "(" parameters? ")"
+                 typeAnnotation? block ;
+field          = memberName typeAnnotation? ( "=" expression )? ";" ;
+memberName     = propertyName | PRIVATE_NAME ;
 propertyName   = IDENTIFIER | KEYWORD ;
 
-importDecl     = "import" ( namedImports | "*" "as" IDENTIFIER )
-                 "from" STRING ";" ;
+importDecl     = "import" importClause "from" STRING ";" ;
+importClause   = namedImports
+               | "*" "as" IDENTIFIER
+               | IDENTIFIER ( "," ( namedImports | "*" "as" IDENTIFIER ) )? ;
 namedImports   = "{" importName ( "," importName )* "}" ;
 importName     = IDENTIFIER ( "as" IDENTIFIER )? ;
+
 exportDecl     = "export" ( varDeclaration | functionDecl | classDecl
-                          | namedImports ";" ) ;
+                          | namedImports ( "from" STRING )? ";"
+                          | "*" "from" STRING ";"
+                          | "default" ( functionDecl | classDecl
+                                      | expression ";" ) ) ;
 
 block          = "{" statement* "}" ;
+labelledStatement = IDENTIFIER ":" statement ;
 ifStatement    = "if" "(" expression ")" statement ( "else" statement )? ;
 whileStatement = "while" "(" expression ")" statement ;
 doWhileStatement = "do" statement "while" "(" expression ")" ";" ;
 forStatement   = "for" "(" ( varDeclaration | expressionStatement | ";" )
                            expression? ";" expression? ")" statement ;
-forOfStatement = "for" "(" ( "let" | "const" ) IDENTIFIER ( "of" | "in" )
+forOfStatement = "for" "await"? "(" ( "let" | "const" )
+                 ( IDENTIFIER | pattern ) ( "of" | "in" )
                  expression ")" statement ;
 switchStatement = "switch" "(" expression ")" "{"
                   ( "case" expression ":" statement* )*
@@ -79,32 +93,42 @@ expressionStatement = expression ";" ;
 
 expression     = assignment ;
 assignment     = ( IDENTIFIER | property | index )
-                 ( "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "**=" ) assignment
+                 ( "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "**="
+                 | "&&=" | "||=" | "??=" ) assignment
                | conditional ;
-conditional    = logicalOr ( "?" assignment ":" conditional )? ;
+conditional    = coalesce ( "?" assignment ":" conditional )? ;
+
+(* `??` sits on the same tier as `||` and may not be mixed with `||` or `&&`
+   without parentheses, which is a rule rather than a precedence. *)
+coalesce       = logicalOr | logicalAnd ( "??" logicalAnd )+ ;
 logicalOr      = logicalAnd ( "||" logicalAnd )* ;
 logicalAnd     = equality   ( "&&" equality )* ;
 equality       = comparison ( ( "===" | "!==" ) comparison )* ;
-comparison     = term       ( ( "<" | "<=" | ">" | ">=" | "instanceof" ) term )* ;
+comparison     = term ( ( "<" | "<=" | ">" | ">=" | "instanceof" | "in" ) term )* ;
 term           = factor     ( ( "+" | "-" ) factor )* ;
 factor         = exponent   ( ( "*" | "/" | "%" ) exponent )* ;
 exponent       = unary      ( "**" exponent )? ;          (* right-associative *)
 
 unary          = ( "!" | "-" | "typeof" | "await" | "++" | "--" ) unary
+               | "delete" ( property | index )
+               | "yield" "*"? assignment?
                | postfix ;
 postfix        = primary ( "." propertyName
+                         | "?." propertyName
                          | "[" expression "]"
+                         | "?." "[" expression "]"
                          | "(" arguments? ")"
+                         | "?." "(" arguments? ")"
                          | "++" | "--" )* ;
 arguments      = argument ( "," argument )* ;
 argument       = "..."? expression ;
 
-primary        = NUMBER | STRING | TEMPLATE | IDENTIFIER
+primary        = NUMBER | STRING | TEMPLATE | REGEX | IDENTIFIER
                | "true" | "false" | "null" | "undefined"
                | "this" | "super" ( "." propertyName | "(" arguments? ")" )
                | "new" IDENTIFIER ( "." propertyName )* ( "(" arguments? ")" )?
                | arrayLiteral | objectLiteral | arrowFunction
-               | "async"? "function" IDENTIFIER? "(" parameters? ")" block
+               | "async"? "function" "*"? IDENTIFIER? "(" parameters? ")" block
                | "(" expression ")" ;
 
 arrayLiteral   = "[" ( argument ( "," argument )* )? "]" ;
@@ -112,7 +136,10 @@ objectLiteral  = "{" ( objectProperty ( "," objectProperty )* )? "}" ;
 objectProperty = propertyName                         (* shorthand: { x } *)
                | propertyName ":" expression
                | STRING ":" expression
-               | "[" expression "]" ":" expression ;   (* computed key *)
+               | NUMBER ":" expression                (* { 1: v } *)
+               | "[" expression "]" ":" expression    (* computed key *)
+               | "*"? propertyName "(" parameters? ")" block  (* method *)
+               | "..." expression ;                   (* spread *)
 arrowFunction  = "async"? ( IDENTIFIER | "(" parameters? ")" typeAnnotation? )
                  "=>" ( expression | block ) ;
 ```
@@ -124,15 +151,20 @@ the unary operators are right-associative.
 
 | Level | Operators | Associativity |
 | --- | --- | --- |
-| 1 | `=` `+=` `-=` `*=` `/=` `%=` | right |
-| 2 | `\|\|` | left |
-| 3 | `&&` | left |
-| 4 | `===` `!==` | left |
-| 5 | `<` `<=` `>` `>=` | left |
-| 6 | `+` `-` | left |
-| 7 | `*` `/` `%` | left |
-| 8 | `!` `-` `typeof` `++` `--` (prefix) | right |
-| 9 | `.` `( )` `++` `--` (postfix) | left |
+| 1 | `=` `+=` `-=` `*=` `/=` `%=` `**=` `&&=` `\|\|=` `??=` | right |
+| 2 | `? :` | right |
+| 3 | `\|\|` `??` (not mixable without parentheses) | left |
+| 4 | `&&` | left |
+| 5 | `===` `!==` | left |
+| 6 | `<` `<=` `>` `>=` `instanceof` `in` | left |
+| 7 | `+` `-` | left |
+| 8 | `*` `/` `%` | left |
+| 9 | `**` | right |
+| 10 | `!` `-` `typeof` `await` `delete` `++` `--` (prefix) | right |
+| 11 | `.` `?.` `[ ]` `( )` `++` `--` (postfix) | left |
+
+`yield` and `yield*` take an operand at level 1, so `yield a + b` yields the
+sum rather than yielding `a` and then adding.
 
 ## Types
 
@@ -168,7 +200,11 @@ Immutable and interned — two strings with the same contents are the same
 object, so equality is a pointer comparison.
 
 Escapes: `\n` `\t` `\r` `\0` `\\` `\'` `\"`. An unrecognised escape keeps the
-character as written. Template literals are not implemented.
+character as written.
+
+Template literals — `` `a ${b} c` `` — are concatenation: the literal is
+re-lexed at parse time and each `${...}` becomes a `+`, which is why
+interpolating a number needs no extra machinery. They nest.
 
 ## Types
 
@@ -709,17 +745,44 @@ A rejection nothing ever listened to is reported and exits non-zero, as it
 does in Node — a promise that failed with no one watching is a bug, and the
 alternative is a program that silently does half its work.
 
-**Top-level `await` is out**, with an error that says so: it would make
-running a module itself asynchronous and reorder every import in a program.
-Generators, `for await`, and async iterators are not implemented either.
+**Top-level `await`** works in any file, including one that another file
+imports. A file that awaits runs as an async body on a fiber, and the loader
+drives the event loop until it settles before starting whatever imported it —
+so the ordering guarantee the loader is built on still holds.
+
+**Generators** — `function*`, `yield`, `yield*` — run on the same fibers async
+functions do. What differs is only who resumes them: the event loop when a
+promise settles, or `next()` when someone pulls. `for...of` over a generator
+is pull-driven, so an endless one is fine as long as the loop leaves.
+
+**`for await`** awaits each element of any sync iterable. **Async generators**
+(`async function*`) are refused: driving one needs `next()` to return a promise
+and `for await` to run the async iterator protocol, which is a different loop
+shape from the one that works today.
 
 ## Not implemented yet
 
 Each of these produces an error that names it:
 
 - `Symbol`, `BigInt`, `WeakMap`, `WeakSet`
-- Labelled statements
-- Object rest — `const { a, ...rest } = o`
-- Generators, `for await`, async iterators
+- Async generators — `async function*` — and the async iterator protocol
+- Getters and setters on object *literals* (they work on classes)
+- Computed member names in a class body (computed keys work in object literals)
+- `yield*` inside a larger expression (it works as a statement of its own)
+- `Function.prototype.call` / `.apply` / `.bind`
+- Tagged template literals
+- A function as the replacement argument to `replace`
+- Regex backreferences, lookaround and named groups
+- Prototypes, `__proto__`, `Object.create` — classes are the whole object model
+- `arguments`, `new.target`, subclassing built-ins
+- Dynamic `import()`, and bare specifiers like `import x from "lodash"`
+- Sparse arrays and holes, which are why engines need a second array
+  representation
+- Unicode-correct string indexing: strings are indexed by byte, which is
+  correct for ASCII
 - Property order puts integer-like keys in insertion order, where JavaScript
   puts them first and in ascending order
+- `with` and `eval`, which have no plans
+
+[JAVASCRIPT.md](JAVASCRIPT.md) carries the same list beside what *is* supported
+and what differs on purpose.

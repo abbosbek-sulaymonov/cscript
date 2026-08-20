@@ -176,6 +176,7 @@ Each of these produces an error that names it, rather than failing obscurely.
 
 | Missing | Note |
 | --- | --- |
+| Tagged template literals | Ordinary template literals work |
 | Regex backreferences, lookaround, named groups | The engine is a backtracker; these are the parts left out |
 | A function as a `replace` replacement | `$1` and `$&` in a string work |
 | `WeakMap`, `WeakSet` | Would need weak references in the collector |
