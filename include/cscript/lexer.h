@@ -35,7 +35,7 @@ typedef enum {
   TOKEN_AMP_AMP, TOKEN_PIPE_PIPE,
 
   /* Literals. */
-  TOKEN_IDENTIFIER, TOKEN_STRING, TOKEN_NUMBER, TOKEN_TEMPLATE,
+  TOKEN_IDENTIFIER, TOKEN_STRING, TOKEN_NUMBER, TOKEN_TEMPLATE, TOKEN_REGEX,
 
   /* Keywords. */
   TOKEN_TRUE, TOKEN_FALSE, TOKEN_NULL, TOKEN_UNDEFINED,
@@ -69,6 +69,14 @@ typedef struct {
 
 void csLexerInit(Lexer *lexer, const char *source, Diagnostics *diag);
 Token csLexerNext(Lexer *lexer);
+
+/* Rescans a `/` as the start of a regular expression literal.
+ *
+ * Whether `/` opens a regex or divides is not decidable by the lexer: `a / b`
+ * and `/a/.test(b)` differ only in what came before. So the lexer does not
+ * guess — the *parser* asks, at the one point it knows a value is expected,
+ * and this continues from just after the slash it was handed. */
+Token csLexerScanRegex(Lexer *lexer);
 
 /* Human-readable token name, for debug dumps and error messages. */
 const char *csTokenTypeName(TokenType type);

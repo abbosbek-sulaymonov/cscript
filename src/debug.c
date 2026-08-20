@@ -165,6 +165,14 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_ITER_LENGTH:       return simpleInstruction("OP_ITER_LENGTH", offset);
     case OP_ENUM_KEYS:         return simpleInstruction("OP_ENUM_KEYS", offset);
     case OP_ITER_PREPARE:      return simpleInstruction("OP_ITER_PREPARE", offset);
+    case OP_REGEX: {
+      emit("%-22s /", "OP_REGEX");
+      debugPrintValue(chunk->constants.values[readConstantIndex(chunk, offset + 1)]);
+      emit("/");
+      debugPrintValue(chunk->constants.values[readConstantIndex(chunk, offset + 3)]);
+      emit("\n");
+      return offset + 5;
+    }
     case OP_SET_INDEX:         return simpleInstruction("OP_SET_INDEX", offset);
     case OP_OBJECT:            return byteInstruction("OP_OBJECT", chunk, offset);
     case OP_ARRAY:             return byteInstruction("OP_ARRAY", chunk, offset);
@@ -391,6 +399,10 @@ static void printNode(const AstNode *node, int depth) {
     case AST_AWAIT:
       printf("Await\n");
       printNode(node->as.unary.operand, depth + 1);
+      break;
+    case AST_REGEX_LITERAL:
+      printf("Regex /%.*s/%.*s\n", node->as.regex.sourceLength, node->as.regex.source,
+             node->as.regex.flagsLength, node->as.regex.flags);
       break;
     case AST_THIS:
       printf("This\n");

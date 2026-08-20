@@ -284,8 +284,14 @@ static bool stringRepeat(Value receiver, int argCount, Value *args, Value *resul
 }
 
 /* Replaces the first match, or every match when `all` is set. */
+/* A pattern where a string was expected hands off to the regex side, which
+ * knows the rules about groups and the `g` flag. */
 static bool stringReplaceImpl(Value receiver, int argCount, Value *args, Value *result,
                               bool all, const char *method) {
+  if (argCount > 0 && IS_REGEX(args[0])) {
+    return csRegexStringReplace(receiver, argCount, args, result, all);
+  }
+
   ObjString *needle;
   ObjString *replacement;
   if (!stringArg(argCount, args, 0, method, &needle)) return false;
@@ -345,6 +351,23 @@ static bool stringReplaceImpl(Value receiver, int argCount, Value *args, Value *
   return finishString(buffer, (int)length, result);
 }
 
+/* Both take a pattern and nothing else, so they are thin. */
+static bool stringMatch(Value receiver, int argCount, Value *args, Value *result) {
+  if (argCount < 1 || !IS_REGEX(args[0])) {
+    csVMRuntimeError("match expects a regular expression");
+    return false;
+  }
+  return csRegexStringMatch(receiver, argCount, args, result);
+}
+
+static bool stringSearch(Value receiver, int argCount, Value *args, Value *result) {
+  if (argCount < 1 || !IS_REGEX(args[0])) {
+    csVMRuntimeError("search expects a regular expression");
+    return false;
+  }
+  return csRegexStringSearch(receiver, argCount, args, result);
+}
+
 static bool stringReplace(Value receiver, int argCount, Value *args, Value *result) {
   return stringReplaceImpl(receiver, argCount, args, result, false, "replace");
 }
@@ -353,6 +376,10 @@ static bool stringReplaceAll(Value receiver, int argCount, Value *args, Value *r
 }
 
 static bool stringSplit(Value receiver, int argCount, Value *args, Value *result) {
+  if (argCount > 0 && IS_REGEX(args[0])) {
+    return csRegexStringSplit(receiver, argCount, args, result);
+  }
+
   ObjString *string = AS_STRING(receiver);
 
   ObjArray *pieces = csArrayNew();
@@ -510,6 +537,8 @@ void csStringMethodsInstall(void) {
   defineStringMethod("startsWith", stringStartsWith, -1);
   defineStringMethod("endsWith", stringEndsWith, -1);
   defineStringMethod("repeat", stringRepeat, -1);
+  defineStringMethod("match", stringMatch, -1);
+  defineStringMethod("search", stringSearch, -1);
   defineStringMethod("replace", stringReplace, -1);
   defineStringMethod("replaceAll", stringReplaceAll, -1);
   defineStringMethod("split", stringSplit, -1);

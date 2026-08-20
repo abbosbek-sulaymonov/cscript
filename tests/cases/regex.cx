@@ -1,0 +1,15 @@
+console.log(/a(\d+)/.test("xa12"), /z/.test("abc"));
+console.log(/a(\d+)/.exec("xa12").join(","));
+console.log("2024-01-15".replace(/(\d+)-(\d+)-(\d+)/, "$3/$2/$1"));
+console.log("a1b22c333".replace(/\d+/g, "#"));
+console.log("one two  three".split(/\s+/).join("|"));
+console.log("hello world".match(/o/g));
+console.log("hello world".match(/(\w+)\s(\w+)/).join(","));
+console.log("abc".search(/b/), "abc".search(/z/));
+console.log("Hello".replace(/l/g, "L"), "a-b_c".replace(/[-_]/g, " "));
+console.log(/^\d{3}-\d{4}$/.test("555-1234"), /^\d{3}-\d{4}$/.test("5551234"));
+console.log("CamelCaseWord".replace(/([A-Z])/g, "-$1"));
+console.log(/colou?r/i.test("COLOR"), /\bcat\b/.test("a cat here"), /\bcat\b/.test("concat"));
+const g = /\d/g;
+console.log(g.test("a1"), g.lastIndex);
+console.log("x".replace(/x/, "$$"), "price".replace(/(p)(r)/, "$2$1"));

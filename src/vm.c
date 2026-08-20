@@ -64,6 +64,7 @@ void csVMInit(void) {
   csTableInit(&vm.stringMethods);
   csTableInit(&vm.promiseMethods);
   csTableInit(&vm.mapMethods);
+  csTableInit(&vm.regexMethods);
 
   vm.microtasks = NULL;
   vm.microtaskCount = 0;
@@ -99,6 +100,7 @@ void csVMFree(void) {
   CS_FREE_ARRAY(ObjPromise *, vm.rejected, vm.rejectedCapacity);
   csTableFree(&vm.promiseMethods);
   csTableFree(&vm.mapMethods);
+  csTableFree(&vm.regexMethods);
   csTableFree(&vm.builtins);
   csTableFree(&vm.builtinConsts);
   csTableFree(&vm.modules);
@@ -327,6 +329,7 @@ static Table *methodTableFor(Value receiver) {
   if (IS_STRING(receiver)) return &vm.stringMethods;
   if (IS_PROMISE(receiver)) return &vm.promiseMethods;
   if (IS_MAP(receiver)) return &vm.mapMethods;
+  if (IS_REGEX(receiver)) return &vm.regexMethods;
   return NULL;
 }
 
@@ -730,6 +733,29 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
     return true;
   }
 
+  /* A pattern's own properties. Intrinsic for the same reason `.length` is:
+   * the object does not carry a table. `lastIndex` is the only writable one,
+   * handled beside this in the write path. */
+  if (IS_REGEX(receiver)) {
+    ObjRegex *regex = AS_REGEX(receiver);
+    if (name->length == 9 && memcmp(name->chars, "lastIndex", 9) == 0) {
+      *out = NUMBER_VAL(regex->lastIndex);
+      return true;
+    }
+    if (name->length == 6 && memcmp(name->chars, "source", 6) == 0) {
+      *out = OBJ_VAL(regex->source);
+      return true;
+    }
+    if (name->length == 5 && memcmp(name->chars, "flags", 5) == 0) {
+      *out = OBJ_VAL(regex->flags);
+      return true;
+    }
+    if (name->length == 6 && memcmp(name->chars, "global", 6) == 0) {
+      *out = BOOL_VAL(regex->global);
+      return true;
+    }
+  }
+
   /* `.size` on a Map or Set, like `.length` on an array: intrinsic rather than
    * stored, so the collection does not have to carry a property table. */
   if (IS_MAP(receiver) && name->length == 4 && memcmp(name->chars, "size", 4) == 0) {
@@ -781,6 +807,17 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
 /* The part of a property write that is not a cache hit. */
 static bool propertyWriteSlow(ObjString *name, PropertyCache *cache, Value receiver,
                               Value value) {
+  /* `lastIndex` is writable, which is how a `g` pattern is rewound. */
+  if (IS_REGEX(receiver) && name->length == 9 &&
+      memcmp(name->chars, "lastIndex", 9) == 0) {
+    if (!IS_NUMBER(value)) {
+      csVMRuntimeError("lastIndex must be a number");
+      return false;
+    }
+    AS_REGEX(receiver)->lastIndex = (int)AS_NUMBER(value);
+    return true;
+  }
+
   /* A class carries its statics, so assigning to one is how a counter kept on
    * the class is updated. It never enters a shape, so it never caches. */
   if (IS_CLASS(receiver)) {
@@ -1212,6 +1249,15 @@ InterpretResult run(int baseFrame) {
 
         csVMRuntimeError("cannot index %s", csValueTypeName(target));
         return CS_RUNTIME_ERROR;
+      }
+
+      VM_CASE(OP_REGEX) {
+        ObjString *source = READ_STRING();
+        ObjString *flags = READ_STRING();
+        ObjRegex *regex = csRegexObjectNew(source, flags);
+        if (regex == NULL) return CS_RUNTIME_ERROR;
+        csVMPush(OBJ_VAL(regex));
+        VM_NEXT();
       }
 
       VM_CASE(OP_ITER_PREPARE) {

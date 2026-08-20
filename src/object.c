@@ -3,6 +3,7 @@
 
 #include "cscript/memory.h"
 #include "cscript/object.h"
+#include "cscript/regex.h"
 #include "cscript/shape.h"
 #include "cscript/table.h"
 #include "cscript/vm.h"
@@ -297,6 +298,44 @@ ObjModule *csModuleNew(ObjString *path) {
   return module;
 }
 
+ObjRegex *csRegexObjectNew(ObjString *source, ObjString *flags) {
+  bool global = false, ignoreCase = false, multiline = false, dotAll = false;
+  for (int i = 0; i < flags->length; i++) {
+    switch (flags->chars[i]) {
+      case 'g': global = true; break;
+      case 'i': ignoreCase = true; break;
+      case 'm': multiline = true; break;
+      case 's': dotAll = true; break;
+      default:
+        csVMRuntimeError("unsupported regular expression flag '%c'", flags->chars[i]);
+        return NULL;
+    }
+  }
+
+  char error[128];
+  Regex *program = csRegexCompile(source->chars, source->length, ignoreCase, multiline,
+                                  dotAll, error, sizeof error);
+  if (program == NULL) {
+    csVMRuntimeError("bad regular expression /%s/: %s", source->chars, error);
+    return NULL;
+  }
+
+  csPushTempRoot((Obj *)source);
+  csPushTempRoot((Obj *)flags);
+  ObjRegex *regex = CS_ALLOCATE(ObjRegex, 1);
+  registerObject((Obj *)regex, OBJ_REGEX);
+  regex->program = program;
+  regex->source = source;
+  regex->flags = flags;
+  regex->lastIndex = 0;
+  regex->global = global;
+  regex->ignoreCase = ignoreCase;
+  regex->multiline = multiline;
+  csPopTempRoot();
+  csPopTempRoot();
+  return regex;
+}
+
 ObjPromise *csPromiseNew(void) {
   ObjPromise *promise = CS_ALLOCATE(ObjPromise, 1);
   registerObject((Obj *)promise, OBJ_PROMISE);
@@ -577,6 +616,10 @@ void csObjectPrint(Value value) {
     case OBJ_MODULE:
       printf("[Module: %s]", AS_MODULE(value)->path->chars);
       break;
+    case OBJ_REGEX:
+      printf("/%s/%s", AS_REGEX(value)->source->chars, AS_REGEX(value)->flags->chars);
+      break;
+
     case OBJ_MAP: {
       /* `Map(2) { 'a' => 1 }` and `Set(2) { 1, 2 }`, as Node prints them. */
       ObjMap *map = AS_MAP(value);
@@ -705,6 +748,13 @@ void csObjectBlacken(Obj *object) {
       ObjBoundMethod *bound = (ObjBoundMethod *)object;
       csMarkValue(bound->receiver);
       csMarkObject(bound->method);
+      break;
+    }
+
+    case OBJ_REGEX: {
+      ObjRegex *regex = (ObjRegex *)object;
+      csMarkObject((Obj *)regex->source);
+      csMarkObject((Obj *)regex->flags);
       break;
     }
 
@@ -839,6 +889,13 @@ void csObjectFree(Obj *object) {
       /* The receiver and the method both belong to whoever else holds them. */
       CS_FREE(ObjBoundMethod, object);
       break;
+
+    case OBJ_REGEX: {
+      ObjRegex *regex = (ObjRegex *)object;
+      csRegexFree(regex->program);
+      CS_FREE(ObjRegex, object);
+      break;
+    }
 
     case OBJ_MAP: {
       ObjMap *map = (ObjMap *)object;

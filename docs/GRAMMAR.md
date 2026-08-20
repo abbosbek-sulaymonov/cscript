@@ -1,4 +1,4 @@
-# CScript grammar and semantics — v0.20.0
+# CScript grammar and semantics — v0.21.0
 
 CScript's syntax is a **subset of TypeScript's**: every CScript program is a
 valid TypeScript program. `make test-node` enforces that by handing each
@@ -435,6 +435,30 @@ numeric order.
 
 Indexing is by byte, which is correct for ASCII and wrong for multi-byte UTF-8.
 
+**Regular expressions** — `/pattern/flags` literals, with `test` and `exec`,
+the `source` `flags` `global` `lastIndex` properties, and the string methods
+`match` `search` `replace` `replaceAll` `split`.
+
+Supported: `.`, `\d \D \w \W \s \S`, `[abc]` `[^abc]` `[a-z]`, `^` `$`
+`\b` `\B`, `* + ? {n} {n,} {n,m}` and their lazy forms, `(…)` `(?:…)`, `|`,
+and the flags `g` `i` `m` `s`. Replacement strings understand `$1`–`$9`, `$&`
+and `$$`.
+
+Not supported, each with an error that names it: backreferences, lookahead and
+lookbehind, named groups, the `u` and `y` flags, and a function as the
+replacement.
+
+A pattern is matched by backtracking, because JavaScript's semantics are
+defined in terms of it — leftmost-first alternation, greedy against lazy, and
+where a group last matched are all statements about backtracking order. The
+cost is that `(a+)+b` can be made to take exponential time, so the matcher
+counts its steps and reports rather than hanging.
+
+Two differences from JavaScript. The array `exec` and `match` return holds the
+match and its groups but **not** the `index` and `input` properties JavaScript
+hangs off it — arrays here are not property bags. And `split` on a pattern with
+capture groups does not interleave the captures.
+
 **`Map` and `Set`** — `new Map()`, `new Map([[k, v], …])`, `new Set()`,
 `new Set([…])`, with `get` `set` `add` `has` `delete` `clear` `keys` `values`
 `entries` `forEach` and a `size` property. Both iterate in insertion order,
@@ -693,7 +717,6 @@ Generators, `for await`, and async iterators are not implemented either.
 
 Each of these produces an error that names it:
 
-- Regular expressions
 - `Symbol`, `BigInt`, `WeakMap`, `WeakSet`
 - Labelled statements
 - Object rest — `const { a, ...rest } = o`

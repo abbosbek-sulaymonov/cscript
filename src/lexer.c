@@ -323,6 +323,32 @@ static Token string(Lexer *lexer, char quote) {
   return makeToken(lexer, TOKEN_STRING);
 }
 
+Token csLexerScanRegex(Lexer *lexer) {
+  /* `lexer->current` is just past the opening slash, which the parser has
+   * already seen. The token produced covers the whole literal, slashes and
+   * flags included, so the parser can hand the text straight on. */
+  lexer->start = lexer->current - 1;
+
+  bool inClass = false; /* an unescaped `/` inside `[...]` is a literal */
+  for (;;) {
+    if (isAtEnd(lexer) || peek(lexer) == '\n') {
+      return errorToken(lexer, "unterminated regular expression");
+    }
+    char c = advance(lexer);
+    if (c == '\\') {
+      if (isAtEnd(lexer)) return errorToken(lexer, "unterminated regular expression");
+      advance(lexer);
+      continue;
+    }
+    if (c == '[') inClass = true;
+    else if (c == ']') inClass = false;
+    else if (c == '/' && !inClass) break;
+  }
+
+  while (isAlpha(peek(lexer))) advance(lexer);
+  return makeToken(lexer, TOKEN_REGEX);
+}
+
 Token csLexerNext(Lexer *lexer) {
   skipWhitespaceAndComments(lexer);
   lexer->start = lexer->current;
@@ -485,6 +511,7 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_AWAIT:             return "AWAIT";
     case TOKEN_DO:                return "DO";
     case TOKEN_DELETE:            return "DELETE";
+    case TOKEN_REGEX:             return "REGEX";
     case TOKEN_IN:                return "IN";
     case TOKEN_IMPORT:            return "IMPORT";
     case TOKEN_EXPORT:            return "EXPORT";

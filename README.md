@@ -438,7 +438,8 @@ cscript/
 | **19 ✅** | Split the three largest files; documented against JavaScript | — |
 | **20 ✅** | Tiering: what gets hot, and how much of it is already typed | — |
 | **21 ✅** | `Map` and `Set`, patterns as `for...of` bindings | — |
-| next | Regular expressions, or a type-directed code generator | — |
+| **22 ✅** | Regular expressions: literals, `test`/`exec`, string methods | — |
+| next | A type-directed code generator | — |
 
 ---
 

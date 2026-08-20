@@ -74,6 +74,10 @@
    * index, so this leaves them alone and only unpacks the collections that    \
    * are not — which keeps the loop itself one shape. */                        \
   X(OP_ITER_PREPARE)      /*          replace a Map or Set with its entries  */ \
+  /* A regex literal. Compiled at run time rather than baked into the constant \
+   * pool, because a fresh object is needed per evaluation: `lastIndex` is     \
+   * mutable state that two evaluations of the same literal must not share. */  \
+  X(OP_REGEX)             /* [const16][const16]  source, flags             */ \
   X(OP_SET_INDEX)         /*          target[index] = value, leaving value  */ \
   X(OP_OBJECT)            /* [count]  build from `count` key/value pairs    */ \
   X(OP_ARRAY)             /* [count]  build from the top `count` values     */ \

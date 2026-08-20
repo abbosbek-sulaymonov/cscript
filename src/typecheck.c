@@ -139,6 +139,10 @@ static const MethodSignature BUILTIN_METHODS[] = {
     {TYPE_STRING, "repeat", TYPE_STRING},
     {TYPE_STRING, "replace", TYPE_STRING},
     {TYPE_STRING, "replaceAll", TYPE_STRING},
+    /*  gives an array or null, and  an index — both dynamic
+     * enough that the checker only records that the name exists. */
+    {TYPE_STRING, "match", TYPE_ANY},
+    {TYPE_STRING, "search", TYPE_NUMBER},
     {TYPE_STRING, "split", TYPE_OBJECT},
     {TYPE_STRING, "padStart", TYPE_STRING},
     {TYPE_STRING, "padEnd", TYPE_STRING},
@@ -691,6 +695,10 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
      * milestone of its own — so an instance is `object`, a class is dynamic,
      * and `this` is dynamic. Nothing about a class is checked statically
      * beyond what its method bodies say on their own. */
+    case AST_REGEX_LITERAL:
+      result = TYPE_OBJECT;
+      break;
+
     case AST_THIS:
     case AST_SUPER:
       result = TYPE_ANY;

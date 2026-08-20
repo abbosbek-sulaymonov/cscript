@@ -854,6 +854,16 @@ void compileNode(const AstNode *node) {
       emitByte(OP_AWAIT, line);
       break;
 
+    case AST_REGEX_LITERAL:
+      emitByte(OP_REGEX, line);
+      emitConstantOperand(
+          identifierConstant(node->as.regex.source, node->as.regex.sourceLength, line),
+          line);
+      emitConstantOperand(
+          identifierConstant(node->as.regex.flags, node->as.regex.flagsLength, line),
+          line);
+      break;
+
     case AST_THIS:
       compileThisLoad(line);
       break;

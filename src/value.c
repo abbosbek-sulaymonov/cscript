@@ -392,6 +392,14 @@ static bool sbAppendValue(StringBuilder *builder, Value value, bool quoteStrings
     if (IS_OBJECT(value)) return sbAppendObject(builder, AS_OBJECT(value));
     if (IS_PROMISE(value)) return sbAppendPromise(builder, AS_PROMISE(value));
     if (IS_MAP(value)) return sbAppendMap(builder, AS_MAP(value));
+    if (IS_REGEX(value)) {
+      /* `/a\d+/gi` — the source as written, which is why the object keeps it. */
+      ObjRegex *regex = AS_REGEX(value);
+      return sbAppend(builder, "/", 1) &&
+             sbAppend(builder, regex->source->chars, (size_t)regex->source->length) &&
+             sbAppend(builder, "/", 1) &&
+             sbAppend(builder, regex->flags->chars, (size_t)regex->flags->length);
+    }
     if (IS_STRING(value) && quoteStrings) {
       ObjString *string = AS_STRING(value);
       return sbAppend(builder, "'", 1) &&
@@ -475,7 +483,7 @@ char *csValueToCString(Value value, size_t *lengthOut) {
       } else if (IS_CALLABLE(value)) {
         return renderCallable(value, lengthOut);
       } else if (!IS_ARRAY(value) && !IS_OBJECT(value) && !IS_PROMISE(value) &&
-                 !IS_MAP(value)) {
+                 !IS_MAP(value) && !IS_REGEX(value)) {
         /* A heap type with no rendering of its own — a module, a shape, a
          * fiber. Naming it stops the fall-through below from calling back into
          * this function and recursing until the stack runs out, which is what

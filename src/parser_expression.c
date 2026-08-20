@@ -381,9 +381,24 @@ AstNode *parsePrimary(Parser *parser) {
     return NULL;
   }
 
+  /* `/` here can only open a regular expression: a value is expected, so it
+   * cannot be division. That is the whole disambiguation, and it lives at the
+   * one place that knows. */
   if (check(parser, TOKEN_SLASH)) {
-    errorAtCurrent(parser, "regular expressions are not supported yet");
-    return NULL;
+    Token literal = csLexerScanRegex(&parser->lexer);
+    if (literal.type != TOKEN_REGEX) return NULL;
+    parser->current = literal;
+    advanceToken(parser);
+
+    /* The token spans /pattern/flags; the pattern is what lies between the
+     * slashes, and the flags are what follows the last one. */
+    const char *text = literal.start;
+    int closing = literal.length - 1;
+    while (closing > 0 && text[closing] != '/') closing--;
+
+    return parseCallSuffixes(
+        parser, csAstRegex(parser->arena, literal.line, text + 1, closing - 1,
+                           text + closing + 1, literal.length - closing - 1));
   }
 
   if (rejectLooseEquality(parser)) return NULL;

@@ -36,6 +36,7 @@ typedef enum {
   AST_THIS,
   AST_SUPER,
   AST_AWAIT,
+  AST_REGEX_LITERAL,
 
   /* Statements. */
   AST_EXPRESSION_STMT,
@@ -204,6 +205,12 @@ struct AstNode {
       int argCount;
       bool isNew;                        /*   construction rather than a call */
     } call;
+    struct {                             /* AST_REGEX_LITERAL */
+      const char *source;                /*   the pattern, no slashes */
+      int sourceLength;
+      const char *flags;
+      int flagsLength;
+    } regex;
     struct {                             /* AST_SUPER */
       const char *name;                  /*   NULL for `super(...)` */
       int length;
@@ -371,6 +378,8 @@ AstNode *csAstUpdate(AstArena *arena, int line, AstNode *target, bool isIncremen
 AstNode *csAstCall(AstArena *arena, int line, AstNode *callee);
 AstNode *csAstNew(AstArena *arena, int line, AstNode *callee);
 AstNode *csAstThis(AstArena *arena, int line);
+AstNode *csAstRegex(AstArena *arena, int line, const char *source, int sourceLength,
+                    const char *flags, int flagsLength);
 AstNode *csAstAwait(AstArena *arena, int line, AstNode *operand);
 AstNode *csAstSuper(AstArena *arena, int line, const char *name, int length);
 AstNode *csAstImport(AstArena *arena, int line, const char *specifier, int length);

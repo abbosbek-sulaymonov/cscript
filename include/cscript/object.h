@@ -22,6 +22,7 @@ typedef enum {
   OBJ_PROMISE,
   OBJ_FIBER, /* a suspendable call: an async function's own stack */
   OBJ_MAP,   /* also Set: a set is a map that stores only its keys */
+  OBJ_REGEX,
 } ObjType;
 
 typedef struct ObjPromise ObjPromise;
@@ -254,6 +255,26 @@ typedef struct ObjMap {
   bool isSet;
 } ObjMap;
 
+/* A compiled regular expression.
+ *
+ * The compiled program is owned here rather than shared, because a literal in
+ * a loop is compiled once — at the point the constant is created — and the
+ * object it produces lives as long as the code that names it.
+ *
+ * `lastIndex` is where a `g` pattern resumes. It is per-object and mutable,
+ * which is JavaScript's design and its most notorious sharp edge: a global
+ * regex reused across calls carries its position with it. */
+typedef struct ObjRegex {
+  Obj obj;
+  struct Regex *program;
+  ObjString *source; /* the pattern, without the slashes */
+  ObjString *flags;
+  int lastIndex;
+  bool global;
+  bool ignoreCase;
+  bool multiline;
+} ObjRegex;
+
 /* Compiled user code. Every function body is its own chunk, and the top level
  * of a module is itself a function — which is what lets the VM run modules and
  * calls through exactly one mechanism. */
@@ -374,6 +395,7 @@ typedef struct ObjBoundMethod {
 #define IS_MODULE(v)   csIsObjType(v, OBJ_MODULE)
 #define IS_PROMISE(v)  csIsObjType(v, OBJ_PROMISE)
 #define IS_MAP(v)      csIsObjType(v, OBJ_MAP)
+#define IS_REGEX(v)    csIsObjType(v, OBJ_REGEX)
 #define IS_BOUND_METHOD(v) csIsObjType(v, OBJ_BOUND_METHOD)
 
 #define AS_STRING(v)   ((ObjString *)AS_OBJ(v))
@@ -387,6 +409,7 @@ typedef struct ObjBoundMethod {
 #define AS_MODULE(v)   ((ObjModule *)AS_OBJ(v))
 #define AS_PROMISE(v)  ((ObjPromise *)AS_OBJ(v))
 #define AS_MAP(v)      ((ObjMap *)AS_OBJ(v))
+#define AS_REGEX(v)    ((ObjRegex *)AS_OBJ(v))
 #define AS_BOUND_METHOD(v) ((ObjBoundMethod *)AS_OBJ(v))
 
 static inline bool csIsObjType(Value value, ObjType type) {
@@ -412,6 +435,10 @@ ObjModule *csModuleNew(ObjString *path);
 ObjPromise *csPromiseNew(void);
 
 ObjMap *csMapNew(bool isSet);
+
+/* Compiles a pattern into a regex object. Returns NULL after reporting a
+ * runtime error when the pattern is malformed. */
+ObjRegex *csRegexObjectNew(ObjString *source, ObjString *flags);
 
 /* What iterating a Map or Set yields: a Set's values, or a Map's [key, value]
  * pairs. Both `for...of` and spread need it, and they must agree. */

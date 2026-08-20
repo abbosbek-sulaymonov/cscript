@@ -60,7 +60,7 @@ asserted here.
 `Object.keys` / `.values` / `.entries` / `.assign` / `.hasOwn`, `Array.isArray`
 / `.of` / `.from`, `Number` and its limits, `parseInt`, `parseFloat`, `isNaN`,
 `isFinite`, `Promise` with `.resolve` / `.reject` / `.all` / `.race`, `Map` and
-`Set`, 21 array methods and 21 string methods.
+`Set`, regular expressions, 21 array methods and 21 string methods.
 
 `Map` and `Set` key by SameValueZero and iterate in insertion order, including
 after deletions — both checked against Node.
@@ -149,7 +149,8 @@ Each of these produces an error that names it, rather than failing obscurely.
 
 | Missing | Note |
 | --- | --- |
-| Regular expressions | The largest remaining gap |
+| Regex backreferences, lookaround, named groups | The engine is a backtracker; these are the parts left out |
+| A function as a `replace` replacement | `$1` and `$&` in a string work |
 | `WeakMap`, `WeakSet` | Would need weak references in the collector |
 | `Symbol`, `BigInt` | No plans |
 | Generators, `yield` | |

@@ -292,6 +292,16 @@ AstNode *csAstNew(AstArena *arena, int line, AstNode *callee) {
   return node;
 }
 
+AstNode *csAstRegex(AstArena *arena, int line, const char *source, int sourceLength,
+                    const char *flags, int flagsLength) {
+  AstNode *node = newNode(arena, AST_REGEX_LITERAL, line);
+  if (node == NULL) return NULL;
+  node->as.regex.source =
+      internName(arena, source, sourceLength, &node->as.regex.sourceLength);
+  node->as.regex.flags = internName(arena, flags, flagsLength, &node->as.regex.flagsLength);
+  return node;
+}
+
 AstNode *csAstThis(AstArena *arena, int line) {
   return newNode(arena, AST_THIS, line);
 }

@@ -42,7 +42,7 @@ ASAN          := -fsanitize=address
 TRACE_DEFINES := -DCS_DEBUG_PRINT_TOKENS -DCS_DEBUG_PRINT_AST \
                  -DCS_DEBUG_PRINT_CODE -DCS_DEBUG_TRACE_EXECUTION
 
-.PHONY: all release debug asan gcstress switch tagged profile jit trace test test-asan test-gc test-node test-switch test-tagged test-all run clean help
+.PHONY: all release debug asan gcstress switch tagged profile jit trace test test-regex test-asan test-gc test-node test-switch test-tagged test-all run clean help
 .DEFAULT_GOAL := release
 
 all: release
@@ -90,6 +90,13 @@ test-gc: gcstress
 
 # CScript's syntax is a subset of JavaScript's, so the examples must also run
 # under Node. This is the check that keeps that claim honest.
+# The regex engine is testable on its own, without the language around it —
+# which is how it was written, and how a change to it is checked first.
+test-regex:
+	@clang -std=c11 -g $(WARNINGS) -I$(INC_DIR) -o $(BUILD)/regex_engine_test \
+	    tests/regex_engine_test.c $(SRC_DIR)/regex.c
+	@$(BUILD)/regex_engine_test
+
 test-node: release
 	@BIN=$(BUILD)/release/cscript tests/node_parity.sh
 
