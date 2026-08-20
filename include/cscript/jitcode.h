@@ -23,7 +23,10 @@
  * space for the IR's values, and returns the result's bits. Both arrays belong
  * to the caller, which is what keeps the compiled code free of any allocation
  * or stack management of its own. */
-typedef uint64_t (*CompiledFn)(Value *slots, Value *scratch);
+/* `exitTarget` is set to a bytecode offset when the code handed the frame back
+ * to the interpreter rather than returning, and left alone otherwise — the
+ * caller seeds it with -1 and reads it to tell the two apart. */
+typedef uint64_t (*CompiledFn)(Value *slots, Value *scratch, int *exitTarget);
 
 /* How many loop headers may get their own entry point. A function with more
  * loops than this is not the kind this backend is for. */
@@ -46,6 +49,14 @@ typedef struct {
   CompiledFn entry;
 } JitOsrEntry;
 
+/* Where an exit leaves the operand stack, one per exit in the code. The VM
+ * needs it because the compiled code writes the frame slots but not the
+ * interpreter's `stackTop`, and a local in this VM *is* a stack slot. */
+typedef struct {
+  int bytecodeOffset;
+  int stackHeight;
+} JitExit;
+
 typedef struct {
   CompiledFn entry;
   void *memory;
@@ -54,6 +65,10 @@ typedef struct {
 
   JitOsrEntry osr[CS_JIT_MAX_OSR];
   int osrCount;
+
+  /* Indexed by what the compiled code writes through `exitTarget`. */
+  JitExit *exits;
+  int exitCount;
 } JitCode;
 
 /* Compiles the IR, or returns NULL when it holds something the encoder does

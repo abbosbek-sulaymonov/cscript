@@ -264,7 +264,29 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
     }
   }
 
+  /* Set once a region has been skipped. After that the linear stack height is
+   * meaningless — the skipped code pushed and popped who knows what — so a
+   * block is only lowered when a jump recorded the height it is entered at. */
+  bool skipped = false;
+
   int blockIndex = -1;
+  /* The lowest the operand stack has been since this block started.
+   *
+   * Every position the block has written is at or above that mark — to write
+   * position p the stack has to have been p deep — so everything below it is
+   * still exactly where the interpreter left it. That is what makes an exit
+   * safe, and a pop harmless: it is pushing that puts a live value somewhere
+   * the interpreter cannot see. */
+  int blockFloor = low.stackTop;
+  /* And where that was, in bytecode and in emitted instructions.
+   *
+   * An exit has to happen at the floor, but the thing that forces one — a call,
+   * a string concatenation, an opcode with no IR form — is usually found with
+   * its operands already pushed. Rewinding to the last point the stack was at
+   * the floor, and throwing away what was emitted since, puts the exit where
+   * it can go: the interpreter simply redoes that statement from the start. */
+  int floorOffset = 0;
+  int floorCount = 0;
   for (int offset = 0; offset < chunk->count;) {
     if (leader[offset]) {
       blockIndex = blockAt(ir, offset);
@@ -272,7 +294,23 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
       if (blockIndex >= 0 && blockIndex < IR_MAX_BLOCKS &&
           low.entryHeight[blockIndex] >= 0) {
         low.stackTop = low.entryHeight[blockIndex];
+      } else if (skipped) {
+        /* Nothing reaches this block from the part being compiled, and its
+         * height is unknown, so the whole of it is left to the interpreter —
+         * up to the next block, which may have a height a jump recorded. */
+        int skip = csInstructionLength(chunk, offset);
+        if (skip <= offset) { low.reason = "could not be decoded"; goto failed; }
+        while (skip < chunk->count && !leader[skip]) {
+          int step = csInstructionLength(chunk, skip);
+          if (step <= skip) { low.reason = "could not be decoded"; goto failed; }
+          skip = step;
+        }
+        offset = skip;
+        continue;
       }
+      blockFloor = low.stackTop;
+      floorOffset = offset;
+      floorCount = 0;
     }
 
     /* The abstract stack is *not* reset at a block boundary.
@@ -285,11 +323,44 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
      * is structured — and where it is not, the lowering underflows and refuses
      * rather than producing something subtly wrong. */
     IrBlock *block = &ir->blocks[blockIndex];
+    if (low.stackTop < blockFloor) blockFloor = low.stackTop;
+    if (low.stackTop == blockFloor) {
+      floorOffset = offset;
+      floorCount = block->count;
+    }
 
     uint8_t opcode = chunk->code[offset];
     int line = chunk->lines[offset];
     int next = csInstructionLength(chunk, offset);
     int jumpTarget = next + ((chunk->code[offset + 1] << 8) | chunk->code[offset + 2]);
+
+    /* Arithmetic on something not known to be a number would need a guard, and
+     * a guard is the one thing this compiler is built not to emit. Rather than
+     * lower it and have the whole function refused for it — which is what a
+     * string concatenation after a numeric loop used to do — the frame goes
+     * back to the interpreter at that statement.
+     *
+     * Equality is not here: it is defined for every type and needs no proof
+     * about its operands. */
+    int wantsNumbers = 0;
+    switch (opcode) {
+      case OP_NEGATE: wantsNumbers = 1; break;
+      case OP_ADD: case OP_SUBTRACT: case OP_MULTIPLY: case OP_DIVIDE:
+      case OP_MODULO: case OP_LESS: case OP_LESS_EQUAL: case OP_GREATER:
+      case OP_GREATER_EQUAL:
+        wantsNumbers = 2;
+        break;
+      default: break;
+    }
+    for (int k = 0; k < wantsNumbers; k++) {
+      if (low.stackTop - 1 - k < 0) {
+        low.reason = "operand stack underflow while lowering";
+        goto failed;
+      }
+      if (ir->registerTypes[low.stack[low.stackTop - 1 - k]] != IR_TYPE_NUMBER) {
+        goto handOver;
+      }
+    }
 
     switch (opcode) {
       case OP_CONSTANT: {
@@ -581,11 +652,45 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
         break;
 
       default:
-        low.reason = csOpcodeName((OpCode)opcode);
-        goto failed;
+        goto handOver;
     }
 
     offset = next;
+    continue;
+
+  handOver: {
+      /* Something this form cannot express, or arithmetic it cannot prove.
+       * Rather than refuse the whole function, the frame goes back to the
+       * interpreter here — at the last point the operand stack was at this
+       * block's floor, because a value pushed since then lives in a register
+       * the interpreter has no name for. Everything emitted since is dropped:
+       * none of it ran, and the interpreter redoes that statement from its
+       * beginning. */
+      if (blockFloor < 0 || blockFloor >= IR_MAX_STACK ||
+          floorCount > block->count) {
+        low.reason = csOpcodeName((OpCode)opcode);
+        goto failed;
+      }
+      block->count = floorCount;
+
+      IrInst *exit = append(block, IR_EXIT, line);
+      exit->a = floorOffset;
+      exit->b = blockFloor;
+      ir->hasExits = true;
+
+      /* Everything up to the next jump target is the interpreter's now.
+       * Blocks past it are still lowered: a loop whose body this compiler
+       * understands is usually followed by code it does not. */
+      skipped = true;
+      int skip = next;
+      while (skip < chunk->count && !leader[skip]) {
+        int step = csInstructionLength(chunk, skip);
+        if (step <= skip) { low.reason = "could not be decoded"; goto failed; }
+        skip = step;
+      }
+      offset = skip;
+      continue;
+    }
   }
 
   /* The slot types the lowering settled on, kept for the allocator. */
@@ -593,6 +698,60 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
   for (int s = 0; s <= ir->slotCount; s++) {
     ir->slotTypes[s] = s < IR_MAX_STACK ? low.slotType[s] : IR_TYPE_UNKNOWN;
   }
+
+  /* Any block left empty is one the lowering stopped short of. It still needs
+   * a terminator, and the only right one is to hand the frame over at the
+   * offset it stands for — at the height the jump that reaches it recorded,
+   * which is precisely what makes that safe.
+   *
+   * A block with no recorded height is one no lowered jump reaches, so no
+   * height would be right and none is invented: the reachability walk below
+   * proves the compiled code can never arrive there, and refuses the whole
+   * function if that proof fails. Guessing zero here truncated the operand
+   * stack and corrupted the frame, which is how this check came to exist. */
+  bool *guessed = (bool *)calloc((size_t)ir->blockCount + 1, sizeof(bool));
+  for (int b = 0; b < ir->blockCount; b++) {
+    if (ir->blocks[b].count > 0) continue;
+    int height = b < IR_MAX_BLOCKS ? low.entryHeight[b] : -1;
+    guessed[b] = height < 0;
+
+    IrInst *exit = append(&ir->blocks[b], IR_EXIT, 0);
+    exit->a = ir->blocks[b].bytecodeStart;
+    exit->b = height < 0 ? 0 : height;
+    ir->hasExits = true;
+  }
+
+  bool *reachable = (bool *)calloc((size_t)ir->blockCount + 1, sizeof(bool));
+  reachable[0] = true;
+  for (bool grew = true; grew;) {
+    grew = false;
+    for (int b = 0; b < ir->blockCount; b++) {
+      if (!reachable[b]) continue;
+      for (int i = 0; i < ir->blocks[b].count; i++) {
+        const IrInst *inst = &ir->blocks[b].instructions[i];
+        int targets[2] = {-1, -1};
+        if (inst->op == IR_JUMP) targets[0] = inst->a;
+        if (inst->op == IR_BRANCH) { targets[0] = inst->b; targets[1] = inst->c; }
+        for (int k = 0; k < 2; k++) {
+          int to = targets[k];
+          if (to < 0 || to >= ir->blockCount || reachable[to]) continue;
+          reachable[to] = true;
+          grew = true;
+        }
+      }
+    }
+  }
+
+  for (int b = 0; b < ir->blockCount; b++) {
+    if (reachable[b] && guessed[b]) {
+      free(guessed);
+      free(reachable);
+      low.reason = "a reachable block whose operand-stack height is unknown";
+      goto failed;
+    }
+  }
+  free(guessed);
+  free(reachable);
 
   free(leader);
   return ir;
@@ -665,6 +824,15 @@ void csIrRemoveDeadStores(IrFunction *ir) {
       if (inst->op == IR_LOAD_LOCAL && inst->a >= 0 && inst->a <= ir->slotCount) {
         isRead[inst->a] = true;
       }
+
+      /* An exit reads everything. The interpreter picks the frame up from
+       * there and its next instruction may be a load of any live slot — a
+       * read this pass cannot see, because it is not in the IR at all.
+       * Removing those stores made a loop compute the right answer and then
+       * hand back the value it started with. */
+      if (inst->op == IR_EXIT) {
+        for (int s = 0; s <= ir->slotCount && s < inst->b; s++) isRead[s] = true;
+      }
     }
   }
 
@@ -683,6 +851,76 @@ void csIrRemoveDeadStores(IrFunction *ir) {
   }
 
   free(isRead);
+}
+
+/* Makes each slot's type the meet of everything stored into it, and downgrades
+ * every load that claimed more.
+ *
+ * The lowering tracks slot types in linear order, which is not sound on its
+ * own: a slot read where it happens to hold a number is typed `number` even
+ * when another store puts something else there — and a loop back-edge makes
+ * "another store" mean "the previous iteration". The result was a load typed
+ * `number` reading a boolean, and arithmetic compiled with no guard to check.
+ *
+ * Iterated because downgrading a load downgrades what is computed from it,
+ * which can downgrade the slot the result is stored to in turn. It settles
+ * quickly: every round can only remove information. */
+void csIrReconcileSlotTypes(IrFunction *ir) {
+  int slots = ir->slotCount + 1;
+  IrType *meet = (IrType *)malloc(sizeof(IrType) * (size_t)slots);
+  bool *written = (bool *)malloc(sizeof(bool) * (size_t)slots);
+
+  for (int round = 0; round < 8; round++) {
+    for (int s = 0; s < slots; s++) {
+      meet[s] = IR_TYPE_UNKNOWN;
+      written[s] = false;
+    }
+
+    for (int b = 0; b < ir->blockCount; b++) {
+      for (int i = 0; i < ir->blocks[b].count; i++) {
+        const IrInst *inst = &ir->blocks[b].instructions[i];
+        if (inst->op != IR_STORE_LOCAL) continue;
+        if (inst->a < 0 || inst->a >= slots) continue;
+        if (inst->b < 0 || inst->b > ir->registerCount) continue;
+
+        IrType stored = ir->registerTypes[inst->b];
+        if (!written[inst->a]) {
+          meet[inst->a] = stored;
+          written[inst->a] = true;
+        } else if (meet[inst->a] != stored) {
+          meet[inst->a] = IR_TYPE_UNKNOWN;
+        }
+      }
+    }
+
+    /* A slot nothing stores to holds whatever the caller or the interpreter
+     * left there, which is only known for an annotated parameter. */
+    for (int s = 0; s < slots; s++) {
+      if (!written[s]) meet[s] = ir->slotTypes[s];
+    }
+
+    bool changed = false;
+    for (int b = 0; b < ir->blockCount; b++) {
+      for (int i = 0; i < ir->blocks[b].count; i++) {
+        IrInst *inst = &ir->blocks[b].instructions[i];
+        if (inst->op != IR_LOAD_LOCAL) continue;
+        if (inst->a < 0 || inst->a >= slots) continue;
+        if (inst->type == meet[inst->a]) continue;
+
+        inst->type = meet[inst->a];
+        if (inst->result >= 0 && inst->result <= ir->registerCount) {
+          ir->registerTypes[inst->result] = meet[inst->a];
+        }
+        changed = true;
+      }
+    }
+
+    for (int s = 0; s < slots; s++) ir->slotTypes[s] = meet[s];
+    if (!changed) break;
+  }
+
+  free(meet);
+  free(written);
 }
 
 bool csIrIsFullyTyped(const IrFunction *ir) {
@@ -751,6 +989,7 @@ static const char *opName(IrOp op) {
     case IR_JUMP: return "jump";
     case IR_BRANCH: return "branch";
     case IR_RETURN: return "return";
+    case IR_EXIT:   return "exit";
   }
   return "?";
 }
@@ -791,6 +1030,7 @@ void csIrPrint(const IrFunction *ir) {
         case IR_JUMP: printf(" block%d", inst->a); break;
         case IR_BRANCH: printf(" r%d ? block%d : block%d", inst->a, inst->b, inst->c); break;
         case IR_RETURN: printf(" r%d", inst->a); break;
+        case IR_EXIT: printf("  -> bytecode %d, stack %d", inst->a, inst->b); break;
         case IR_NEG: printf(" r%d", inst->a); break;
         default: printf(" r%d, r%d", inst->a, inst->b); break;
       }
@@ -848,6 +1088,7 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
       if (inst->op == IR_STORE_LOCAL && (inst->b < 0 || inst->b >= ir->registerCount)) {
         goto done;
       }
+      if (inst->op == IR_EXIT) goto done;
       if (inst->op != IR_CONST && inst->op != IR_LOAD_LOCAL &&
           inst->op != IR_STORE_LOCAL && inst->op != IR_JUMP) {
         if (inst->a < 0 || inst->a >= ir->registerCount) goto done;
@@ -934,6 +1175,13 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
         case IR_RETURN:
           *out = registers[inst->a];
           ok = true;
+          goto done;
+
+        case IR_EXIT:
+          /* This interpreter runs a whole function in place of the bytecode,
+           * so it has nowhere to hand a half-finished frame back to. Only
+           * machine code entered through OSR can take an exit; here it simply
+           * means the bytecode should have run instead. */
           goto done;
       }
     }

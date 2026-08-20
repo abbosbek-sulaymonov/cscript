@@ -91,9 +91,14 @@ bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *
  * compiled entry for this offset.
  *
  * `slots` is the interpreter's own frame. The compiled code reads and writes
- * it in place, which is what makes the hand-over free, and on success the
- * function has run to completion and `out` holds its result. */
-bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *out);
+ * it in place, which is what makes the hand-over free.
+ *
+ * On success one of two things happened. `*resumeAt` is -1 when the function
+ * ran to completion and `out` holds its result. Otherwise the compiled code
+ * reached something it does not implement and handed the frame back: resume
+ * the bytecode at `*resumeAt` with the operand stack `*resumeHeight` deep. */
+bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *out,
+              int *resumeAt, int *resumeHeight);
 
 /* Why a function was refused, or NULL when it was not. */
 const char *csJitRefusalReason(const ObjFunction *function);

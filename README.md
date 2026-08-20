@@ -343,8 +343,14 @@ now, and on the code it compiles it does close most of it:
 
 | | interpreted | compiled | speedup | Node |
 | --- | ---: | ---: | ---: | ---: |
-| `bench/jit_calls.cx` — 3M calls | 136 ms | 112 ms | 1.2× | 8 ms |
-| `bench/jit_loop.cx` — one call, 20M iterations | 492 ms | **55 ms** | **8.9×** | 35 ms |
+| `bench/jit/jit_calls.cx` — 3M calls | 136 ms | 112 ms | 1.2× | 8 ms |
+| `bench/jit/jit_loop.cx` — one call, 20M iterations | 492 ms | **55 ms** | **8.9×** | 35 ms |
+| `bench/locals.cx` — an ordinary script, no annotations | 165 ms | **18 ms** | **9.4×** | 6 ms |
+
+The last of those has no type annotations in it at all. Its types come from
+the checker's inference of `let a = 0`, and its loop reaches the compiler
+because everything the compiler cannot express — the `console.log` at the end —
+is handed back to the interpreter rather than refusing the whole function.
 
 Both columns are the same binary; only the tiering threshold differs. The
 backend compiles functions whose arithmetic the type checker has already
@@ -484,7 +490,8 @@ cscript/
 | **33 ✅** | Regex backreferences and lookahead, function replacers, `exec().index` | — |
 | **34 ✅** | `Promise.allSettled` / `.any`, `AggregateError`, `setInterval` | — |
 | **35 ✅** | Async generators — `async function*`, `for await` over one | — |
-| next | Lowering top-level code, so a script reaches the compiler | — |
+| **36 ✅** | Side exits — the compiler takes the loop and leaves the rest | — |
+| next | Globals in a compiled loop, which is what most scripts need next | — |
 | next | Inlining, so a small function is worth compiling | — |
 | next | Guards and deoptimisation, for code the types do not prove | — |
 

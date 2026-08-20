@@ -135,6 +135,12 @@ static void strGeneral(Encoder *e, int source, int base, int byteOffset) {
               (uint32_t)source);
 }
 
+/* STR <Wt>, [<Xn>] — one 32-bit word, for writing the exit index back through
+ * the caller's `int *`. */
+static void strWord32(Encoder *e, int source, int base) {
+  word(e, 0xB9000000u | ((uint32_t)base << 5) | (uint32_t)source);
+}
+
 /* CMP <Xn>, <Xm> */
 static void cmpGeneral(Encoder *e, int n, int m) {
   word(e, 0xEB00001Fu | ((uint32_t)m << 16) | ((uint32_t)n << 5));
@@ -192,6 +198,7 @@ static JitCode *publish(Encoder *encoder, int scratchCount) {
 void csJitCodeFree(JitCode *code) {
   if (code == NULL) return;
   munmap(code->memory, code->size);
+  free(code->exits);
   free(code);
 }
 
@@ -203,6 +210,7 @@ void csJitCodeFree(JitCode *code) {
  * allocator would later undo. */
 #define REG_SLOTS 0
 #define REG_SCRATCH 1
+#define REG_EXIT 2 /* int *exitTarget, the third argument */
 #define REG_TEMP 9
 
 /* A branch whose target block is not laid out yet. */
@@ -334,8 +342,11 @@ static int *allocateRegisters(const IrFunction *ir, int reserved) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
       int operands[2] = {inst->a, inst->b};
       /* For these, `a` is a slot number rather than a value. */
+      /* `a` is not a value for these: a slot, a block, or — for an exit — a
+       * bytecode offset and a stack height. */
       if (inst->op == IR_LOAD_LOCAL || inst->op == IR_JUMP) operands[0] = -1;
-      if (inst->op == IR_STORE_LOCAL) operands[0] = -1;
+      if (inst->op == IR_STORE_LOCAL || inst->op == IR_EXIT) operands[0] = -1;
+      if (inst->op == IR_EXIT) operands[1] = -1;
       if (inst->op == IR_BRANCH || inst->op == IR_RETURN || inst->op == IR_NEG ||
           inst->op == IR_CONST || inst->op == IR_LOAD_LOCAL) {
         operands[1] = -1;
@@ -532,6 +543,9 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
     }
   }
 
+  JitExit *exits = NULL;
+  int exitCount = 0, exitCapacity = 0;
+
   int *home = allocateRegisters(ir, promotedCount + constantCount);
   int *blockStart = (int *)malloc(sizeof(int) * (size_t)ir->blockCount);
 
@@ -718,6 +732,33 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
           ret(&encoder);
           break;
         }
+
+        case IR_EXIT: {
+          /* Give the frame back. Every promoted slot goes home first: the
+           * interpreter reads locals out of the frame and knows nothing about
+           * the registers they have been living in. Nothing else needs writing
+           * — an exit is only ever emitted at the height its block began at,
+           * so every live position is still where the interpreter left it. */
+          for (int s = 0; s <= ir->slotCount; s++) {
+            if (slotHome[s] >= 0) strDouble(&encoder, slotHome[s], REG_SLOTS, s * 8);
+          }
+
+          if (exitCount >= exitCapacity) {
+            exitCapacity = exitCapacity < 8 ? 8 : exitCapacity * 2;
+            exits = (JitExit *)realloc(exits, sizeof(JitExit) * (size_t)exitCapacity);
+          }
+          exits[exitCount].bytecodeOffset = inst->a;
+          exits[exitCount].stackHeight = inst->b;
+
+          movImmediate(&encoder, REG_TEMP, (uint64_t)exitCount);
+          strWord32(&encoder, REG_TEMP, REG_EXIT);
+          exitCount++;
+
+          movImmediate(&encoder, REG_TEMP, (uint64_t)UNDEFINED_VAL);
+          word(&encoder, 0xAA0903E0u); /* mov x0, x9 */
+          ret(&encoder);
+          break;
+        }
       }
 
       if (encoder.failed) {
@@ -787,6 +828,8 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
 
   JitCode *code = publish(&encoder, ir->registerCount);
   if (code != NULL) {
+    code->exits = exits;
+    code->exitCount = exitCount;
     for (int o = 0; o < osrCount; o++) {
       code->osr[o].bytecodeOffset = ir->blocks[osrBlock[o]].bytecodeStart;
       code->osr[o].entry = (CompiledFn)((uint32_t *)code->memory + osrWord[o]);
@@ -802,6 +845,7 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   return code;
 
 unsupported:
+  free(exits);
   free(slotHome);
   free(home);
   free(blockStart);

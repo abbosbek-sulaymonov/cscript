@@ -1,0 +1,7 @@
+checksum 5913
+n=10 sum=45 doubled=90
+n=0 sum=0 doubled=0
+n=1 sum=0 doubled=0
+99,30,465,495
+small 12 big 60 none
+grid 81 1 0

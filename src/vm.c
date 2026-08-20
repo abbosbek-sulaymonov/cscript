@@ -2641,9 +2641,22 @@ InterpretResult run(int baseFrame) {
          * compiled. */
         if (frame->closure->function->jitState == JIT_COMPILED) {
           Value produced;
+          int resumeAt = -1;
+          int resumeHeight = 0;
           if (csJitOsr(frame->closure->function,
                        (int)(frame->ip - frame->closure->function->chunk.code),
-                       frame->slots, &produced)) {
+                       frame->slots, &produced, &resumeAt, &resumeHeight)) {
+            /* Handed back part-way: the compiled code took the loop and left
+             * whatever follows it alone. The frame is already in the shape the
+             * interpreter expects — the slots are the same slots — so only the
+             * two things the compiled code does not keep have to be put back:
+             * where to resume, and how deep the operand stack is. */
+            if (resumeAt >= 0) {
+              frame->ip = frame->closure->function->chunk.code + resumeAt;
+              vm.stackTop = frame->slots + resumeHeight;
+              VM_NEXT();
+            }
+
             /* The compiled code ran the function to completion, so what is
              * left is the frame teardown OP_RETURN does — kept in step with
              * it deliberately rather than shared, because the two differ in

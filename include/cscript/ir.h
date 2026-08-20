@@ -46,6 +46,16 @@ typedef enum {
   IR_JUMP,        /* -> block a                             */
   IR_BRANCH,      /* if a then block b else block c         */
   IR_RETURN,      /* return a                               */
+  /* Hand this frame back to the interpreter at bytecode offset `a`, with the
+   * operand stack `b` values deep.
+   *
+   * Whole-function lowering is too coarse for a script: almost every top level
+   * ends in a `console.log`, and one call was enough to refuse the loop above
+   * it. An exit lets the compiler take the part it understands and leave the
+   * rest where it was — which is only possible because the compiled code keeps
+   * locals in the interpreter's own frame at the interpreter's own offsets, so
+   * leaving is the mirror of arriving. */
+  IR_EXIT,
 } IrOp;
 
 typedef struct {
@@ -82,6 +92,12 @@ typedef struct {
    * loop counter and an accumulator are, and why a loop body otherwise loads
    * and stores them on every iteration exactly as the interpreter does. */
   IrType *slotTypes;
+
+  /* True when any block ends in IR_EXIT. Such a function can only be entered
+   * where a real frame already exists — that is, through on-stack replacement
+   * — because an exit resumes the interpreter part-way through a body that a
+   * call entry has not yet begun. */
+  bool hasExits;
 } IrFunction;
 
 /* Lowers a function's bytecode.
@@ -92,6 +108,11 @@ typedef struct {
 IrFunction *csIrLower(ObjFunction *function, const char **reason);
 
 void csIrFree(IrFunction *ir);
+
+/* Makes every slot's type the meet of what is stored into it, and downgrades
+ * loads that claimed more. Must run before the IR is trusted: the lowering's
+ * own tracking is linear, and a loop makes linear order the wrong order. */
+void csIrReconcileSlotTypes(IrFunction *ir);
 
 /* Prints the IR, for `make jit`. */
 void csIrPrint(const IrFunction *ir);

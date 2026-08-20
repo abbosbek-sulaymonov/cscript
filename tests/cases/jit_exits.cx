@@ -1,0 +1,63 @@
+// A loop the compiler takes, followed by something it does not. Each call
+// enters the compiled loop and hands the frame back at the same place, so
+// this exercises the way in and the way out several hundred times over.
+function summarise(limit: number): string {
+  let sum = 0;
+  let doubled = 0;
+  for (let i = 0; i < limit; i++) {
+    sum = sum + i;
+    doubled = sum * 2;
+  }
+  // Nothing below here is compiled: the values have to survive the hand-back.
+  const label = "n=" + limit;
+  return label + " sum=" + sum + " doubled=" + doubled;
+}
+
+let checksum = 0;
+for (let call = 0; call < 300; call++) {
+  const text = summarise(call % 7);
+  checksum = checksum + text.length;
+}
+console.log("checksum", checksum);
+console.log(summarise(10));
+console.log(summarise(0));
+console.log(summarise(1));
+
+// Loop-carried values read again after the hand-back, including one the loop
+// never writes.
+function carry(n: number): string {
+  let untouched = 99;
+  let x = 0;
+  let y = 0;
+  for (let i = 0; i < n; i++) {
+    x = x + 1;
+    y = y + x;
+  }
+  return untouched + "," + x + "," + y + "," + (x + y);
+}
+for (let i = 0; i < 200; i++) carry(20);
+console.log(carry(30));
+
+// A conditional after the loop, so the resume point is not the end of a body.
+function classify(n: number): string {
+  let total = 0;
+  for (let i = 0; i < n; i++) total = total + 3;
+  if (total > 30) return "big " + total;
+  if (total > 0) return "small " + total;
+  return "none";
+}
+for (let i = 0; i < 200; i++) classify(i % 25);
+console.log(classify(4), classify(20), classify(0));
+
+// Nested loops: the inner one is entered many times per call.
+function grid(side: number): number {
+  let cells = 0;
+  for (let row = 0; row < side; row++) {
+    for (let column = 0; column < side; column++) {
+      cells = cells + 1;
+    }
+  }
+  return cells;
+}
+for (let i = 0; i < 100; i++) grid(12);
+console.log("grid", grid(9), grid(1), grid(0));

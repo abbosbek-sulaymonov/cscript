@@ -45,6 +45,11 @@ static long substituted = 0;
  * that measured nothing. */
 static long osrEntered = 0;
 
+/* And how many of those handed the frame back part-way rather than finishing
+ * it, which is the measure of how much of a program the compiler is actually
+ * taking on. */
+static long exited = 0;
+
 /* Opcodes a first backend would not attempt.
  *
  * Not a permanent list — it is what the *first* code generator would leave to
@@ -118,6 +123,9 @@ bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *
     if (hot[i].ir == NULL) return false;
     /* Only where every value is proved: see csIrIsFullyTyped. */
     if (!csIrIsFullyTyped(hot[i].ir)) return false;
+    /* A body with an exit in it is entered only through OSR, where a frame
+     * already exists for the interpreter to be handed back. */
+    if (hot[i].ir->hasExits) return false;
 
     /* Compiled code, when there is any. The frame it needs is the slots array
      * the interpreter would have used, with the arguments already in place. */
@@ -128,7 +136,11 @@ bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *
       for (int a = 0; a < argCount && a + 1 < hot[i].ir->slotCount; a++) {
         slots[a + 1] = args[a];
       }
-      uint64_t bits = hot[i].code->entry(slots, hot[i].scratch);
+      /* A call entry cannot take an exit: there is no frame to hand back, and
+       * csIrLower only produces one for code the interpreter would resume. */
+      int exit = -1;
+      uint64_t bits = hot[i].code->entry(slots, hot[i].scratch, &exit);
+      if (exit >= 0) return false;
       memcpy(out, &bits, sizeof(Value));
       substituted++;
       return true;
@@ -140,7 +152,9 @@ bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *
   return false;
 }
 
-bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *out) {
+bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots,
+              Value *out, int *resumeAt, int *resumeHeight) {
+  *resumeAt = -1;
   for (int i = 0; i < hotCount; i++) {
     if (hot[i].function != function) continue;
     if (hot[i].code == NULL) return false;
@@ -153,7 +167,18 @@ bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *ou
        * above the frame's current top, so the room has to be there. */
       if (slots + hot[i].ir->slotCount >= vm.stack + vm.stackCapacity) return false;
 
-      uint64_t bits = hot[i].code->osr[o].entry(slots, hot[i].scratch);
+      int exit = -1;
+      uint64_t bits = hot[i].code->osr[o].entry(slots, hot[i].scratch, &exit);
+
+      if (exit >= 0 && exit < hot[i].code->exitCount) {
+        /* Not finished: the body reached something the compiler does not
+         * implement, and the interpreter takes it from there. */
+        *resumeAt = hot[i].code->exits[exit].bytecodeOffset;
+        *resumeHeight = hot[i].code->exits[exit].stackHeight;
+        exited++;
+        return true;
+      }
+
       memcpy(out, &bits, sizeof(Value));
       osrEntered++;
       return true;
@@ -185,8 +210,12 @@ void csJitConsider(ObjFunction *function) {
   if (hot[hotCount].ir != NULL) {
     /* Forward first: it turns loads into renames, which is what leaves the
      * stores behind for the second pass to find. */
+    /* Before anything trusts a type: the lowering's are provisional. */
+    csIrReconcileSlotTypes(hot[hotCount].ir);
     csIrForwardSlots(hot[hotCount].ir);
     csIrRemoveDeadStores(hot[hotCount].ir);
+    csIrReconcileSlotTypes(hot[hotCount].ir);
+    if (getenv("CS_JIT_DUMP_IR") != NULL) csIrPrint(hot[hotCount].ir);
   }
   hot[hotCount].code = NULL;
   hot[hotCount].codeRefusal = NULL;
@@ -302,6 +331,7 @@ void csJitDumpProfile(void) {
          substituted == 1 ? "" : "s");
   printf("  %ld loop%s taken over while already running\n", osrEntered,
          osrEntered == 1 ? "" : "s");
+  printf("  %ld handed back to the interpreter part-way\n", exited);
 
   int sites = typedTotal + genericTotal;
   printf("\n  %d of %d compilable without falling back to the interpreter\n",
