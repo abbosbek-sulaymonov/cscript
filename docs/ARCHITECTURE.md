@@ -124,6 +124,28 @@ Mark-sweep, tri-colour, non-moving:
 `vm.nextGC` doubles after each cycle, so collection cost stays proportional to
 live data rather than to allocation rate.
 
+### Weak references, and the loop one of them needs
+
+Three things are held weakly, and all three are resolved in one pass after
+marking is final and before anything is freed: a shape's transition edges, a
+chunk's inline caches, and a `WeakMap`'s keys. Caching a layout, or recording a
+route to one, or looking something up by it, must not be what keeps it alive.
+
+A `WeakMap` needs more than not-marking. Its *values* have to be marked, but
+only for the keys that turned out to be live — and a value may itself be the
+only thing keeping another map's key alive. So the pass repeats until nothing
+new is marked, which is what makes the answer independent of the order the maps
+happen to sit in. Three links of that chain are in the test, because one
+marking pass gets two of them right and looks convincing.
+
+Nothing may allocate during a collection, so pruning clears the dead entries in
+place and rebuilds the index over what is left rather than calling the ordinary
+rehash.
+
+A weak collection also refuses to be iterated, spread, counted or printed with
+its contents. Every one of those would let a program work out when the
+collector last ran.
+
 ### The two root sets that are easy to miss
 
 Both of these caused real bugs during development, caught by `make test-gc`:

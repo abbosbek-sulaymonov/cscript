@@ -69,6 +69,7 @@ void csVMInit(void) {
   csTableInit(&vm.numberMethods);
   csTableInit(&vm.functionMethods);
   csTableInit(&vm.dateMethods);
+  csTableInit(&vm.weakMethods);
   csTableInit(&vm.regexMethods);
 
   vm.microtasks = NULL;
@@ -111,6 +112,7 @@ void csVMFree(void) {
   csTableFree(&vm.numberMethods);
   csTableFree(&vm.functionMethods);
   csTableFree(&vm.dateMethods);
+  csTableFree(&vm.weakMethods);
   csTableFree(&vm.regexMethods);
   csTableFree(&vm.builtins);
   csTableFree(&vm.builtinConsts);
@@ -458,7 +460,8 @@ static Table *methodTableFor(Value receiver) {
   if (IS_ARRAY(receiver)) return &vm.arrayMethods;
   if (IS_STRING(receiver)) return &vm.stringMethods;
   if (IS_PROMISE(receiver)) return &vm.promiseMethods;
-  if (IS_MAP(receiver)) return &vm.mapMethods;
+  if (IS_MAP(receiver)) return AS_MAP(receiver)->isWeak ? &vm.weakMethods
+                                                         : &vm.mapMethods;
   if (IS_GENERATOR(receiver)) return &vm.generatorMethods;
   if (IS_NUMBER(receiver)) return &vm.numberMethods;
   /* A closure or a bound method; a native's own statics are looked at first,
@@ -965,6 +968,15 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
   /* `.size` on a Map or Set, like `.length` on an array: intrinsic rather than
    * stored, so the collection does not have to carry a property table. */
   if (IS_MAP(receiver) && name->length == 4 && memcmp(name->chars, "size", 4) == 0) {
+    /* A weak collection has no size to report: the answer would depend on
+     * when the collector last ran, which is the one thing a program must not
+     * be able to find out. */
+    if (AS_MAP(receiver)->isWeak) {
+      csVMRuntimeError("a %s has no size: how many entries are left depends on "
+                       "when the collector last ran",
+                       AS_MAP(receiver)->isSet ? "WeakSet" : "WeakMap");
+      return false;
+    }
     *out = NUMBER_VAL(AS_MAP(receiver)->liveCount);
     return true;
   }
@@ -1529,6 +1541,12 @@ InterpretResult run(int baseFrame) {
          * type test and nothing else. */
         Value target = peekStack(0);
         if (!IS_MAP(target)) VM_NEXT();
+        if (AS_MAP(target)->isWeak) {
+          csVMRuntimeError("a %s cannot be iterated: what is left in it depends "
+                           "on when the collector last ran",
+                           AS_MAP(target)->isSet ? "WeakSet" : "WeakMap");
+          return CS_RUNTIME_ERROR;
+        }
 
         ObjArray *items = csMapToArray(AS_MAP(target));
         csVMPop();
@@ -1755,6 +1773,12 @@ InterpretResult run(int baseFrame) {
       VM_CASE(OP_SPREAD_MARK) {
         /* A Map or Set spreads to what iterating it yields, which is the same
          * conversion `for...of` makes — they have to agree. */
+        if (IS_MAP(peekStack(0)) && AS_MAP(peekStack(0))->isWeak) {
+          csVMRuntimeError("a %s cannot be spread: what is left in it depends on "
+                           "when the collector last ran",
+                           AS_MAP(peekStack(0))->isSet ? "WeakSet" : "WeakMap");
+          return CS_RUNTIME_ERROR;
+        }
         if (IS_MAP(peekStack(0))) {
           ObjArray *items = csMapToArray(AS_MAP(peekStack(0)));
           csVMPop();

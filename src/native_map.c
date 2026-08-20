@@ -77,6 +77,26 @@ static int findSlot(const ObjMap *map, Value key) {
 
 /* Rebuilds the index, and compacts the entries so tombstones do not accumulate
  * in a map that is repeatedly added to and deleted from. */
+/* Rebuilds the index over the entries already there, allocating nothing.
+ *
+ * The collector needs this: pruning a weak map clears the entries whose keys
+ * died, and the probe chains after them stop being walkable — but a collection
+ * is the one moment nothing may allocate, so the ordinary rehash cannot run. */
+void csMapReindexInPlace(ObjMap *map) {
+  if (map->indexCapacity == 0) return;
+
+  int live = 0;
+  for (int i = 0; i < map->count; i++) {
+    if (map->entries[i].present) map->entries[live++] = map->entries[i];
+  }
+  map->count = live;
+
+  for (int i = 0; i < map->indexCapacity; i++) map->index[i] = -1;
+  for (int i = 0; i < map->count; i++) {
+    map->index[findSlot(map, map->entries[i].key)] = i;
+  }
+}
+
 static void rehash(ObjMap *map, int indexCapacity) {
   int live = 0;
   for (int i = 0; i < map->count; i++) {
@@ -112,6 +132,7 @@ ObjMap *csMapNew(bool isSet) {
   map->index = NULL;
   map->indexCapacity = 0;
   map->isSet = isSet;
+  map->isWeak = false;
   return map;
 }
 
@@ -416,3 +437,157 @@ void csMapMethodsInstall(void) {
 
 NativeFn csMapConstructorFn(void) { return mapConstruct; }
 NativeFn csSetConstructorFn(void) { return setConstruct; }
+
+/* ---- WeakMap and WeakSet ------------------------------------------------ */
+
+/* The same table, with the keys unmarked. What that buys is the thing these
+ * are for: an entry keyed on an object stops existing when nothing else holds
+ * that object, so a lookup table cannot be what keeps its subjects alive.
+ *
+ * The price is that a weak collection cannot be iterated, counted or cleared
+ * by walking — every one of those would let a program see exactly when a
+ * collection happened, which is not something it is allowed to know. So the
+ * surface is four methods and no `size`.
+ */
+static bool requireWeak(Value receiver, bool wantSet, const char *method) {
+  if (IS_MAP(receiver) && AS_MAP(receiver)->isWeak &&
+      AS_MAP(receiver)->isSet == wantSet) {
+    return true;
+  }
+  csVMRuntimeError("'%s' needs a %s, got %s", method, wantSet ? "WeakSet" : "WeakMap",
+                   csValueTypeName(receiver));
+  return false;
+}
+
+/* Only something the collector can actually collect. A number or a string has
+ * no identity to lose, so an entry keyed on one could never be removed — which
+ * would make it a strong map wearing the wrong name. */
+static bool requireHoldable(Value key, const char *method) {
+  if (IS_OBJ(key) && !IS_STRING(key)) return true;
+  csVMRuntimeError("'%s' needs an object as its key, got %s", method,
+                   csValueTypeName(key));
+  return false;
+}
+
+static bool weakMapGet(Value receiver, int argCount, Value *args, Value *result) {
+  if (!requireWeak(receiver, false, "get")) return false;
+  Value key = argCount > 0 ? args[0] : UNDEFINED_VAL;
+  if (!csMapGet(AS_MAP(receiver), key, result)) *result = UNDEFINED_VAL;
+  return true;
+}
+
+static bool weakMapSet(Value receiver, int argCount, Value *args, Value *result) {
+  if (!requireWeak(receiver, false, "set")) return false;
+  Value key = argCount > 0 ? args[0] : UNDEFINED_VAL;
+  if (!requireHoldable(key, "set")) return false;
+
+  csMapSet(AS_MAP(receiver), key, argCount > 1 ? args[1] : UNDEFINED_VAL);
+  *result = receiver;
+  return true;
+}
+
+static bool weakSetAdd(Value receiver, int argCount, Value *args, Value *result) {
+  if (!requireWeak(receiver, true, "add")) return false;
+  Value key = argCount > 0 ? args[0] : UNDEFINED_VAL;
+  if (!requireHoldable(key, "add")) return false;
+
+  csMapSet(AS_MAP(receiver), key, key);
+  *result = receiver;
+  return true;
+}
+
+static bool weakHas(Value receiver, int argCount, Value *args, Value *result) {
+  if (!IS_MAP(receiver) || !AS_MAP(receiver)->isWeak) {
+    csVMRuntimeError("'has' needs a WeakMap or a WeakSet, got %s",
+                     csValueTypeName(receiver));
+    return false;
+  }
+  *result = BOOL_VAL(csMapHas(AS_MAP(receiver), argCount > 0 ? args[0] : UNDEFINED_VAL));
+  return true;
+}
+
+static bool weakDelete(Value receiver, int argCount, Value *args, Value *result) {
+  if (!IS_MAP(receiver) || !AS_MAP(receiver)->isWeak) {
+    csVMRuntimeError("'delete' needs a WeakMap or a WeakSet, got %s",
+                     csValueTypeName(receiver));
+    return false;
+  }
+  *result =
+      BOOL_VAL(csMapDelete(AS_MAP(receiver), argCount > 0 ? args[0] : UNDEFINED_VAL));
+  return true;
+}
+
+/* `new WeakMap([[key, value], …])` and `new WeakSet([key, …])`, which are the
+ * same two shapes their strong counterparts take. */
+static bool constructWeak(int argCount, Value *args, Value *result, bool isSet) {
+  ObjMap *map = csMapNew(isSet);
+  map->isWeak = true;
+  csPushTempRoot((Obj *)map);
+
+  if (argCount > 0 && !IS_NULL(args[0]) && !IS_UNDEFINED(args[0])) {
+    if (!IS_ARRAY(args[0])) {
+      csPopTempRoot();
+      csVMRuntimeError("%s expects an array to start from",
+                       isSet ? "WeakSet" : "WeakMap");
+      return false;
+    }
+
+    ObjArray *from = AS_ARRAY(args[0]);
+    for (int i = 0; i < from->elements.count; i++) {
+      Value element = from->elements.values[i];
+      Value key = element;
+      Value value = element;
+
+      if (!isSet) {
+        if (!IS_ARRAY(element) || AS_ARRAY(element)->elements.count < 2) {
+          csPopTempRoot();
+          csVMRuntimeError("WeakMap expects each entry to be a [key, value] pair");
+          return false;
+        }
+        key = AS_ARRAY(element)->elements.values[0];
+        value = AS_ARRAY(element)->elements.values[1];
+      }
+
+      if (!requireHoldable(key, isSet ? "WeakSet" : "WeakMap")) {
+        csPopTempRoot();
+        return false;
+      }
+      csMapSet(map, key, value);
+    }
+  }
+
+  csPopTempRoot();
+  *result = OBJ_VAL(map);
+  return true;
+}
+
+static bool weakMapConstruct(Value r, int c, Value *a, Value *out) {
+  (void)r;
+  return constructWeak(c, a, out, false);
+}
+
+static bool weakSetConstruct(Value r, int c, Value *a, Value *out) {
+  (void)r;
+  return constructWeak(c, a, out, true);
+}
+
+static void defineWeakMethod(const char *name, NativeFn function, int arity) {
+  ObjNative *native = csNativeNew(function, name, arity);
+  csPushTempRoot((Obj *)native);
+  ObjString *key = csStringCopy(name, (int)strlen(name));
+  csPushTempRoot((Obj *)key);
+  csTableSet(&vm.weakMethods, key, OBJ_VAL(native));
+  csPopTempRoot();
+  csPopTempRoot();
+}
+
+void csWeakMethodsInstall(void) {
+  defineWeakMethod("get", weakMapGet, -1);
+  defineWeakMethod("set", weakMapSet, -1);
+  defineWeakMethod("add", weakSetAdd, -1);
+  defineWeakMethod("has", weakHas, -1);
+  defineWeakMethod("delete", weakDelete, -1);
+}
+
+NativeFn csWeakMapConstructorFn(void) { return weakMapConstruct; }
+NativeFn csWeakSetConstructorFn(void) { return weakSetConstruct; }

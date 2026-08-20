@@ -188,6 +188,7 @@ typedef struct {
   Table numberMethods;
   Table functionMethods;
   Table dateMethods;
+  Table weakMethods;
   Table regexMethods;
 
   /* The microtask queue, drained completely between macrotasks. A ring would

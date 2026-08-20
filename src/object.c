@@ -730,6 +730,11 @@ void csObjectPrint(Value value) {
     case OBJ_MAP: {
       /* `Map(2) { 'a' => 1 }` and `Set(2) { 1, 2 }`, as Node prints them. */
       ObjMap *map = AS_MAP(value);
+      if (map->isWeak) {
+        /* Not even the count: it would say when the collector last ran. */
+        printf("%s { <items unknown> }", map->isSet ? "WeakSet" : "WeakMap");
+        break;
+      }
       printf("%s(%d)", map->isSet ? "Set" : "Map", map->liveCount);
       if (map->liveCount == 0) {
         printf(" {}");
@@ -881,6 +886,11 @@ void csObjectBlacken(Obj *object) {
 
     case OBJ_MAP: {
       ObjMap *map = (ObjMap *)object;
+      /* A weak map marks neither: its keys are what make it weak, and its
+       * values are marked afterwards, but only for the keys that turned out to
+       * be alive. See csMarkEphemerons. */
+      if (map->isWeak) break;
+
       /* Only the live entries: a tombstone's key and value were cleared when
        * it was deleted, so there is nothing there to keep alive. */
       for (int i = 0; i < map->count; i++) {

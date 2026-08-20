@@ -20,6 +20,9 @@ void csGeneratorMethodsInstall(void);
 void csNumberMethodsInstall(void);
 void csFunctionMethodsInstall(void);
 void csDateMethodsInstall(void);
+void csWeakMethodsInstall(void);
+NativeFn csWeakMapConstructorFn(void);
+NativeFn csWeakSetConstructorFn(void);
 void csDateInstallStatics(ObjObject *statics);
 NativeFn csDateConstructorFn(void);
 

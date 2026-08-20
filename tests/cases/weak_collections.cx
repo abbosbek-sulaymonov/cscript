@@ -1,0 +1,52 @@
+// A WeakMap keys on identity and holds its keys weakly, so a lookup table
+// cannot be what keeps its subjects alive.
+const first = {};
+const second = { tag: "second" };
+
+const map = new WeakMap();
+map.set(first, 1);
+map.set(second, "two");
+console.log(map.get(first), map.get(second), map.get({}), map.has(first));
+console.log(map.delete(first), map.has(first), map.delete(first));
+
+// Built from pairs, like a Map.
+const seeded = new WeakMap([[second, "seeded"]]);
+console.log(seeded.get(second));
+
+// A WeakSet is the same table asked only about membership.
+const set = new WeakSet([first]);
+console.log(set.has(first), set.has(second));
+set.add(second);
+console.log(set.has(second), set.delete(second), set.has(second));
+
+// Any object will do as a key, including an array or a function.
+const list = [1, 2];
+const fn = () => 1;
+const anything = new WeakSet();
+anything.add(list);
+anything.add(fn);
+console.log(anything.has(list), anything.has(fn), anything.has([1, 2]));
+
+// A key with no identity to lose could never be removed, so it is refused —
+// with a runtime error rather than a catchable one; see JAVASCRIPT.md.
+
+// Entries whose keys nothing else holds go away, but only those. The chain
+// below is the case a single marking pass gets wrong: `b` is reachable only as
+// `a`'s value, and `c` only as `b`'s.
+const anchor = {};
+const chain = new WeakMap();
+{
+  const b = {};
+  const c = {};
+  chain.set(anchor, b);
+  chain.set(b, c);
+  chain.set(c, "end of the chain");
+}
+for (let i = 0; i < 300; i++) chain.set({ throwaway: i }, i);
+
+const churn = [];
+for (let i = 0; i < 30000; i++) churn.push({ n: i });
+
+const b = chain.get(anchor);
+const c = chain.get(b);
+console.log(chain.has(anchor), chain.has(b), chain.has(c), chain.get(c));

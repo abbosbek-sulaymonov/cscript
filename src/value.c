@@ -250,6 +250,14 @@ static bool sbAppendValue(StringBuilder *builder, Value value, bool quoteStrings
 
 /* `Map(2) { 'a' => 1 }` and `Set(2) { 1, 2 }`, as Node prints them. */
 static bool sbAppendMap(StringBuilder *builder, ObjMap *map) {
+  /* A weak one shows nothing, not even how many: the count would say when the
+   * collector last ran, and that is not something a program may find out. */
+  if (map->isWeak) {
+    const char *opaque = map->isSet ? "WeakSet { <items unknown> }"
+                                    : "WeakMap { <items unknown> }";
+    return sbAppend(builder, opaque, strlen(opaque));
+  }
+
   char header[32];
   int length = snprintf(header, sizeof header, "%s(%d)",
                         map->isSet ? "Set" : "Map", map->liveCount);

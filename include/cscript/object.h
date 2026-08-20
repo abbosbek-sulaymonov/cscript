@@ -297,6 +297,11 @@ typedef struct ObjMap {
   int indexCapacity;
 
   bool isSet;
+  /* A WeakMap or a WeakSet. Its keys are not marked, so an entry lives only as
+   * long as something else holds its key; when nothing does, the collector
+   * takes the entry out. That is also why it cannot be iterated or counted —
+   * either would let a program observe when a collection happened. */
+  bool isWeak;
 } ObjMap;
 
 /* A compiled regular expression.
@@ -521,6 +526,10 @@ ObjModule *csModuleNew(ObjString *path);
 ObjPromise *csPromiseNew(void);
 
 ObjMap *csMapNew(bool isSet);
+
+/* Rebuilds a map's index over the entries it already has, without allocating.
+ * For the collector, which may not allocate and has just removed entries. */
+void csMapReindexInPlace(ObjMap *map);
 
 /* Compiles a pattern into a regex object. Returns NULL after reporting a
  * runtime error when the pattern is malformed. */

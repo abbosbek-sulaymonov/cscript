@@ -725,8 +725,11 @@ void csNativesInstall(void) {
   csFunctionMethodsInstall();
   csRegexMethodsInstall();
   csDateMethodsInstall();
+  csWeakMethodsInstall();
   defineFunction("Map", csMapConstructorFn(), -1);
   defineFunction("Set", csSetConstructorFn(), -1);
+  defineFunction("WeakMap", csWeakMapConstructorFn(), -1);
+  defineFunction("WeakSet", csWeakSetConstructorFn(), -1);
 
   /* `Date` is the same shape: `new Date()` builds one and `Date.now()` sits
    * beside it. */

@@ -170,6 +170,17 @@ running. The local zone is still available where it is asked for by name —
 `getHours`, `getDay` and `getTimezoneOffset` all use it, and so does
 `new Date(y, m, d)`.
 
+### A runtime error is not catchable
+
+`try`/`catch` catches what a program `throw`s. It does not catch reading a
+property of `null`, calling something that is not a function, or handing a
+`WeakMap` a key it cannot hold — those stop the program and print where.
+
+JavaScript makes every one of those a `TypeError` that a `catch` may swallow,
+which is how a typo becomes a silent branch. Here the two kinds of failure stay
+separate: a `throw` is a decision the program made, and a runtime error is a
+mistake in it.
+
 ### An object literal's accessors are not enumerated
 
 ```js
@@ -229,7 +240,6 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Missing | Note |
 | --- | --- |
 | Regex lookbehind — `(?<=…)` — and named groups | Lookahead and backreferences work |
-| `WeakMap`, `WeakSet` | Would need weak references in the collector |
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
 | `Date` parsing beyond ISO, and its locale formats | `toLocaleString`, `Date.parse` of anything else, `setFullYear` and the other setters |
 | `Symbol`, `BigInt` | No plans |
