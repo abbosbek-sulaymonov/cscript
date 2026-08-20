@@ -237,6 +237,19 @@ bool callClosure(ObjClosure *closure, int argCount) {
 
   CS_JIT_TICK(function);
 
+#ifdef CS_DEBUG_JIT
+  /* Where the lowered IR covers the whole function, it runs instead of the
+   * bytecode — which is what verifies the lowering against the golden suite. */
+  {
+    Value lowered;
+    if (csJitTryRun(function, vm.stackTop - argCount, argCount, &lowered)) {
+      vm.stackTop -= argCount + 1;
+      csVMPush(lowered);
+      return true;
+    }
+  }
+#endif
+
   CallFrame *frame = &vm.frames[vm.frameCount++];
   frame->closure = closure;
   frame->ip = function->chunk.code;
@@ -270,6 +283,27 @@ bool callValue(Value callee, int argCount) {
   if (IS_CLOSURE(callee)) {
     ObjClosure *closure = AS_CLOSURE(callee);
     if (closure->function->isAsync) return callAsyncFunction(closure, argCount);
+
+#ifdef CS_DEBUG_JIT
+    /* Where the lowered IR covers a whole function, it runs instead of the
+     * bytecode — which is what checks the lowering against the golden suite.
+     *
+     * It belongs here rather than in callClosure. That function's contract is
+     * that a frame has been pushed, and csVMRunBody and csVMCallCallback both
+     * start an interpreter loop immediately afterwards on the strength of it —
+     * so replacing the frame with a value there segfaults on the entry call.
+     * Returning a value instead is the *native* protocol, and this is the
+     * level that already allows it. */
+    {
+      Value lowered;
+      if (csJitTryRun(closure->function, vm.stackTop - argCount, argCount, &lowered)) {
+        vm.stackTop -= argCount + 1;
+        csVMPush(lowered);
+        return true;
+      }
+    }
+#endif
+
     return callClosure(closure, argCount);
   }
   if (IS_NATIVE(callee)) return callNative(AS_NATIVE(callee), UNDEFINED_VAL, argCount);

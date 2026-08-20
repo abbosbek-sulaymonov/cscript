@@ -653,7 +653,8 @@ There is no code generator. There is the thing that has to come before one: a
 count of what gets hot, and a verdict on how much of it could be compiled
 without guarding every operation.
 
-`make jit` builds it; it prints when the program ends.
+`make jit` builds it; `CS_JIT_REPORT=1` asks for the report, and
+`CS_JIT_DUMP_IR=1` adds the lowered form.
 
 ```
   function                        hotness    typed  generic  verdict
@@ -698,6 +699,71 @@ even break-even.**
 The refusal list in `src/jit.c` is what a *first* backend would leave to the
 interpreter — anything that suspends a frame, unwinds past one, or builds a
 class. Everything else is arithmetic, moves and branches.
+
+## The typed IR
+
+Between the bytecode and any future machine code sits a typed intermediate
+form. `make jit` builds it, `CS_JIT_DUMP_IR=1` prints it:
+
+```
+  ir for dist: 1 block, 16 registers, 6 slots
+      r0  :num  = load    slot1
+      r3  :num  = load    slot3
+      r4  :num  = mul     r3, r2
+      r12 :num  = add     r11, r10
+                    return  r13
+```
+
+Three things about it are decisions rather than defaults.
+
+**Not SSA.** Locals stay in numbered slots; only values get names. Phi nodes
+are needed for optimisations that reason across a loop, and nothing here does
+that yet — building the dominance machinery before there is a backend to use
+it would be writing for an imagined future.
+
+**The IR mirrors the frame exactly.** This looked wasteful and turned out to be
+required. `let total = 0` emits *no instruction at all*: the initialiser leaves
+its value on the stack and the compiler calls that position a local from then
+on. The operand stack and the locals are one array. A model with separate slots
+and temporaries loses every local that was declared rather than stored — which
+is what the first attempt did, and it produced a wrong number rather than a
+crash.
+
+**Types come from the bytecode, not a second analysis.** `OP_ADD_NUM` exists
+exactly where the checker proved both operands numeric, and the other
+arithmetic opcodes require numbers by definition.
+
+### How the lowering is verified
+
+By *replacing* the interpreter with it. Where the IR covers a whole function,
+`make test-ir` runs it instead of the bytecode and requires all 79 golden cases
+to be unchanged. A mistranslation is a failing test, not a number that is
+quietly wrong somewhere.
+
+That found four bugs the eye did not: the frame base being clobbered because
+pushes started at slot 0 rather than above the arguments; block entry heights
+taken from linear order instead of from the jumps that reach them; a frame slot
+being used as a value; and the substitution being done inside `callClosure`,
+whose contract is that a frame *has been pushed* — `csVMRunBody` starts an
+interpreter loop straight afterwards on the strength of it, so the entry call
+segfaulted on a program consisting of one comment.
+
+**Then it found a fifth by counting.** With the gate set to "every value must
+be typed", the suite passed — and zero calls had been substituted. A
+verification that never runs proves nothing. The counter is now part of the
+report for that reason.
+
+The reason nothing ran was the useful finding: **parameter types stopped at the
+compiler.** An annotation the checker had proved never reached the run time, so
+every argument read as unknown and no function was ever fully typed. Carrying
+them onto ObjFunction took 79% of a hot function's values from untyped to
+typed, and is what makes a type-directed backend possible at all.
+
+The gate is now precise: a function runs from its IR when every operand of
+every *arithmetic* operation is proved to be a number. Equality is excluded —
+it is defined for all types and needs no proof. The unreachable `return
+undefined` the compiler appends to every function is excluded for the same
+reason, having failed the blanket version of the check on its own.
 
 ## Build configurations
 

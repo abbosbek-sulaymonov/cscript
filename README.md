@@ -452,6 +452,7 @@ cscript/
 | **18 ✅** | The rest of the syntax: patterns, accessors, `do`/`for...in` | — |
 | **19 ✅** | Split the three largest files; documented against JavaScript | — |
 | **20 ✅** | Tiering: what gets hot, and how much of it is already typed | — |
+| **23 ✅** | A typed IR, verified by running it instead of the interpreter | — |
 | **21 ✅** | `Map` and `Set`, patterns as `for...of` bindings | — |
 | **22 ✅** | Regular expressions: literals, `test`/`exec`, string methods | — |
 | next | A type-directed code generator | — |

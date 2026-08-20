@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cscript/memory.h"
@@ -242,6 +243,7 @@ ObjFunction *csFunctionNew(void) {
   function->name = NULL;
   function->module = NULL;
   function->isAsync = false;
+  function->paramTypes = NULL;
   function->hotness = 0;
   function->jitState = 0; /* JIT_INTERPRETED */
   function->jitCode = NULL;
@@ -932,6 +934,7 @@ void csObjectFree(Obj *object) {
 
     case OBJ_FUNCTION: {
       ObjFunction *function = (ObjFunction *)object;
+      free(function->paramTypes);
       csChunkFree(&function->chunk);
       CS_FREE(ObjFunction, object);
       break;

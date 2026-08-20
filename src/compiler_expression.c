@@ -3,6 +3,7 @@
  * Operators, assignment, identifier loads, calls into the closure machinery,\n * and `this`/`super`. Also the two peephole decisions that live at expression\n * level: fusing a comparison into the jump that consumes it, and choosing a\n * superinstruction when the operand shapes allow one.
  */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cscript/compiler.h"
@@ -409,6 +410,19 @@ void compileFunctionAs(const AstNode *node, FunctionKind kind) {
   for (int i = 0; i < node->as.function.paramCount; i++) {
     const AstParam *param = &node->as.function.params[i];
     addLocal(param->name, param->length, false, line);
+  }
+
+  /* The declared types are carried through to the run time, where the lowering
+   * needs them: an annotation that stops at the compiler cannot tell a code
+   * generator that an argument is a number. */
+  if (node->as.function.paramCount > 0) {
+    compiler.function->paramTypes =
+        (uint8_t *)malloc((size_t)node->as.function.paramCount);
+    for (int i = 0; i < node->as.function.paramCount; i++) {
+      const AstParam *param = &node->as.function.params[i];
+      compiler.function->paramTypes[i] =
+          (uint8_t)(param->hasAnnotation ? param->type : TYPE_ANY);
+    }
   }
 
   /* A destructured parameter arrived under a generated name; the pattern it

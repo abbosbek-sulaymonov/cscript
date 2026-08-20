@@ -42,7 +42,7 @@ ASAN          := -fsanitize=address
 TRACE_DEFINES := -DCS_DEBUG_PRINT_TOKENS -DCS_DEBUG_PRINT_AST \
                  -DCS_DEBUG_PRINT_CODE -DCS_DEBUG_TRACE_EXECUTION
 
-.PHONY: all release debug asan gcstress switch tagged profile jit trace test test-regex test-asan test-gc test-node test-switch test-tagged test-all run clean help
+.PHONY: all release debug asan gcstress switch tagged profile jit trace test test-regex test-ir test-asan test-gc test-node test-switch test-tagged test-all run clean help
 .DEFAULT_GOAL := release
 
 all: release
@@ -96,6 +96,12 @@ test-regex:
 	@clang -std=c11 -g $(WARNINGS) -I$(INC_DIR) -o $(BUILD)/regex_engine_test \
 	    tests/regex_engine_test.c $(SRC_DIR)/regex.c
 	@$(BUILD)/regex_engine_test
+
+# The lowering is verified by *replacing* the interpreter with it wherever it
+# reaches, and requiring the golden suite to be unchanged. A mistranslation
+# then shows up as a failing test rather than as a quietly wrong number.
+test-ir: jit
+	@CS_JIT_THRESHOLD=1 BIN=$(BUILD)/jit/cscript tests/run_tests.sh $(FILTER)
 
 test-node: release
 	@BIN=$(BUILD)/release/cscript tests/node_parity.sh

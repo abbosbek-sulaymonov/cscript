@@ -29,7 +29,11 @@
 /* How much work a function has to do before it is worth compiling. Calls and
  * loop back-edges both count, because a function called a million times and a
  * function called once around a million-iteration loop are equally hot. */
-#define CS_JIT_THRESHOLD 10000
+/* How much work before a function is worth compiling. Overridable so the test
+ * suite can exercise the lowering: real programs cross it in a loop, but a
+ * test case runs once. */
+#define CS_JIT_THRESHOLD (csJitThreshold())
+int csJitThreshold(void);
 
 typedef enum {
   JIT_INTERPRETED, /* below the threshold, or not looked at yet */
@@ -63,6 +67,20 @@ typedef enum {
  * it this only records the decision, which is the point of the stage: the
  * decision is what has to be shown to be right before the generator exists. */
 void csJitConsider(ObjFunction *function);
+
+/* Runs a hot function's lowered IR in place of its bytecode, when it has any
+ * and the IR covers what it does.
+ *
+ * This is how the lowering is verified. Rather than run both and compare, the
+ * IR simply *replaces* the interpreter for the functions it can handle — which
+ * makes the existing golden suite the check: 78 cases and 14 Node-parity
+ * examples all have to keep producing the same output. A mistranslation shows
+ * up as a failing test rather than as a number that is quietly wrong.
+ *
+ * Abandoning halfway is safe: the IR interpreter touches only its own slots
+ * and registers, so a function it cannot finish leaves nothing behind and the
+ * bytecode runs as usual. */
+bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *out);
 
 /* Why a function was refused, or NULL when it was not. */
 const char *csJitRefusalReason(const ObjFunction *function);

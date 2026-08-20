@@ -6,9 +6,11 @@
  * decision here is how much of a hot function's work is already typed.
  */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cscript/debug.h"
+#include "cscript/ir.h"
 #include "cscript/jit.h"
 #include "cscript/memory.h"
 #include "cscript/object.h"
@@ -22,11 +24,17 @@
 
 typedef struct {
   ObjFunction *function;
-  const char *refusal; /* NULL when the function could be compiled */
+  const char *refusal;      /* why a backend would skip it, or NULL */
+  const char *irRefusal;    /* why it would not lower, or NULL */
+  IrFunction *ir;           /* the lowered form, when it lowered */
 } HotEntry;
 
 static HotEntry hot[CS_JIT_MAX_HOT];
 static int hotCount = 0;
+
+/* How many calls the IR actually answered, so the verification can be shown
+ * not to be vacuous: a gate that never opens proves nothing. */
+static long substituted = 0;
 
 /* Opcodes a first backend would not attempt.
  *
@@ -81,17 +89,51 @@ static const char *scanChunk(const Chunk *chunk) {
   return NULL;
 }
 
+int csJitThreshold(void) {
+  static int threshold = -1;
+  if (threshold < 0) {
+    const char *override = getenv("CS_JIT_THRESHOLD");
+    threshold = override != NULL ? atoi(override) : 10000;
+    if (threshold < 1) threshold = 1;
+  }
+  return threshold;
+}
+
+bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *out) {
+  if (function->jitState != JIT_HOT) return false;
+  for (int i = 0; i < hotCount; i++) {
+    if (hot[i].function != function) continue;
+    if (hot[i].ir == NULL) return false;
+    /* Only where every value is proved: see csIrIsFullyTyped. */
+    if (!csIrIsFullyTyped(hot[i].ir)) return false;
+    if (!csIrInterpret(hot[i].ir, args, argCount, out)) return false;
+    substituted++;
+    return true;
+  }
+  return false;
+}
+
 void csJitConsider(ObjFunction *function) {
   if (function->jitState != JIT_INTERPRETED) return;
 
   const char *refusal = scanChunk(&function->chunk);
   function->jitState = refusal == NULL ? JIT_HOT : JIT_REFUSED;
 
-  if (hotCount < CS_JIT_MAX_HOT) {
-    hot[hotCount].function = function;
-    hot[hotCount].refusal = refusal;
-    hotCount++;
-  }
+  if (hotCount >= CS_JIT_MAX_HOT) return;
+
+  hot[hotCount].function = function;
+  hot[hotCount].refusal = refusal;
+  hot[hotCount].ir = NULL;
+  hot[hotCount].irRefusal = NULL;
+
+  /* Lowering is attempted even for a function a backend would skip: the two
+   * refusals answer different questions, and the gap between them is the
+   * work still to do. */
+  const char *why = NULL;
+  hot[hotCount].ir = csIrLower(function, &why);
+  hot[hotCount].irRefusal = why;
+
+  hotCount++;
 }
 
 const char *csJitRefusalReason(const ObjFunction *function) {
@@ -102,6 +144,11 @@ const char *csJitRefusalReason(const ObjFunction *function) {
 }
 
 void csJitDumpProfile(void) {
+  /* Asked for explicitly. The report goes to stdout, so printing it by default
+   * would land in the middle of whatever the program itself wrote — including
+   * every golden test, which is how the lowering is verified. */
+  if (getenv("CS_JIT_REPORT") == NULL) return;
+
   if (hotCount == 0) {
     printf("\n== tiering: nothing reached %d ==\n", CS_JIT_THRESHOLD);
     return;
@@ -129,6 +176,43 @@ void csJitDumpProfile(void) {
            function->typedSites, function->genericSites,
            hot[i].refusal != NULL ? hot[i].refusal : "compilable");
   }
+
+  int lowered = 0;
+  int typedRegisters = 0;
+  int totalRegisters = 0;
+  for (int i = 0; i < hotCount; i++) {
+    if (hot[i].ir == NULL) continue;
+    lowered++;
+    for (int r = 0; r < hot[i].ir->registerCount; r++) {
+      totalRegisters++;
+      if (hot[i].ir->registerTypes[r] == IR_TYPE_NUMBER) typedRegisters++;
+    }
+  }
+
+  printf("\n  %d of %d lowered to typed IR\n", lowered, hotCount);
+  if (totalRegisters > 0) {
+    /* The number stage 2 exists to produce: how much of a hot function's
+     * data flow is provably numeric, and could therefore live unboxed in a
+     * register with no guard on it. */
+    printf("  %d of %d IR values (%.0f%%) are known to be numbers\n", typedRegisters,
+           totalRegisters, 100.0 * (double)typedRegisters / (double)totalRegisters);
+  }
+  for (int i = 0; i < hotCount; i++) {
+    if (hot[i].ir == NULL && hot[i].irRefusal != NULL) {
+      printf("  %-24s did not lower: %s\n",
+             hot[i].function->name != NULL ? hot[i].function->name->chars : "<top level>",
+             hot[i].irRefusal);
+    }
+  }
+  if (getenv("CS_JIT_DUMP_IR") != NULL) {
+    printf("\n");
+    for (int i = 0; i < hotCount; i++) {
+      if (hot[i].ir != NULL) csIrPrint(hot[i].ir);
+    }
+  }
+
+  printf("  %ld call%s answered by the IR rather than the interpreter\n", substituted,
+         substituted == 1 ? "" : "s");
 
   int sites = typedTotal + genericTotal;
   printf("\n  %d of %d compilable without falling back to the interpreter\n",

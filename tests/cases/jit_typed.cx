@@ -1,0 +1,24 @@
+// Fully annotated numeric code: every operation's operand types are proved
+// before the program runs. This is what the lowered IR can execute directly,
+// and running it under `make test-ir` is how that translation is checked.
+function dist(x: number, y: number): number {
+  return x * x + y * y;
+}
+function clamp(v: number, low: number, high: number): number {
+  if (v < low) return low;
+  if (v > high) return high;
+  return v;
+}
+function sumTo(n: number): number {
+  let total: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    total = total + i * 2;
+  }
+  return total;
+}
+
+let acc: number = 0;
+for (let i: number = 0; i < 40; i++) {
+  acc = acc + dist(i, i) + clamp(i, 5, 30) + sumTo(i % 7);
+}
+console.log(acc, dist(3, 4), clamp(-1, 0, 10), clamp(99, 0, 10), sumTo(5));
