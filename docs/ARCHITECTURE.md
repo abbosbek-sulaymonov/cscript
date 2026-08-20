@@ -161,9 +161,13 @@ can move an entry, so in the ordinary case — a global declared before it is
 used and never removed — the cache holds for the life of the program and the
 instruction is a version compare and a load.
 
-That still leaves globals behind locals, because a local is an array index with
-nothing to compare. The advice stands, if less strongly than before: **loop
-counters and accumulators should be `let` inside the loop.**
+That still leaves globals behind locals in the interpreter, because a local is
+an array index with nothing to compare. The advice stands, if less strongly
+than before: **loop counters and accumulators should be `let` inside the loop.**
+
+Inside *compiled* code the gap closes completely: the entry's address is baked
+in and a global costs one load, the same as a local. What makes that safe is in
+[Stage 5](#globals-and-what-makes-an-address-safe-to-bake).
 
 Two details fall out of the design:
 
@@ -647,6 +651,11 @@ The harness now times inside one process and reports startup separately, so
 both true things are visible: CScript starts about 18× faster than Node, and
 its interpreter loop is about 25× slower.
 
+The same rule applies to correctness harnesses. `make test-jit` reports how
+many calls, loops and exits the compiler actually took, because a sweep that
+agrees on 121 programs the compiler declined to touch is not evidence of
+anything — see [Stage 5](#three-soundness-bugs-and-the-harness-that-found-them).
+
 ## Tiering: what a JIT would compile
 
 There is no code generator. There is the thing that has to come before one: a
@@ -936,9 +945,123 @@ the hot table, an argument copy into a slots array, a call and a return. For a
 function that small the entry overhead is most of the work. Inlining is the
 answer to that one, and it is not written.
 
-Neither benchmark's *driving* loop is compiled either — both are top-level code
-using globals, and `OP_DEFINE_GLOBAL` does not lower. That is why
-`bench/loop_arith.cx` reaches the tiering counter and stops there.
+## Stage 5: taking part of a function
+
+| | interpreted | compiled | speedup | Node |
+| --- | ---: | ---: | ---: | ---: |
+| `bench/locals.cx` | 149 ms | **18 ms** | **8.3×** | 7 ms |
+| `bench/loop_empty.cx` | 170 ms | **20 ms** | **8.6×** | 7 ms |
+| `bench/globals.cx` | 211 ms | **41 ms** | **5.2×** | 7 ms |
+
+None of these has a type annotation in it. Their types come from the checker's
+inference of `let a = 0` — which is the whole argument for gradual typing made
+concrete: annotate nothing, and the compiler still knows.
+
+### Whole functions were the wrong unit
+
+Every benchmark in the suite was refused, and all for the same reason. A script
+ends in `console.log`, `OP_INVOKE` has no IR form, and the lowering refused the
+function — including the numeric loop above the call, which it understood
+perfectly well.
+
+`IR_EXIT` hands the frame back to the interpreter at a bytecode offset. It is
+the mirror of the hand-over that already existed: on-stack replacement works
+because the compiled code keeps locals in the interpreter's own frame at the
+interpreter's own offsets, and leaving works for the same reason. It costs a
+write-back of the promoted slots and nothing else.
+
+**Where an exit may go** is the whole of the difficulty. A value pushed since
+the block started lives in a register the interpreter has no name for, and
+writing it back would mean knowing which register — which the allocator is free
+to have reused for something else. So an exit only goes where the operand stack
+is at its block's *floor*: the lowest it has been since the block began.
+Everything the block has written is at or above that mark, because to write
+position `p` the stack has to have been `p` deep, so everything below it is
+still exactly where the interpreter left it.
+
+The thing that forces an exit — a call, a string concatenation, arithmetic on
+something unproved — is normally found with its operands already pushed. So the
+exit *rewinds* to the last point the stack was at the floor and drops every
+instruction emitted since. None of them ran; the interpreter redoes that
+statement from its beginning.
+
+### Globals, and what makes an address safe to bake
+
+A module binding inside a compiled loop is one load. Not a hash, not a version
+compare — the address of the table entry is baked into the code and kept in a
+register for the length of the run.
+
+That is only safe because of something the rest of the design already
+guaranteed: nothing inside a compiled region can call anything, so nothing can
+add a binding and force the table to rehash while the code runs. Between runs
+it can, so the table's version is checked on the way in.
+
+The type comes from asking. The lowering runs at the moment a function turns
+hot, which is the one moment it has a running program to ask what a binding
+holds; a global holding anything but a number hands the frame back instead.
+What keeps the answer true afterwards is the language rather than a guard: the
+checker will not let a declared binding change type. The entry check that it is
+still a number is for the case the checker does not cover, and costs one test
+per entry rather than one per access.
+
+A *definition* lowers as a store. By the time a function is hot its module has
+already run, so `let n = 0` at the top of a script is a store to a binding that
+exists — which matters because that single instruction used to stop everything
+below it from lowering at all.
+
+### What is still interpreted
+
+Any loop using `%`. arm64 has no floating-point remainder instruction, `fmod`
+is a call, and a call needs a frame this backend does not set up. The obvious
+inline form, `a - b * trunc(a / b)`, is wrong once the quotient passes 2^53 —
+and a silently wrong `%` is worse than a slow one. `bench/loop_arith.cx` and
+`bench/branches.cx` are both waiting on this.
+
+### Three soundness bugs, and the harness that found them
+
+All three were older than side exits. Side exits made them reachable.
+
+**Slot types were tracked in linear order.** A slot read where it happened to
+hold a number was typed `number` even when another store put something else
+there — and a loop back-edge makes "another store" mean "the previous
+iteration". A load typed `number` was reading a boolean, with arithmetic
+compiled around it and no guard to check. `csIrReconcileSlotTypes` now makes
+each slot's type the meet of everything stored into it and downgrades the loads
+that claimed more, iterated to a fixed point because downgrading a load
+downgrades whatever is computed from it.
+
+**Dead-store elimination removed stores whose only reader is the interpreter.**
+After an exit the interpreter's next instruction may load any live slot — a
+read that is not in the IR at all. A loop computed the right answer and handed
+back the value it started with. An exit now counts as a use of every live slot.
+
+**Three passes each mis-read an instruction's operands.** The same two fields,
+`a` and `b`, hold a virtual register, a slot number, a block index, a
+constant-pool index, a bytecode offset or an operand-stack height depending on
+the opcode. The register allocator marked constants as escaping; slot
+forwarding renamed an exit's *bytecode offset* into a register number; the
+self-containment check read a stack height as a value. `csIrRegisterOperands`
+answers it in one place now and all three ask it.
+
+None of this was caught by the golden files, and it could not have been. A
+`.expected` file pins what a program prints; it says nothing about whether the
+compiled path and the interpreted path agree, and that is precisely where a
+side exit goes wrong.
+
+`make test-jit` runs every program in the tree **twice in the same binary** —
+with the tiering threshold raised out of reach, and with it at one — and
+requires the two to agree byte for byte. It found the first of these on its
+first run. It also counts what the compiler actually took, because a sweep of
+agreements over programs the compiler declined is not coverage:
+
+```
+checked 121 programs, 0 disagreed
+the compiler answered 3000549 calls, loops and exits across them
+```
+
+That counter exists because of the lesson in *Stage 4*: a benchmark that
+agreed with Node, ran the right binary and measured nothing at all. A gate that
+never opens proves nothing, so everything here counts how often it opened.
 
 ## Build configurations
 
@@ -954,6 +1077,10 @@ exactly the kind of failure that wastes an afternoon.
 | `make asan` | debug + AddressSanitizer | Hunting memory errors |
 | `make gcstress` | debug + collect on every allocation | Finding missing GC roots |
 | `make trace` | debug + all four stage dumps | Understanding the pipeline |
+| `make switch` | `-O2` + portable switch dispatch | `make test-switch` |
+| `make tagged` | `-O2` + 16-byte tagged `Value` | `make test-tagged` |
+| `make profile` | `-O2` + opcode and opcode-pair counters | Finding what to fuse |
+| `make jit` | `-O2` + tiering, the typed IR and the backend | `make test-ir`, `make test-jit`, `make bench-jit` |
 
 UBSan is in the default debug build because it is portable and cheap, and
 `-fno-sanitize-recover` makes undefined behaviour abort rather than warn.
@@ -962,19 +1089,20 @@ sandboxed environments, and that should not be able to wedge `make test`.
 
 ## What comes next
 
-The pipeline has not changed shape since milestone 1, which was the point of
-building it first. Milestone 2 added variables, control flow, calls and objects
-without adding a single new stage: the parser grew statement forms, the compiler
-grew scope resolution, the VM grew opcodes, and the collector grew two object
-types.
+The pipeline has not changed shape since the first milestone, which was the
+point of building it that way. Everything since has been added inside it: the
+parser grew statement forms, the compiler grew scope resolution and classes,
+the VM grew opcodes and fibers, the collector grew object types — and one
+genuinely new stage, which only runs on code that has earned it.
 
-| Milestone | Adds | Touches |
+| Next | What it needs | Why it is next |
 | --- | --- | --- |
-| **2 ✅** | **`let`/`const`, scopes, control flow, calls, `console.log`** | — |
-| **3 ✅** | **Gradual typing: annotations, inference, checking** | — |
-| 4 | Unboxed typed locals — where typing pays off in speed | `Value`, VM, compiler |
-| 5 | User functions, call frames, closures | VM gains a frame stack; GC gains upvalues |
-| 4 | Object literals, arrays, indexing | `ObjObject` already exists; add `ObjArray` |
-| 5 | `switch`, `break`/`continue`, `for...of` | parser and compiler only |
-| 6 | Template literals, ternary, destructuring | parser and compiler only |
-| 7 | NaN-boxing, computed-goto dispatch | `value.h` and the VM loop only |
+| Calling out of compiled code | A frame, and spilling the live registers around it | `%` and every `Math.*` are waiting on it, and so is anything with a call in its loop |
+| Inlining | The above, plus a size heuristic | `jit_calls` gains 1.2× because entry overhead is most of the work for a small function |
+| Guards and deoptimisation | A side exit that can also *undo* — the exits here only leave from points where nothing needs undoing | It is what would let the compiler take code the checker has not proved |
+| Cross-block liveness | Real dataflow, rather than the block-local approximation the allocator uses | Values crossing a block boundary keep a memory home today |
+| An x86-64 backend | A second encoder behind the same IR | The IR and everything above it are already architecture-neutral |
+
+The typing work has its own next step, unrelated to any of this: class names
+are not usable as type annotations, and types do not cross a module boundary.
+Nominal types are the milestone that fixes both.
