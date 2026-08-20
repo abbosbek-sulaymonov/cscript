@@ -240,6 +240,84 @@ static bool arrayLastIndexOf(Value receiver, int argCount, Value *args, Value *r
   return true;
 }
 
+/* `at` counts from the end when the index is negative, which is the whole
+ * reason it exists beside plain subscripting. */
+static bool arrayAt(Value receiver, int argCount, Value *args, Value *result) {
+  ObjArray *array = ARRAY_OF(receiver);
+  double raw = argCount > 0 && IS_NUMBER(args[0]) ? AS_NUMBER(args[0]) : 0;
+  int at = (int)raw;
+  if (at < 0) at += array->elements.count;
+
+  *result = at >= 0 && at < array->elements.count ? array->elements.values[at]
+                                                  : UNDEFINED_VAL;
+  return true;
+}
+
+/* One level of flattening per `depth`, defaulting to one. Recursive rather
+ * than iterative because the depth is the recursion. */
+static void flattenInto(ObjArray *out, ObjArray *from, int depth) {
+  for (int i = 0; i < from->elements.count; i++) {
+    Value element = from->elements.values[i];
+    if (depth > 0 && IS_ARRAY(element)) {
+      flattenInto(out, AS_ARRAY(element), depth - 1);
+    } else {
+      appendRooted(out, element);
+    }
+  }
+}
+
+static bool arrayFlat(Value receiver, int argCount, Value *args, Value *result) {
+  ObjArray *array = ARRAY_OF(receiver);
+  int depth = argCount > 0 && IS_NUMBER(args[0]) ? (int)AS_NUMBER(args[0]) : 1;
+  if (depth < 0) depth = 0;
+
+  ObjArray *out = csArrayNew();
+  csPushTempRoot((Obj *)out);
+  flattenInto(out, array, depth);
+  csPopTempRoot();
+
+  *result = OBJ_VAL(out);
+  return true;
+}
+
+static bool arrayFlatMap(Value receiver, int argCount, Value *args, Value *result) {
+  ObjArray *array = ARRAY_OF(receiver);
+  if (argCount < 1 || !csValueIsCallable(args[0])) {
+    csVMRuntimeError("flatMap expects a function");
+    return false;
+  }
+
+  ObjArray *out = csArrayNew();
+  csPushTempRoot((Obj *)out);
+  for (int i = 0; i < array->elements.count; i++) {
+    Value argv[3] = {array->elements.values[i], NUMBER_VAL(i), receiver};
+    Value produced;
+    if (!csVMCallAdapted(args[0], argv, 3, &produced)) {
+      csPopTempRoot();
+      return false;
+    }
+    /* One level only, which is what distinguishes it from map plus flat.
+     *
+     * The callback's result is reachable from nothing else, and appending can
+     * grow the output array and collect — which freed it half way through
+     * copying out of it. */
+    if (IS_OBJ(produced)) csPushTempRoot(AS_OBJ(produced));
+    if (IS_ARRAY(produced)) {
+      ObjArray *pieces = AS_ARRAY(produced);
+      for (int j = 0; j < pieces->elements.count; j++) {
+        appendRooted(out, pieces->elements.values[j]);
+      }
+    } else {
+      appendRooted(out, produced);
+    }
+    if (IS_OBJ(produced)) csPopTempRoot();
+  }
+  csPopTempRoot();
+
+  *result = OBJ_VAL(out);
+  return true;
+}
+
 static bool arrayIncludes(Value receiver, int argCount, Value *args, Value *result) {
   Value found;
   if (!arrayIndexOf(receiver, argCount, args, &found)) return false;
@@ -552,4 +630,7 @@ void csArrayMethodsInstall(void) {
   defineArrayMethod("findIndex", arrayFindIndex, -1);
   defineArrayMethod("some", arraySome, -1);
   defineArrayMethod("every", arrayEvery, -1);
+  defineArrayMethod("at", arrayAt, -1);
+  defineArrayMethod("flat", arrayFlat, -1);
+  defineArrayMethod("flatMap", arrayFlatMap, -1);
 }

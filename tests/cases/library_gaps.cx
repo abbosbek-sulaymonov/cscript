@@ -1,0 +1,38 @@
+// `at` counts from the end, which is the whole reason it exists beside
+// subscripting — and answers undefined past either end rather than throwing.
+const xs = [10, 20, 30];
+console.log(xs.at(0), xs.at(-1), xs.at(-3), xs.at(3), xs.at(-4));
+console.log("hello".at(0), "hello".at(-1), "hello".at(9));
+
+// One level of flattening by default, as many as asked for otherwise.
+console.log([[1, [2]], 3].flat());
+console.log([[1, [2]], 3].flat(2));
+console.log([1, 2].flat(0));
+console.log([1, 2, 3].flatMap((n) => [n, n * 10]));
+console.log([1, 2].flatMap((n) => n));
+
+// Numbers answer to three methods, all of which produce text.
+console.log((1.2345).toFixed(2), (1).toFixed(0), (1.5).toFixed(3));
+console.log((1 / 3).toFixed(5), (-2.5).toFixed(1));
+console.log((255).toString(16), (255).toString(2), (255).toString(36));
+console.log((-10).toString(2), (0).toString(16), (255).toString());
+console.log((1234.5678).toPrecision(6), (0.000123).toPrecision(2));
+const n = 42;
+console.log(n.toString(16), n.toFixed(1));
+
+// Object statics.
+console.log(JSON.stringify(Object.fromEntries([["a", 1], ["b", 2]])));
+console.log(JSON.stringify(Object.fromEntries(new Map([["k", 9]]))));
+console.log(JSON.stringify(Object.fromEntries(Object.entries({ x: 1, y: 2 }))));
+console.log(Object.getOwnPropertyNames({ a: 1, b: 2 }));
+
+const frozen = Object.freeze({ a: 1 });
+console.log(Object.isFrozen(frozen), Object.isFrozen({}), frozen.a);
+
+// A function knows how many arguments it needs and what it is called. A
+// parameter with a default is not counted, because a call need not supply it.
+function two(a, b) { return a + b; }
+function one(a, b = 1) { return a + b; }
+class Named {}
+console.log(two.length, two.name, one.length, Named.name);
+console.log(((x) => x).length);

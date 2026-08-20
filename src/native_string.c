@@ -164,6 +164,22 @@ static bool stringSubstring(Value receiver, int argCount, Value *args, Value *re
   return true;
 }
 
+/* Like charAt, except that a negative index counts from the end and a missing
+ * one answers undefined rather than an empty string. */
+static bool stringAt(Value receiver, int argCount, Value *args, Value *result) {
+  ObjString *string = AS_STRING(receiver);
+  double raw = argCount > 0 && IS_NUMBER(args[0]) ? AS_NUMBER(args[0]) : 0;
+
+  int index = (int)raw;
+  if (index < 0) index += string->length;
+  if (index < 0 || index >= string->length) {
+    *result = UNDEFINED_VAL;
+    return true;
+  }
+  *result = OBJ_VAL(csStringCopy(string->chars + index, 1));
+  return true;
+}
+
 static bool stringCharAt(Value receiver, int argCount, Value *args, Value *result) {
   ObjString *string = AS_STRING(receiver);
   double raw;
@@ -568,6 +584,7 @@ void csStringMethodsInstall(void) {
   defineStringMethod("slice", stringSlice, -1);
   defineStringMethod("substring", stringSubstring, -1);
   defineStringMethod("charAt", stringCharAt, -1);
+  defineStringMethod("at", stringAt, -1);
   defineStringMethod("charCodeAt", stringCharCodeAt, -1);
   defineStringMethod("indexOf", stringIndexOf, -1);
   defineStringMethod("lastIndexOf", stringLastIndexOf, -1);

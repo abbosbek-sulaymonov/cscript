@@ -130,6 +130,7 @@ static void markRoots(void) {
   csTableMark(&vm.promiseMethods);
   csTableMark(&vm.mapMethods);
   csTableMark(&vm.generatorMethods);
+  csTableMark(&vm.numberMethods);
   csTableMark(&vm.regexMethods);
   csTableMark(&vm.builtins);
   csTableMark(&vm.builtinConsts);

@@ -199,6 +199,77 @@ static bool objectEntries(Value r, int c, Value *a, Value *out) {
   return objectEnumerate(c, a, out, 2, "entries");
 }
 
+/* `Object.fromEntries` — the inverse of `Object.entries`, and the reason a
+ * Map and an object can be converted into one another at all. */
+static bool objectFromEntries(Value receiver, int argCount, Value *args,
+                              Value *result) {
+  (void)receiver;
+  Value source = argCount > 0 ? args[0] : UNDEFINED_VAL;
+  if (IS_MAP(source)) source = OBJ_VAL(csMapToArray(AS_MAP(source)));
+  if (!IS_ARRAY(source)) {
+    csVMRuntimeError("Object.fromEntries expects an array of pairs or a Map");
+    return false;
+  }
+
+  ObjArray *pairs = AS_ARRAY(source);
+  csPushTempRoot((Obj *)pairs);
+  ObjObject *built = csObjectNew("Object");
+  csPushTempRoot((Obj *)built);
+
+  for (int i = 0; i < pairs->elements.count; i++) {
+    Value pair = pairs->elements.values[i];
+    if (!IS_ARRAY(pair) || AS_ARRAY(pair)->elements.count < 2) {
+      csPopTempRoot();
+      csPopTempRoot();
+      csVMRuntimeError("Object.fromEntries expects each entry to be a pair");
+      return false;
+    }
+    Value key = AS_ARRAY(pair)->elements.values[0];
+    if (!IS_STRING(key)) {
+      size_t length = 0;
+      char *text = csValueToCString(key, &length);
+      if (text == NULL) {
+        csPopTempRoot();
+        csPopTempRoot();
+        csVMRuntimeError("out of memory building an object key");
+        return false;
+      }
+      ObjString *converted = csStringCopy(text, (int)length);
+      free(text);
+      csPushTempRoot((Obj *)converted);
+      csObjectPut(built, converted, AS_ARRAY(pair)->elements.values[1]);
+      csPopTempRoot();
+      continue;
+    }
+    csObjectPut(built, AS_STRING(key), AS_ARRAY(pair)->elements.values[1]);
+  }
+
+  csPopTempRoot();
+  csPopTempRoot();
+  *result = OBJ_VAL(built);
+  return true;
+}
+
+/* `Object.freeze` is what the standard library already does to itself: a
+ * frozen object refuses every write, rather than ignoring it silently the way
+ * non-strict JavaScript does. */
+static bool objectFreeze(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  if (argCount < 1) {
+    csVMRuntimeError("Object.freeze expects an object");
+    return false;
+  }
+  if (IS_OBJECT(args[0])) AS_OBJECT(args[0])->frozen = true;
+  *result = args[0];
+  return true;
+}
+
+static bool objectIsFrozen(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  *result = BOOL_VAL(argCount > 0 && IS_OBJECT(args[0]) && AS_OBJECT(args[0])->frozen);
+  return true;
+}
+
 static bool objectAssign(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   if (argCount < 1 || !IS_OBJECT(args[0])) {
@@ -597,6 +668,12 @@ void csNativesInstall(void) {
   defineMethod(objectNamespace, "entries", objectEntries, 1);
   defineMethod(objectNamespace, "assign", objectAssign, -1);
   defineMethod(objectNamespace, "hasOwn", objectHasOwn, 2);
+  defineMethod(objectNamespace, "fromEntries", objectFromEntries, 1);
+  defineMethod(objectNamespace, "freeze", objectFreeze, 1);
+  defineMethod(objectNamespace, "isFrozen", objectIsFrozen, 1);
+  /* Every own key, which for an object with no non-enumerable ones is the
+   * same list `keys` gives — and here there are none. */
+  defineMethod(objectNamespace, "getOwnPropertyNames", objectKeys, 1);
 
   ObjObject *arrayNamespace = defineNamespace("Array");
   defineMethod(arrayNamespace, "isArray", arrayIsArray, 1);
@@ -644,6 +721,7 @@ void csNativesInstall(void) {
   csPromiseMethodsInstall();
   csMapMethodsInstall();
   csGeneratorMethodsInstall();
+  csNumberMethodsInstall();
   csRegexMethodsInstall();
   defineFunction("Map", csMapConstructorFn(), -1);
   defineFunction("Set", csSetConstructorFn(), -1);

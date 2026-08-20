@@ -73,10 +73,16 @@ asserted here.
 ### The standard library
 
 `console`, `Math` (25 functions and constants), `JSON.stringify` / `.parse`,
-`Object.keys` / `.values` / `.entries` / `.assign` / `.hasOwn`, `Array.isArray`
+`Object.keys` / `.values` / `.entries` / `.fromEntries` / `.assign` /
+`.hasOwn` / `.freeze` / `.isFrozen` / `.getOwnPropertyNames`, `Array.isArray`
 / `.of` / `.from`, `Number` and its limits, `parseInt`, `parseFloat`, `isNaN`,
-`isFinite`, `Promise` with `.resolve` / `.reject` / `.all` / `.race`, `Map` and
-`Set`, regular expressions, 21 array methods and 21 string methods.
+`isFinite`, `Promise` with `.resolve` / `.reject` / `.all` / `.race` /
+`.allSettled` / `.any`, `AggregateError`, `setTimeout` / `setInterval` and
+their cancellers, `Map` and `Set`, regular expressions, 24 array methods, 22
+string methods, and `toFixed` / `toPrecision` / `toString(radix)` on numbers.
+
+A function answers `length` — how many arguments it must be given, so a
+parameter with a default is not among them — and `name`.
 
 `Map` and `Set` key by SameValueZero and iterate in insertion order, including
 after deletions — both checked against Node.

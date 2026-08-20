@@ -150,6 +150,7 @@ static const MethodSignature BUILTIN_METHODS[] = {
     {TYPE_STRING, "padStart", TYPE_STRING},
     {TYPE_STRING, "padEnd", TYPE_STRING},
     {TYPE_STRING, "concat", TYPE_STRING},
+    {TYPE_STRING, "at", TYPE_ANY}, /* undefined past either end */
 
     /* arrays — the receiver is TYPE_OBJECT until element types exist */
     {TYPE_OBJECT, "push", TYPE_NUMBER},
@@ -169,6 +170,14 @@ static const MethodSignature BUILTIN_METHODS[] = {
     {TYPE_OBJECT, "fill", TYPE_OBJECT},
     {TYPE_OBJECT, "sort", TYPE_OBJECT},
     {TYPE_OBJECT, "forEach", TYPE_UNDEFINED},
+    {TYPE_OBJECT, "at", TYPE_ANY},
+    {TYPE_OBJECT, "flat", TYPE_OBJECT},
+    {TYPE_OBJECT, "flatMap", TYPE_OBJECT},
+
+    /* numbers */
+    {TYPE_NUMBER, "toFixed", TYPE_STRING},
+    {TYPE_NUMBER, "toPrecision", TYPE_STRING},
+    {TYPE_NUMBER, "toString", TYPE_STRING},
 };
 
 /* Returns the signature for `name` on `receiver`, or NULL. */
@@ -470,6 +479,16 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
         typeError(checker, node->line, "strings have no property '%.*s'",
                   node->as.property.length, node->as.property.name);
         result = TYPE_ERROR;
+        break;
+      }
+
+      /* Any other primitive with methods of its own — a number, so far. The
+       * table is asked before the type is rejected, which is what keeps the
+       * rule "a primitive has no properties" from being wrong the moment one
+       * gains a method. */
+      if (findMethod(object, node->as.property.name,
+                     node->as.property.length) != NULL) {
+        result = TYPE_FUNCTION;
         break;
       }
 

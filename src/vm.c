@@ -66,6 +66,7 @@ void csVMInit(void) {
   csTableInit(&vm.promiseMethods);
   csTableInit(&vm.mapMethods);
   csTableInit(&vm.generatorMethods);
+  csTableInit(&vm.numberMethods);
   csTableInit(&vm.regexMethods);
 
   vm.microtasks = NULL;
@@ -105,6 +106,7 @@ void csVMFree(void) {
   csTableFree(&vm.promiseMethods);
   csTableFree(&vm.mapMethods);
   csTableFree(&vm.generatorMethods);
+  csTableFree(&vm.numberMethods);
   csTableFree(&vm.regexMethods);
   csTableFree(&vm.builtins);
   csTableFree(&vm.builtinConsts);
@@ -400,6 +402,7 @@ static Table *methodTableFor(Value receiver) {
   if (IS_PROMISE(receiver)) return &vm.promiseMethods;
   if (IS_MAP(receiver)) return &vm.mapMethods;
   if (IS_GENERATOR(receiver)) return &vm.generatorMethods;
+  if (IS_NUMBER(receiver)) return &vm.numberMethods;
   if (IS_REGEX(receiver)) return &vm.regexMethods;
   return NULL;
 }
@@ -914,7 +917,8 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
   }
 
   /* `length` is intrinsic rather than a stored property, so arrays and strings
-   * answer it without carrying a table. */
+   * answer it without carrying a table. A function's is how many arguments it
+   * must be given, which is the same number its arity check uses. */
   if (name->length == 6 && memcmp(name->chars, "length", 6) == 0) {
     if (IS_ARRAY(receiver)) {
       *out = NUMBER_VAL(AS_ARRAY(receiver)->elements.count);
@@ -922,6 +926,33 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
     }
     if (IS_STRING(receiver)) {
       *out = NUMBER_VAL(AS_STRING(receiver)->length);
+      return true;
+    }
+    if (IS_CLOSURE(receiver)) {
+      *out = NUMBER_VAL(AS_CLOSURE(receiver)->function->arity);
+      return true;
+    }
+    if (IS_NATIVE(receiver)) {
+      int arity = AS_NATIVE(receiver)->arity;
+      *out = NUMBER_VAL(arity < 0 ? 0 : arity);
+      return true;
+    }
+  }
+
+  /* And `name`, which a stack trace and a program should agree about. */
+  if (name->length == 4 && memcmp(name->chars, "name", 4) == 0) {
+    if (IS_CLOSURE(receiver)) {
+      ObjString *given = AS_CLOSURE(receiver)->function->name;
+      *out = OBJ_VAL(given != NULL ? given : csStringCopy("", 0));
+      return true;
+    }
+    if (IS_NATIVE(receiver)) {
+      *out = OBJ_VAL(csStringCopy(AS_NATIVE(receiver)->name->chars,
+                                  AS_NATIVE(receiver)->name->length));
+      return true;
+    }
+    if (IS_CLASS(receiver)) {
+      *out = OBJ_VAL(AS_CLASS(receiver)->name);
       return true;
     }
   }
@@ -981,7 +1012,7 @@ static bool propertyWriteSlow(ObjString *name, PropertyCache *cache, Value recei
     return false;
   }
   if (AS_OBJECT(receiver)->frozen) {
-    csVMRuntimeError("'%s.%s' is a built-in and cannot be replaced",
+    csVMRuntimeError("'%s.%s' cannot be changed: the object is frozen",
                      AS_OBJECT(receiver)->name->chars, name->chars);
     return false;
   }
@@ -1613,7 +1644,7 @@ InterpretResult run(int baseFrame) {
           /* `console["log"] = f` is the same act as `console.log = f`. */
           if (AS_OBJECT(target)->frozen) {
             csPopTempRoot();
-            csVMRuntimeError("'%s.%s' is a built-in and cannot be replaced",
+            csVMRuntimeError("'%s.%s' cannot be changed: the object is frozen",
                              AS_OBJECT(target)->name->chars, key->chars);
             return CS_RUNTIME_ERROR;
           }
@@ -1800,8 +1831,8 @@ InterpretResult run(int baseFrame) {
           return CS_RUNTIME_ERROR;
         }
         if (AS_OBJECT(target)->frozen) {
-          csVMRuntimeError("'%s' is a built-in and its properties cannot be "
-                           "deleted", AS_OBJECT(target)->name->chars);
+          csVMRuntimeError("'%s' is frozen, so its properties cannot be deleted",
+                           AS_OBJECT(target)->name->chars);
           return CS_RUNTIME_ERROR;
         }
         /* JavaScript answers true when the property was not there either —
@@ -1821,8 +1852,8 @@ InterpretResult run(int baseFrame) {
           return CS_RUNTIME_ERROR;
         }
         if (AS_OBJECT(target)->frozen) {
-          csVMRuntimeError("'%s' is a built-in and its properties cannot be "
-                           "deleted", AS_OBJECT(target)->name->chars);
+          csVMRuntimeError("'%s' is frozen, so its properties cannot be deleted",
+                           AS_OBJECT(target)->name->chars);
           return CS_RUNTIME_ERROR;
         }
 

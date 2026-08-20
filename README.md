@@ -501,6 +501,7 @@ cscript/
 | **36 ✅** | Side exits — the compiler takes the loop and leaves the rest | — |
 | **37 ✅** | Globals in a compiled loop — `loop_empty` **8.6×**, `globals` **5.2×** | — |
 | **38 ✅** | Calling out — `%` compiles, with nothing spilled around the call | — |
+| **39 ✅** | Default parameters, class expressions, `at`/`flat`/`flatMap`, number formatting | — |
 | next | Calling a CScript function from compiled code, which needs frames and safepoints | — |
 | next | Inlining, so a small function is worth compiling | — |
 | next | Guards and deoptimisation, for code the types do not prove | — |
