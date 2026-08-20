@@ -1,0 +1,14 @@
+// A loop inside a fully annotated function: what the JIT backend can compile.
+//
+// The shape matters as much as the work. The function is called once, so it
+// only becomes hot at a loop back-edge — which means it can only be entered
+// through on-stack replacement. Compiling at the call site would produce code
+// for a call that never comes again.
+function work(n: number): number {
+  let total: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    total = total + i * 2 - 1;
+  }
+  return total;
+}
+console.log(work(20000000));

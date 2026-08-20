@@ -76,6 +76,12 @@ typedef struct {
   int registerCapacity;
 
   int slotCount; /* locals, which stay in slots rather than registers */
+
+  /* What each slot was proved to hold. A slot known to be a number for the
+   * whole function can live in a register instead of memory — which is what a
+   * loop counter and an accumulator are, and why a loop body otherwise loads
+   * and stores them on every iteration exactly as the interpreter does. */
+  IrType *slotTypes;
 } IrFunction;
 
 /* Lowers a function's bytecode.
@@ -104,6 +110,20 @@ void csIrPrint(const IrFunction *ir);
  * local may be read again later, and proving otherwise is a separate analysis.
  */
 void csIrForwardSlots(IrFunction *ir);
+
+/* Removes stores to slots nothing ever reads.
+ *
+ * The lowering mirrors the frame, so every value pushed on the operand stack
+ * is stored to the position it occupies. Most of those positions are pure
+ * temporaries — a two-operand expression uses one and never reads it back —
+ * and in a loop body they are the majority of the work.
+ *
+ * A slot that appears in no load anywhere in the function is write-only, and
+ * every store to it is dead. Whole-function rather than per-block, and safe
+ * because the frame belongs to the call: the compiled code makes none of its
+ * own, the IR refuses any function that captures a local, and the caller reads
+ * nothing but the return value. */
+void csIrRemoveDeadStores(IrFunction *ir);
 
 /* Whether every value in the IR is provably a number or a boolean.
  *

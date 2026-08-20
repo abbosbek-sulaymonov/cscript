@@ -337,15 +337,32 @@ landed. The difference was not sophistication — it was measuring first. The
 reasoning is in
 [ARCHITECTURE.md](docs/ARCHITECTURE.md#what-the-measurements-add-up-to).
 
-Closing the gap with Go needs a JIT, not another tweak — the reasoning and the
-remaining ideas are in
-[ARCHITECTURE.md](docs/ARCHITECTURE.md#the-interpreter-ceiling).
+Closing the gap with Go needs a JIT, not another tweak — the reasoning is in
+[ARCHITECTURE.md](docs/ARCHITECTURE.md#the-interpreter-ceiling). There is one
+now, and on the code it compiles it does close most of it:
+
+| | interpreted | compiled | speedup | Node |
+| --- | ---: | ---: | ---: | ---: |
+| `bench/jit_calls.cx` — 3M calls | 136 ms | 112 ms | 1.2× | 8 ms |
+| `bench/jit_loop.cx` — one call, 20M iterations | 492 ms | **55 ms** | **8.9×** | 35 ms |
+
+Both columns are the same binary; only the tiering threshold differs. The
+backend compiles functions whose arithmetic the type checker has already
+proved, so it emits no type tests and has nothing to deoptimise to — which is
+something a JavaScript engine cannot do, because JavaScript promises nothing
+about a value until it sees one.
+
+It took four optimisations that measured at nothing and one diagnosis that the
+loop benchmark had never entered the compiled code at all. That story, which is
+the more useful half, is in
+[ARCHITECTURE.md](docs/ARCHITECTURE.md#stage-4-the-loop-and-what-was-actually-wrong-with-it).
 
 ```bash
 bench/run.sh              # everything
 bench/run.sh loop         # only matching names
 REPS=7 bench/run.sh       # more repetitions
 BIN=build/switch/cscript bench/run.sh    # compare dispatch strategies
+make bench-jit            # what the JIT is worth, on what it can compile
 ```
 
 ---
@@ -452,13 +469,15 @@ cscript/
 | **18 ✅** | The rest of the syntax: patterns, accessors, `do`/`for...in` | — |
 | **19 ✅** | Split the three largest files; documented against JavaScript | — |
 | **20 ✅** | Tiering: what gets hot, and how much of it is already typed | — |
+| **21 ✅** | `Map` and `Set`, patterns as `for...of` bindings | — |
+| **22 ✅** | Regular expressions: literals, `test`/`exec`, string methods | — |
 | **23 ✅** | A typed IR, verified by running it instead of the interpreter | — |
 | **24 ✅** | An arm64 backend — correct, verified, and not yet faster | — |
 | **25 ✅** | Register allocation: −5% on calls, still level on loops | — |
-| next | Liveness across blocks, so loop locals stay in registers | — |
-| **21 ✅** | `Map` and `Set`, patterns as `for...of` bindings | — |
-| **22 ✅** | Regular expressions: literals, `test`/`exec`, string methods | — |
-| next | A type-directed code generator | — |
+| **26 ✅** | On-stack replacement — loops **8.9× faster**, 1.6× of Node | — |
+| next | Lowering top-level code, so a script reaches the compiler | — |
+| next | Inlining, so a small function is worth compiling | — |
+| next | Guards and deoptimisation, for code the types do not prove | — |
 
 ---
 

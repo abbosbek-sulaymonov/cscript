@@ -40,6 +40,11 @@ static int hotCount = 0;
  * not to be vacuous: a gate that never opens proves nothing. */
 static long substituted = 0;
 
+/* And how many loops were taken over mid-flight, which is the separate
+ * question: a compiled function a loop benchmark never enters is a compiler
+ * that measured nothing. */
+static long osrEntered = 0;
+
 /* Opcodes a first backend would not attempt.
  *
  * Not a permanent list — it is what the *first* code generator would leave to
@@ -135,6 +140,29 @@ bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *
   return false;
 }
 
+bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *out) {
+  for (int i = 0; i < hotCount; i++) {
+    if (hot[i].function != function) continue;
+    if (hot[i].code == NULL) return false;
+
+    for (int o = 0; o < hot[i].code->osrCount; o++) {
+      if (hot[i].code->osr[o].bytecodeOffset != bytecodeOffset) continue;
+
+      /* The compiled code writes every slot the IR knows about, including any
+       * belonging to a scope the interpreter has not opened yet. Those sit
+       * above the frame's current top, so the room has to be there. */
+      if (slots + hot[i].ir->slotCount >= vm.stack + vm.stackCapacity) return false;
+
+      uint64_t bits = hot[i].code->osr[o].entry(slots, hot[i].scratch);
+      memcpy(out, &bits, sizeof(Value));
+      osrEntered++;
+      return true;
+    }
+    return false;
+  }
+  return false;
+}
+
 void csJitConsider(ObjFunction *function) {
   if (function->jitState != JIT_INTERPRETED) return;
 
@@ -154,7 +182,12 @@ void csJitConsider(ObjFunction *function) {
   const char *why = NULL;
   hot[hotCount].ir = csIrLower(function, &why);
   hot[hotCount].irRefusal = why;
-  if (hot[hotCount].ir != NULL) csIrForwardSlots(hot[hotCount].ir);
+  if (hot[hotCount].ir != NULL) {
+    /* Forward first: it turns loads into renames, which is what leaves the
+     * stores behind for the second pass to find. */
+    csIrForwardSlots(hot[hotCount].ir);
+    csIrRemoveDeadStores(hot[hotCount].ir);
+  }
   hot[hotCount].code = NULL;
   hot[hotCount].codeRefusal = NULL;
   hot[hotCount].scratch = NULL;
@@ -267,6 +300,8 @@ void csJitDumpProfile(void) {
   }
   printf("  %ld call%s answered without the interpreter\n", substituted,
          substituted == 1 ? "" : "s");
+  printf("  %ld loop%s taken over while already running\n", osrEntered,
+         osrEntered == 1 ? "" : "s");
 
   int sites = typedTotal + genericTotal;
   printf("\n  %d of %d compilable without falling back to the interpreter\n",

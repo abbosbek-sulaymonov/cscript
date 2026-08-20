@@ -588,6 +588,12 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
     offset = next;
   }
 
+  /* The slot types the lowering settled on, kept for the allocator. */
+  ir->slotTypes = (IrType *)malloc(sizeof(IrType) * (size_t)(ir->slotCount + 1));
+  for (int s = 0; s <= ir->slotCount; s++) {
+    ir->slotTypes[s] = s < IR_MAX_STACK ? low.slotType[s] : IR_TYPE_UNKNOWN;
+  }
+
   free(leader);
   return ir;
 
@@ -650,6 +656,35 @@ void csIrForwardSlots(IrFunction *ir) {
   free(rename);
 }
 
+void csIrRemoveDeadStores(IrFunction *ir) {
+  bool *isRead = (bool *)calloc((size_t)ir->slotCount + 1, sizeof(bool));
+
+  for (int b = 0; b < ir->blockCount; b++) {
+    for (int i = 0; i < ir->blocks[b].count; i++) {
+      const IrInst *inst = &ir->blocks[b].instructions[i];
+      if (inst->op == IR_LOAD_LOCAL && inst->a >= 0 && inst->a <= ir->slotCount) {
+        isRead[inst->a] = true;
+      }
+    }
+  }
+
+  for (int b = 0; b < ir->blockCount; b++) {
+    IrBlock *block = &ir->blocks[b];
+    int kept = 0;
+    for (int i = 0; i < block->count; i++) {
+      const IrInst *inst = &block->instructions[i];
+      if (inst->op == IR_STORE_LOCAL && inst->a >= 0 && inst->a <= ir->slotCount &&
+          !isRead[inst->a]) {
+        continue;
+      }
+      block->instructions[kept++] = block->instructions[i];
+    }
+    block->count = kept;
+  }
+
+  free(isRead);
+}
+
 bool csIrIsFullyTyped(const IrFunction *ir) {
   /* The question is not whether every value is typed — the compiler appends an
    * unreachable `return undefined` to every function, and a blanket check
@@ -690,6 +725,7 @@ void csIrFree(IrFunction *ir) {
   for (int i = 0; i < ir->blockCount; i++) free(ir->blocks[i].instructions);
   free(ir->blocks);
   free(ir->registerTypes);
+  free(ir->slotTypes);
   free(ir);
 }
 

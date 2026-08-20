@@ -10,6 +10,7 @@
 #   make test-node  check the examples against Node.js (skipped if absent)
 #   make test-switch  same suite, forcing the portable switch dispatch
 #   make test-tagged  same suite, forcing the 16-byte tagged-union Value
+#   make bench-jit  what the JIT backend is worth, on what it can compile
 #   make run FILE=examples/hello.cx
 #   make clean
 #
@@ -42,7 +43,7 @@ ASAN          := -fsanitize=address
 TRACE_DEFINES := -DCS_DEBUG_PRINT_TOKENS -DCS_DEBUG_PRINT_AST \
                  -DCS_DEBUG_PRINT_CODE -DCS_DEBUG_TRACE_EXECUTION
 
-.PHONY: all release debug asan gcstress switch tagged profile jit trace test test-regex test-ir test-asan test-gc test-node test-switch test-tagged test-all run clean help
+.PHONY: all release debug asan gcstress switch tagged profile jit trace test test-regex test-ir test-asan test-gc test-node test-switch test-tagged test-all bench-jit run clean help
 .DEFAULT_GOAL := release
 
 all: release
@@ -117,6 +118,12 @@ test-switch: switch
 test-tagged: tagged
 	@BIN=$(BUILD)/tagged/cscript tests/run_tests.sh $(FILTER)
 
+# Times the same `jit` binary with the compiler allowed to fire and with its
+# threshold raised out of reach, so the difference is the compiler and not the
+# build configuration.
+bench-jit: jit
+	@bench/jit.sh
+
 test-all: test test-gc test-switch test-tagged test-node
 
 run: release
@@ -136,6 +143,7 @@ help:
 	@echo "make test-node  check the examples against Node.js"
 	@echo "make test-switch same suite with switch dispatch"
 	@echo "make test-tagged same suite with the tagged-union Value"
+	@echo "make bench-jit   what the JIT backend is worth"
 	@echo "make test-all   test + test-gc + test-switch + test-node"
 	@echo "make jit           report what a JIT would compile"
 	@echo "make run FILE=examples/hello.cx"

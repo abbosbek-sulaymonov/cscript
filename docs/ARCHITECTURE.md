@@ -765,11 +765,12 @@ it is defined for all types and needs no proof. The unreachable `return
 undefined` the compiler appends to every function is excluded for the same
 reason, having failed the blanket version of the check on its own.
 
-## Stage 3: machine code, and why it is not yet faster
+## Stage 3: machine code, and why it was not yet faster
 
-`make jit` now compiles fully-typed numeric functions to arm64 and runs them.
-It works, it is verified, and **it is not faster than the interpreter.** That
-result is the point of writing this section.
+`make jit` compiles fully-typed numeric functions to arm64 and runs them. It
+worked, it was verified, and for three rounds **it was not faster than the
+interpreter.** That is worth keeping, because what finally moved it was not any
+of the things the failures pointed at.
 
 ### What it does
 
@@ -777,7 +778,9 @@ A function whose every arithmetic operand is proved numeric is compiled to real
 instructions: `ldr d0` / `fmul d0, d0, d1` / `str d0`, with no type test, no
 guard and nothing to deoptimise to. NaN-boxing is what makes the load free — a
 number's `Value` *is* its double, bit for bit, so a slot goes straight into a
-floating-point register.
+floating-point register. That is also a hard dependency rather than an
+optimisation: under `make tagged` a `Value` is a 16-byte struct with a separate
+tag, so the backend refuses outright rather than emitting something wrong.
 
 On Apple Silicon the pages need `MAP_JIT`, `pthread_jit_write_protect_np`
 around the writes, and `sys_icache_invalidate` afterwards. Without the last one
@@ -787,7 +790,7 @@ Correctness is checked the same way the IR was: `make test-ir` runs the
 compiled code in place of the interpreter and requires all 79 golden cases to
 be unchanged.
 
-### The measurement
+### The measurement, at the end of stage 3
 
 | | interpreted | compiled | Node |
 | --- | ---: | ---: | ---: |
@@ -810,34 +813,132 @@ One measurement inside that one is worth keeping. Giving comparison results a
 floating-point home made the loop benchmark **15% worse**, because a boolean is
 a NaN-boxed singleton rather than a double: it has to cross to the general
 register file to be produced and back again to be tested. Two moves to save one
-store. Booleans now stay in memory, and that single change is the difference
+store. Booleans stay in memory, and that single change is the difference
 between +15% and +2%.
 
-### Why
+### The diagnosis that was wrong
 
-The IR mirrors the frame: every value is stored to a slot and loaded back. That
-model was not a shortcut, it was forced — a local declared rather than stored
-is invisible otherwise. But it means a two-multiply function performs more
-memory operations than the bytecode did. Removing dispatch bought less than
-that cost.
+The conclusion drawn at the time was that the allocator was per-block, and that
+a loop body spans several blocks, so loop-carried locals kept a memory home and
+the loop could not move until liveness was computed over the whole graph.
 
-There is a general lesson in it, and it is the same one the register-VM
-measurement produced: **this interpreter is not dispatch-bound.** Its
-instructions already do real work, its operand stack is small and hot in L1,
-and `ip` and `stackTop` live in registers across the loop. Naive machine code
-competes with that badly. A JIT beats an interpreter by keeping values in
-registers, not by removing the switch.
+That reasoning was sound and the premise was false. It is recorded here because
+it survived three rounds of optimisation aimed squarely at it.
 
-The allocator is per-block, and that is exactly why the loop case has not
-moved: a value used across a block boundary keeps a memory home, and a loop
-body is several blocks. The loop counter and accumulator are frame *locals*,
-loaded and stored every iteration — which is what the interpreter does too, so
-there is nothing gained.
+## Stage 4: the loop, and what was actually wrong with it
 
-Beating an interpreter on a loop means keeping loop-carried locals in registers
-*across* iterations. That needs liveness over the whole control-flow graph
-rather than one block, and it is the next change with a measurement attached.
-Everything above the allocator stays as it is.
+| | interpreted | compiled | speedup | Node |
+| --- | ---: | ---: | ---: | ---: |
+| `bench/jit_calls.cx` — 3M calls | 136 ms | 112 ms | 1.2× | 8 ms |
+| `bench/jit_loop.cx` — one call, 20M iterations | 492 ms | **55 ms** | **8.9×** | 35 ms |
+
+`make bench-jit` reproduces this. It times the *same* `jit` binary twice, once
+with `CS_JIT_THRESHOLD` raised out of reach, so the difference is the compiler
+and not the build configuration — the back-edge counter is present in both
+columns.
+
+### Four optimisations, and the one that mattered
+
+**Slot promotion.** A slot every store to which is a proved number can live in
+a register for the whole function, loaded once on entry. Six of `work`'s eight
+slots qualify. This was the change predicted to fix the loop. On its own it
+moved it by 0%.
+
+**Dead-store elimination.** A slot that appears in no load anywhere is
+write-only, so every store to it is dead. Whole-function and trivially safe,
+and it took the loop body from 19 IR instructions to 11. Calls: −17%. Loop: +1%.
+
+**Constant hoisting.** A 64-bit immediate takes up to four `movz`/`movk` and an
+`fmov` to reach a floating-point register, and the loop body was paying that
+three times per iteration for values that by definition never change. They now
+get registers alongside the promoted slots and are materialised once on entry.
+
+**Compare-and-branch fusion.** Only possible once dead-store elimination had
+made the comparison adjacent to its branch; before that the lowering put a
+store between them. The condition stays in the flags instead of becoming a
+`Value`.
+
+After all four: calls −18%, loop **−2%**. The loop body was by then eleven
+instructions, entirely in registers, with a fused branch. There was nothing
+left in it to remove.
+
+### The compiled code was never running
+
+```
+$ CS_JIT_REPORT=1 ./build/jit/cscript bench/jit_loop.cx
+  1 of 1 compiled to machine code
+  0 calls answered without the interpreter
+```
+
+`work` is called **once**. It crosses the threshold at a loop back-edge —
+which is the case the back-edge counter was added to catch — and by that point
+the only call to it is already in progress. Compiling for the call site is
+compiling for a call that never comes again. Every loop measurement in stage 3,
+and every one of the four optimisations above, was the interpreter timed
+against itself.
+
+The counter existed. What was missing was any way to use what it found.
+
+### On-stack replacement
+
+Entering compiled code mid-loop normally means reconstructing the machine
+state a compiler assumed from the state an interpreter actually has. Here it
+costs almost nothing, because of a property the design already had: **the
+compiled code keeps locals in the interpreter's own frame, at the interpreter's
+own offsets.** There is no layout to translate. The frame pointer is passed
+straight through.
+
+So each loop header gets its own entry point — the function prologue again
+(load the promoted slots, materialise the constants) followed by a jump into
+the header — and `OP_LOOP`, having counted the back-edge, checks for one:
+
+```c
+if (frame->closure->function->jitState == JIT_COMPILED) {
+  Value produced;
+  if (csJitOsr(function, ip - chunk.code, frame->slots, &produced)) {
+    /* the compiled code ran the function to completion */
+  }
+}
+```
+
+The prologue is the whole of the state transfer. Promotion means a slot's live
+value belongs in a register; at hand-over the live value is the interpreter's,
+in the frame; reading them is what makes the two agree.
+
+**What makes it safe** is checked rather than assumed. Registers in this IR are
+operand-stack positions, so a register live across a block boundary means the
+operand stack was not empty there — and the interpreter's stack and the
+compiled code's scratch array are different memory. `blocksAreSelfContained`
+requires that no block reads a register it did not itself write. Where that
+holds, all live state is in slots, both sides agree on where those are, and the
+hand-over is a jump. Where it does not, the function simply gets no OSR entry.
+
+Result: 492 ms to 55 ms, and within 1.6× of V8 on the same program.
+
+### What this says about the earlier failures
+
+The four optimisations were not wasted — with OSR in place they are what makes
+the loop body eleven instructions instead of thirty. But they were measured
+against a benchmark that could not see them, and each null result was read as
+evidence about register allocation when it was evidence about entry points.
+
+The general lesson is narrower than "measure everything", which was already the
+rule here. It is that a benchmark can agree with the answer, agree with Node,
+run the right binary, and still be measuring nothing at all. `csJitDumpProfile`
+now prints loops taken over as well as calls answered, because a gate that
+never opens proves nothing and the only defence is to count.
+
+### What is still slow
+
+`jit_calls` gains 1.2×, not 8.9×. `dist` is two multiplies and an add, and
+around it sits the whole cost of getting into compiled code: a linear scan of
+the hot table, an argument copy into a slots array, a call and a return. For a
+function that small the entry overhead is most of the work. Inlining is the
+answer to that one, and it is not written.
+
+Neither benchmark's *driving* loop is compiled either — both are top-level code
+using globals, and `OP_DEFINE_GLOBAL` does not lower. That is why
+`bench/loop_arith.cx` reaches the tiering counter and stops there.
 
 ## Build configurations
 

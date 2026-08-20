@@ -1,0 +1,14 @@
+// Many calls to a small annotated function: the call entry, not the loop one.
+//
+// `dist` crosses the threshold by being called, so the compiled code is
+// entered the ordinary way. The driving loop is top-level and uses globals,
+// which the IR does not lower — so what this measures is the cost of getting
+// into and out of compiled code, three million times.
+function dist(x: number, y: number): number {
+  return x * x + y * y;
+}
+let total: number = 0;
+for (let i: number = 0; i < 3000000; i++) {
+  total = total + dist(i, 2);
+}
+console.log(total);

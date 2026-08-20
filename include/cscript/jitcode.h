@@ -25,11 +25,35 @@
  * or stack management of its own. */
 typedef uint64_t (*CompiledFn)(Value *slots, Value *scratch);
 
+/* How many loop headers may get their own entry point. A function with more
+ * loops than this is not the kind this backend is for. */
+#define CS_JIT_MAX_OSR 8
+
+/* An alternate entry point, for a loop that is already running.
+ *
+ * A function called once around a long loop is hot, but by the time the
+ * counter says so the only call to it is already in progress — so compiling
+ * for the call site is compiling for a call that never comes again. Without an
+ * entry of this kind a loop benchmark never reaches the compiler at all, which
+ * is exactly what the first measurements of this backend were quietly showing.
+ *
+ * On-stack replacement is unusually cheap here. The compiled code keeps locals
+ * in the frame the interpreter gave it, at the same offsets, so handing over
+ * mid-loop transfers no state: the entry re-reads the promoted slots and jumps
+ * into the header. */
+typedef struct {
+  int bytecodeOffset; /* the loop header this entry stands for */
+  CompiledFn entry;
+} JitOsrEntry;
+
 typedef struct {
   CompiledFn entry;
   void *memory;
   size_t size;
   int scratchCount;
+
+  JitOsrEntry osr[CS_JIT_MAX_OSR];
+  int osrCount;
 } JitCode;
 
 /* Compiles the IR, or returns NULL when it holds something the encoder does

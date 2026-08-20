@@ -82,6 +82,19 @@ void csJitConsider(ObjFunction *function);
  * bytecode runs as usual. */
 bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *out);
 
+/* Takes over a loop that is already running, at `bytecodeOffset`.
+ *
+ * Called from the back-edge that just counted, and the reason the back-edge
+ * counter exists at all: the function it makes hot is by definition already
+ * executing, so there is no next call to enter compiled code from. Returns
+ * false — cheaply, and by far the common case — when this function has no
+ * compiled entry for this offset.
+ *
+ * `slots` is the interpreter's own frame. The compiled code reads and writes
+ * it in place, which is what makes the hand-over free, and on success the
+ * function has run to completion and `out` holds its result. */
+bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *out);
+
 /* Why a function was refused, or NULL when it was not. */
 const char *csJitRefusalReason(const ObjFunction *function);
 

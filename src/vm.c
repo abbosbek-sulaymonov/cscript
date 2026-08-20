@@ -2148,6 +2148,39 @@ InterpretResult run(int baseFrame) {
          * a millionfold loop is as hot as one called a million times, and only
          * this catches the first kind. */
         CS_JIT_TICK(frame->closure->function);
+
+#ifdef CS_DEBUG_JIT
+        /* And having counted it, this is where the loop is handed over.
+         *
+         * Compiling at the call site cannot help a loop: the function a
+         * back-edge makes hot is already running, and for `heavy` — one call
+         * around twenty million iterations — the compiled code was entered
+         * exactly zero times. The guard is one load and a compare, paid only
+         * on a back-edge, and it fails for every function that never
+         * compiled. */
+        if (frame->closure->function->jitState == JIT_COMPILED) {
+          Value produced;
+          if (csJitOsr(frame->closure->function,
+                       (int)(frame->ip - frame->closure->function->chunk.code),
+                       frame->slots, &produced)) {
+            /* The compiled code ran the function to completion, so what is
+             * left is the frame teardown OP_RETURN does — kept in step with
+             * it deliberately rather than shared, because the two differ in
+             * where the result comes from and in nothing else. */
+            while (vm.handlerCount > 0 &&
+                   vm.handlers[vm.handlerCount - 1].frameCount >= vm.frameCount) {
+              vm.handlerCount--;
+            }
+            closeUpvalues(frame->slots);
+            vm.frameCount--;
+
+            vm.stackTop = frame->slots;
+            csVMPush(produced);
+            if (vm.frameCount == baseFrame) return CS_OK;
+            frame = &vm.frames[vm.frameCount - 1];
+          }
+        }
+#endif
         VM_NEXT();
       }
 

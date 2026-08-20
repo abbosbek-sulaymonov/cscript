@@ -18,7 +18,15 @@
 
 #include "cscript/jitcode.h"
 
-#if defined(__APPLE__) && defined(__arm64__)
+/* NaN boxing is not an optimisation here, it is the premise.
+ *
+ * Every load in the generated code moves a slot straight into a floating-point
+ * register because a number's Value *is* its double, bit for bit. Under the
+ * tagged union a Value is a 16-byte struct with a separate tag, so that is
+ * simply false: each load would need unboxing and each store re-boxing, and
+ * none of the encoder below would be correct. The `tagged` build therefore
+ * gets no backend rather than a broken one. */
+#if defined(__APPLE__) && defined(__arm64__) && CS_NAN_BOXING
 #include <libkern/OSCacheControl.h>
 #include <pthread.h>
 #define CS_JIT_APPLE_SILICON 1
@@ -138,6 +146,11 @@ static void csel(Encoder *e, int d, int n, int m, uint32_t condition) {
               (uint32_t)d);
 }
 
+/* FMOV <Dd>, <Dn> — a register-to-register move. */
+static void fmovDouble(Encoder *e, int d, int n) {
+  word(e, 0x1E604000u | ((uint32_t)n << 5) | (uint32_t)d);
+}
+
 static void ret(Encoder *e) { word(e, 0xD65F03C0u); }
 
 /* ---- executable memory -------------------------------------------------- */
@@ -248,8 +261,56 @@ static int allocPool(int index) {
   return index < 6 ? 2 + index : 16 + (index - 6);
 }
 
+/* Which frame slots can live in a register for the whole function.
+ *
+ * This is where a loop stops touching memory. A counter and an accumulator are
+ * frame locals, so without it every iteration loads and stores them exactly as
+ * the interpreter does — which is why register allocation alone left the loop
+ * benchmark unchanged.
+ *
+ * A slot qualifies when every value ever stored into it is a proved number.
+ * Anything else keeps its memory home: a boolean is a NaN-boxed singleton, and
+ * while moving one through a floating-point register happens to preserve its
+ * bits, deriving that from the hardware manual is a worse foundation than
+ * simply not doing it.
+ *
+ * Nothing else can observe these slots. The array belongs to the call, the
+ * compiled code makes no calls of its own, and the IR refuses any function
+ * that captures a local — so there is nothing to write back. */
+static bool *promotableSlots(const IrFunction *ir) {
+  bool *promotable = (bool *)malloc(sizeof(bool) * (size_t)(ir->slotCount + 1));
+  for (int s = 0; s <= ir->slotCount; s++) promotable[s] = true;
+
+  /* Slot 0 is the callee and the arguments follow it: those arrive as Values
+   * the caller wrote, and only a parameter the checker typed is known. */
+  promotable[0] = false;
+
+  for (int b = 0; b < ir->blockCount; b++) {
+    for (int i = 0; i < ir->blocks[b].count; i++) {
+      const IrInst *inst = &ir->blocks[b].instructions[i];
+      if (inst->op != IR_STORE_LOCAL) continue;
+      if (inst->a < 0 || inst->a > ir->slotCount) continue;
+      if (inst->b < 0 || inst->b >= ir->registerCount ||
+          ir->registerTypes[inst->b] != IR_TYPE_NUMBER) {
+        promotable[inst->a] = false;
+      }
+    }
+  }
+
+  /* A parameter is only known to be a number if it was declared one. */
+  for (int s = 1; s <= ir->slotCount; s++) {
+    if (ir->slotTypes != NULL && s <= ir->slotCount &&
+        ir->slotTypes[s] != IR_TYPE_NUMBER) {
+      /* Still promotable if nothing outside the function put a value there —
+       * that is, if it is a temporary rather than an argument. */
+      if (s <= ir->source->arity) promotable[s] = false;
+    }
+  }
+  return promotable;
+}
+
 /* -1 means the value lives in the scratch array rather than a register. */
-static int *allocateRegisters(const IrFunction *ir) {
+static int *allocateRegisters(const IrFunction *ir, int reserved) {
   int *assignment = (int *)malloc(sizeof(int) * (size_t)(ir->registerCount + 1));
   int *definedIn = (int *)malloc(sizeof(int) * (size_t)(ir->registerCount + 1));
   bool *escapes = (bool *)calloc((size_t)ir->registerCount + 1, sizeof(bool));
@@ -333,7 +394,7 @@ static int *allocateRegisters(const IrFunction *ir) {
       }
       if (lastUse[inst->result] < 0) continue; /* never read: no register needed */
 
-      for (int k = 0; k < ALLOC_POOL_SIZE; k++) {
+      for (int k = 0; k < ALLOC_POOL_SIZE - reserved; k++) {
         if (taken[k]) continue;
         taken[k] = true;
         holder[k] = inst->result;
@@ -356,17 +417,132 @@ static int readOperand(Encoder *encoder, const int *home, int value, int scratch
   return scratch;
 }
 
+/* Whether every block can be entered with nothing live in a register.
+ *
+ * Registers in this IR are operand-stack positions, so a register live across
+ * a block boundary means the operand stack was not empty there. Where no block
+ * reads a register it did not itself write, all of a function's live state is
+ * in its slots — and the interpreter and the compiled code agree, byte for
+ * byte, on where those are. That agreement is what makes on-stack replacement
+ * a jump rather than a translation, so it is checked rather than assumed. */
+static bool blocksAreSelfContained(const IrFunction *ir) {
+  bool *written = (bool *)calloc((size_t)ir->registerCount + 1, sizeof(bool));
+  bool clean = true;
+
+  for (int b = 0; b < ir->blockCount && clean; b++) {
+    memset(written, 0, sizeof(bool) * ((size_t)ir->registerCount + 1));
+
+    for (int i = 0; i < ir->blocks[b].count && clean; i++) {
+      const IrInst *inst = &ir->blocks[b].instructions[i];
+
+      /* Only the operands that name registers. `a` is a slot on a load and a
+       * block on a jump, so the distinction has to be made per opcode. */
+      int reads[2] = {-1, -1};
+      switch (inst->op) {
+        case IR_STORE_LOCAL: reads[0] = inst->b; break;
+        case IR_ADD: case IR_SUB: case IR_MUL: case IR_DIV: case IR_MOD:
+        case IR_LT: case IR_LE: case IR_GT: case IR_GE: case IR_EQ: case IR_NE:
+          reads[0] = inst->a; reads[1] = inst->b; break;
+        case IR_NEG: case IR_BRANCH: case IR_RETURN: reads[0] = inst->a; break;
+        default: break;
+      }
+
+      for (int r = 0; r < 2; r++) {
+        if (reads[r] >= 0 && reads[r] <= ir->registerCount && !written[reads[r]]) {
+          clean = false;
+        }
+      }
+      if (inst->result >= 0 && inst->result <= ir->registerCount) {
+        written[inst->result] = true;
+      }
+    }
+  }
+
+  free(written);
+  return clean;
+}
+
+/* A block reached by an edge that does not move forward is a loop header. */
+static bool isLoopHeader(const IrFunction *ir, int target) {
+  for (int b = target; b < ir->blockCount; b++) {
+    for (int i = 0; i < ir->blocks[b].count; i++) {
+      const IrInst *inst = &ir->blocks[b].instructions[i];
+      if (inst->op == IR_JUMP && inst->a == target) return true;
+      if (inst->op == IR_BRANCH && (inst->b == target || inst->c == target)) return true;
+    }
+  }
+  return false;
+}
+
 JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   *why = NULL;
 #ifndef CS_JIT_APPLE_SILICON
-  *why = "no code generator for this architecture yet";
+  *why = "no code generator for this architecture and Value layout";
   return NULL;
 #else
   Encoder encoder;
   memset(&encoder, 0, sizeof encoder);
 
-  int *home = allocateRegisters(ir);
+  /* Promoted slots claim registers first; the per-block allocator then works
+   * with whatever is left. There are 22 to start with and a function this
+   * backend accepts has a handful of slots, so the two do not compete. */
+  bool *promotable = promotableSlots(ir);
+  int *slotHome = (int *)malloc(sizeof(int) * (size_t)(ir->slotCount + 1));
+  int promotedCount = 0;
+  for (int s = 0; s <= ir->slotCount; s++) {
+    slotHome[s] = -1;
+    if (promotable[s] && promotedCount < ALLOC_POOL_SIZE / 2) {
+      slotHome[s] = allocPool(ALLOC_POOL_SIZE - 1 - promotedCount);
+      promotedCount++;
+    }
+  }
+  free(promotable);
+  if (getenv("CS_JIT_DUMP_IR") != NULL) {
+    printf("  compiling %s: %d of %d slots promoted to registers\n",
+           ir->source->name != NULL ? ir->source->name->chars : "<top level>",
+           promotedCount, ir->slotCount + 1);
+  }
+
+  /* Constants get registers too, materialised once on entry.
+   *
+   * A 64-bit immediate takes up to four movz/movk and an fmov to reach a
+   * floating-point register. Inside a loop that is paid every iteration for a
+   * value that by definition never changes — and in the loop benchmark it was
+   * three constants and about fifteen instructions of the body. */
+  uint64_t constantValue[ALLOC_POOL_SIZE];
+  int constantHome[ALLOC_POOL_SIZE];
+  int constantCount = 0;
+  for (int b = 0; b < ir->blockCount && constantCount < ALLOC_POOL_SIZE / 2; b++) {
+    for (int i = 0; i < ir->blocks[b].count; i++) {
+      const IrInst *inst = &ir->blocks[b].instructions[i];
+      if (inst->op != IR_CONST) continue;
+      uint64_t bits;
+      memcpy(&bits, &inst->constant, sizeof bits);
+
+      bool seen = false;
+      for (int k = 0; k < constantCount; k++) {
+        if (constantValue[k] == bits) { seen = true; break; }
+      }
+      if (seen) continue;
+      if (promotedCount + constantCount >= ALLOC_POOL_SIZE / 2) break;
+      constantValue[constantCount] = bits;
+      constantHome[constantCount] =
+          allocPool(ALLOC_POOL_SIZE - 1 - promotedCount - constantCount);
+      constantCount++;
+    }
+  }
+
+  int *home = allocateRegisters(ir, promotedCount + constantCount);
   int *blockStart = (int *)malloc(sizeof(int) * (size_t)ir->blockCount);
+
+  /* Load the promoted slots and materialise the constants, once, on entry. */
+  for (int s = 0; s <= ir->slotCount; s++) {
+    if (slotHome[s] >= 0) ldrDouble(&encoder, slotHome[s], REG_SLOTS, s * 8);
+  }
+  for (int k = 0; k < constantCount; k++) {
+    movImmediate(&encoder, REG_TEMP, constantValue[k]);
+    fmovToDouble(&encoder, constantHome[k], REG_TEMP);
+  }
   Fixup *fixups = NULL;
   int fixupCount = 0, fixupCapacity = 0;
 
@@ -381,18 +557,33 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
           /* A number's Value is its double, so the bits go straight across. */
           uint64_t bits;
           memcpy(&bits, &inst->constant, sizeof bits);
-          movImmediate(&encoder, REG_TEMP, bits);
+
+          int source = -1;
+          for (int k = 0; k < constantCount; k++) {
+            if (constantValue[k] == bits) { source = constantHome[k]; break; }
+          }
+
           int destination = home[inst->result] >= 0 ? home[inst->result] : 0;
-          fmovToDouble(&encoder, destination, REG_TEMP);
+          if (source >= 0) {
+            /* Already in a register from the entry block. */
+            if (source != destination) fmovDouble(&encoder, destination, source);
+          } else {
+            movImmediate(&encoder, REG_TEMP, bits);
+            fmovToDouble(&encoder, destination, REG_TEMP);
+          }
           if (home[inst->result] < 0) {
-            strDouble(&encoder, 0, REG_SCRATCH, inst->result * 8);
+            strDouble(&encoder, destination, REG_SCRATCH, inst->result * 8);
           }
           break;
         }
 
         case IR_LOAD_LOCAL: {
           int destination = home[inst->result] >= 0 ? home[inst->result] : 0;
-          ldrDouble(&encoder, destination, REG_SLOTS, inst->a * 8);
+          if (slotHome[inst->a] >= 0) {
+            fmovDouble(&encoder, destination, slotHome[inst->a]);
+          } else {
+            ldrDouble(&encoder, destination, REG_SLOTS, inst->a * 8);
+          }
           if (home[inst->result] < 0) {
             strDouble(&encoder, 0, REG_SCRATCH, inst->result * 8);
           }
@@ -401,7 +592,11 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
 
         case IR_STORE_LOCAL: {
           int source = readOperand(&encoder, home, inst->b, ALLOC_FIRST_SCRATCH);
-          strDouble(&encoder, source, REG_SLOTS, inst->a * 8);
+          if (slotHome[inst->a] >= 0) {
+            fmovDouble(&encoder, slotHome[inst->a], source);
+          } else {
+            strDouble(&encoder, source, REG_SLOTS, inst->a * 8);
+          }
           break;
         }
 
@@ -448,6 +643,31 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
           int left = readOperand(&encoder, home, inst->a, ALLOC_FIRST_SCRATCH);
           int right = readOperand(&encoder, home, inst->b, ALLOC_SECOND_SCRATCH);
           fcmp(&encoder, left, right);
+
+          /* When the branch is the very next instruction, the answer stays in
+           * the flags and never becomes a value at all.
+           *
+           * This was impossible until dead-store elimination ran: the lowering
+           * put a store between the comparison and the branch, so they were
+           * never adjacent. Materialising the boolean costs two immediate
+           * loads, a csel, a store and a load — on a loop condition, every
+           * iteration. */
+          const IrInst *following =
+              i + 1 < ir->blocks[b].count ? &ir->blocks[b].instructions[i + 1] : NULL;
+          if (following != NULL && following->op == IR_BRANCH &&
+              following->a == inst->result) {
+            if (fixupCapacity < fixupCount + 2) {
+              fixupCapacity = fixupCapacity < 8 ? 8 : fixupCapacity * 2;
+              fixups = (Fixup *)realloc(fixups, sizeof(Fixup) * (size_t)fixupCapacity);
+            }
+            fixups[fixupCount++] =
+                (Fixup){encoder.count, following->b, true, conditionFor(inst->op)};
+            word(&encoder, 0x54000000u);
+            fixups[fixupCount++] = (Fixup){encoder.count, following->c, false, 0};
+            word(&encoder, 0x14000000u);
+            i++; /* the branch went with the comparison */
+            break;
+          }
 
           uint64_t trueBits, falseBits;
           Value yes = BOOL_VAL(true), no = BOOL_VAL(false);
@@ -512,6 +732,46 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   word(&encoder, 0xAA0903E0u); /* mov x0, x9 */
   ret(&encoder);
 
+  /* One extra entry per loop header, so a running loop can be taken over.
+   *
+   * Each is the function prologue again — load the promoted slots, materialise
+   * the constants — and then a jump into the header. The prologue is what
+   * makes the hand-over correct: promotion means a slot's live value is in a
+   * register, and at this point the live value is the interpreter's, in the
+   * frame. Reading them here is the whole of the state transfer. */
+  int osrBlock[CS_JIT_MAX_OSR];
+  int osrWord[CS_JIT_MAX_OSR];
+  int osrCount = 0;
+  if (blocksAreSelfContained(ir)) {
+    for (int b = 0; b < ir->blockCount && osrCount < CS_JIT_MAX_OSR; b++) {
+      if (!isLoopHeader(ir, b)) continue;
+
+      osrBlock[osrCount] = b;
+      osrWord[osrCount] = encoder.count;
+      osrCount++;
+
+      for (int s = 0; s <= ir->slotCount; s++) {
+        if (slotHome[s] >= 0) ldrDouble(&encoder, slotHome[s], REG_SLOTS, s * 8);
+      }
+      for (int k = 0; k < constantCount; k++) {
+        movImmediate(&encoder, REG_TEMP, constantValue[k]);
+        fmovToDouble(&encoder, constantHome[k], REG_TEMP);
+      }
+
+      if (fixupCapacity < fixupCount + 1) {
+        fixupCapacity = fixupCapacity < 8 ? 8 : fixupCapacity * 2;
+        fixups = (Fixup *)realloc(fixups, sizeof(Fixup) * (size_t)fixupCapacity);
+      }
+      fixups[fixupCount++] = (Fixup){encoder.count, b, false, 0};
+      word(&encoder, 0x14000000u);
+    }
+  }
+
+  if (encoder.failed) {
+    *why = "an offset too large to encode";
+    goto unsupported;
+  }
+
   for (int f = 0; f < fixupCount; f++) {
     int target = blockStart[fixups[f].block];
     int delta = target - fixups[f].at;
@@ -526,6 +786,14 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   }
 
   JitCode *code = publish(&encoder, ir->registerCount);
+  if (code != NULL) {
+    for (int o = 0; o < osrCount; o++) {
+      code->osr[o].bytecodeOffset = ir->blocks[osrBlock[o]].bytecodeStart;
+      code->osr[o].entry = (CompiledFn)((uint32_t *)code->memory + osrWord[o]);
+    }
+    code->osrCount = osrCount;
+  }
+  free(slotHome);
   free(home);
   free(blockStart);
   free(fixups);
@@ -534,6 +802,7 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   return code;
 
 unsupported:
+  free(slotHome);
   free(home);
   free(blockStart);
   free(fixups);
