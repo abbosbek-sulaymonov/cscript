@@ -98,6 +98,7 @@ ObjObject *csObjectNew(const char *name) {
   object->shape = vm.emptyShape;
   object->klass = NULL;
   object->frozen = false;
+  object->prototype = NULL;
   object->privates = NULL;
   object->as.slots.values = NULL;
   object->as.slots.capacity = 0;
@@ -271,6 +272,30 @@ bool csObjectGet(ObjObject *object, ObjString *key, Value *out) {
   int slot;
   if (!csShapeLookup(object->shape, key, &slot)) return false;
   if (out != NULL) *out = object->as.slots.values[slot];
+  return true;
+}
+
+/* Own properties first, then the chain. The loop is bounded by the cycle check
+ * in csObjectSetPrototype, which is the only way a chain is ever built. */
+bool csObjectGetInherited(ObjObject *object, ObjString *key, Value *out) {
+  for (ObjObject *at = object; at != NULL; at = at->prototype) {
+    if (csObjectGet(at, key, out)) return true;
+  }
+  return false;
+}
+
+bool csObjectHasInherited(ObjObject *object, ObjString *key) {
+  return csObjectGetInherited(object, key, NULL);
+}
+
+bool csObjectSetPrototype(ObjObject *object, ObjObject *prototype) {
+  /* A chain that reaches back to the object would make every miss loop
+   * forever, so the check is what makes the walk above safe to write as a
+   * plain loop. */
+  for (ObjObject *at = prototype; at != NULL; at = at->prototype) {
+    if (at == object) return false;
+  }
+  object->prototype = prototype;
   return true;
 }
 
@@ -611,6 +636,8 @@ ObjObject *csInstanceNew(ObjClass *klass) {
   instance->shape = vm.emptyShape;
   instance->klass = klass;
   instance->frozen = false;
+  instance->prototype = NULL;
+  instance->privates = NULL;
   instance->as.slots.values = NULL;
   instance->as.slots.capacity = 0;
   csPopTempRoot();
@@ -889,6 +916,7 @@ void csObjectBlacken(Obj *object) {
       ObjObject *instance = (ObjObject *)object;
       csMarkObject((Obj *)instance->name);
       csMarkObject((Obj *)instance->klass);
+      csMarkObject((Obj *)instance->prototype);
       if (instance->shape != NULL) {
         /* The shape is the authority on how many slots hold a value. Anything
          * beyond slotCount is capacity the object has not grown into yet. */

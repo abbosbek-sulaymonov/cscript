@@ -110,6 +110,22 @@ typedef struct ObjObject {
    * object that happens to be lying around. User objects are never frozen. */
   bool frozen;
 
+  /* The object this one inherits from, or NULL.
+   *
+   * A miss on this object's own properties continues here, and so on up the
+   * chain. Only reads walk it: a write always creates or updates an *own*
+   * property, which is what makes a prototype a shared default rather than
+   * shared storage. Everything that enumerates — `Object.keys`, JSON, a
+   * spread — sees own properties only, so adding a prototype never changes
+   * what an object is made of.
+   *
+   * The inline caches are untouched by this. A cache hit means the name was
+   * found in the object's own shape, which an inherited property never is; an
+   * inherited read takes the slow path every time. That is the honest cost of
+   * not encoding the prototype in the shape, and it is why classes keep their
+   * own dispatch rather than being rebuilt on top of this. */
+  struct ObjObject *prototype;
+
   /* Private fields and symbol-keyed properties, or NULL.
    *
    * Off to the side of the shape on purpose, and for the same reason in both
@@ -546,6 +562,17 @@ ObjString *csStringTakeOwnership(char *chars, int length);
 
 ObjNative *csNativeNew(NativeFn function, const char *name, int arity);
 ObjObject *csObjectNew(const char *name);
+
+/* Reads `key` from `object` or, failing that, from its prototype chain. False
+ * when no object in the chain has it. */
+bool csObjectGetInherited(ObjObject *object, ObjString *key, Value *out);
+
+/* True when `object` or anything in its prototype chain has `key`. */
+bool csObjectHasInherited(ObjObject *object, ObjString *key);
+
+/* False when `prototype` is already in `object`'s chain, which would make the
+ * chain a loop and every lookup on it non-terminating. */
+bool csObjectSetPrototype(ObjObject *object, ObjObject *prototype);
 ObjFunction *csFunctionNew(void);
 ObjUpvalue *csUpvalueNew(Value *slot);
 ObjClosure *csClosureNew(ObjFunction *function);

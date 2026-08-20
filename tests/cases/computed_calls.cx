@@ -1,0 +1,53 @@
+// `o[key](...)` is a method call, and keeps its receiver for the same reason
+// `o.key(...)` does: reading the method first and calling the value would bind
+// `this` to the function rather than to the object.
+const counter = {
+  n: 0,
+  bump(by) {
+    this.n += by;
+    return this.n;
+  },
+};
+console.log(counter["bump"](2), counter["bump"](3));
+
+const name = "bump";
+console.log(counter[name](5), counter.n);
+
+// The built-in method tables are reached the same way.
+console.log([3, 1, 2]["sort"]());
+console.log([1, 2, 3]["map"]((x) => x * 2));
+console.log("abc"["toUpperCase"](), "a,b"["split"](","));
+
+// A class method, where the receiver is what `this` means.
+class Box {
+  constructor(v) {
+    this.v = v;
+  }
+  get() {
+    return this.v;
+  }
+}
+console.log(new Box(7)["get"]());
+
+// A computed callee that is not a method at all: an element of an array of
+// functions, and a symbol-keyed method.
+const handlers = [() => "first", () => "second"];
+console.log(handlers[0](), handlers[1]());
+
+const call = Symbol("call");
+const holder = { [call]() { return "by symbol"; } };
+console.log(holder[call]());
+
+// A plain function stored on an object is just a function, not a method — it
+// never asked for a receiver, so nothing gives it one.
+const plain = { f: function () { return "plain"; } };
+console.log(plain["f"]());
+
+// Optional chaining still short-circuits.
+const absent = null;
+console.log(absent?.["bump"]?.());
+
+// Chained computed calls, where each receiver is the object it was reached
+// through.
+const outer = { inner: { who() { return this === outer.inner; } } };
+console.log(outer["inner"]["who"]());

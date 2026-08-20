@@ -678,6 +678,13 @@ void compileNode(const AstNode *node) {
           continue;
         }
 
+        if (kind == OBJECT_ENTRY_PROTO) {
+          /* The key is not needed: the name was the whole instruction. */
+          compileNode(node->as.objectLiteral.values[i]);
+          emitByte(OP_SET_PROTOTYPE, line);
+          continue;
+        }
+
         compileNode(node->as.objectLiteral.keys[i]);
         compileNode(node->as.objectLiteral.values[i]);
         if (kind == OBJECT_ENTRY_VALUE) {
@@ -821,9 +828,19 @@ void compileNode(const AstNode *node) {
       }
 
       bool isMethodCall = callee->type == AST_PROPERTY;
+      /* `o[name](...)` is a method call too, and has to keep its receiver for
+       * the same reason `o.name(...)` does: reading the method first and
+       * calling the value would bind `this` to the function. The name is not
+       * known until run time, so it travels on the stack rather than in the
+       * instruction. */
+      bool isComputedCall = callee->type == AST_INDEX && !node->as.call.optional;
       if (isMethodCall) {
         compileNode(callee->as.property.object);
         if (callee->as.property.optional) emitOptionalGuard(line);
+      } else if (isComputedCall) {
+        compileNode(callee->as.index.target);
+        if (callee->as.index.optional) emitOptionalGuard(line);
+        compileNode(callee->as.index.index);
       } else {
         compileNode(callee);
       }
@@ -842,6 +859,8 @@ void compileNode(const AstNode *node) {
                                           callee->as.property.length, line),
                        line);
         emitByte((uint8_t)node->as.call.argCount, line);
+      } else if (isComputedCall) {
+        emitBytes(OP_INVOKE_INDEX, (uint8_t)node->as.call.argCount, line);
       } else {
         emitBytes(OP_CALL, (uint8_t)node->as.call.argCount, line);
       }

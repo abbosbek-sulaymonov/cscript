@@ -1,0 +1,69 @@
+// A prototype is an object another object falls back to. Only reads walk the
+// chain: a write always creates an own property, which is what makes a
+// prototype a shared default rather than shared storage.
+const animal = {
+  kind: "animal",
+  speak() {
+    return `${this.name} the ${this.kind}`;
+  },
+};
+
+const dog = Object.create(animal);
+dog.name = "Rex";
+dog.kind = "dog";
+console.log(dog.speak());
+console.log(Object.getPrototypeOf(dog) === animal);
+
+// The shadowing is the object's own; the prototype is untouched.
+console.log(animal.kind, dog.kind);
+
+// Everything that enumerates sees own properties only, so adding a prototype
+// never changes what an object is made of.
+console.log(Object.keys(dog));
+console.log(JSON.stringify(dog));
+console.log({ ...dog });
+console.log(dog);
+
+// `in` walks the chain; `Object.hasOwn` is exactly the question that does not.
+console.log("speak" in dog, Object.hasOwn(dog, "speak"));
+console.log("name" in dog, Object.hasOwn(dog, "name"));
+
+// A method found on the prototype still gets the receiver it was reached
+// through, which is what makes `this` mean the object and not the prototype.
+const cat = Object.create(animal);
+cat.name = "Momo";
+console.log(cat.speak(), dog.speak());
+
+// Written in a literal. Only the plain `__proto__: v` links — the computed and
+// shorthand forms are ordinary properties, as they are in JavaScript.
+const made = { __proto__: animal, name: "Made" };
+console.log(made.speak(), Object.keys(made));
+const computed = { ["__proto__"]: animal, name: "Computed" };
+console.log(Object.keys(computed), computed.kind);
+
+// The link is readable and writable under its own name. A plain object starts
+// with no prototype at all — there is no root `Object.prototype` here, because
+// the methods that would live on one are not properties of any object. That is
+// the one place this diverges from JavaScript, and JAVASCRIPT.md records it.
+const empty = {};
+empty.__proto__ = animal;
+empty.name = "Empty";
+console.log(empty.speak(), empty.__proto__ === animal);
+
+// A chain of any depth, and a break in it.
+const base = { level: 1 };
+const middle = Object.create(base);
+middle.middle = true;
+const leaf = Object.create(middle);
+console.log(leaf.level, leaf.middle, Object.keys(leaf));
+Object.setPrototypeOf(leaf, null);
+console.log(leaf.level, Object.getPrototypeOf(leaf));
+
+// An object with no prototype at all: nothing to fall back to, and nothing
+// inherited to shadow.
+const bare = Object.create(null);
+bare.only = 1;
+console.log(Object.keys(bare), bare.missing);
+
+// Computed reads find exactly what dotted ones do.
+console.log(dog["speak"](), dog["kind"], dog["nothing"]);

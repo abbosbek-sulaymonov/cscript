@@ -89,6 +89,11 @@ typedef enum {
   OBJECT_ENTRY_SPREAD,
   OBJECT_ENTRY_GETTER,
   OBJECT_ENTRY_SETTER,
+  /* `__proto__: value` written plainly — it links the object rather than
+   * storing a property. Decided here, in the parser, because only the parser
+   * knows the key was not computed: `{ ["__proto__"]: v }` is an ordinary
+   * property, exactly as it is in JavaScript. */
+  OBJECT_ENTRY_PROTO,
 } ObjectEntryKind;
 
 typedef enum {

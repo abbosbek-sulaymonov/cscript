@@ -78,7 +78,8 @@ asserted here.
 
 `console`, `Math` (25 functions and constants), `JSON.stringify` / `.parse`,
 `Object.keys` / `.values` / `.entries` / `.fromEntries` / `.assign` /
-`.hasOwn` / `.freeze` / `.isFrozen` / `.getOwnPropertyNames`, `Array.isArray`
+`.hasOwn` / `.freeze` / `.isFrozen` / `.getOwnPropertyNames` / `.create` /
+`.getPrototypeOf` / `.setPrototypeOf`, `Array.isArray`
 / `.of` / `.from`, `Number` and its limits, `parseInt`, `parseFloat`, `isNaN`,
 `isFinite`, `Promise` with `.resolve` / `.reject` / `.all` / `.race` /
 `.allSettled` / `.any`, `AggregateError`, `setTimeout` / `setInterval` and
@@ -151,9 +152,32 @@ useful rather than a wart.
 
 ### A method keeps its receiver
 
-`const f = obj.method; f()` works. In JavaScript `this` is lost and the call
-throws, which is why `.bind(this)` is scattered through real code. Reading a
-method here produces a bound method.
+`const f = instance.method; f()` works for a class method and for one reached
+through a prototype: reading either produces a bound method. In JavaScript
+`this` is lost and the call throws, which is why `.bind(this)` is scattered
+through real code.
+
+The rule stops at *own* methods — `const f = ({ m() {} }).m` is the plain
+function. An own method lives in the object's shape and so is served by the
+inline cache, and binding it would mean testing every property read in the VM
+for whether it happened to produce a method. A class method and an inherited
+one can never be in the receiver's own shape, so binding them costs nothing
+that anyone else pays.
+
+Calling is unaffected either way: `o.m()` and `o[key](...)` both keep the
+receiver, whatever kind of method they find.
+
+### There is no root `Object.prototype`
+
+`Object.getPrototypeOf({})` is `null` here and `Object.prototype` in
+JavaScript. A plain object starts with no prototype because the methods that
+would live on a root — `hasOwnProperty`, `toString`, `valueOf` — are not
+properties of any object here: `Object.hasOwn` asks the same question as a
+static, and how a value renders is the language's answer rather than a method
+a program can replace.
+
+The consequence is small and worth naming: a chain you build yourself behaves
+exactly as it does in JavaScript, but it ends one link earlier.
 
 ### An unhandled promise rejection is fatal
 
@@ -275,6 +299,38 @@ bit at a time. Knuth's algorithm D is much faster and much easier to get subtly
 wrong; the numbers a script divides are small, and being able to read the code
 and believe it is worth more than the constant factor here.
 
+### Prototypes
+
+An object may inherit from another. `Object.create(proto)`, `__proto__` — read
+and written, and honoured in an object literal — `Object.getPrototypeOf` and
+`Object.setPrototypeOf` all work, and a read that misses walks the chain.
+
+Only reads walk it. A write always creates or updates an *own* property, which
+is what makes a prototype a shared default rather than shared storage, and
+everything that enumerates — `Object.keys`, JSON, a spread — sees own
+properties only. So `in` and `Object.hasOwn` genuinely differ here, as they do
+in JavaScript: the first walks the chain and the second is exactly the question
+that does not.
+
+A method found on a prototype is bound to the object it was reached *through*,
+not the one it was found on, which is what makes `this` mean the instance.
+
+Classes are not built on this. A class keeps its own method table and its own
+dispatch, so `Object.getPrototypeOf(instance)` is `null` rather than
+`Class.prototype`, and a class's methods cannot be reached or replaced through
+one. Rebuilding classes on prototypes would put a chain walk in front of every
+method call that the class model answers with a single table lookup; the two
+mechanisms coexist instead, and an instance may still be given a prototype.
+
+The inline caches are untouched by any of this. A cache hit means the name was
+found in the object's own shape, which an inherited property never is — so an
+inherited read takes the slow path every time. That is the honest cost of not
+encoding the prototype in the shape.
+
+Setting a prototype that is already in the object's chain is refused, because
+the loop it would make has no lookup that terminates. JavaScript refuses it
+too.
+
 ---
 
 ## 3. What is missing
@@ -286,9 +342,10 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Regex lookbehind — `(?<=…)` — and named groups | Lookahead and backreferences work |
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
 | `Date` parsing beyond ISO, and its locale formats | `toLocaleString`, `Date.parse` of anything else, `setFullYear` and the other setters |
+| Constructor functions — `function F() { this.x = 1 }` with `new` | Prototypes work; `this` is still only valid in a method, so shared behaviour is written as an object and `Object.create`d from |
+| `Object.defineProperty` and property descriptors | Writability, enumerability and configurability are not modelled, so `Object.create` refuses a second argument rather than ignoring it |
 | `arguments` | A rest parameter does the same job and says what it collects |
 | `new.target`, subclassing built-ins | |
-| Prototypes, `__proto__`, `Object.create` | Classes are the whole object model |
 | Dynamic `import()` | Static `import` and `export` are resolved before the program runs |
 | Bare import specifiers — `import x from "lodash"` | No package system to resolve against |
 | Sparse arrays and holes | Deliberate: they are why engines need a second array representation |

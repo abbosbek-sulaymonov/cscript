@@ -318,6 +318,70 @@ static bool objectHasOwn(Value receiver, int argCount, Value *args, Value *resul
   return true;
 }
 
+/* `Object.create(proto)` — a new object that inherits from `proto` and owns
+ * nothing. This is the prototype model without a constructor function: the
+ * shared behaviour is an ordinary object, and what inherits from it is made
+ * here rather than by `new`. */
+static bool objectCreate(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  if (argCount < 1 || (!IS_OBJECT(args[0]) && !IS_NULL(args[0]))) {
+    csVMRuntimeError("Object.create expects an object or null");
+    return false;
+  }
+  if (argCount > 1 && !IS_UNDEFINED(args[1])) {
+    /* Property descriptors are a separate feature — writability,
+     * enumerability and configurability are not modelled — so accepting the
+     * argument and ignoring it would be worse than saying so. */
+    csVMRuntimeError("Object.create does not take property descriptors");
+    return false;
+  }
+
+  ObjObject *created = csObjectNew("Object");
+  if (IS_OBJECT(args[0])) created->prototype = AS_OBJECT(args[0]);
+  *result = OBJ_VAL(created);
+  return true;
+}
+
+static bool objectGetPrototypeOf(Value receiver, int argCount, Value *args,
+                                 Value *result) {
+  (void)receiver;
+  if (argCount < 1 || !IS_OBJECT(args[0])) {
+    csVMRuntimeError("Object.getPrototypeOf expects an object");
+    return false;
+  }
+  ObjObject *prototype = AS_OBJECT(args[0])->prototype;
+  *result = prototype != NULL ? OBJ_VAL(prototype) : NULL_VAL;
+  return true;
+}
+
+static bool objectSetPrototypeOf(Value receiver, int argCount, Value *args,
+                                 Value *result) {
+  (void)receiver;
+  if (argCount < 2 || !IS_OBJECT(args[0])) {
+    csVMRuntimeError("Object.setPrototypeOf expects an object and a prototype");
+    return false;
+  }
+  ObjObject *object = AS_OBJECT(args[0]);
+
+  if (IS_NULL(args[1]) || IS_UNDEFINED(args[1])) {
+    object->prototype = NULL;
+    *result = args[0];
+    return true;
+  }
+  if (!IS_OBJECT(args[1])) {
+    csVMRuntimeError("a prototype must be an object or null, got %s",
+                     csValueTypeName(args[1]));
+    return false;
+  }
+  if (!csObjectSetPrototype(object, AS_OBJECT(args[1]))) {
+    csVMRuntimeError("that prototype is already in this object\'s chain, which "
+                     "would make every lookup on it loop");
+    return false;
+  }
+  *result = args[0];
+  return true;
+}
+
 /* ---------------- Array ---------------- */
 
 static bool arrayIsArray(Value receiver, int argCount, Value *args, Value *result) {
@@ -686,6 +750,9 @@ void csNativesInstall(void) {
   defineMethod(objectNamespace, "entries", objectEntries, 1);
   defineMethod(objectNamespace, "assign", objectAssign, -1);
   defineMethod(objectNamespace, "hasOwn", objectHasOwn, 2);
+  defineMethod(objectNamespace, "create", objectCreate, -1);
+  defineMethod(objectNamespace, "getPrototypeOf", objectGetPrototypeOf, 1);
+  defineMethod(objectNamespace, "setPrototypeOf", objectSetPrototypeOf, 2);
   defineMethod(objectNamespace, "fromEntries", objectFromEntries, 1);
   defineMethod(objectNamespace, "freeze", objectFreeze, 1);
   defineMethod(objectNamespace, "isFrozen", objectIsFrozen, 1);

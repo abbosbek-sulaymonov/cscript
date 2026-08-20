@@ -645,7 +645,9 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
       vm.stackTop[-argCount - 1] = method;
       return callValue(method, argCount);
     }
-    if (csObjectGet(AS_OBJECT(receiver), name, &method)) {
+    /* Own properties first, then the prototype chain — which is where a method
+     * shared by every object built from the same prototype lives. */
+    if (csObjectGetInherited(AS_OBJECT(receiver), name, &method)) {
       /* A property written as a method — `{ m() {} }` — keeps the receiver,
        * because that is what its `this` resolves to. Anything else is just a
        * function that happens to live on an object, and gets no receiver. */
@@ -858,7 +860,7 @@ static bool receiverHasMethod(Value receiver, ObjString *name) {
         csObjectGetPrivate(instance, name, &ignored)) {
       return true;
     }
-    if (csObjectGet(instance, name, &found)) return true;
+    if (csObjectGetInherited(instance, name, &found)) return true;
     return instance->klass != NULL &&
            csClassFindMethod(instance->klass, name) != NULL;
   }
@@ -1167,6 +1169,34 @@ static InterpretResult uncaught(Value thrown) {
  * each of the opcodes that reads a property can have its own tight handler:
  * sharing one body between them costs more than the instruction it saves,
  * because the dispatch table's indirect jump is predicted per opcode. */
+/* `__proto__` is a link, not a property. Recognising it by name is what makes
+ * `{ __proto__: base }` and `o.__proto__ = base` work without the accessor
+ * machinery JavaScript defines it with — and it is why an object cannot have
+ * an ordinary property under that name, which the docs record. */
+static bool isProtoKey(const ObjString *name) {
+  return name->length == 9 && memcmp(name->chars, "__proto__", 9) == 0;
+}
+
+/* A method that is *not* an own property travels with the object it was read
+ * from — a class method, or one found on the prototype chain.
+ *
+ * The rule is drawn there rather than at "every method" because an own method
+ * lives in the object's shape, and so is served by the inline cache: binding
+ * it would mean testing every property read in the VM for whether it happened
+ * to produce a method. A class method and an inherited one can never be in the
+ * receiver's own shape, so they always reach this slow path and binding them
+ * costs nothing anyone else pays.
+ *
+ * Only a closure written *as* a method is bound. A plain function that happens
+ * to be stored on an object is just a function, and giving it a receiver it
+ * never asked for would be inventing meaning for its `this`. */
+static Value bindIfMethod(Value receiver, Value found) {
+  if (IS_CLOSURE(found) && AS_CLOSURE(found)->function->isMethod) {
+    return OBJ_VAL(csBoundMethodNew(receiver, (Obj *)AS_CLOSURE(found)));
+  }
+  return found;
+}
+
 static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiver,
                              Value *out) {
   if (IS_OBJECT(receiver)) {
@@ -1184,6 +1214,24 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
      * property. Reading a missing property gives undefined, as in JavaScript —
      * checking for absence is too common to make it an error. */
     if (csObjectGet(object, name, out)) return true;
+
+    /* `__proto__` reads the link itself rather than a property, which is the
+     * only way to reach it without going through Object.getPrototypeOf. */
+    if (isProtoKey(name)) {
+      *out = object->prototype != NULL ? OBJ_VAL(object->prototype) : NULL_VAL;
+      return true;
+    }
+
+    /* The prototype chain. It is walked after the object's own properties and
+     * before its class's methods, because an own property shadows an inherited
+     * one and a class instance with a prototype is the unusual case. */
+    if (object->prototype != NULL &&
+        csObjectGetInherited(object->prototype, name, out)) {
+      /* Bound to the object it was reached *through*, not the prototype it was
+       * found on — that is what makes `this` mean the instance. */
+      *out = bindIfMethod(receiver, *out);
+      return true;
+    }
 
     if (object->klass != NULL) {
       ObjClosure *getter = csClassFindGetter(object->klass, name);
@@ -1365,6 +1413,29 @@ static bool propertyWriteSlow(ObjString *name, PropertyCache *cache, Value recei
     csVMRuntimeError("'%s.%s' cannot be changed: the object is frozen",
                      AS_OBJECT(receiver)->name->chars, name->chars);
     return false;
+  }
+
+  /* Assigning to `__proto__` re-links the object rather than storing anything,
+   * which is what makes it the same link Object.setPrototypeOf sets. */
+  if (isProtoKey(name)) {
+    ObjObject *object = AS_OBJECT(receiver);
+    if (IS_NULL(value) || IS_UNDEFINED(value)) {
+      object->prototype = NULL;
+      return true;
+    }
+    if (!IS_OBJECT(value)) {
+      /* JavaScript ignores a non-object here rather than complaining, which
+       * turns a mistake into a link that silently did not happen. */
+      csVMRuntimeError("a prototype must be an object or null, got %s",
+                       csValueTypeName(value));
+      return false;
+    }
+    if (!csObjectSetPrototype(object, AS_OBJECT(value))) {
+      csVMRuntimeError("that prototype is already in this object's chain, "
+                       "which would make every lookup on it loop");
+      return false;
+    }
+    return true;
   }
 
   /* A setter takes the write instead of the object storing it. Checked before
@@ -1831,7 +1902,7 @@ InterpretResult run(int baseFrame) {
             return CS_RUNTIME_ERROR;
           }
           Value value;
-          bool found = csObjectGet(AS_OBJECT(target), key, &value);
+          bool found = csObjectGetInherited(AS_OBJECT(target), key, &value);
           vm.stackTop -= 2;
           csVMPush(found ? value : UNDEFINED_VAL);
           VM_NEXT();
@@ -2430,6 +2501,87 @@ InterpretResult run(int baseFrame) {
         VM_NEXT();
       }
 
+      VM_CASE(OP_INVOKE_INDEX) {
+        /* `o[key](args...)`, with the stack holding [receiver][key][args…].
+         *
+         * A computed callee is not always a method: it may be an element of an
+         * array of functions, or a symbol-keyed method, neither of which the
+         * by-name dispatch below would find. Those are read first, exactly as
+         * `o[key]` reads them; everything else goes to the same dispatch a
+         * dotted call takes, which is what makes `"abc"["toUpperCase"]()`
+         * reach the built-in method tables. */
+        int argCount = READ_BYTE();
+        Value keyValue = vm.stackTop[-argCount - 1];
+        Value receiver = vm.stackTop[-argCount - 2];
+
+        Value found;
+        bool haveValue = false;
+        if (IS_SYMBOL(keyValue) && IS_OBJECT(receiver)) {
+          haveValue = csObjectGetPrivate(AS_OBJECT(receiver),
+                                         AS_SYMBOL(keyValue)->key, &found);
+        } else if (IS_ARRAY(receiver) && IS_NUMBER(keyValue)) {
+          ObjArray *array = AS_ARRAY(receiver);
+          int index = (int)AS_NUMBER(keyValue);
+          haveValue = index >= 0 && index < array->elements.count;
+          if (haveValue) found = array->elements.values[index];
+        }
+
+        ObjString *name = NULL;
+        if (!haveValue) {
+          name = IS_SYMBOL(keyValue) ? AS_SYMBOL(keyValue)->key
+                                     : objectKeyFor(keyValue);
+          if (name == NULL) {
+            csVMRuntimeError("out of memory converting a method name");
+            return CS_RUNTIME_ERROR;
+          }
+        }
+        if (name != NULL) csPushTempRoot((Obj *)name);
+
+        /* Collapsing the key out leaves exactly the layout OP_INVOKE builds by
+         * hand, so both paths below see the stack they expect. */
+        memmove(&vm.stackTop[-argCount - 1], &vm.stackTop[-argCount],
+                sizeof(Value) * (size_t)argCount);
+        vm.stackTop--;
+
+        bool ok;
+        if (!haveValue) {
+          ok = invokeMethod(receiver, name, argCount);
+        } else if (IS_CLOSURE(found) && AS_CLOSURE(found)->function->isMethod) {
+          /* callMethod reads the receiver out of the callee slot, so that slot
+           * is left exactly as it is. */
+          ok = callMethod(AS_CLOSURE(found), argCount);
+        } else {
+          vm.stackTop[-argCount - 1] = found;
+          ok = callValue(found, argCount);
+        }
+        if (name != NULL) csPopTempRoot();
+        if (!ok) return CS_RUNTIME_ERROR;
+
+        frame = &vm.frames[vm.frameCount - 1];
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_SET_PROTOTYPE) {
+        /* `{ __proto__: base }`. The object being built is beneath the value. */
+        Value value = peekStack(0);
+        ObjObject *object = AS_OBJECT(peekStack(1));
+
+        if (IS_NULL(value) || IS_UNDEFINED(value)) {
+          object->prototype = NULL;
+        } else if (!IS_OBJECT(value)) {
+          csVMRuntimeError("a prototype must be an object or null, got %s",
+                           csValueTypeName(value));
+          return CS_RUNTIME_ERROR;
+        } else if (!csObjectSetPrototype(object, AS_OBJECT(value))) {
+          csVMRuntimeError("that prototype is already in this object\'s chain, "
+                           "which would make every lookup on it loop");
+          return CS_RUNTIME_ERROR;
+        }
+
+        csVMPop();
+        VM_NEXT();
+      }
+
       VM_CASE(OP_OBJECT_SET) {
         Value value = peekStack(0);
         Value keyValue = peekStack(1);
@@ -2925,7 +3077,7 @@ InterpretResult run(int baseFrame) {
           csPushTempRoot((Obj *)name);
           Value ignored;
           ObjObject *object = AS_OBJECT(target);
-          result = csObjectGet(object, name, &ignored) ||
+          result = csObjectGetInherited(object, name, &ignored) ||
                    (object->klass != NULL &&
                     csClassFindMethod(object->klass, name) != NULL);
           csPopTempRoot();

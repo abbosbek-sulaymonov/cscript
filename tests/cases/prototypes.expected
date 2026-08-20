@@ -1,0 +1,17 @@
+Rex the dog
+true
+animal dog
+[ 'name', 'kind' ]
+{"name":"Rex","kind":"dog"}
+{ name: 'Rex', kind: 'dog' }
+{ name: 'Rex', kind: 'dog' }
+true false
+true true
+Momo the animal Rex the dog
+Made the animal [ 'name' ]
+[ '__proto__', 'name' ] undefined
+Empty the animal true
+1 true []
+undefined null
+[ 'only' ] undefined
+Rex the dog dog undefined

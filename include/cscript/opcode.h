@@ -136,6 +136,7 @@
    * object without accessors pays nothing at all for these existing. */         \
   X(OP_OBJECT_ACCESSOR)   /* [isGetter] pop a closure and a name             */ \
   X(OP_OBJECT_MERGE)      /*          pop a source, copy its keys in          */ \
+  X(OP_SET_PROTOTYPE)     /*          pop a value, link it as the prototype   */ \
   X(OP_OBJECT_REST)       /* [count]  pop `count` keys and a source, push the \
                            *          rest of it as a new object              */ \
   /* `tag`a${x}b`` — hangs the unescaped pieces off the cooked ones as `raw`,   \
@@ -151,6 +152,7 @@
    * The receiver stays on the stack below the arguments, so no bound-method   \
    * object has to be allocated per call. */                                    \
   X(OP_INVOKE)            /* [const16][argc]  receiver.name(args...)        */ \
+  X(OP_INVOKE_INDEX)      /* [argc]   receiver[key](args...)                 */ \
                                                                               \
   /* Classes. A class is built once, at the point of declaration: OP_CLASS      \
    * makes it, OP_INHERIT links it to its base, and the four member opcodes     \

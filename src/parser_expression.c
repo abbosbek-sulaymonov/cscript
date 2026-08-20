@@ -446,7 +446,8 @@ AstNode *parsePrimary(Parser *parser) {
         /* `{ x }` is `{ x: x }`. The key was just read, so the value is an
          * identifier with the same name and the same position. */
         AstNode *value;
-        if (check(parser, TOKEN_COMMA) || check(parser, TOKEN_RIGHT_BRACE)) {
+        bool shorthand = check(parser, TOKEN_COMMA) || check(parser, TOKEN_RIGHT_BRACE);
+        if (shorthand) {
           value = csAstIdentifier(parser->arena, key->line, key->as.string.chars,
                                   key->as.string.length);
         } else {
@@ -455,7 +456,18 @@ AstNode *parsePrimary(Parser *parser) {
           value = parsePrecedence(parser, PREC_ASSIGNMENT);
         }
         if (value == NULL) return NULL;
-        csAstObjectLiteralAdd(parser->arena, object, key, value);
+
+        /* Only the written-out `__proto__: v` links. The shorthand `{ __proto__ }`
+         * and the method form `{ __proto__() {} }` are ordinary properties,
+         * which is the distinction JavaScript draws too. */
+        bool linksPrototype = !shorthand && key->as.string.length == 9 &&
+                              memcmp(key->as.string.chars, "__proto__", 9) == 0;
+        if (linksPrototype) {
+          csAstObjectLiteralAddKind(parser->arena, object, key, value,
+                                    OBJECT_ENTRY_PROTO);
+        } else {
+          csAstObjectLiteralAdd(parser->arena, object, key, value);
+        }
       } while (matchToken(parser, TOKEN_COMMA));
     }
     consume(parser, TOKEN_RIGHT_BRACE, "expected '}' after the object literal");
