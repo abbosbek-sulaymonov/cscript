@@ -97,6 +97,7 @@ const char *csValueTypeName(Value value) {
   /* A class is callable in JavaScript — only with `new` — and reports as a
    * function. CScript keeps the report and rejects the call. */
   if (IS_CLASS(value)) return "function";
+  if (IS_SYMBOL(value)) return "symbol";
   return "object";
 }
 
@@ -491,6 +492,19 @@ char *csValueToCString(Value value, size_t *lengthOut) {
         length = (size_t)string->length;
       } else if (IS_CALLABLE(value)) {
         return renderCallable(value, lengthOut);
+      } else if (IS_SYMBOL(value)) {
+        /* `String(symbol)` is `Symbol(description)`. JavaScript throws for an
+         * implicit conversion and allows the explicit one; here there is one
+         * conversion and it always says what the value is. */
+        ObjSymbol *symbol = AS_SYMBOL(value);
+        const char *described =
+            symbol->description != NULL ? symbol->description->chars : "";
+        size_t needed = strlen(described) + 10;
+        char *rendered = (char *)malloc(needed);
+        if (rendered == NULL) return NULL;
+        int written = snprintf(rendered, needed, "Symbol(%s)", described);
+        if (lengthOut != NULL) *lengthOut = (size_t)written;
+        return rendered;
       } else if (IS_DATE(value)) {
         /* The ISO form, which is the one a Date has that does not depend on
          * where the program is running. JavaScript's `String(date)` gives a

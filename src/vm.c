@@ -70,6 +70,10 @@ void csVMInit(void) {
   csTableInit(&vm.functionMethods);
   csTableInit(&vm.dateMethods);
   csTableInit(&vm.weakMethods);
+  csTableInit(&vm.symbolMethods);
+  csTableInit(&vm.symbolRegistry);
+  vm.iteratorSymbol = NULL;
+  vm.asyncIteratorSymbol = NULL;
   csTableInit(&vm.regexMethods);
 
   vm.microtasks = NULL;
@@ -113,6 +117,8 @@ void csVMFree(void) {
   csTableFree(&vm.functionMethods);
   csTableFree(&vm.dateMethods);
   csTableFree(&vm.weakMethods);
+  csTableFree(&vm.symbolMethods);
+  csTableFree(&vm.symbolRegistry);
   csTableFree(&vm.regexMethods);
   csTableFree(&vm.builtins);
   csTableFree(&vm.builtinConsts);
@@ -471,6 +477,7 @@ static Table *methodTableFor(Value receiver) {
   }
   if (IS_REGEX(receiver)) return &vm.regexMethods;
   if (IS_DATE(receiver)) return &vm.dateMethods;
+  if (IS_SYMBOL(receiver)) return &vm.symbolMethods;
   return NULL;
 }
 
@@ -569,6 +576,10 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
  * before storing it must root it first. */
 static ObjString *objectKeyFor(Value key) {
   if (IS_STRING(key)) return AS_STRING(key);
+  /* A symbol is filed under a name no source can write, which is what keeps a
+   * symbol-keyed property out of everything that walks an object by name —
+   * exactly where JavaScript puts one. */
+  if (IS_SYMBOL(key)) return AS_SYMBOL(key)->key;
 
   size_t length = 0;
   char *text = csValueToCString(key, &length);
@@ -576,6 +587,76 @@ static ObjString *objectKeyFor(Value key) {
   ObjString *converted = csStringCopy(text, (int)length);
   free(text);
   return converted;
+}
+
+/* The function an object offers as its `Symbol.iterator`, or NULL.
+ *
+ * Looked for where a symbol-keyed property lives — beside the shape — and then
+ * on the class, so both `{ [Symbol.iterator]() {} }` and a class that declares
+ * the method work. */
+static bool findIteratorMethod(Value target, Value *out) {
+  if (!IS_OBJECT(target) || vm.iteratorSymbol == NULL) return false;
+  ObjObject *object = AS_OBJECT(target);
+
+  if (csObjectGetPrivate(object, vm.iteratorSymbol->key, out)) return true;
+  if (object->klass != NULL) {
+    ObjClosure *method = csClassFindMethod(object->klass, vm.iteratorSymbol->key);
+    if (method != NULL) {
+      *out = OBJ_VAL(method);
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Calls `callee` with `receiver` in slot 0, for the places the VM itself has
+ * to invoke a user method: the iterator protocol, so far. */
+static bool callWithReceiver(Value callee, Value receiver, Value *args, int argCount,
+                             Value *out) {
+  if (!IS_CLOSURE(callee)) return csVMCallAdapted(callee, args, argCount, out);
+
+  ObjBoundMethod *bound = csBoundMethodNew(receiver, AS_OBJ(callee));
+  csPushTempRoot((Obj *)bound);
+  bool ok = csVMCallAdapted(OBJ_VAL(bound), args, argCount, out);
+  csPopTempRoot();
+  return ok;
+}
+
+/* One step of a user-defined iterator: `it.next()`, unpacked.
+ *
+ * A generator is the common case and is already an iterator, so it is pulled
+ * directly rather than through a property lookup and a call. */
+static bool iteratorStep(Value iterator, Value *value, bool *done) {
+  if (IS_GENERATOR(iterator)) {
+    return csGeneratorNext(AS_GENERATOR(iterator), UNDEFINED_VAL, value, done);
+  }
+
+  Value next;
+  if (!IS_OBJECT(iterator) ||
+      (!csObjectGet(AS_OBJECT(iterator), csStringCopy("next", 4), &next) &&
+       (AS_OBJECT(iterator)->klass == NULL ||
+        (next = OBJ_VAL(csClassFindMethod(AS_OBJECT(iterator)->klass,
+                                          csStringCopy("next", 4))),
+         !IS_CLOSURE(next))))) {
+    csVMRuntimeError("an iterator must have a 'next' method");
+    return false;
+  }
+
+  Value record;
+  if (!callWithReceiver(next, iterator, NULL, 0, &record)) return false;
+  if (!IS_OBJECT(record)) {
+    csVMRuntimeError("'next' must answer with an object, got %s",
+                     csValueTypeName(record));
+    return false;
+  }
+
+  Value flag;
+  *done = csObjectGet(AS_OBJECT(record), csStringCopy("done", 4), &flag) &&
+          csValueIsTruthy(flag);
+  if (!csObjectGet(AS_OBJECT(record), csStringCopy("value", 5), value)) {
+    *value = UNDEFINED_VAL;
+  }
+  return true;
 }
 
 /* Whether `invokeMethod` would find something to call.
@@ -1013,6 +1094,15 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
       *out = NUMBER_VAL(arity < 0 ? 0 : arity);
       return true;
     }
+  }
+
+  /* A symbol's description, which is the only thing about one that is not its
+   * identity. */
+  if (IS_SYMBOL(receiver) && name->length == 11 &&
+      memcmp(name->chars, "description", 11) == 0) {
+    ObjString *described = AS_SYMBOL(receiver)->description;
+    *out = described != NULL ? OBJ_VAL(described) : UNDEFINED_VAL;
+    return true;
   }
 
   /* And `name`, which a stack trace and a program should agree about. */
@@ -1508,6 +1598,17 @@ InterpretResult run(int baseFrame) {
         }
 
         if (IS_OBJECT(target)) {
+          /* A symbol names a property that nothing walking the object by name
+           * can reach, so it is kept beside the shape rather than in it. */
+          if (IS_SYMBOL(index)) {
+            Value found;
+            bool has = csObjectGetPrivate(AS_OBJECT(target), AS_SYMBOL(index)->key,
+                                          &found);
+            vm.stackTop -= 2;
+            csVMPush(has ? found : UNDEFINED_VAL);
+            VM_NEXT();
+          }
+
           /* `o[1]` and `o["1"]` name the same property, so the key converts
            * rather than being rejected — which is also what `{ 1: x }` had to
            * store under for the two to meet. */
@@ -1540,6 +1641,22 @@ InterpretResult run(int baseFrame) {
         /* Arrays and strings are already indexable, so the common case is a
          * type test and nothing else. */
         Value target = peekStack(0);
+
+        /* An object that offers `Symbol.iterator` is replaced by whatever that
+         * hands back, and the loop pulls from there — which is the whole of
+         * what makes a user-defined type iterable. */
+        Value iteratorMethod;
+        if (findIteratorMethod(target, &iteratorMethod)) {
+          Value iterator;
+          if (!callWithReceiver(iteratorMethod, target, NULL, 0, &iterator)) {
+            return CS_RUNTIME_ERROR;
+          }
+          csVMPop();
+          csVMPush(iterator);
+          frame = &vm.frames[vm.frameCount - 1];
+          VM_NEXT();
+        }
+
         if (!IS_MAP(target)) VM_NEXT();
         if (AS_MAP(target)->isWeak) {
           csVMRuntimeError("a %s cannot be iterated: what is left in it depends "
@@ -1689,6 +1806,22 @@ InterpretResult run(int baseFrame) {
           VM_NEXT();
         }
 
+        /* Anything left is either an iterator OP_ITER_PREPARE produced, or a
+         * value that was never iterable. */
+        if (IS_OBJECT(iterable)) {
+          Value produced;
+          bool done;
+          if (!iteratorStep(iterable, &produced, &done)) return CS_RUNTIME_ERROR;
+          vm.stackTop -= 2;
+          frame = &vm.frames[vm.frameCount - 1];
+          if (done) {
+            frame->ip += offset;
+            VM_NEXT();
+          }
+          csVMPush(produced);
+          VM_NEXT();
+        }
+
         csVMRuntimeError("%s is not iterable", csValueTypeName(iterable));
         return CS_RUNTIME_ERROR;
       }
@@ -1716,6 +1849,8 @@ InterpretResult run(int baseFrame) {
             csValueArrayWrite(&array->elements, UNDEFINED_VAL);
           }
           array->elements.values[slot] = value;
+        } else if (IS_OBJECT(target) && IS_SYMBOL(index)) {
+          csObjectPutPrivate(AS_OBJECT(target), AS_SYMBOL(index)->key, value);
         } else if (IS_OBJECT(target)) {
           ObjString *key = objectKeyFor(index);
           if (key == NULL) {
@@ -1752,6 +1887,10 @@ InterpretResult run(int baseFrame) {
         Value *entries = vm.stackTop - (count * 2);
         for (int i = 0; i < count; i++) {
           Value key = entries[i * 2];
+          if (IS_SYMBOL(key)) {
+            csObjectPutPrivate(object, AS_SYMBOL(key)->key, entries[i * 2 + 1]);
+            continue;
+          }
           if (!IS_STRING(key)) {
             ObjString *converted = objectKeyFor(key);
             if (converted == NULL) {
@@ -1783,6 +1922,40 @@ InterpretResult run(int baseFrame) {
           ObjArray *items = csMapToArray(AS_MAP(peekStack(0)));
           csVMPop();
           csVMPush(OBJ_VAL(items));
+        }
+
+        /* An object that offers `Symbol.iterator` spreads to what it yields,
+         * which is the same conversion `for...of` makes — the two have to
+         * agree about what a value contains. */
+        {
+          Value iteratorMethod;
+          if (findIteratorMethod(peekStack(0), &iteratorMethod)) {
+            Value iterator;
+            if (!callWithReceiver(iteratorMethod, peekStack(0), NULL, 0, &iterator)) {
+              return CS_RUNTIME_ERROR;
+            }
+            csPushTempRoot(AS_OBJ(iterator));
+
+            ObjArray *drained = csArrayNew();
+            csPushTempRoot((Obj *)drained);
+            for (;;) {
+              Value produced;
+              bool done;
+              if (!iteratorStep(iterator, &produced, &done)) {
+                csPopTempRoot();
+                csPopTempRoot();
+                return CS_RUNTIME_ERROR;
+              }
+              if (done) break;
+              csValueArrayWrite(&drained->elements, produced);
+            }
+            csPopTempRoot();
+            csPopTempRoot();
+
+            csVMPop();
+            csVMPush(OBJ_VAL(drained));
+            frame = &vm.frames[vm.frameCount - 1];
+          }
         }
 
         /* A generator spreads to everything it has left. Spreading is eager by
@@ -1945,6 +2118,13 @@ InterpretResult run(int baseFrame) {
           return CS_RUNTIME_ERROR;
         }
 
+        if (IS_SYMBOL(index)) {
+          csObjectDeletePrivate(AS_OBJECT(target), AS_SYMBOL(index)->key);
+          vm.stackTop -= 2;
+          csVMPush(BOOL_VAL(true));
+          VM_NEXT();
+        }
+
         ObjString *key = objectKeyFor(index);
         if (key == NULL) {
           csVMRuntimeError("out of memory converting an object key");
@@ -1960,6 +2140,12 @@ InterpretResult run(int baseFrame) {
         Value value = peekStack(0);
         Value keyValue = peekStack(1);
         ObjObject *object = AS_OBJECT(peekStack(2));
+
+        if (IS_SYMBOL(keyValue)) {
+          csObjectPutPrivate(object, AS_SYMBOL(keyValue)->key, value);
+          vm.stackTop -= 2;
+          VM_NEXT();
+        }
 
         ObjString *key = objectKeyFor(keyValue);
         if (key == NULL) {
@@ -2428,6 +2614,14 @@ InterpretResult run(int baseFrame) {
         Value key = peekStack(1);
         bool result;
 
+        if (IS_OBJECT(target) && IS_SYMBOL(key)) {
+          Value ignored;
+          bool has = csObjectGetPrivate(AS_OBJECT(target), AS_SYMBOL(key)->key,
+                                        &ignored);
+          vm.stackTop -= 2;
+          csVMPush(BOOL_VAL(has));
+          VM_NEXT();
+        }
         if (IS_OBJECT(target)) {
           ObjString *name = objectKeyFor(key);
           if (name == NULL) {

@@ -25,6 +25,7 @@ typedef enum {
   OBJ_GENERATOR, /* a paused call the caller pulls values out of */
   OBJ_REGEX,
   OBJ_DATE,  /* one instant, held as milliseconds since the epoch */
+  OBJ_SYMBOL, /* a name that is equal to nothing but itself */
 } ObjType;
 
 typedef struct ObjPromise ObjPromise;
@@ -107,9 +108,11 @@ typedef struct ObjObject {
    * object that happens to be lying around. User objects are never frozen. */
   bool frozen;
 
-  /* Private fields, or NULL. Off to the side of the shape on purpose: see
-   * csObjectPutPrivate. Allocated on the first write, so an object without
-   * any pays one pointer. */
+  /* Private fields and symbol-keyed properties, or NULL.
+   *
+   * Off to the side of the shape on purpose, and for the same reason in both
+   * cases: neither may be reached by anything that walks an object by name.
+   * Allocated on the first write, so an object with neither pays one pointer. */
   Table *privates;
 
   union {
@@ -246,6 +249,22 @@ struct ObjFiber {
  * whole of what a JavaScript Date is. Everything else about it is a way of
  * writing that number down. NaN is a date that could not be parsed, and every
  * getter on one answers NaN in turn. */
+/* A name that is equal to nothing but itself.
+ *
+ * Two symbols with the same description are still two symbols — identity is
+ * the whole of what one is, and the description exists only so that printing
+ * one says something. `key` is the unique string a symbol-keyed property is
+ * filed under; no source can write it, which is what keeps such a property
+ * out of everything that walks an object by name. */
+typedef struct ObjSymbol {
+  Obj obj;
+  ObjString *description; /* may be NULL */
+  ObjString *key;
+  /* Set for a symbol from `Symbol.for`, which is the only kind two separate
+   * lookups can produce the same one of. */
+  bool registered;
+} ObjSymbol;
+
 typedef struct ObjDate {
   Obj obj;
   double ms;
@@ -478,6 +497,8 @@ typedef struct ObjBoundMethod {
 #define IS_MAP(v)      csIsObjType(v, OBJ_MAP)
 #define IS_GENERATOR(v) csIsObjType(v, OBJ_GENERATOR)
 #define IS_DATE(v)     csIsObjType(v, OBJ_DATE)
+#define IS_SYMBOL(v)   csIsObjType(v, OBJ_SYMBOL)
+#define AS_SYMBOL(v)   ((ObjSymbol *)AS_OBJ(v))
 #define AS_DATE(v)     ((ObjDate *)AS_OBJ(v))
 #define AS_GENERATOR(v) ((ObjGenerator *)AS_OBJ(v))
 #define IS_REGEX(v)    csIsObjType(v, OBJ_REGEX)
@@ -572,6 +593,8 @@ ObjGenerator *csGeneratorNew(ObjFiber *fiber);
 
 ObjDate *csDateNew(double ms);
 
+ObjSymbol *csSymbolNew(ObjString *description);
+
 /* Settles a promise and queues whatever was waiting on it. Settling an already
  * settled promise does nothing, which is what makes a resolve function safe to
  * call twice. Resolving *with* a promise adopts its outcome instead of nesting.
@@ -627,6 +650,7 @@ bool csObjectGetPrivate(ObjObject *object, ObjString *key, Value *out);
 bool csArrayGetExtra(ObjArray *array, ObjString *key, Value *out);
 void csArrayPutExtra(ObjArray *array, const char *name, int length, Value value);
 void csObjectPutPrivate(ObjObject *object, ObjString *key, Value value);
+bool csObjectDeletePrivate(ObjObject *object, ObjString *key);
 
 /* Enumeration in insertion order — what Object.keys, JSON.stringify and
  * printing all need. `index` must be below csObjectCount(). */

@@ -1,0 +1,23 @@
+symbol false true
+tag undefined Symbol(tag)
+Symbol(tag) Symbol()
+true
+false
+named undefined
+1 kept
+[ 'visible' ] {"visible":1}
+{"visible":1}
+true true false
+later []
+true undefined
+called
+hand written 0
+hand written 1
+hand written 2
+[ 0, 1, 2 ]
+generated 0
+generated 10
+generated 20
+[ 0, 10, 20, 30 ] 40
+[ 1, 2 ] [ 'a', 'b' ] [ 3 ]
+k 9

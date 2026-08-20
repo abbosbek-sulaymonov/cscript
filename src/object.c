@@ -163,6 +163,11 @@ bool csObjectGetPrivate(ObjObject *object, ObjString *key, Value *out) {
   return csTableGet(object->privates, key, out);
 }
 
+bool csObjectDeletePrivate(ObjObject *object, ObjString *key) {
+  if (object->privates == NULL) return false;
+  return csTableDelete(object->privates, key);
+}
+
 void csObjectPutPrivate(ObjObject *object, ObjString *key, Value value) {
   if (object->privates == NULL) {
     csPushTempRoot((Obj *)object);
@@ -523,6 +528,29 @@ ObjFiber *csFiberNew(void) {
   return fiber;
 }
 
+ObjSymbol *csSymbolNew(ObjString *description) {
+  if (description != NULL) csPushTempRoot((Obj *)description);
+
+  /* The filing name. A counter rather than the address, so it survives a
+   * collection moving nothing but staying reproducible run to run — and the
+   * leading space is what no source can write. */
+  static long long nextId = 0;
+  char name[48];
+  int length = snprintf(name, sizeof name, " symbol%lld", nextId++);
+  ObjString *key = csStringCopy(name, length);
+  csPushTempRoot((Obj *)key);
+
+  ObjSymbol *symbol = CS_ALLOCATE(ObjSymbol, 1);
+  registerObject((Obj *)symbol, OBJ_SYMBOL);
+  symbol->description = description;
+  symbol->key = key;
+  symbol->registered = false;
+
+  csPopTempRoot();
+  if (description != NULL) csPopTempRoot();
+  return symbol;
+}
+
 ObjDate *csDateNew(double ms) {
   ObjDate *date = CS_ALLOCATE(ObjDate, 1);
   registerObject((Obj *)date, OBJ_DATE);
@@ -762,6 +790,12 @@ void csObjectPrint(Value value) {
     case OBJ_GENERATOR:
       printf("Object [Generator] {}");
       break;
+    case OBJ_SYMBOL: {
+      ObjSymbol *symbol = AS_SYMBOL(value);
+      printf("Symbol(%s)",
+             symbol->description != NULL ? symbol->description->chars : "");
+      break;
+    }
     case OBJ_DATE: {
       char text[64];
       if (csDateToISO(AS_DATE(value)->ms, text, sizeof text)) {
@@ -923,6 +957,13 @@ void csObjectBlacken(Obj *object) {
     case OBJ_DATE:
       break; /* a number and nothing else */
 
+    case OBJ_SYMBOL: {
+      ObjSymbol *symbol = (ObjSymbol *)object;
+      csMarkObject((Obj *)symbol->description);
+      csMarkObject((Obj *)symbol->key);
+      break;
+    }
+
     case OBJ_GENERATOR: {
       ObjGenerator *generator = (ObjGenerator *)object;
       csMarkObject((Obj *)generator->fiber);
@@ -1064,6 +1105,10 @@ void csObjectFree(Obj *object) {
 
     case OBJ_DATE:
       CS_FREE(ObjDate, object);
+      break;
+
+    case OBJ_SYMBOL:
+      CS_FREE(ObjSymbol, object);
       break;
 
     case OBJ_GENERATOR: {

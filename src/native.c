@@ -726,10 +726,23 @@ void csNativesInstall(void) {
   csRegexMethodsInstall();
   csDateMethodsInstall();
   csWeakMethodsInstall();
+  csSymbolMethodsInstall();
   defineFunction("Map", csMapConstructorFn(), -1);
   defineFunction("Set", csSetConstructorFn(), -1);
   defineFunction("WeakMap", csWeakMapConstructorFn(), -1);
   defineFunction("WeakSet", csWeakSetConstructorFn(), -1);
+
+  /* `Symbol` is callable and carries the registry and the well-known ones. */
+  ObjNative *symbolFn = csNativeNew(csSymbolConstructorFn(), "Symbol", -1);
+  csPushTempRoot((Obj *)symbolFn);
+  ObjObject *symbolStatics = csObjectNew("Symbol");
+  csPushTempRoot((Obj *)symbolStatics);
+  symbolFn->statics = symbolStatics;
+  csSymbolInstallStatics(symbolStatics);
+  csObjectFreeze(symbolStatics);
+  defineGlobal("Symbol", OBJ_VAL(symbolFn));
+  csPopTempRoot();
+  csPopTempRoot();
 
   /* `Date` is the same shape: `new Date()` builds one and `Date.now()` sits
    * beside it. */

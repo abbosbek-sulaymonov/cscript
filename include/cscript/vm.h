@@ -189,6 +189,13 @@ typedef struct {
   Table functionMethods;
   Table dateMethods;
   Table weakMethods;
+  Table symbolMethods;
+  /* `Symbol.for`'s registry, keyed by description. Strong: a registered
+   * symbol is meant to be findable again by name. */
+  Table symbolRegistry;
+  /* The two the language itself looks for. */
+  struct ObjSymbol *iteratorSymbol;
+  struct ObjSymbol *asyncIteratorSymbol;
   Table regexMethods;
 
   /* The microtask queue, drained completely between macrotasks. A ring would

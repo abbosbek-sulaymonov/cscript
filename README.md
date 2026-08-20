@@ -506,6 +506,7 @@ cscript/
 | **41 ✅** | Computed class members, `new` on any expression, object-literal accessors | — |
 | **42 ✅** | `Date` — the last large missing built-in | — |
 | **43 ✅** | `WeakMap` and `WeakSet`, with ephemeron marking in the collector | — |
+| **44 ✅** | `Symbol`, symbol-keyed properties, and `Symbol.iterator` | — |
 | next | Calling a CScript function from compiled code, which needs frames and safepoints | — |
 | next | Inlining, so a small function is worth compiling | — |
 | next | Guards and deoptimisation, for code the types do not prove | — |

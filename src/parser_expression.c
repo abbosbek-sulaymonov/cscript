@@ -384,6 +384,19 @@ AstNode *parsePrimary(Parser *parser) {
           key = parseExpression(parser);
           consume(parser, TOKEN_RIGHT_BRACKET, "expected ']' after a computed key");
           if (key == NULL || parser->diag->panicMode) return NULL;
+
+          /* `{ [name]() { … } }` — a method whose name is computed, which is
+           * how a symbol-keyed method is written. */
+          if (check(parser, TOKEN_LEFT_PAREN)) {
+            parser->pendingAsync = isAsyncEntry;
+            parser->pendingGenerator = isGeneratorEntry;
+            AstNode *method = parseFunctionRest(parser, key->line, " computed", 9, true);
+            if (method == NULL) return NULL;
+            method->as.function.isMethod = true;
+            csAstObjectLiteralAddKind(parser->arena, object, key, method, entryKind);
+            continue;
+          }
+
           consume(parser, TOKEN_COLON, "expected ':' after the property name");
           if (parser->diag->panicMode) return NULL;
           AstNode *computedValue = parsePrecedence(parser, PREC_ASSIGNMENT);

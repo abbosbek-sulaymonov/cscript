@@ -28,7 +28,7 @@ asserted here.
 | Number formatting | ECMA-262 `Number::toString` — `1e21`, `1e-7`, `0.1 + 0.2` |
 | Strings | immutable, interned, `+` concatenates |
 | Template literals | `` `a${b}c` ``, nested |
-| `typeof` | for every type except `null` — see *Differs* |
+| `typeof` | for every type except `null` — see *Differs* — including `"symbol"` |
 | Arithmetic | `+ - * / % **`, with `**` right-associative |
 | Comparison | `< <= > >=`, `=== !==` |
 | Logical | `&& ||` evaluate to an operand, not a boolean |
@@ -202,10 +202,10 @@ than the listing. It is a real difference and it is here rather than buried.
 
 ### The async iterator protocol is generators only
 
-`for await` drives an async generator or any sync iterable. It does not look
-for a `Symbol.asyncIterator` method on an arbitrary object, because `Symbol`
-does not exist here — so an object cannot make itself async-iterable the way
-one can in JavaScript.
+`for await` drives an async generator or any sync iterable — including one that
+defines `Symbol.iterator`. It does not look for `Symbol.asyncIterator`, so an
+object cannot make itself *async*-iterable the way one can in JavaScript. The
+symbol exists; nothing consults it yet.
 
 ### A generator's `.return()` does not run a pending `finally`
 
@@ -242,7 +242,9 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Regex lookbehind — `(?<=…)` — and named groups | Lookahead and backreferences work |
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
 | `Date` parsing beyond ISO, and its locale formats | `toLocaleString`, `Date.parse` of anything else, `setFullYear` and the other setters |
-| `Symbol`, `BigInt` | No plans |
+| `BigInt` | No plans |
+| `Symbol.asyncIterator` as a protocol | The symbol exists; `for await` drives async generators rather than looking for it |
+| Array destructuring through an iterator | `const [a] = x` reads `x[0]`, so it works on arrays and strings and not on a user-defined iterable |
 | `arguments` | A rest parameter does the same job and says what it collects |
 | `new.target`, subclassing built-ins | |
 | Prototypes, `__proto__`, `Object.create` | Classes are the whole object model |

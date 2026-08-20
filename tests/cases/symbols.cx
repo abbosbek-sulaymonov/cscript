@@ -1,0 +1,58 @@
+// A symbol is equal to nothing but itself. The description exists so that
+// printing one says something, and nothing else reads it.
+const first = Symbol("tag");
+const second = Symbol("tag");
+console.log(typeof first, first === second, first === first);
+console.log(first.description, Symbol().description, String(first));
+console.log(first.toString(), Symbol().toString());
+
+// `Symbol.for` is the one way two lookups give the same symbol.
+console.log(Symbol.for("shared") === Symbol.for("shared"));
+console.log(Symbol.for("shared") === Symbol("shared"));
+console.log(Symbol.keyFor(Symbol.for("named")), Symbol.keyFor(Symbol("anon")));
+
+// A symbol-keyed property is reachable by its symbol and by nothing else —
+// not by `Object.keys`, not by JSON, not by a spread.
+const hidden = Symbol("hidden");
+const record = { visible: 1, [hidden]: "kept" };
+console.log(record.visible, record[hidden]);
+console.log(Object.keys(record), JSON.stringify(record));
+console.log(JSON.stringify({ ...record }));
+console.log(hidden in record, "visible" in record, Symbol("other") in record);
+
+const grown = {};
+grown[hidden] = "later";
+console.log(grown[hidden], Object.keys(grown));
+console.log(delete grown[hidden], grown[hidden]);
+
+// A symbol-keyed method.
+const call = Symbol("call");
+const holder = { [call]() { return "called"; } };
+console.log(holder[call]());
+
+// `Symbol.iterator` is what `for...of` asks an object for, so a type can say
+// how it is walked.
+const counter = {
+  limit: 3,
+  [Symbol.iterator]() {
+    let at = 0;
+    const limit = this.limit;
+    return { next() { return at < limit ? { value: at++, done: false } : { done: true }; } };
+  },
+};
+for (const value of counter) console.log("hand written", value);
+console.log([...counter]);
+
+// The same thing written as a generator, which is what it is for.
+class Range {
+  constructor(count) { this.count = count; }
+  *[Symbol.iterator]() {
+    for (let i = 0; i < this.count; i++) yield i * 10;
+  }
+}
+for (const value of new Range(3)) console.log("generated", value);
+console.log([...new Range(4)], Math.max(...new Range(5)));
+
+// Everything that was iterable still is.
+console.log([...[1, 2]], [..."ab"], [...new Set([3])]);
+for (const [key, value] of new Map([["k", 9]])) console.log(key, value);
