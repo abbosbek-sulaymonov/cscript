@@ -90,6 +90,16 @@
   X(OP_ARRAY_SPREAD)      /* [count]  build, splicing any marked elements   */ \
   /* Slices `count` elements off an array from a starting index — the rest      \
    * element of an array pattern. */                                            \
+  /* Object literals and patterns that mention `...`. A literal with a spread  \
+   * is built up one entry at a time rather than from a run of stack pairs,    \
+   * because `{ ...a, b: 1, ...c }` has to apply them in order — a later key   \
+   * wins over an earlier spread, and a later spread wins over both. */         \
+  X(OP_DELETE_PROPERTY)   /* [const16] pop object, push whether it had it    */ \
+  X(OP_DELETE_INDEX)      /*          pop key and object, same answer        */ \
+  X(OP_OBJECT_SET)        /*          pop value and key, set on the object    */ \
+  X(OP_OBJECT_MERGE)      /*          pop a source, copy its keys in          */ \
+  X(OP_OBJECT_REST)       /* [count]  pop `count` keys and a source, push the \
+                           *          rest of it as a new object              */ \
   X(OP_ARRAY_REST)        /* [index]  push a copy from `index` onward       */ \
   /* A call whose arguments were spread: they arrive as one array, because      \
    * their number is only known at run time. Unpacks it and calls. */            \
@@ -125,6 +135,7 @@
   X(OP_GET_SUPER)         /* [const16]  bind a superclass method            */ \
   X(OP_SUPER_INVOKE)      /* [const16][argc]  super.name(args...)           */ \
   X(OP_SUPER_CALL)        /* [argc]   run the superclass constructor        */ \
+  X(OP_IN)                /*          pop key and target, push membership   */ \
   X(OP_INSTANCEOF)        /*          pop class and value, push a boolean   */ \
                                                                               \
   /* Modules. An import reads through to the exporting module's global rather   \

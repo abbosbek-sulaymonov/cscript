@@ -70,7 +70,18 @@ void compileDestructurePattern(const AstNode *node, int line) {
 
     if (binding->isRest) {
       emitBytes(OP_GET_LOCAL, (uint8_t)sourceSlot, line);
-      emitBytes(OP_ARRAY_REST, (uint8_t)i, line);
+      if (isObject) {
+        /* Everything the pattern already named, so the rest can exclude it.
+         * A rest is always last, so those are exactly the first `i`. */
+        for (int taken = 0; taken < i; taken++) {
+          const AstBinding *named = &node->as.destructure.bindings[taken];
+          emitConstantOp(OP_CONSTANT,
+                         identifierConstant(named->key, named->keyLength, line), line);
+        }
+        emitBytes(OP_OBJECT_REST, (uint8_t)i, line);
+      } else {
+        emitBytes(OP_ARRAY_REST, (uint8_t)i, line);
+      }
     } else {
       emitBytes(OP_GET_LOCAL, (uint8_t)sourceSlot, line);
       if (isObject) {

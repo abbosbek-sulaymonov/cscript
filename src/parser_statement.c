@@ -311,16 +311,36 @@ const char *notImplementedMessage(TokenType type) {
   }
 }
 
+/* The optional label on `break` / `continue`, and the semicolon after it. */
+static bool parseJumpLabel(Parser *parser, AstNode *jump, const char *keyword) {
+  if (matchToken(parser, TOKEN_IDENTIFIER)) {
+    jump->as.jump.label = parser->previous.start;
+    jump->as.jump.labelLength = parser->previous.length;
+  }
+
+  char message[64];
+  snprintf(message, sizeof message, "expected ';' after '%s'", keyword);
+  consume(parser, TOKEN_SEMICOLON, message);
+  return !parser->diag->panicMode;
+}
+
 AstNode *parseStatement(Parser *parser) {
   int line = parser->current.line;
 
-  /* `outer: for (...)` — a label. Named here because the alternative is a
-   * complaint about a missing semicolon several tokens later. */
+  /* `outer: for (...)` — a label. One token of lookahead separates it from an
+   * expression statement that merely starts with a name. */
   if (check(parser, TOKEN_IDENTIFIER)) {
     Lexer probe = parser->lexer;
     if (csLexerNext(&probe).type == TOKEN_COLON) {
-      errorAtCurrent(parser, "labelled statements are not supported");
-      return NULL;
+      advanceToken(parser);
+      const char *name = parser->previous.start;
+      int nameLength = parser->previous.length;
+      consume(parser, TOKEN_COLON, "expected ':' after a label");
+      if (parser->diag->panicMode) return NULL;
+
+      AstNode *body = parseStatement(parser);
+      if (body == NULL) return NULL;
+      return csAstLabeled(parser->arena, line, name, nameLength, body);
     }
   }
 
@@ -341,16 +361,16 @@ AstNode *parseStatement(Parser *parser) {
 
   if (matchToken(parser, TOKEN_BREAK)) {
     int breakLine = parser->previous.line;
-    consume(parser, TOKEN_SEMICOLON, "expected ';' after 'break'");
-    if (parser->diag->panicMode) return NULL;
-    return csAstBreak(parser->arena, breakLine);
+    AstNode *jump = csAstBreak(parser->arena, breakLine);
+    if (!parseJumpLabel(parser, jump, "break")) return NULL;
+    return jump;
   }
 
   if (matchToken(parser, TOKEN_CONTINUE)) {
     int continueLine = parser->previous.line;
-    consume(parser, TOKEN_SEMICOLON, "expected ';' after 'continue'");
-    if (parser->diag->panicMode) return NULL;
-    return csAstContinue(parser->arena, continueLine);
+    AstNode *jump = csAstContinue(parser->arena, continueLine);
+    if (!parseJumpLabel(parser, jump, "continue")) return NULL;
+    return jump;
   }
 
   if (matchToken(parser, TOKEN_THROW)) {

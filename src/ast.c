@@ -174,6 +174,13 @@ AstNode *csAstAssignKind(AstArena *arena, int line, AstNode *target,
   return node;
 }
 
+AstNode *csAstDelete(AstArena *arena, int line, AstNode *target) {
+  AstNode *node = newNode(arena, AST_DELETE, line);
+  if (node == NULL) return NULL;
+  node->as.deleteTarget = target;
+  return node;
+}
+
 AstNode *csAstOptionalChain(AstArena *arena, int line, AstNode *expression) {
   AstNode *node = newNode(arena, AST_OPTIONAL_CHAIN, line);
   if (node == NULL) return NULL;
@@ -503,6 +510,16 @@ AstNode *csAstBreak(AstArena *arena, int line) {
   return newNode(arena, AST_BREAK_STMT, line);
 }
 
+AstNode *csAstLabeled(AstArena *arena, int line, const char *name, int length,
+                      AstNode *body) {
+  AstNode *node = newNode(arena, AST_LABELED_STMT, line);
+  if (node == NULL) return NULL;
+  node->as.labeled.name = name;
+  node->as.labeled.length = length;
+  node->as.labeled.body = body;
+  return node;
+}
+
 AstNode *csAstContinue(AstArena *arena, int line) {
   return newNode(arena, AST_CONTINUE_STMT, line);
 }
@@ -551,7 +568,8 @@ AstNode *csAstObjectLiteral(AstArena *arena, int line) {
 
 void csAstObjectLiteralAdd(AstArena *arena, AstNode *object, AstNode *key,
                            AstNode *value) {
-  if (object == NULL || key == NULL || value == NULL) return;
+  /* A NULL key marks `...value`, which has no key by construction. */
+  if (object == NULL || value == NULL) return;
   int count = object->as.objectLiteral.count;
 
   AstNode **keys = growList(arena, object->as.objectLiteral.keys, count);
@@ -736,6 +754,7 @@ const char *csBinaryOpName(BinaryOp op) {
     case BINARY_LESS:             return "<";
     case BINARY_LESS_EQUAL:       return "<=";
     case BINARY_INSTANCEOF:       return "instanceof";
+    case BINARY_IN:               return "in";
   }
   return "?";
 }

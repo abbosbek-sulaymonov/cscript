@@ -521,6 +521,10 @@ void csObjectPut(ObjObject *object, ObjString *key, Value value);
  * implementation detail. */
 bool csObjectGet(ObjObject *object, ObjString *key, Value *out);
 
+/* Removes a property, answering whether it was there. Costs the object its
+ * hidden class: see the comment on the definition. */
+bool csObjectDelete(ObjObject *object, ObjString *key);
+
 /* Enumeration in insertion order — what Object.keys, JSON.stringify and
  * printing all need. `index` must be below csObjectCount(). */
 int csObjectCount(const ObjObject *object);

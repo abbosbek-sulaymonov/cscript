@@ -289,6 +289,16 @@ AstNode *parsePrimary(Parser *parser) {
       do {
         if (check(parser, TOKEN_RIGHT_BRACE)) break;
 
+        /* `{ ...source }`. Order matters — a later entry overwrites an
+         * earlier one either way round — so it is kept as an entry with no
+         * key rather than hoisted. */
+        if (matchToken(parser, TOKEN_ELLIPSIS)) {
+          AstNode *source = parsePrecedence(parser, PREC_ASSIGNMENT);
+          if (source == NULL) return NULL;
+          csAstObjectLiteralAdd(parser->arena, object, NULL, source);
+          continue;
+        }
+
         /* `get x() {}` in an object literal is an accessor, which only classes
          * support — worth naming rather than failing at the missing colon. */
         if (checkWord(parser, "get") || checkWord(parser, "set")) {
@@ -318,6 +328,11 @@ AstNode *parsePrimary(Parser *parser) {
         if (matchToken(parser, TOKEN_STRING)) {
           key = makeStringLiteral(parser, parser->previous.start,
                                   parser->previous.length, parser->previous.line);
+        } else if (matchToken(parser, TOKEN_NUMBER)) {
+          /* `{ 1: x }`. The key is the number's *string* form, because that is
+           * what `o[1]` and `o["1"]` both look up. */
+          key = csAstString(parser->arena, parser->previous.line,
+                            parser->previous.start, parser->previous.length);
         } else {
           if (!consumePropertyName(parser, "expected a property name")) return NULL;
           if (parser->diag->panicMode) return NULL;
@@ -457,10 +472,21 @@ AstNode *parsePrimary(Parser *parser) {
     return NULL;
   }
 
-  if (check(parser, TOKEN_DELETE)) {
-    errorAtCurrent(parser, "'delete' is not supported; an object's shape is fixed "
-                           "once it is built");
-    return NULL;
+  if (matchToken(parser, TOKEN_DELETE)) {
+    Token keyword = parser->previous;
+    AstNode *target = parsePrecedence(parser, PREC_UNARY);
+    if (target == NULL) return NULL;
+
+    /* JavaScript answers `true` for `delete x` on anything that is not a
+     * property, and rejects a bare variable outright in strict mode. Naming
+     * it here is more use than either. */
+    if (target->type != AST_PROPERTY && target->type != AST_INDEX) {
+      csDiagnosticError(parser->diag, keyword.line, keyword.start, keyword.length,
+                        "'delete' removes a property, as in 'delete o.k' or "
+                        "'delete o[k]'");
+      return NULL;
+    }
+    return csAstDelete(parser->arena, keyword.line, target);
   }
 
   /* `/` here can only open a regular expression: a value is expected, so it
@@ -548,7 +574,6 @@ AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence) {
     }
 
     if (rejectLooseEquality(parser)) return NULL;
-    if (rejectInOperator(parser)) return NULL;
 
     Precedence precedence = binaryPrecedence(parser->current.type);
     if (precedence == PREC_NONE || precedence < minPrecedence) break;

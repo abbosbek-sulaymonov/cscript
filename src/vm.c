@@ -446,6 +446,23 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
   return false;
 }
 
+/* The string a value becomes when used as an object key.
+ *
+ * JavaScript converts anything: `o[1]` and `o["1"]` are the same property.
+ * Returns NULL only when the conversion could not allocate, in which case the
+ * caller reports it. The result is unrooted, so a caller that allocates again
+ * before storing it must root it first. */
+static ObjString *objectKeyFor(Value key) {
+  if (IS_STRING(key)) return AS_STRING(key);
+
+  size_t length = 0;
+  char *text = csValueToCString(key, &length);
+  if (text == NULL) return NULL;
+  ObjString *converted = csStringCopy(text, (int)length);
+  free(text);
+  return converted;
+}
+
 /* Whether `invokeMethod` would find something to call.
  *
  * Deliberately the same walk in the same order, because an answer that
@@ -1323,13 +1340,16 @@ InterpretResult run(int baseFrame) {
         }
 
         if (IS_OBJECT(target)) {
-          if (!IS_STRING(index)) {
-            csVMRuntimeError("object key must be a string, got %s",
-                             csValueTypeName(index));
+          /* `o[1]` and `o["1"]` name the same property, so the key converts
+           * rather than being rejected — which is also what `{ 1: x }` had to
+           * store under for the two to meet. */
+          ObjString *key = objectKeyFor(index);
+          if (key == NULL) {
+            csVMRuntimeError("out of memory converting an object key");
             return CS_RUNTIME_ERROR;
           }
           Value value;
-          bool found = csObjectGet(AS_OBJECT(target), AS_STRING(index), &value);
+          bool found = csObjectGet(AS_OBJECT(target), key, &value);
           vm.stackTop -= 2;
           csVMPush(found ? value : UNDEFINED_VAL);
           VM_NEXT();
@@ -1431,18 +1451,21 @@ InterpretResult run(int baseFrame) {
           }
           array->elements.values[slot] = value;
         } else if (IS_OBJECT(target)) {
-          if (!IS_STRING(index)) {
-            csVMRuntimeError("object key must be a string, got %s",
-                             csValueTypeName(index));
+          ObjString *key = objectKeyFor(index);
+          if (key == NULL) {
+            csVMRuntimeError("out of memory converting an object key");
             return CS_RUNTIME_ERROR;
           }
+          csPushTempRoot((Obj *)key); /* csObjectPut can collect */
           /* `console["log"] = f` is the same act as `console.log = f`. */
           if (AS_OBJECT(target)->frozen) {
+            csPopTempRoot();
             csVMRuntimeError("'%s.%s' is a built-in and cannot be replaced",
-                             AS_OBJECT(target)->name->chars, AS_STRING(index)->chars);
+                             AS_OBJECT(target)->name->chars, key->chars);
             return CS_RUNTIME_ERROR;
           }
-          csObjectPut(AS_OBJECT(target), AS_STRING(index), value);
+          csObjectPut(AS_OBJECT(target), key, value);
+          csPopTempRoot();
         } else {
           csVMRuntimeError("cannot index %s", csValueTypeName(target));
           return CS_RUNTIME_ERROR;
@@ -1464,15 +1487,11 @@ InterpretResult run(int baseFrame) {
         for (int i = 0; i < count; i++) {
           Value key = entries[i * 2];
           if (!IS_STRING(key)) {
-            /* A computed key can be anything; JavaScript converts it. */
-            size_t length = 0;
-            char *text = csValueToCString(key, &length);
-            if (text == NULL) {
+            ObjString *converted = objectKeyFor(key);
+            if (converted == NULL) {
               csVMRuntimeError("out of memory building an object key");
               return CS_RUNTIME_ERROR;
             }
-            ObjString *converted = csStringCopy(text, (int)length);
-            free(text);
             entries[i * 2] = OBJ_VAL(converted); /* keeps it rooted */
             key = entries[i * 2];
           }
@@ -1548,6 +1567,141 @@ InterpretResult run(int baseFrame) {
         csPopTempRoot();
         vm.stackTop = elements;
         csVMPush(OBJ_VAL(array));
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_DELETE_PROPERTY) {
+        ObjString *name = READ_STRING();
+        Value target = csVMPop();
+        if (!IS_OBJECT(target)) {
+          csVMRuntimeError("cannot delete a property of %s",
+                           csValueTypeName(target));
+          return CS_RUNTIME_ERROR;
+        }
+        if (AS_OBJECT(target)->frozen) {
+          csVMRuntimeError("'%s' is a built-in and its properties cannot be "
+                           "deleted", AS_OBJECT(target)->name->chars);
+          return CS_RUNTIME_ERROR;
+        }
+        /* JavaScript answers true when the property was not there either —
+         * false is reserved for one it refused to remove, and a frozen
+         * built-in is reported above rather than answered. */
+        csObjectDelete(AS_OBJECT(target), name);
+        csVMPush(BOOL_VAL(true));
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_DELETE_INDEX) {
+        Value index = peekStack(0);
+        Value target = peekStack(1);
+        if (!IS_OBJECT(target)) {
+          csVMRuntimeError("cannot delete a property of %s",
+                           csValueTypeName(target));
+          return CS_RUNTIME_ERROR;
+        }
+        if (AS_OBJECT(target)->frozen) {
+          csVMRuntimeError("'%s' is a built-in and its properties cannot be "
+                           "deleted", AS_OBJECT(target)->name->chars);
+          return CS_RUNTIME_ERROR;
+        }
+
+        ObjString *key = objectKeyFor(index);
+        if (key == NULL) {
+          csVMRuntimeError("out of memory converting an object key");
+          return CS_RUNTIME_ERROR;
+        }
+        csObjectDelete(AS_OBJECT(target), key);
+        vm.stackTop -= 2;
+        csVMPush(BOOL_VAL(true));
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_OBJECT_SET) {
+        Value value = peekStack(0);
+        Value keyValue = peekStack(1);
+        ObjObject *object = AS_OBJECT(peekStack(2));
+
+        ObjString *key = objectKeyFor(keyValue);
+        if (key == NULL) {
+          csVMRuntimeError("out of memory building an object key");
+          return CS_RUNTIME_ERROR;
+        }
+        csPushTempRoot((Obj *)key);
+        csObjectPut(object, key, value);
+        csPopTempRoot();
+
+        vm.stackTop -= 2;
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_OBJECT_MERGE) {
+        Value source = peekStack(0);
+        ObjObject *object = AS_OBJECT(peekStack(1));
+
+        if (IS_OBJECT(source)) {
+          ObjObject *from = AS_OBJECT(source);
+          /* By index rather than by iterator, because csObjectPut on the
+           * target cannot change the source. */
+          for (int i = 0; i < csObjectCount(from); i++) {
+            ObjString *key = csObjectKeyAt(from, i);
+            Value value;
+            if (csObjectGet(from, key, &value)) csObjectPut(object, key, value);
+          }
+        } else if (IS_ARRAY(source)) {
+          /* `{ ...[a, b] }` is `{ 0: a, 1: b }` — the indices are the keys. */
+          ObjArray *array = AS_ARRAY(source);
+          for (int i = 0; i < array->elements.count; i++) {
+            char digits[16];
+            int length = snprintf(digits, sizeof digits, "%d", i);
+            ObjString *key = csStringCopy(digits, length);
+            csPushTempRoot((Obj *)key);
+            csObjectPut(object, key, array->elements.values[i]);
+            csPopTempRoot();
+          }
+        } else if (!IS_NULL(source) && !IS_UNDEFINED(source)) {
+          /* Spreading null or undefined contributes nothing, as in
+           * JavaScript; anything else has no keys to contribute either. */
+          csVMRuntimeError("cannot spread %s into an object",
+                           csValueTypeName(source));
+          return CS_RUNTIME_ERROR;
+        }
+
+        csVMPop();
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_OBJECT_REST) {
+        uint8_t taken = READ_BYTE();
+        Value *names = vm.stackTop - taken;
+        Value source = names[-1];
+
+        if (!IS_OBJECT(source)) {
+          csVMRuntimeError("cannot destructure %s as an object",
+                           csValueTypeName(source));
+          return CS_RUNTIME_ERROR;
+        }
+
+        ObjObject *rest = csObjectNew("Object");
+        csPushTempRoot((Obj *)rest);
+
+        ObjObject *from = AS_OBJECT(source);
+        for (int i = 0; i < csObjectCount(from); i++) {
+          ObjString *key = csObjectKeyAt(from, i);
+
+          bool named = false;
+          for (int n = 0; n < taken && !named; n++) {
+            named = IS_STRING(names[n]) && AS_STRING(names[n]) == key;
+          }
+          if (named) continue;
+
+          Value value;
+          if (csObjectGet(from, key, &value)) csObjectPut(rest, key, value);
+        }
+
+        csPopTempRoot();
+        /* Replaces the source and the names, the shape OP_ARRAY_REST leaves. */
+        vm.stackTop = names - 1;
+        csVMPush(OBJ_VAL(rest));
         VM_NEXT();
       }
 
@@ -1868,6 +2022,43 @@ InterpretResult run(int baseFrame) {
           VM_NEXT();
         }
         frame = &vm.frames[vm.frameCount - 1];
+        VM_NEXT();
+      }
+
+      VM_CASE(OP_IN) {
+        Value target = peekStack(0);
+        Value key = peekStack(1);
+        bool result;
+
+        if (IS_OBJECT(target)) {
+          ObjString *name = objectKeyFor(key);
+          if (name == NULL) {
+            csVMRuntimeError("out of memory converting a key for 'in'");
+            return CS_RUNTIME_ERROR;
+          }
+          csPushTempRoot((Obj *)name);
+          Value ignored;
+          ObjObject *object = AS_OBJECT(target);
+          result = csObjectGet(object, name, &ignored) ||
+                   (object->klass != NULL &&
+                    csClassFindMethod(object->klass, name) != NULL);
+          csPopTempRoot();
+        } else if (IS_ARRAY(target)) {
+          /* An array's own keys are its indices, so `2 in [a, b, c]` is true
+           * and `3` is not — the same question `in` asks of an object. */
+          ObjArray *array = AS_ARRAY(target);
+          result = IS_NUMBER(key) && AS_NUMBER(key) >= 0 &&
+                   AS_NUMBER(key) < (double)array->elements.count &&
+                   AS_NUMBER(key) == (double)(long long)AS_NUMBER(key);
+        } else {
+          csVMRuntimeError("the right side of 'in' must be an object or an "
+                           "array, got %s",
+                           csValueTypeName(target));
+          return CS_RUNTIME_ERROR;
+        }
+
+        vm.stackTop -= 2;
+        csVMPush(BOOL_VAL(result));
         VM_NEXT();
       }
 

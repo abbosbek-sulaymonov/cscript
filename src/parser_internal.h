@@ -48,7 +48,6 @@ AstNode *makeStringLiteral(Parser *parser, const char *start, int length,
                                   int line);
 double parseNumberLiteral(const char *start, int length);
 bool rejectLooseEquality(Parser *parser);
-bool rejectInOperator(Parser *parser);
 bool consumePropertyName(Parser *parser, const char *message);
 bool nameIsWord(const char *name, int length, const char *word);
 bool checkWord(Parser *parser, const char *word);

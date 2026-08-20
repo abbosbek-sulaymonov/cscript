@@ -1,0 +1,6 @@
+true true false
+true true
+true x x [ '1', '2' ]
+a a b [ '1', 'true' ]
+true true false
+true false

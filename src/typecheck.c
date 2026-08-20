@@ -267,6 +267,11 @@ static TypeKind checkBinary(Checker *checker, AstNode *node) {
       checkNode(checker, node->as.binary.left);
       return TYPE_BOOLEAN;
 
+    case BINARY_IN:
+      /* Which keys a value has is not in the type lattice, so only the shape
+       * of the operands is checked, by the VM. */
+      return TYPE_BOOLEAN;
+
     case BINARY_SUBTRACT:
     case BINARY_MULTIPLY:
     case BINARY_DIVIDE:
@@ -404,6 +409,18 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
 
     /* A chain can short-circuit to undefined whatever its links say, so the
      * type it produces is not the type of the last one. */
+    case AST_LABELED_STMT:
+      /* A label is a jump target; it declares nothing and types nothing. */
+      checkNode(checker, node->as.labeled.body);
+      result = TYPE_UNDEFINED;
+      break;
+
+    case AST_DELETE:
+      /* Whether the property was there is not a question about types. */
+      checkNode(checker, node->as.deleteTarget);
+      result = TYPE_BOOLEAN;
+      break;
+
     case AST_OPTIONAL_CHAIN:
       checkNode(checker, node->as.expression);
       result = TYPE_ANY;

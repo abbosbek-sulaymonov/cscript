@@ -180,6 +180,12 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_ARRAY:             return byteInstruction("OP_ARRAY", chunk, offset);
     case OP_SPREAD_MARK:       return simpleInstruction("OP_SPREAD_MARK", offset);
     case OP_ARRAY_SPREAD:      return byteInstruction("OP_ARRAY_SPREAD", chunk, offset);
+    case OP_DELETE_PROPERTY:
+      return constantInstruction("OP_DELETE_PROPERTY", chunk, offset);
+    case OP_DELETE_INDEX:      return simpleInstruction("OP_DELETE_INDEX", offset);
+    case OP_OBJECT_SET:        return simpleInstruction("OP_OBJECT_SET", offset);
+    case OP_OBJECT_MERGE:      return simpleInstruction("OP_OBJECT_MERGE", offset);
+    case OP_OBJECT_REST:       return byteInstruction("OP_OBJECT_REST", chunk, offset);
     case OP_ARRAY_REST:        return byteInstruction("OP_ARRAY_REST", chunk, offset);
     case OP_CALL_SPREAD:       return simpleInstruction("OP_CALL_SPREAD", offset);
     case OP_CLOSURE: {
@@ -209,6 +215,7 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_INHERIT:           return simpleInstruction("OP_INHERIT", offset);
     case OP_CONSTRUCTOR:       return simpleInstruction("OP_CONSTRUCTOR", offset);
     case OP_FIELD_INIT:        return simpleInstruction("OP_FIELD_INIT", offset);
+    case OP_IN:                return simpleInstruction("OP_IN", offset);
     case OP_INSTANCEOF:        return simpleInstruction("OP_INSTANCEOF", offset);
     case OP_IMPORT_NAME:       return constantInstruction("OP_IMPORT_NAME", chunk, offset);
     case OP_IMPORT_NAMESPACE:  return simpleInstruction("OP_IMPORT_NAMESPACE", offset);
@@ -341,6 +348,14 @@ static void printNode(const AstNode *node, int depth) {
     case AST_OPTIONAL_CHAIN:
       printf("OptionalChain\n");
       printNode(node->as.expression, depth + 1);
+      break;
+    case AST_LABELED_STMT:
+      printf("Label %.*s\n", node->as.labeled.length, node->as.labeled.name);
+      printNode(node->as.labeled.body, depth + 1);
+      break;
+    case AST_DELETE:
+      printf("Delete\n");
+      printNode(node->as.deleteTarget, depth + 1);
       break;
     case AST_IDENTIFIER:
       printf("Identifier %.*s", node->as.identifier.length, node->as.identifier.name);

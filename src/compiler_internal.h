@@ -104,6 +104,11 @@ typedef struct Loop {
   int continueTarget;  /* -1 while unknown, e.g. a for-loop's increment */
   bool allowsContinue; /* false inside a switch */
 
+  /* The label written on this loop, if any. `break outer` walks the chain
+   * looking for it rather than stopping at the innermost. */
+  const char *label;
+  int labelLength;
+
   int breakJumps[MAX_LOOP_EXITS];
   int breakCount;
   int continueJumps[MAX_LOOP_EXITS];
@@ -163,6 +168,11 @@ GlobalDecl *findGlobal(const char *name, int length);
 void addGlobal(const char *name, int length, bool isConst,
                       int line);
 void beginLoop(Loop *loop, bool allowsContinue);
+
+/* The label the next beginLoop should adopt, set by AST_LABELED_STMT and
+ * cleared as soon as it is taken. A statement can carry only one. */
+extern const char *pendingLabel;
+extern int pendingLabelLength;
 void endLoop(Loop *loop, int line);
 void compileStatements(AstNode *const *statements,
                               int count);

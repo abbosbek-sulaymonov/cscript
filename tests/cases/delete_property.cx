@@ -1,0 +1,26 @@
+// `delete` removes a property, which costs the object its hidden class and
+// is why it is worth reaching for rarely.
+const o = { a: 1, b: 2, c: 3 };
+delete o.b;
+console.log(JSON.stringify(o), Object.keys(o));
+console.log(o.b, "b" in o);
+
+// Answers true even for a key that was not there, as JavaScript does.
+console.log(delete o.a, delete o.neverExisted);
+
+// The object still works afterwards, including growing again.
+o.d = 4;
+console.log(JSON.stringify(o), Object.keys(o));
+
+// Computed form.
+const byKey = { one: 1, two: 2 };
+delete byKey["one"];
+console.log(JSON.stringify(byKey));
+
+// Many properties, so the dictionary path is exercised rather than the shape.
+const wide = {};
+for (let i = 0; i < 6; i++) wide["k" + i] = i;
+delete wide.k0;
+delete wide.k3;
+delete wide.k5;
+console.log(Object.keys(wide), JSON.stringify(wide));

@@ -66,6 +66,7 @@ uint8_t binaryOpcode(BinaryOp op) {
     case BINARY_LESS:          return OP_LESS;
     case BINARY_LESS_EQUAL:    return OP_LESS_EQUAL;
     case BINARY_INSTANCEOF:    return OP_INSTANCEOF;
+    case BINARY_IN:            return OP_IN;
   }
   return OP_ADD;
 }

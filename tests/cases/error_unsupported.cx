@@ -1,4 +1,6 @@
-// Every gap names itself. This case pins that promise for the ones most
-// likely to be reached by accident — each of these is ordinary JavaScript.
+// Every gap names itself. This case pins that promise for a refusal that is
+// deliberate and permanent: `delete` removes a property, and JavaScript's
+// habit of accepting it on anything at all — answering `true` for a variable
+// it did not touch — hides a typo rather than reporting one.
 const o = { a: 1 };
-delete o.a;
+delete o;

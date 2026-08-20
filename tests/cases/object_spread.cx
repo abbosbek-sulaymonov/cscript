@@ -1,0 +1,31 @@
+// Spread in an object literal, applied in source order.
+console.log(JSON.stringify({ ...{ a: 1, b: 2 } }));
+console.log(JSON.stringify({ ...{ a: 1 }, b: 2 }));
+console.log(JSON.stringify({ a: 1, ...{ a: 9 } }));
+console.log(JSON.stringify({ ...{ a: 1 }, a: 5, ...{ a: 9 } }));
+
+// Spreading nothing contributes nothing rather than failing.
+console.log(JSON.stringify({ ...null, ...undefined, a: 1 }));
+
+// An array spreads under its indices.
+console.log(JSON.stringify({ ...[7, 8] }));
+
+// The copy is shallow and separate.
+const source = { a: 1 };
+const copy = { ...source };
+copy.a = 9;
+console.log(source.a, copy.a);
+
+// Rest in an object pattern takes everything not already named.
+const { a, ...rest } = { a: 1, b: 2, c: 3 };
+console.log(a, JSON.stringify(rest));
+
+const { x, y, ...more } = { x: 1, y: 2, z: 3, w: 4 };
+console.log(x, y, JSON.stringify(more));
+
+// Renaming excludes the original key, not the new name.
+const { p: renamed, ...others } = { p: 1, q: 2 };
+console.log(renamed, JSON.stringify(others));
+
+const { ...everything } = { k: 1 };
+console.log(JSON.stringify(everything));

@@ -309,8 +309,51 @@ void addGlobal(const char *name, int length, bool isConst,
 }
 
 
+const char *pendingLabel = NULL;
+int pendingLabelLength = 0;
+
+/* The loop or switch a `break` / `continue` names.
+ *
+ * Without a label that is the innermost one that accepts the jump; with one it
+ * is the nearest enclosing construct carrying that label, which is how
+ * `break outer` leaves more than one loop at once. */
+static Loop *targetLoop(const char *label, int labelLength, bool needsContinue,
+                        int line) {
+  for (Loop *loop = currentLoop; loop != NULL; loop = loop->enclosing) {
+    if (label == NULL) {
+      if (!needsContinue || loop->allowsContinue) return loop;
+      continue;
+    }
+    if (loop->label == NULL || loop->labelLength != labelLength ||
+        memcmp(loop->label, label, (size_t)labelLength) != 0) {
+      continue;
+    }
+    if (needsContinue && !loop->allowsContinue) {
+      errorAt(line, "'continue %.*s' names a label that is not on a loop",
+              labelLength, label);
+      return NULL;
+    }
+    return loop;
+  }
+
+  if (label != NULL) {
+    errorAt(line, "no enclosing statement is labelled '%.*s'", labelLength, label);
+  } else if (needsContinue) {
+    errorAt(line, "'continue' outside of a loop");
+  } else {
+    errorAt(line, "'break' outside of a loop or switch");
+  }
+  return NULL;
+}
+
 void beginLoop(Loop *loop, bool allowsContinue) {
   loop->enclosing = currentLoop;
+  /* Taken rather than copied: the label belongs to the statement immediately
+   * after it, and a loop nested inside that one must not inherit it. */
+  loop->label = pendingLabel;
+  loop->labelLength = pendingLabelLength;
+  pendingLabel = NULL;
+  pendingLabelLength = 0;
   loop->scopeDepth = current->scopeDepth;
   loop->continueTarget = -1;
   loop->allowsContinue = allowsContinue;
@@ -520,6 +563,22 @@ void compileNode(const AstNode *node) {
       compileOptionalChain(node);
       break;
 
+    case AST_DELETE: {
+      const AstNode *target = node->as.deleteTarget;
+      if (target->type == AST_PROPERTY) {
+        compileNode(target->as.property.object);
+        emitConstantOp(OP_DELETE_PROPERTY,
+                       identifierConstant(target->as.property.name,
+                                          target->as.property.length, line),
+                       line);
+      } else {
+        compileNode(target->as.index.target);
+        compileNode(target->as.index.index);
+        emitByte(OP_DELETE_INDEX, line);
+      }
+      break;
+    }
+
     case AST_INDEX:
       compileNode(node->as.index.target);
       /* Before the subscript: `a?.[f()]` must not call `f` when `a` is
@@ -535,12 +594,36 @@ void compileNode(const AstNode *node) {
                 UINT8_MAX);
         break;
       }
-      /* Keys and values alternate on the stack; OP_OBJECT consumes the pairs. */
+      bool hasSpread = false;
       for (int i = 0; i < node->as.objectLiteral.count; i++) {
-        compileNode(node->as.objectLiteral.keys[i]);
-        compileNode(node->as.objectLiteral.values[i]);
+        if (node->as.objectLiteral.keys[i] == NULL) hasSpread = true;
       }
-      emitBytes(OP_OBJECT, (uint8_t)node->as.objectLiteral.count, line);
+
+      /* Without a spread the whole literal is one instruction over a run of
+       * stack pairs. With one it is built up entry by entry, because the
+       * entries have to be applied in source order for the last mention of a
+       * key to win. */
+      if (!hasSpread) {
+        /* Keys and values alternate on the stack; OP_OBJECT consumes the pairs. */
+        for (int i = 0; i < node->as.objectLiteral.count; i++) {
+          compileNode(node->as.objectLiteral.keys[i]);
+          compileNode(node->as.objectLiteral.values[i]);
+        }
+        emitBytes(OP_OBJECT, (uint8_t)node->as.objectLiteral.count, line);
+        break;
+      }
+
+      emitBytes(OP_OBJECT, 0, line);
+      for (int i = 0; i < node->as.objectLiteral.count; i++) {
+        if (node->as.objectLiteral.keys[i] == NULL) {
+          compileNode(node->as.objectLiteral.values[i]);
+          emitByte(OP_OBJECT_MERGE, line);
+        } else {
+          compileNode(node->as.objectLiteral.keys[i]);
+          compileNode(node->as.objectLiteral.values[i]);
+          emitByte(OP_OBJECT_SET, line);
+        }
+      }
       break;
     }
 
@@ -784,34 +867,60 @@ void compileNode(const AstNode *node) {
     }
 
     case AST_BREAK_STMT: {
-      if (currentLoop == NULL) {
-        errorAt(line, "'break' outside of a loop or switch");
-        break;
-      }
-      if (currentLoop->breakCount >= MAX_LOOP_EXITS) {
+      Loop *target =
+          targetLoop(node->as.jump.label, node->as.jump.labelLength, false, line);
+      if (target == NULL) break;
+      if (target->breakCount >= MAX_LOOP_EXITS) {
         errorAt(line, "too many 'break' statements in one loop (limit %d)",
                 MAX_LOOP_EXITS);
         break;
       }
-      unwindTryBlocks(currentLoop->scopeDepth, line);
-      discardLocalsAbove(currentLoop->scopeDepth, line);
-      currentLoop->breakJumps[currentLoop->breakCount++] = emitJump(OP_JUMP, line);
+      unwindTryBlocks(target->scopeDepth, line);
+      discardLocalsAbove(target->scopeDepth, line);
+      target->breakJumps[target->breakCount++] = emitJump(OP_JUMP, line);
       break;
     }
 
     case AST_CONTINUE_STMT: {
-      if (currentLoop == NULL || !currentLoop->allowsContinue) {
-        errorAt(line, "'continue' outside of a loop");
-        break;
-      }
-      if (currentLoop->continueCount >= MAX_LOOP_EXITS) {
+      Loop *target =
+          targetLoop(node->as.jump.label, node->as.jump.labelLength, true, line);
+      if (target == NULL) break;
+      if (target->continueCount >= MAX_LOOP_EXITS) {
         errorAt(line, "too many 'continue' statements in one loop (limit %d)",
                 MAX_LOOP_EXITS);
         break;
       }
-      unwindTryBlocks(currentLoop->scopeDepth, line);
-      discardLocalsAbove(currentLoop->scopeDepth, line);
-      currentLoop->continueJumps[currentLoop->continueCount++] = emitJump(OP_JUMP, line);
+      unwindTryBlocks(target->scopeDepth, line);
+      discardLocalsAbove(target->scopeDepth, line);
+      target->continueJumps[target->continueCount++] = emitJump(OP_JUMP, line);
+      break;
+    }
+
+    case AST_LABELED_STMT: {
+      const AstNode *body = node->as.labeled.body;
+
+      /* A label on a loop or a switch belongs to that construct, so it is
+       * handed over for beginLoop to adopt — which is what lets `continue
+       * outer` reach the right increment. */
+      if (body->type == AST_WHILE_STMT || body->type == AST_FOR_STMT ||
+          body->type == AST_FOR_OF_STMT || body->type == AST_SWITCH_STMT) {
+        pendingLabel = node->as.labeled.name;
+        pendingLabelLength = node->as.labeled.length;
+        compileNode(body);
+        pendingLabel = NULL;
+        pendingLabelLength = 0;
+        break;
+      }
+
+      /* `outer: { … break outer; }` — a labelled block is a jump target and
+       * nothing more, so it gets a context that catches `break` and refuses
+       * `continue`, exactly as a switch does. */
+      Loop loop;
+      pendingLabel = node->as.labeled.name;
+      pendingLabelLength = node->as.labeled.length;
+      beginLoop(&loop, false);
+      compileNode(body);
+      endLoop(&loop, line);
       break;
     }
 

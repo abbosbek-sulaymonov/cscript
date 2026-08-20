@@ -1,0 +1,43 @@
+// A label names a statement so a jump can leave more than one level.
+outer: for (let i = 0; i < 3; i++) {
+  for (let j = 0; j < 3; j++) {
+    if (j === 1) continue outer;
+    console.log("continue", i, j);
+  }
+}
+
+stop: for (let i = 0; i < 3; i++) {
+  for (let j = 0; j < 3; j++) {
+    if (i === 1) break stop;
+    console.log("break", i, j);
+  }
+}
+
+// A labelled block is a jump target and nothing else.
+block: {
+  console.log("in");
+  break block;
+}
+console.log("after");
+
+// `continue` on a label crossing a switch reaches the loop, not the switch.
+counted: for (let i = 0; i < 3; i++) {
+  switch (i) {
+    case 0:
+      continue counted;
+  }
+  console.log("switch", i);
+}
+
+// Over a for...of, and out of a while.
+each: for (const v of [1, 2, 3]) {
+  if (v === 2) continue each;
+  console.log("of", v);
+}
+
+spin: while (true) {
+  while (true) {
+    break spin;
+  }
+}
+console.log("done");

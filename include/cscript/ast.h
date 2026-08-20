@@ -38,6 +38,7 @@ typedef enum {
   AST_AWAIT,
   AST_REGEX_LITERAL,
   AST_OPTIONAL_CHAIN,
+  AST_DELETE,
 
   /* Statements. */
   AST_EXPRESSION_STMT,
@@ -52,6 +53,7 @@ typedef enum {
   AST_BREAK_STMT,
   AST_CONTINUE_STMT,
   AST_SWITCH_STMT,
+  AST_LABELED_STMT,
   AST_TRY_STMT,
   AST_THROW_STMT,
   AST_CLASS_DECL,
@@ -73,6 +75,7 @@ typedef enum {
   BINARY_GREATER, BINARY_GREATER_EQUAL,
   BINARY_LESS, BINARY_LESS_EQUAL,
   BINARY_INSTANCEOF,
+  BINARY_IN,
 } BinaryOp;
 
 typedef enum {
@@ -201,6 +204,16 @@ struct AstNode {
       AstNode *right;
     } logical;
     AstNode *grouping;                   /* AST_GROUPING */
+    AstNode *deleteTarget;               /* AST_DELETE — a property or index */
+    struct {                             /* AST_LABELED_STMT — `outer: for …` */
+      const char *name;
+      int length;
+      AstNode *body;
+    } labeled;
+    struct {                             /* AST_BREAK_STMT, AST_CONTINUE_STMT */
+      const char *label;                 /*   NULL for the innermost */
+      int labelLength;
+    } jump;
     AstNode *expression;                 /* AST_EXPRESSION_STMT */
     struct {                             /* AST_IDENTIFIER */
       const char *name;                  /*   arena-owned, NUL-terminated */
@@ -318,7 +331,8 @@ struct AstNode {
       bool optional;                     /*   written `?.[` */
     } index;
     struct {                             /* AST_OBJECT_LITERAL */
-      AstNode **keys;                    /*   string literal nodes */
+      AstNode **keys;                    /*   string literal nodes, or NULL
+                                          *   for a `...spread` entry */
       AstNode **values;
       int count;
     } objectLiteral;
@@ -415,6 +429,10 @@ AstNode *csAstAssignKind(AstArena *arena, int line, AstNode *target,
  * decide on their own where to jump, so the outermost expression carries the
  * landing site and each link jumps to it. */
 AstNode *csAstOptionalChain(AstArena *arena, int line, AstNode *expression);
+
+/* `delete o.k`. The target is a property or an index; anything else is
+ * reported where it is written. */
+AstNode *csAstDelete(AstArena *arena, int line, AstNode *target);
 AstNode *csAstUpdate(AstArena *arena, int line, AstNode *target, bool isIncrement,
                      bool isPrefix);
 AstNode *csAstCall(AstArena *arena, int line, AstNode *callee);
@@ -458,11 +476,16 @@ void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name,
 AstNode *csAstConditional(AstArena *arena, int line, AstNode *condition,
                           AstNode *thenValue, AstNode *elseValue);
 AstNode *csAstBreak(AstArena *arena, int line);
+
+/* `name: statement`. The label is a jump target, not a binding. */
+AstNode *csAstLabeled(AstArena *arena, int line, const char *name, int length,
+                      AstNode *body);
 AstNode *csAstContinue(AstArena *arena, int line);
 AstNode *csAstSwitch(AstArena *arena, int line, AstNode *subject);
 void csAstSwitchAddCase(AstArena *arena, AstNode *node, AstNode *test, AstNode *body);
 AstNode *csAstIndex(AstArena *arena, int line, AstNode *target, AstNode *index);
 AstNode *csAstObjectLiteral(AstArena *arena, int line);
+/* `key` is NULL for a `...value` entry, which has no key. */
 void csAstObjectLiteralAdd(AstArena *arena, AstNode *object, AstNode *key,
                            AstNode *value);
 AstNode *csAstArrayLiteral(AstArena *arena, int line);

@@ -156,6 +156,37 @@ static void dictionaryPut(ObjObject *object, ObjString *key, Value value) {
   object->as.dictionary.keys[object->as.dictionary.count++] = key;
 }
 
+bool csObjectDelete(ObjObject *object, ObjString *key) {
+  if (object->shape != NULL) {
+    int slot;
+    if (!csShapeLookup(object->shape, key, &slot)) return false;
+
+    /* A shape names a fixed set of slots in a fixed order, and what is left
+     * after removing one describes nothing in the transition tree. So the
+     * object leaves shape mode for good — the same escape hatch growing past
+     * the slot limit takes. That is the real cost of `delete`, and the reason
+     * to reach for it rarely rather than the reason to refuse it. */
+    csPushTempRoot((Obj *)object);
+    csPushTempRoot((Obj *)key);
+    convertToDictionary(object);
+    csPopTempRoot();
+    csPopTempRoot();
+  }
+
+  if (!csTableDelete(&object->as.dictionary.table, key)) return false;
+
+  /* Insertion order is kept as a list, so the key leaves that too. */
+  for (int i = 0; i < object->as.dictionary.count; i++) {
+    if (object->as.dictionary.keys[i] != key) continue;
+    for (int j = i; j + 1 < object->as.dictionary.count; j++) {
+      object->as.dictionary.keys[j] = object->as.dictionary.keys[j + 1];
+    }
+    object->as.dictionary.count--;
+    break;
+  }
+  return true;
+}
+
 void csObjectPut(ObjObject *object, ObjString *key, Value value) {
   if (object->shape == NULL) {
     csPushTempRoot((Obj *)object);

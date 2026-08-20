@@ -37,6 +37,8 @@ asserted here.
 | Conditional | `c ? a : b`, right-associative |
 | Truthiness | `0`, `""`, `NaN`, `null`, `undefined`, `false` are falsy |
 | `instanceof` | walks the class chain |
+| `in` | own properties, class methods, and an array's indices |
+| `delete` | on properties and computed keys |
 
 ### Syntax
 
@@ -46,13 +48,14 @@ asserted here.
 | Functions | declarations, expressions, arrows, closures |
 | `this` | lexical in arrows, receiver in methods |
 | Classes | fields, methods, `static`, getters and setters, `extends`, `super` |
-| Destructuring | array and object, nested, defaults, renaming, rest elements |
+| Destructuring | array and object, nested, defaults, renaming, rest elements and rest properties |
 | Parameters | patterns as parameters, in every function form |
-| Spread | array literals, call arguments, over strings |
-| Object literals | shorthand `{ x }`, computed keys `{ [k]: v }`, methods `{ m() {} }` |
+| Spread | array literals, object literals, call arguments, over strings |
+| Object literals | shorthand `{ x }`, computed keys `{ [k]: v }`, numeric keys `{ 1: v }`, methods `{ m() {} }`, spread `{ ...o }` |
 | Optional chaining | `?.`, `?.[ ]`, `?.()`, short-circuiting the whole chain |
 | Control flow | `if`, `while`, `do`/`while`, `for`, `for...of`, `for...in`, `switch` |
-| `break` / `continue` | including out of `try` with a `finally` |
+| `break` / `continue` | including labelled, and out of `try` with a `finally` |
+| Labelled statements | on loops, on `switch`, and on blocks |
 | Exceptions | `try`/`catch`/`finally`/`throw`, any value throwable |
 | Modules | `import`, `export`, named and namespace, per-file scope |
 | Asynchrony | `async`/`await`, promises, `setTimeout`, the microtask queue |
@@ -159,9 +162,6 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Generators, `yield` | |
 | `for await`, async iterators | |
 | Top-level `await` | Would make running a module asynchronous and reorder every import |
-| Labelled statements | |
-| Object rest — `const { a, ...rest } = o` | Array rest works |
-| `delete` | |
 | Getters and setters on object *literals* | Methods and shorthand work; accessors do not |
 | Private `#fields`, `static` blocks | |
 | Computed member names in a class body | Computed keys work in object literals |
@@ -172,7 +172,7 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Bare import specifiers — `import x from "lodash"` | No package system to resolve against |
 | Sparse arrays and holes | Deliberate: they are why engines need a second array representation |
 | Unicode-correct string indexing | Strings are indexed by byte, which is correct for ASCII |
-| `label:`, `with`, `eval` | No plans |
+| `with`, `eval` | No plans |
 
 Class names are not usable as type annotations. The type lattice is a fixed set
 of primitives, so an instance is `object` and a class is dynamic. Types do not

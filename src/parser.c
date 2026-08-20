@@ -88,6 +88,7 @@ Precedence binaryPrecedence(TokenType type) {
     case TOKEN_GREATER:
     case TOKEN_GREATER_EQUAL:
     case TOKEN_INSTANCEOF:          return PREC_COMPARISON;
+    case TOKEN_IN:                  return PREC_COMPARISON;
     case TOKEN_PLUS:
     case TOKEN_MINUS:               return PREC_TERM;
     case TOKEN_STAR:
@@ -113,6 +114,7 @@ BinaryOp binaryOpFor(TokenType type) {
     case TOKEN_LESS:                return BINARY_LESS;
     case TOKEN_LESS_EQUAL:          return BINARY_LESS_EQUAL;
     case TOKEN_INSTANCEOF:          return BINARY_INSTANCEOF;
+    case TOKEN_IN:                  return BINARY_IN;
     default:                        return BINARY_ADD; /* unreachable */
   }
 }
@@ -173,13 +175,6 @@ double parseNumberLiteral(const char *start, int length) {
  * produce a node: CScript has no coercing equality. See docs/GRAMMAR.md. */
 /* `x in o`. The `in` keyword exists for `for...in`; used as an operator it
  * would need a form of property lookup CScript does not have. */
-bool rejectInOperator(Parser *parser) {
-  if (!check(parser, TOKEN_IN)) return false;
-  errorAtCurrent(parser, "the 'in' operator is not supported; "
-                         "write Object.hasOwn(object, key)");
-  return true;
-}
-
 bool rejectLooseEquality(Parser *parser) {
   if (check(parser, TOKEN_EQUAL_EQUAL)) {
     errorAtCurrent(parser,

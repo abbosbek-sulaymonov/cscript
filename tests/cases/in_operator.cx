@@ -1,0 +1,21 @@
+// `in` asks whether a key is there, which `o.k === undefined` cannot: a
+// property explicitly set to undefined is still present.
+const o = { a: 1, b: undefined };
+console.log("a" in o, "b" in o, "c" in o);
+console.log(o.b === undefined, "b" in o);
+
+// Numbers convert, so `{ 1: x }` and `o[1]` and `1 in o` all agree.
+const numeric = { 1: "x", 2: "y" };
+console.log(1 in numeric, numeric[1], numeric["1"], Object.keys(numeric));
+
+const built = {};
+built[1] = "a";
+built[true] = "b";
+console.log(built[1], built["1"], built[true], Object.keys(built));
+
+// An array's own keys are its indices.
+console.log(0 in [7, 8], 1 in [7, 8], 2 in [7, 8]);
+
+// Class methods count, the same way a call would find them.
+class Box { open() { return 1; } }
+console.log("open" in new Box(), "shut" in new Box());

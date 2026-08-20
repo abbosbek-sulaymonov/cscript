@@ -361,10 +361,6 @@ AstNode *parsePattern(Parser *parser, bool isObject, bool isConst) {
       if (check(parser, closer)) break; /* a trailing comma */
 
       bool isRest = matchToken(parser, TOKEN_ELLIPSIS);
-      if (isRest && isObject) {
-        errorAtCurrent(parser, "rest properties are not supported in object patterns");
-        return NULL;
-      }
 
       /* An array pattern may hold a pattern directly; an object pattern gets
        * to one through a key, as in `{ a: { b } }`. */
