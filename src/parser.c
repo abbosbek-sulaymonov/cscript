@@ -343,7 +343,10 @@ AstNode *csParse(const char *source, AstArena *arena, Diagnostics *diag) {
   parser.arena = arena;
   parser.diag = diag;
   parser.pendingAsync = false;
-  parser.asyncDepth = 0;
+  /* One, not zero: the top level of a file may await, and a plain function
+   * nested inside it may not — which is already the rule, because every
+   * non-async function body resets this to zero on the way in. */
+  parser.asyncDepth = 1;
   parser.inGenerator = false;
   parser.pendingGenerator = false;
   csLexerInit(&parser.lexer, source, diag);

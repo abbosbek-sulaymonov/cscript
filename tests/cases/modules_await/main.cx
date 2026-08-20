@@ -1,0 +1,5 @@
+// A module that awaits at its top level has finished before the module that
+// imports it starts, which is the ordering the whole loader is built on.
+import { ready } from "./slow.cx";
+console.log("main sees", ready);
+console.log(await Promise.resolve("and its own await"));

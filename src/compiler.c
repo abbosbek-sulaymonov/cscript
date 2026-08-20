@@ -1041,7 +1041,7 @@ void compileNode(const AstNode *node) {
 
     case AST_AWAIT:
       compileNode(node->as.unary.operand);
-      emitByte(OP_AWAIT, line);
+      emitAwait(line);
       break;
 
     case AST_REGEX_LITERAL:

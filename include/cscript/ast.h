@@ -397,6 +397,8 @@ struct AstNode {
       AstNode *iterable;
       AstNode *body;
       bool isForIn;                      /*   iterate keys rather than values */
+      /* `for await (…)`. Each element is awaited before the body sees it. */
+      bool isAwait;
       AstNode *pattern;                  /*   `for (const [k, v] of m)` */
     } forOf;
     struct {                             /* AST_TRY_STMT */

@@ -192,6 +192,7 @@ static inline bool isPrivateName(const char *name, int length) {
 
 uint8_t binaryOpcode(BinaryOp op);
 void compileBinary(const AstNode *node);
+void emitAwait(int line);
 void compileLogical(const AstNode *node);
 void compileOptionalChain(const AstNode *node);
 void emitOptionalGuard(int line);

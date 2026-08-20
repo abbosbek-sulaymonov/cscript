@@ -1,0 +1,11 @@
+before
+awaited 7
+after the microtask
+1 2
+caught expected
+kept kept
+for await x
+for await y
+for await z
+sum 6
+timer

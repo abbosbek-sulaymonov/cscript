@@ -1,0 +1,46 @@
+// `await` at the top level of a file. The body runs on a fiber, exactly as an
+// async function's does, and the loader waits for it before anything that
+// imports it starts.
+console.log("before");
+const value = await Promise.resolve(7);
+console.log("awaited", value);
+
+// Ordering against the rest of the event loop is what a real one would do.
+setTimeout(() => console.log("timer"), 0);
+await null;
+console.log("after the microtask");
+
+const [a, b] = await Promise.all([Promise.resolve(1), Promise.resolve(2)]);
+console.log(a, b);
+
+// A rejection is catchable here like anywhere else.
+try {
+  await Promise.reject(new Error("expected"));
+} catch (error) {
+  console.log("caught", error.message);
+}
+
+// An async function that awaits a rejection rejects with the same reason,
+// rather than losing it.
+async function fails() {
+  await Promise.reject(new Error("kept"));
+}
+try {
+  await fails();
+} catch (error) {
+  console.log("kept", error.message);
+}
+
+// `for await` awaits each element, so a list of promises reads as its values.
+for await (const each of [Promise.resolve("x"), "y", Promise.resolve("z")]) {
+  console.log("for await", each);
+}
+
+// And inside an async function, over a generator.
+function* three() { yield 1; yield 2; yield 3; }
+async function sum() {
+  let total = 0;
+  for await (const n of three()) total += n;
+  return total;
+}
+console.log("sum", await sum());

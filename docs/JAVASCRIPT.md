@@ -62,6 +62,8 @@ asserted here.
 | Modules | `import`/`export`, named, default, namespace, `export *`, re-exports, per-file scope |
 | Asynchrony | `async`/`await`, promises, `setTimeout`, the microtask queue |
 | Generators | `function*`, `yield`, `yield*`, `next(v)`, `for...of`, spread |
+| Top-level `await` | In any file, including one another file imports |
+| `for await` | Over any sync iterable, awaiting each element |
 
 ### The standard library
 
@@ -178,9 +180,8 @@ Each of these produces an error that names it, rather than failing obscurely.
 | A function as a `replace` replacement | `$1` and `$&` in a string work |
 | `WeakMap`, `WeakSet` | Would need weak references in the collector |
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
+| Async generators — `async function*` | Refused rather than accepted; `for await` over a *sync* iterable works |
 | `Symbol`, `BigInt` | No plans |
-| `for await`, async iterators, `async function*` | Reported as unsupported rather than accepted |
-| Top-level `await` | Would make running a module asynchronous and reorder every import |
 | Getters and setters on object *literals* | Methods and shorthand work; accessors do not |
 | Computed member names in a class body | Computed keys work in object literals |
 | `new.target`, subclassing built-ins | |

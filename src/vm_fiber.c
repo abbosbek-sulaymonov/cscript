@@ -146,6 +146,13 @@ void csVMResumeFiber(ObjFiber *fiber, Value value, bool isRejection) {
      * try/catch around one work — the handler stack belongs to this fiber. */
     CallFrame *frame = &vm.frames[vm.frameCount - 1];
     if (performThrow(value, 0, &frame) != THROW_HANDLED) {
+      /* Nothing in the body caught it, so the reason travels on to the
+       * promise this call handed back. performThrow only records the value
+       * when it means to propagate through a return path; here the fiber ends
+       * instead, so it is recorded before finishing — otherwise the rejection
+       * arrives at `.catch` as undefined. */
+      vm.pendingException = value;
+      vm.hasPendingException = true;
       finishFiber(fiber, enclosing, CS_RUNTIME_ERROR);
       return;
     }

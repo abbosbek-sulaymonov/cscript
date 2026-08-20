@@ -188,10 +188,26 @@ AstNode *parseWhile(Parser *parser) {
 /* `for (init; condition; increment) body` — every clause may be empty. */
 AstNode *parseFor(Parser *parser) {
   int line = parser->previous.line;
+
+  /* `for await (const x of xs)` — every element is awaited on the way in. */
+  bool isAwait = matchToken(parser, TOKEN_AWAIT);
+  if (isAwait && parser->asyncDepth == 0) {
+    csDiagnosticError(parser->diag, line, NULL, 0,
+                      "'for await' is only allowed inside an async function or "
+                      "at the top level of a file");
+    return NULL;
+  }
+
   consume(parser, TOKEN_LEFT_PAREN, "expected '(' after 'for'");
   if (parser->diag->panicMode) return NULL;
 
   AstNode *initializer = NULL;
+  if (isAwait && check(parser, TOKEN_SEMICOLON)) {
+    csDiagnosticError(parser->diag, line, NULL, 0,
+                      "'for await' needs a 'for (… of …)' loop: there is "
+                      "nothing to await in a counted one");
+    return NULL;
+  }
   if (matchToken(parser, TOKEN_SEMICOLON)) {
     initializer = NULL;
   } else if (check(parser, TOKEN_LET) || check(parser, TOKEN_CONST)) {
@@ -231,6 +247,7 @@ AstNode *parseFor(Parser *parser) {
       if (loop != NULL) {
         loop->as.forOf.isForIn = patternForIn;
         loop->as.forOf.pattern = pattern;
+        loop->as.forOf.isAwait = isAwait;
       }
       return loop;
     }
@@ -261,8 +278,18 @@ AstNode *parseFor(Parser *parser) {
       if (body == NULL) return NULL;
       AstNode *loop = csAstForOf(parser->arena, line, bindingName, bindingLength,
                                  isConst, iterable, body);
-      if (loop != NULL) loop->as.forOf.isForIn = isForIn;
+      if (loop != NULL) {
+        loop->as.forOf.isForIn = isForIn;
+        loop->as.forOf.isAwait = isAwait;
+      }
       return loop;
+    }
+
+    if (isAwait) {
+      csDiagnosticError(parser->diag, line, NULL, 0,
+                        "'for await' needs a 'for (… of …)' loop: there is "
+                        "nothing to await in a counted one");
+      return NULL;
     }
 
     initializer = finishVarDeclaration(parser, line, bindingName, bindingLength,

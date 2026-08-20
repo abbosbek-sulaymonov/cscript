@@ -2756,6 +2756,56 @@ InterpretResult csInterpret(const char *source, const char *sourceName) {
   return csVMRunEventLoop();
 }
 
+/* A top level that awaits.
+ *
+ * `await` suspends a fiber, and only an async body has one — so a file with a
+ * top-level await runs as an async call and the loop is driven here until it
+ * settles. Driving it *here* rather than leaving it to the end is what keeps
+ * imports in order: a module that awaits has finished before the module that
+ * imported it starts, which is the guarantee the whole loader is built on. */
+static InterpretResult runBodyAsync(ObjClosure *closure) {
+  csVMPush(OBJ_VAL(closure));
+  if (!callAsyncFunction(closure, 0)) {
+    resetStack();
+    return CS_RUNTIME_ERROR;
+  }
+
+  ObjPromise *promise = AS_PROMISE(csVMPop());
+  csPushTempRoot((Obj *)promise);
+  /* Whatever it settles as is reported below, so the watchdog must not report
+   * it first and count it twice. */
+  promise->handled = true;
+
+  InterpretResult result = csVMRunEventLoop();
+  csPopTempRoot();
+  if (result != CS_OK) {
+    resetStack();
+    return result;
+  }
+
+  if (promise->state == PROMISE_REJECTED) {
+    fflush(stdout);
+    size_t length = 0;
+    char *text = csValueInspect(promise->value, &length);
+    fprintf(stderr, "cscript: uncaught error at the top level: %s\n",
+            text != NULL ? text : "<unprintable>");
+    free(text);
+    resetStack();
+    return CS_RUNTIME_ERROR;
+  }
+
+  if (promise->state == PROMISE_PENDING) {
+    /* Nothing is left to run and it never settled, so nothing ever will. */
+    csVMRuntimeError("a top-level 'await' is waiting for something that will "
+                     "never happen");
+    resetStack();
+    return CS_RUNTIME_ERROR;
+  }
+
+  resetStack();
+  return CS_OK;
+}
+
 InterpretResult csVMRunBody(ObjFunction *body) {
   /* A top level is itself a function, so running it is just a call. Pushing
    * the closure first keeps it reachable while callClosure allocates nothing
@@ -2763,6 +2813,8 @@ InterpretResult csVMRunBody(ObjFunction *body) {
   csPushTempRoot((Obj *)body);
   ObjClosure *closure = csClosureNew(body);
   csPopTempRoot();
+
+  if (body->isAsync) return runBodyAsync(closure);
 
   csVMPush(OBJ_VAL(closure));
   callClosure(closure, 0);

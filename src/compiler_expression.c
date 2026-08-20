@@ -166,6 +166,16 @@ void compileOptionalChain(const AstNode *node) {
 
 /* && and || evaluate to an operand, not to a boolean, so they compile to a
  * conditional jump that leaves the left value on the stack. */
+/* OP_AWAIT and the note that this body needs a fiber to run on.
+ *
+ * The two always go together: `await` suspends a fiber, and the top level of a
+ * file only gets one when it is marked. Emitting the instruction anywhere
+ * without the mark produces a body that compiles and cannot run. */
+void emitAwait(int line) {
+  emitByte(OP_AWAIT, line);
+  if (current->kind == FUNCTION_SCRIPT) current->function->isAsync = true;
+}
+
 void compileLogical(const AstNode *node) {
   int line = node->line;
   compileNode(node->as.logical.left);
