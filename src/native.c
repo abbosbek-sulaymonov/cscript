@@ -724,8 +724,22 @@ void csNativesInstall(void) {
   csNumberMethodsInstall();
   csFunctionMethodsInstall();
   csRegexMethodsInstall();
+  csDateMethodsInstall();
   defineFunction("Map", csMapConstructorFn(), -1);
   defineFunction("Set", csSetConstructorFn(), -1);
+
+  /* `Date` is the same shape: `new Date()` builds one and `Date.now()` sits
+   * beside it. */
+  ObjNative *dateFn = csNativeNew(csDateConstructorFn(), "Date", -1);
+  csPushTempRoot((Obj *)dateFn);
+  ObjObject *dateStatics = csObjectNew("Date");
+  csPushTempRoot((Obj *)dateStatics);
+  dateFn->statics = dateStatics;
+  csDateInstallStatics(dateStatics);
+  csObjectFreeze(dateStatics);
+  defineGlobal("Date", OBJ_VAL(dateFn));
+  csPopTempRoot();
+  csPopTempRoot();
 
   /* `Promise` is callable and also carries statics, the same shape `Number`
    * has: `new Promise(executor)` and `Promise.all([...])` both work. */

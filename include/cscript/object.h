@@ -24,6 +24,7 @@ typedef enum {
   OBJ_MAP,   /* also Set: a set is a map that stores only its keys */
   OBJ_GENERATOR, /* a paused call the caller pulls values out of */
   OBJ_REGEX,
+  OBJ_DATE,  /* one instant, held as milliseconds since the epoch */
 } ObjType;
 
 typedef struct ObjPromise ObjPromise;
@@ -241,6 +242,15 @@ struct ObjFiber {
  * The body lives on its own ObjFiber, exactly as an async function's does.
  * What differs is who drives it: an async body is resumed by the event loop
  * when a promise settles, and a generator body is resumed by `next`. */
+/* A moment in time, as the number of milliseconds since 1970 — which is the
+ * whole of what a JavaScript Date is. Everything else about it is a way of
+ * writing that number down. NaN is a date that could not be parsed, and every
+ * getter on one answers NaN in turn. */
+typedef struct ObjDate {
+  Obj obj;
+  double ms;
+} ObjDate;
+
 typedef struct ObjGenerator {
   Obj obj;
   struct ObjFiber *fiber;
@@ -462,6 +472,8 @@ typedef struct ObjBoundMethod {
 #define IS_PROMISE(v)  csIsObjType(v, OBJ_PROMISE)
 #define IS_MAP(v)      csIsObjType(v, OBJ_MAP)
 #define IS_GENERATOR(v) csIsObjType(v, OBJ_GENERATOR)
+#define IS_DATE(v)     csIsObjType(v, OBJ_DATE)
+#define AS_DATE(v)     ((ObjDate *)AS_OBJ(v))
 #define AS_GENERATOR(v) ((ObjGenerator *)AS_OBJ(v))
 #define IS_REGEX(v)    csIsObjType(v, OBJ_REGEX)
 #define IS_BOUND_METHOD(v) csIsObjType(v, OBJ_BOUND_METHOD)
@@ -548,6 +560,8 @@ ObjFiber *csFiberNew(void);
 
 /* Wraps a fiber that has been set up but not started. */
 ObjGenerator *csGeneratorNew(ObjFiber *fiber);
+
+ObjDate *csDateNew(double ms);
 
 /* Settles a promise and queues whatever was waiting on it. Settling an already
  * settled promise does nothing, which is what makes a resolve function safe to

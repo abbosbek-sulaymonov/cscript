@@ -1,0 +1,37 @@
+// A Date is a number of milliseconds since 1970 and nothing else; every method
+// is a way of writing that number down. Everything below is UTC, so it says the
+// same thing wherever it runs.
+const epoch = new Date(0);
+console.log(epoch.getTime(), epoch.toISOString());
+
+const moment = new Date("2024-01-31T12:34:56.789Z");
+console.log(moment.toISOString(), moment.getTime());
+console.log(moment.getUTCFullYear(), moment.getUTCMonth(), moment.getUTCDate());
+console.log(moment.getUTCDay(), moment.getUTCHours(), moment.getUTCMinutes());
+console.log(moment.getUTCSeconds(), moment.getUTCMilliseconds());
+
+// A date-only string, a leap day, and a time before the epoch.
+console.log(new Date("2024-03-01").toISOString());
+console.log(new Date("2000-02-29T00:00:00.000Z").toISOString());
+console.log(new Date("1900-03-01T00:00:00.000Z").toISOString());
+console.log(new Date("1969-07-20T20:17:00.000Z").getTime());
+console.log(new Date(-86400000).toISOString());
+
+// Round trips.
+console.log(new Date(new Date("2024-06-15T08:09:10.011Z").getTime()).toISOString());
+console.log(JSON.stringify({ at: new Date(0), list: [new Date(1000)] }));
+
+// A string that is not a date is NaN rather than an error, and every getter
+// on it answers NaN in turn.
+const broken = new Date("nonsense");
+console.log(broken.getTime(), broken.getUTCFullYear(), broken.toJSON());
+console.log(JSON.stringify([broken]));
+
+// Arithmetic, which is the common reason to have one at all.
+const start = new Date("2024-01-01T00:00:00.000Z");
+const end = new Date("2024-01-08T00:00:00.000Z");
+console.log((end.getTime() - start.getTime()) / 86400000);
+
+// `Date.now` is a number, and a new date made from it agrees with it.
+const now = Date.now();
+console.log(typeof now, new Date(now).getTime() === now);

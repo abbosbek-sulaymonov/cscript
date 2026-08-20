@@ -158,6 +158,18 @@ As it is in Node — listed because it is a deliberate choice rather than an
 accident. A promise that failed with nobody watching is a bug, and the
 alternative is a program that silently does half its work.
 
+### A `Date` writes itself as ISO, and reads a time with no zone as UTC
+
+`String(date)` gives `1970-01-01T00:00:00.000Z` rather than JavaScript's local,
+human, locale-shaped form — the same string `toISOString` and JSON give. And
+`new Date("2024-01-31T12:00:00")`, with no `Z`, is read as UTC where JavaScript
+reads it as local time.
+
+Both are the same choice: a program's output should not depend on where it is
+running. The local zone is still available where it is asked for by name —
+`getHours`, `getDay` and `getTimezoneOffset` all use it, and so does
+`new Date(y, m, d)`.
+
 ### An object literal's accessors are not enumerated
 
 ```js
@@ -219,6 +231,7 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Regex lookbehind — `(?<=…)` — and named groups | Lookahead and backreferences work |
 | `WeakMap`, `WeakSet` | Would need weak references in the collector |
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
+| `Date` parsing beyond ISO, and its locale formats | `toLocaleString`, `Date.parse` of anything else, `setFullYear` and the other setters |
 | `Symbol`, `BigInt` | No plans |
 | `arguments` | A rest parameter does the same job and says what it collects |
 | `new.target`, subclassing built-ins | |

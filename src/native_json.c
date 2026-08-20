@@ -102,6 +102,15 @@ static bool jsonWrite(JsonBuffer *out, Value value) {
     jsonAppendString(out, AS_CSTRING(value), AS_STRING(value)->length);
     return true;
   }
+  /* A Date writes itself as the string `toJSON` would give, which is what
+   * makes a timestamp survive a round trip through JSON at all. An invalid one
+   * has no such string and becomes null, as it does in JavaScript. */
+  if (IS_DATE(value)) {
+    char text[64];
+    if (!csDateToISO(AS_DATE(value)->ms, text, sizeof text)) return false;
+    jsonAppendString(out, text, (int)strlen(text));
+    return true;
+  }
   if (IS_ARRAY(value)) {
     ObjArray *array = AS_ARRAY(value);
     jsonAppend(out, "[", 1);

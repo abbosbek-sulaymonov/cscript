@@ -68,6 +68,7 @@ void csVMInit(void) {
   csTableInit(&vm.generatorMethods);
   csTableInit(&vm.numberMethods);
   csTableInit(&vm.functionMethods);
+  csTableInit(&vm.dateMethods);
   csTableInit(&vm.regexMethods);
 
   vm.microtasks = NULL;
@@ -109,6 +110,7 @@ void csVMFree(void) {
   csTableFree(&vm.generatorMethods);
   csTableFree(&vm.numberMethods);
   csTableFree(&vm.functionMethods);
+  csTableFree(&vm.dateMethods);
   csTableFree(&vm.regexMethods);
   csTableFree(&vm.builtins);
   csTableFree(&vm.builtinConsts);
@@ -465,6 +467,7 @@ static Table *methodTableFor(Value receiver) {
     return &vm.functionMethods;
   }
   if (IS_REGEX(receiver)) return &vm.regexMethods;
+  if (IS_DATE(receiver)) return &vm.dateMethods;
   return NULL;
 }
 

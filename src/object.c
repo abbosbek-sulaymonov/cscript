@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "cscript/memory.h"
+#include "cscript/native.h"
 #include "cscript/object.h"
 #include "cscript/regex.h"
 #include "cscript/shape.h"
@@ -522,6 +523,13 @@ ObjFiber *csFiberNew(void) {
   return fiber;
 }
 
+ObjDate *csDateNew(double ms) {
+  ObjDate *date = CS_ALLOCATE(ObjDate, 1);
+  registerObject((Obj *)date, OBJ_DATE);
+  date->ms = ms;
+  return date;
+}
+
 ObjGenerator *csGeneratorNew(ObjFiber *fiber) {
   csPushTempRoot((Obj *)fiber);
   ObjGenerator *generator = CS_ALLOCATE(ObjGenerator, 1);
@@ -749,6 +757,15 @@ void csObjectPrint(Value value) {
     case OBJ_GENERATOR:
       printf("Object [Generator] {}");
       break;
+    case OBJ_DATE: {
+      char text[64];
+      if (csDateToISO(AS_DATE(value)->ms, text, sizeof text)) {
+        printf("%s", text);
+      } else {
+        printf("Invalid Date");
+      }
+      break;
+    }
     case OBJ_PROMISE: {
       ObjPromise *promise = AS_PROMISE(value);
       if (promise->state == PROMISE_PENDING) {
@@ -893,6 +910,9 @@ void csObjectBlacken(Obj *object) {
       break;
     }
 
+    case OBJ_DATE:
+      break; /* a number and nothing else */
+
     case OBJ_GENERATOR: {
       ObjGenerator *generator = (ObjGenerator *)object;
       csMarkObject((Obj *)generator->fiber);
@@ -1031,6 +1051,10 @@ void csObjectFree(Obj *object) {
       CS_FREE(ObjFiber, object);
       break;
     }
+
+    case OBJ_DATE:
+      CS_FREE(ObjDate, object);
+      break;
 
     case OBJ_GENERATOR: {
       /* The fiber is an object of its own and is swept on its own. */

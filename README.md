@@ -504,6 +504,7 @@ cscript/
 | **39 ✅** | Default parameters, class expressions, `at`/`flat`/`flatMap`, number formatting | — |
 | **40 ✅** | Rest parameters, `call`/`apply`/`bind`, tagged templates | — |
 | **41 ✅** | Computed class members, `new` on any expression, object-literal accessors | — |
+| **42 ✅** | `Date` — the last large missing built-in | — |
 | next | Calling a CScript function from compiled code, which needs frames and safepoints | — |
 | next | Inlining, so a small function is worth compiling | — |
 | next | Guards and deoptimisation, for code the types do not prove | — |

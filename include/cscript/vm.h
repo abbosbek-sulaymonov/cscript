@@ -187,6 +187,7 @@ typedef struct {
   Table generatorMethods;
   Table numberMethods;
   Table functionMethods;
+  Table dateMethods;
   Table regexMethods;
 
   /* The microtask queue, drained completely between macrotasks. A ring would

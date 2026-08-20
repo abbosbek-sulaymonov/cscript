@@ -19,6 +19,16 @@ Value csAggregateError(ObjArray *errors);
 void csGeneratorMethodsInstall(void);
 void csNumberMethodsInstall(void);
 void csFunctionMethodsInstall(void);
+void csDateMethodsInstall(void);
+void csDateInstallStatics(ObjObject *statics);
+NativeFn csDateConstructorFn(void);
+
+/* Milliseconds since the epoch, now. */
+double csDateNowMs(void);
+
+/* Writes `ms` as `2024-01-31T12:00:00.000Z`. False when it is not a real
+ * time, which is what an unparsed date is. */
+bool csDateToISO(double ms, char *out, size_t size);
 
 /* Registers the built-in array methods into vm.arrayMethods. Called by
  * csNativesInstall; separated only because there are a lot of them. */

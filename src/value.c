@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "cscript/memory.h"
+#include "cscript/native.h"
 #include "cscript/object.h"
 #include "cscript/table.h"
 #include "cscript/value.h"
@@ -482,6 +483,23 @@ char *csValueToCString(Value value, size_t *lengthOut) {
         length = (size_t)string->length;
       } else if (IS_CALLABLE(value)) {
         return renderCallable(value, lengthOut);
+      } else if (IS_DATE(value)) {
+        /* The ISO form, which is the one a Date has that does not depend on
+         * where the program is running. JavaScript's `String(date)` gives a
+         * local, human, locale-shaped string instead; this one is the same
+         * everywhere, and is what `toISOString` and JSON already produce. */
+        char iso[64];
+        if (!csDateToISO(AS_DATE(value)->ms, iso, sizeof iso)) {
+          text = "Invalid Date";
+          length = 12;
+        } else {
+          size_t isoLength = strlen(iso);
+          char *copy = (char *)malloc(isoLength + 1);
+          if (copy == NULL) return NULL;
+          memcpy(copy, iso, isoLength + 1);
+          if (lengthOut != NULL) *lengthOut = isoLength;
+          return copy;
+        }
       } else if (!IS_ARRAY(value) && !IS_OBJECT(value) && !IS_PROMISE(value) &&
                  !IS_MAP(value) && !IS_REGEX(value)) {
         /* A heap type with no rendering of its own — a module, a shape, a

@@ -132,6 +132,7 @@ static void markRoots(void) {
   csTableMark(&vm.generatorMethods);
   csTableMark(&vm.numberMethods);
   csTableMark(&vm.functionMethods);
+  csTableMark(&vm.dateMethods);
   csTableMark(&vm.regexMethods);
   csTableMark(&vm.builtins);
   csTableMark(&vm.builtinConsts);

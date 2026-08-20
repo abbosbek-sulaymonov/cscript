@@ -783,6 +783,7 @@ object to make itself async-iterable: that needs `Symbol.asyncIterator`.
 Each of these produces an error that names it:
 
 - `Symbol`, `BigInt`, `WeakMap`, `WeakSet`
+- `Date`'s setters, `Date.parse` of anything but ISO, and its locale formats
 - The async iterator protocol on arbitrary objects, which needs
   `Symbol.asyncIterator`; `for await` drives async generators and sync
   iterables
