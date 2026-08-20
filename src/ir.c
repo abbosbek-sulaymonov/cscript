@@ -583,12 +583,12 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
 
       case OP_ADD:
       case OP_ADD_NUM:
-        /* OP_ADD_NUM carries the checker's proof; plain OP_ADD may concatenate,
-         * so its result is not known to be a number. */
-        if (!lowerBinary(&low, block, IR_ADD,
-                         opcode == OP_ADD_NUM ? IR_TYPE_NUMBER : IR_TYPE_UNKNOWN, line)) {
-          goto failed;
-        }
+        /* Both are addition here. OP_ADD_NUM carries the checker's proof, and
+         * plain OP_ADD only reaches this point at all when the guard above has
+         * seen both operands typed as numbers — which is a proof of the same
+         * thing, arrived at from the IR rather than from an annotation. A `+`
+         * that might concatenate handed the frame back instead. */
+        if (!lowerBinary(&low, block, IR_ADD, IR_TYPE_NUMBER, line)) goto failed;
         break;
 
       /* The rest of the arithmetic requires numbers by definition — the VM
@@ -762,6 +762,24 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
   ir->slotTypes = (IrType *)malloc(sizeof(IrType) * (size_t)(ir->slotCount + 1));
   for (int s = 0; s <= ir->slotCount; s++) {
     ir->slotTypes[s] = s < IR_MAX_STACK ? low.slotType[s] : IR_TYPE_UNKNOWN;
+  }
+
+  /* Nothing after a block's terminator can run: a jump target starts a block
+   * of its own, so there is no way in. Cutting it is not tidying — the
+   * compiler appends an unreachable `return undefined` to every function, and
+   * the store that sets up its value made the slot it used look as though it
+   * held two different types. Every pass downstream reads types, so the dead
+   * tail has to go before any of them look. */
+  for (int b = 0; b < ir->blockCount; b++) {
+    IrBlock *block = &ir->blocks[b];
+    for (int i = 0; i < block->count; i++) {
+      IrOp op = block->instructions[i].op;
+      if (op != IR_RETURN && op != IR_EXIT && op != IR_JUMP && op != IR_BRANCH) {
+        continue;
+      }
+      block->count = i + 1;
+      break;
+    }
   }
 
   /* Any block left empty is one the lowering stopped short of. It still needs

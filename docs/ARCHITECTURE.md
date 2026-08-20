@@ -1009,13 +1009,32 @@ already run, so `let n = 0` at the top of a script is a store to a binding that
 exists — which matters because that single instruction used to stop everything
 below it from lowering at all.
 
-### What is still interpreted
+### Calling out, and what it is worth
 
-Any loop using `%`. arm64 has no floating-point remainder instruction, `fmod`
-is a call, and a call needs a frame this backend does not set up. The obvious
-inline form, `a - b * trunc(a / b)`, is wrong once the quotient passes 2^53 —
-and a silently wrong `%` is worse than a slow one. `bench/loop_arith.cx` and
-`bench/branches.cx` are both waiting on this.
+`%` is the one thing here that cannot be an instruction: arm64 has no
+floating-point remainder, and the obvious inline form `a - b * trunc(a / b)`
+stops being exact once the quotient passes 2^53. A silently wrong `%` is worse
+than a slow one, so it calls `fmod`.
+
+Calling from compiled code normally means spilling every live value, because a
+call may clobber any caller-saved register. This avoids all of it by choosing
+where values live: **a function that calls anything allocates only from
+d8–d15**, the bank a call is obliged to preserve. Nothing live is in danger, so
+nothing is spilled. It costs fourteen of the twenty-two registers, and a loop
+that fits in eight is most of them.
+
+The three arguments and the baked global addresses moved to x19–x27 for the
+same reason, which is what the prologue is for.
+
+| | interpreted | compiled | speedup |
+| --- | ---: | ---: | ---: |
+| `bench/loop_arith.cx` — `sum += i % 7` | 296 ms | 186 ms | 1.6× |
+| `bench/branches.cx` — two `%` per iteration | 232 ms | 161 ms | 1.4× |
+
+Well short of the 5–9× everything else gets, and the reason is the call itself
+rather than anything around it: hoisting the `fmod` address out of the loop —
+four instructions an iteration — moved 1.5× to 1.6×. Ten million libm calls
+cost what ten million libm calls cost.
 
 ### Three soundness bugs, and the harness that found them
 
@@ -1034,6 +1053,16 @@ downgrades whatever is computed from it.
 After an exit the interpreter's next instruction may load any live slot — a
 read that is not in the IR at all. A loop computed the right answer and handed
 back the value it started with. An exit now counts as a use of every live slot.
+
+**Dead code after a terminator poisoned the types around it.** The compiler
+appends an unreachable `return undefined` to every function, and the store
+setting up its value made the slot it used look as though it held two different
+types — so the slot went to `unknown`, the loads of it went to `unknown`, and
+the loop that used it stopped compiling. It is cut now, before any pass reads a
+type. This one arrived *with* the reconciliation that fixed the first bug, and
+was not noticed for two commits, because the differential harness proves the
+two paths agree and says nothing about how much the compiler took. It now
+reports how many programs it took part in, where losing one is visible.
 
 **Three passes each mis-read an instruction's operands.** The same two fields,
 `a` and `b`, hold a virtual register, a slot number, a block index, a

@@ -11,6 +11,7 @@
  * What this does remove is everything the interpreter was doing *around* the
  * arithmetic: no dispatch, no operand-stack traffic, no tag tests, no boxing.
  */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -158,7 +159,83 @@ static void fmovDouble(Encoder *e, int d, int n) {
   word(e, 0x1E604000u | ((uint32_t)n << 5) | (uint32_t)d);
 }
 
+/* d2, free in either pool, for the one argument arrangement that is a genuine
+ * swap and cannot be done with two moves. */
+#define CALL_SHUFFLE 2
+
+/* x28 holds the address of the one function this backend calls, materialised
+ * on entry rather than at every call — four instructions an iteration for a
+ * value that never changes is the same waste hoisting the constants fixed. */
+#define REG_CALL_TARGET 28
+
 static void ret(Encoder *e) { word(e, 0xD65F03C0u); }
+
+/* MOV <Xd>, <Xn> — really ORR <Xd>, XZR, <Xn>. */
+static void movRegister(Encoder *e, int destination, int source) {
+  word(e, 0xAA0003E0u | ((uint32_t)source << 16) | (uint32_t)destination);
+}
+
+/* STP/LDP with a signed offset, and the pre/post-indexed forms the frame needs.
+ * `byteOffset` is in bytes and must be a multiple of eight. */
+static void pairOp(Encoder *e, uint32_t base, int first, int second, int byteOffset) {
+  int scaled = byteOffset / 8;
+  if (byteOffset % 8 != 0 || scaled < -64 || scaled > 63) {
+    e->failed = true;
+    return;
+  }
+  word(e, base | (((uint32_t)scaled & 0x7fu) << 15) | ((uint32_t)second << 10) |
+              (31u << 5) | (uint32_t)first);
+}
+
+static void storePair(Encoder *e, int a, int b, int at) { pairOp(e, 0xA9000000u, a, b, at); }
+static void loadPair(Encoder *e, int a, int b, int at) { pairOp(e, 0xA9400000u, a, b, at); }
+static void storePairDouble(Encoder *e, int a, int b, int at) { pairOp(e, 0x6D000000u, a, b, at); }
+static void loadPairDouble(Encoder *e, int a, int b, int at) { pairOp(e, 0x6D400000u, a, b, at); }
+
+/* The frame this code keeps.
+ *
+ * Its three arguments and the addresses it bakes for globals are needed for
+ * the whole run, so they live in callee-saved registers rather than the ones a
+ * call would clobber — which is what makes calling out possible at all. The
+ * floating-point bank d8–d15 is saved for the same reason: a function that
+ * calls anything allocates only from there, so the call clobbers nothing that
+ * is live and no value has to be spilled around it. */
+#define CS_JIT_FRAME_SIZE 160
+
+static void emitPrologue(Encoder *e) {
+  pairOp(e, 0xA9800000u, 29, 30, -CS_JIT_FRAME_SIZE); /* stp x29, x30, [sp, #-160]! */
+  /* ADD x29, sp, #0 — `mov` from the stack pointer has to be the add form,
+   * because register 31 means the zero register in a logical instruction. */
+  word(e, 0x910003FDu);
+  storePair(e, 19, 20, 16);
+  storePair(e, 21, 22, 32);
+  storePair(e, 23, 24, 48);
+  storePair(e, 25, 26, 64);
+  storePair(e, 27, 28, 80);
+  storePairDouble(e, 8, 9, 96);
+  storePairDouble(e, 10, 11, 112);
+  storePairDouble(e, 12, 13, 128);
+  storePairDouble(e, 14, 15, 144);
+
+  movRegister(e, 19, 0); /* the frame slots */
+  movRegister(e, 20, 1); /* the scratch array */
+  movRegister(e, 21, 2); /* where to report an exit */
+  movImmediate(e, REG_CALL_TARGET, (uint64_t)(uintptr_t)fmod);
+}
+
+static void emitEpilogue(Encoder *e) {
+  loadPairDouble(e, 14, 15, 144);
+  loadPairDouble(e, 12, 13, 128);
+  loadPairDouble(e, 10, 11, 112);
+  loadPairDouble(e, 8, 9, 96);
+  loadPair(e, 27, 28, 80);
+  loadPair(e, 25, 26, 64);
+  loadPair(e, 23, 24, 48);
+  loadPair(e, 21, 22, 32);
+  loadPair(e, 19, 20, 16);
+  pairOp(e, 0xA8C00000u, 29, 30, CS_JIT_FRAME_SIZE); /* ldp x29, x30, [sp], #160 */
+  ret(e);
+}
 
 /* ---- executable memory -------------------------------------------------- */
 
@@ -209,11 +286,11 @@ void csJitCodeFree(JitCode *code) {
  * the working registers; d2 holds a materialised constant. Nothing is kept in
  * a register across an instruction, which is the simplification a register
  * allocator would later undo. */
-#define REG_SLOTS 0
-#define REG_SCRATCH 1
-#define REG_EXIT 2 /* int *exitTarget, the third argument */
+#define REG_SLOTS 19
+#define REG_SCRATCH 20
+#define REG_EXIT 21 /* where the third argument was put */
 /* x3..x8 hold the address of one global each, materialised on entry. */
-#define REG_FIRST_GLOBAL 3
+#define REG_FIRST_GLOBAL 22
 #define REG_TEMP 9
 
 /* A branch whose target block is not laid out yet. */
@@ -267,7 +344,20 @@ static uint32_t conditionFor(IrOp op) {
 #define ALLOC_SECOND_SCRATCH 1
 #define ALLOC_POOL_SIZE 22
 
-static int allocPool(int index) {
+/* A function that calls out allocates only from d8–d15.
+ *
+ * Those are the registers a call is obliged to preserve, so nothing live has
+ * to be spilled around one — which is the whole reason calling out is cheap
+ * enough to be worth doing. It costs fourteen registers, and a loop that fits
+ * in eight is most of them. */
+#define ALLOC_CALLSAFE_POOL_SIZE 8
+
+static int poolSize(bool callSafe) {
+  return callSafe ? ALLOC_CALLSAFE_POOL_SIZE : ALLOC_POOL_SIZE;
+}
+
+static int allocPool(int index, bool callSafe) {
+  if (callSafe) return 8 + index;
   /* d2..d7, then d16..d31 — skipping the callee-saved bank entirely. */
   return index < 6 ? 2 + index : 16 + (index - 6);
 }
@@ -321,7 +411,7 @@ static bool *promotableSlots(const IrFunction *ir) {
 }
 
 /* -1 means the value lives in the scratch array rather than a register. */
-static int *allocateRegisters(const IrFunction *ir, int reserved) {
+static int *allocateRegisters(const IrFunction *ir, int reserved, bool callSafe) {
   int *assignment = (int *)malloc(sizeof(int) * (size_t)(ir->registerCount + 1));
   int *definedIn = (int *)malloc(sizeof(int) * (size_t)(ir->registerCount + 1));
   bool *escapes = (bool *)calloc((size_t)ir->registerCount + 1, sizeof(bool));
@@ -385,15 +475,16 @@ static int *allocateRegisters(const IrFunction *ir, int reserved) {
       }
     }
 
+    int pool = poolSize(callSafe);
     bool taken[ALLOC_POOL_SIZE];
     int holder[ALLOC_POOL_SIZE];
-    for (int k = 0; k < ALLOC_POOL_SIZE; k++) { taken[k] = false; holder[k] = -1; }
+    for (int k = 0; k < pool; k++) { taken[k] = false; holder[k] = -1; }
 
     for (int i = 0; i < ir->blocks[b].count; i++) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
 
       /* Free anything whose last use was the previous instruction. */
-      for (int k = 0; k < ALLOC_POOL_SIZE; k++) {
+      for (int k = 0; k < pool; k++) {
         if (taken[k] && holder[k] >= 0 && lastUse[holder[k]] >= 0 &&
             lastUse[holder[k]] < i) {
           taken[k] = false;
@@ -409,11 +500,11 @@ static int *allocateRegisters(const IrFunction *ir, int reserved) {
       }
       if (lastUse[inst->result] < 0) continue; /* never read: no register needed */
 
-      for (int k = 0; k < ALLOC_POOL_SIZE - reserved; k++) {
+      for (int k = 0; k < pool - reserved; k++) {
         if (taken[k]) continue;
         taken[k] = true;
         holder[k] = inst->result;
-        assignment[inst->result] = allocPool(k);
+        assignment[inst->result] = allocPool(k, callSafe);
         break;
       }
     }
@@ -492,13 +583,24 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   /* Promoted slots claim registers first; the per-block allocator then works
    * with whatever is left. There are 22 to start with and a function this
    * backend accepts has a handful of slots, so the two do not compete. */
+  /* Only modulo calls out today — arm64 has no floating-point remainder — but
+   * the choice is per function rather than per instruction, because a register
+   * has to be safe for the whole of the run it is live in. */
+  bool callSafe = false;
+  for (int b = 0; b < ir->blockCount && !callSafe; b++) {
+    for (int i = 0; i < ir->blocks[b].count; i++) {
+      if (ir->blocks[b].instructions[i].op == IR_MOD) { callSafe = true; break; }
+    }
+  }
+  int pool = poolSize(callSafe);
+
   bool *promotable = promotableSlots(ir);
   int *slotHome = (int *)malloc(sizeof(int) * (size_t)(ir->slotCount + 1));
   int promotedCount = 0;
   for (int s = 0; s <= ir->slotCount; s++) {
     slotHome[s] = -1;
-    if (promotable[s] && promotedCount < ALLOC_POOL_SIZE / 2) {
-      slotHome[s] = allocPool(ALLOC_POOL_SIZE - 1 - promotedCount);
+    if (promotable[s] && promotedCount < pool / 2) {
+      slotHome[s] = allocPool(pool - 1 - promotedCount, callSafe);
       promotedCount++;
     }
   }
@@ -518,7 +620,7 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   uint64_t constantValue[ALLOC_POOL_SIZE];
   int constantHome[ALLOC_POOL_SIZE];
   int constantCount = 0;
-  for (int b = 0; b < ir->blockCount && constantCount < ALLOC_POOL_SIZE / 2; b++) {
+  for (int b = 0; b < ir->blockCount && constantCount < pool / 2; b++) {
     for (int i = 0; i < ir->blocks[b].count; i++) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
       if (inst->op != IR_CONST) continue;
@@ -530,10 +632,10 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
         if (constantValue[k] == bits) { seen = true; break; }
       }
       if (seen) continue;
-      if (promotedCount + constantCount >= ALLOC_POOL_SIZE / 2) break;
+      if (promotedCount + constantCount >= pool / 2) break;
       constantValue[constantCount] = bits;
       constantHome[constantCount] =
-          allocPool(ALLOC_POOL_SIZE - 1 - promotedCount - constantCount);
+          allocPool(pool - 1 - promotedCount - constantCount, callSafe);
       constantCount++;
     }
   }
@@ -578,8 +680,10 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   JitExit *exits = NULL;
   int exitCount = 0, exitCapacity = 0;
 
-  int *home = allocateRegisters(ir, promotedCount + constantCount);
+  int *home = allocateRegisters(ir, promotedCount + constantCount, callSafe);
   int *blockStart = (int *)malloc(sizeof(int) * (size_t)ir->blockCount);
+
+  emitPrologue(&encoder);
 
   /* Load the promoted slots and materialise the constants, once, on entry. */
   for (int s = 0; s <= ir->slotCount; s++) {
@@ -696,11 +800,41 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
           break;
         }
 
-        case IR_MOD:
-          /* fmod is a libm call, and calling out needs a frame this does not
-           * set up yet. Left to the interpreter. */
-          *why = "modulo";
-          goto unsupported;
+        case IR_MOD: {
+          /* JavaScript's `%` is C's fmod, and arm64 has no instruction for it.
+           * The obvious inline form, `a - b * trunc(a / b)`, is exact only
+           * while the quotient is — past 2^53 it is not — so this calls the
+           * real thing rather than being approximately right.
+           *
+           * Nothing is spilled around the call: a function that reaches here
+           * allocated only from d8–d15, which a call must preserve. The two
+           * arguments go via d2 and d3 so that moving one into place cannot
+           * land on the other. */
+          int left = readOperand(&encoder, home, inst->a, ALLOC_FIRST_SCRATCH);
+          int right = readOperand(&encoder, home, inst->b, ALLOC_SECOND_SCRATCH);
+
+          /* Into d0 and d1 without one move landing on the other's source. */
+          if (right != 0) {
+            if (left != 0) fmovDouble(&encoder, 0, left);
+            if (right != 1) fmovDouble(&encoder, 1, right);
+          } else if (left != 1) {
+            fmovDouble(&encoder, 1, 0);
+            fmovDouble(&encoder, 0, left);
+          } else {
+            fmovDouble(&encoder, CALL_SHUFFLE, 1);
+            fmovDouble(&encoder, 1, 0);
+            fmovDouble(&encoder, 0, CALL_SHUFFLE);
+          }
+
+          word(&encoder, 0xD63F0000u | ((uint32_t)REG_CALL_TARGET << 5)); /* blr x28 */
+
+          int destination = home[inst->result] >= 0 ? home[inst->result] : 0;
+          if (destination != 0) fmovDouble(&encoder, destination, 0);
+          if (home[inst->result] < 0) {
+            strDouble(&encoder, destination, REG_SCRATCH, inst->result * 8);
+          }
+          break;
+        }
 
         case IR_LT: case IR_LE: case IR_GT: case IR_GE: case IR_EQ: case IR_NE: {
           /* The result is materialised as a boolean Value rather than left in
@@ -787,7 +921,7 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
         case IR_RETURN: {
           int value = readOperand(&encoder, home, inst->a, ALLOC_FIRST_SCRATCH);
           fmovToGeneral(&encoder, 0, value); /* the Value's bits */
-          ret(&encoder);
+          emitEpilogue(&encoder);
           break;
         }
 
@@ -814,7 +948,7 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
 
           movImmediate(&encoder, REG_TEMP, (uint64_t)UNDEFINED_VAL);
           word(&encoder, 0xAA0903E0u); /* mov x0, x9 */
-          ret(&encoder);
+          emitEpilogue(&encoder);
           break;
         }
       }
@@ -829,7 +963,7 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   /* Falling off the last block returns undefined rather than running on. */
   movImmediate(&encoder, REG_TEMP, (uint64_t)UNDEFINED_VAL);
   word(&encoder, 0xAA0903E0u); /* mov x0, x9 */
-  ret(&encoder);
+  emitEpilogue(&encoder);
 
   /* One extra entry per loop header, so a running loop can be taken over.
    *
@@ -849,6 +983,7 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
       osrWord[osrCount] = encoder.count;
       osrCount++;
 
+      emitPrologue(&encoder);
       for (int s = 0; s <= ir->slotCount; s++) {
         if (slotHome[s] >= 0) ldrDouble(&encoder, slotHome[s], REG_SLOTS, s * 8);
       }

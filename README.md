@@ -354,9 +354,11 @@ the checker's inference of `let a = 0`, and their loops reach the compiler
 because everything the compiler cannot express — the `console.log` at the end —
 is handed back to the interpreter rather than refusing the whole function.
 
-`bench/loop_arith.cx` and `bench/branches.cx` are still interpreted: both use
-`%` in the loop, and arm64 has no floating-point remainder instruction. `fmod`
-is a call, and a call needs a frame this backend does not set up.
+`%` calls `fmod`, because arm64 has no floating-point remainder and the inline
+form stops being exact past 2^53. A function that calls anything allocates only
+from the callee-saved registers, so nothing has to be spilled around the call —
+but ten million libm calls still cost what they cost: `bench/loop_arith.cx`
+gains 1.6× and `bench/branches.cx` 1.4×, against 5–9× for everything else.
 
 Both columns are the same binary; only the tiering threshold differs. The
 backend compiles functions whose arithmetic the type checker has already
@@ -498,7 +500,8 @@ cscript/
 | **35 ✅** | Async generators — `async function*`, `for await` over one | — |
 | **36 ✅** | Side exits — the compiler takes the loop and leaves the rest | — |
 | **37 ✅** | Globals in a compiled loop — `loop_empty` **8.6×**, `globals` **5.2×** | — |
-| next | Calling out of compiled code, which `%` and `Math.*` both need | — |
+| **38 ✅** | Calling out — `%` compiles, with nothing spilled around the call | — |
+| next | Calling a CScript function from compiled code, which needs frames and safepoints | — |
 | next | Inlining, so a small function is worth compiling | — |
 | next | Guards and deoptimisation, for code the types do not prove | — |
 

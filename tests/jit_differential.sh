@@ -24,6 +24,7 @@ fi
 checked=0
 failed=0
 compiled=0
+touched=0
 
 for source in "$ROOT"/tests/cases/*.cx "$ROOT"/tests/cases/*/main.cx \
               "$ROOT"/examples/*.cx "$ROOT"/bench/*.cx "$ROOT"/bench/jit/*.cx; do
@@ -40,6 +41,7 @@ for source in "$ROOT"/tests/cases/*.cx "$ROOT"/tests/cases/*/main.cx \
            grep -E 'answered without|taken over|handed back' |
            grep -oE '^  [0-9]+' | tr -d ' ' | paste -sd+ - | bc)"
   compiled=$((compiled + ${taken:-0}))
+  [[ ${taken:-0} -gt 0 ]] && touched=$((touched + 1))
 
   if [[ "$interpreted" != "$hot" ]]; then
     failed=$((failed + 1))
@@ -51,5 +53,7 @@ done
 
 echo "-------------------------------------------"
 echo "checked $checked programs, $failed disagreed"
-echo "the compiler answered $compiled calls, loops and exits across them"
+echo "the compiler took part in $touched of them, answering $compiled calls,"
+echo "loops and exits — a drop in the first number is a coverage regression"
+echo "even when nothing disagrees, which is how one went unnoticed once"
 [[ $failed -eq 0 ]]
