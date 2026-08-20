@@ -149,7 +149,12 @@ static TokenType identifierType(const Lexer *lexer) {
       break;
     case 'T': return checkKeyword(lexer, 1, 3, "rue", TOKEN_TRUE);
     case 'l': return checkKeyword(lexer, 1, 2, "et", TOKEN_LET);
-    case 'v': return checkKeyword(lexer, 1, 2, "ar", TOKEN_VAR);
+    case 'v':
+      /* `var` and `void` share their first letter. */
+      if (lexer->current - lexer->start > 1 && lexer->start[1] == 'o') {
+        return checkKeyword(lexer, 1, 3, "oid", TOKEN_VOID);
+      }
+      return checkKeyword(lexer, 1, 2, "ar", TOKEN_VAR);
     case 'i':
       if (lexer->current - lexer->start > 1) {
         switch (lexer->start[1]) {
@@ -235,20 +240,26 @@ static Token identifier(Lexer *lexer) {
   return makeToken(lexer, identifierType(lexer));
 }
 
+/* A digit, or the `_` that may sit between two of them. The separator is only
+ * ever punctuation: parseNumberLiteral drops it before anything reads the
+ * value, so `1_000` and `1000` are the same token in every other respect. */
+static bool isDigitPart(char c) { return isDigit(c) || c == '_'; }
+static bool isHexPart(char c) { return isHexDigit(c) || c == '_'; }
+
 static Token number(Lexer *lexer) {
   /* Hex literals: 0x1F. */
   if (lexer->current[-1] == '0' && (peek(lexer) == 'x' || peek(lexer) == 'X')) {
     advance(lexer);
     if (!isHexDigit(peek(lexer))) return errorToken(lexer, "expected hex digits after '0x'");
-    while (isHexDigit(peek(lexer))) advance(lexer);
+    while (isHexPart(peek(lexer))) advance(lexer);
     return makeToken(lexer, TOKEN_NUMBER);
   }
 
-  while (isDigit(peek(lexer))) advance(lexer);
+  while (isDigitPart(peek(lexer))) advance(lexer);
 
   if (peek(lexer) == '.' && isDigit(peekNext(lexer))) {
     advance(lexer);
-    while (isDigit(peek(lexer))) advance(lexer);
+    while (isDigitPart(peek(lexer))) advance(lexer);
   }
 
   /* Exponent: 1e10, 2.5E-3. */
@@ -257,7 +268,7 @@ static Token number(Lexer *lexer) {
     advance(lexer);
     if (peek(lexer) == '+' || peek(lexer) == '-') advance(lexer);
     if (isDigit(peek(lexer))) {
-      while (isDigit(peek(lexer))) advance(lexer);
+      while (isDigitPart(peek(lexer))) advance(lexer);
     } else {
       lexer->current = rewind; /* not an exponent after all */
     }
@@ -546,6 +557,7 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_DO:                return "DO";
     case TOKEN_DELETE:            return "DELETE";
     case TOKEN_YIELD:             return "YIELD";
+    case TOKEN_VOID:              return "VOID";
     case TOKEN_REGEX:             return "REGEX";
     case TOKEN_IN:                return "IN";
     case TOKEN_IMPORT:            return "IMPORT";

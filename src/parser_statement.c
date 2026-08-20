@@ -295,6 +295,20 @@ AstNode *parseFor(Parser *parser) {
     initializer = finishVarDeclaration(parser, line, bindingName, bindingLength,
                                        isConst);
     if (initializer == NULL) return NULL;
+
+    /* `for (let i = 0, limit = xs.length; …)`. The rest of the list joins the
+     * first declaration in one statement list, which opens no scope — so the
+     * condition and the increment see every name it declared. */
+    if (check(parser, TOKEN_COMMA)) {
+      AstNode *list = csAstProgram(parser->arena, line);
+      csAstProgramAdd(parser->arena, list, initializer);
+      while (matchToken(parser, TOKEN_COMMA)) {
+        AstNode *more = parseDeclaratorList(parser, line, isConst);
+        if (more == NULL) return NULL;
+        csAstProgramAdd(parser->arena, list, more);
+      }
+      initializer = list;
+    }
     /* The loop form owns its own semicolon, which the declaration no longer
      * consumes now that `let a = 1, b = 2;` is a list. */
     consume(parser, TOKEN_SEMICOLON, "expected ';' after the loop initialiser");
@@ -449,6 +463,12 @@ AstNode *parseStatement(Parser *parser) {
   if (matchToken(parser, TOKEN_IF)) return parseIf(parser);
   if (matchToken(parser, TOKEN_WHILE)) return parseWhile(parser);
   if (matchToken(parser, TOKEN_FOR)) return parseFor(parser);
+
+  /* A lone `;`. It does nothing, which is exactly what `class A {};` and
+   * `for (;;) ;` both want it to do. */
+  if (matchToken(parser, TOKEN_SEMICOLON)) {
+    return csAstBlock(parser->arena, line);
+  }
 
   AstNode *expression = parseExpression(parser);
   consume(parser, TOKEN_SEMICOLON, "expected ';' after this statement");

@@ -52,6 +52,10 @@ InterpretResult csVMRunEventLoop(void);
 void swapExecutionState(ObjFiber *fiber);
 void finishFiber(ObjFiber *fiber, ObjFiber *enclosing, InterpretResult result);
 void runFiber(ObjFiber *fiber);
+/* Checks the argument count against the parameter count, padding the frame
+ * with undefined for parameters a call left out. */
+bool csVMCheckArity(ObjFunction *function, int *argCount);
+
 bool callAsyncFunction(ObjClosure *closure, int argCount);
 
 /* Builds a generator for a `function*` call, without running any of it. */

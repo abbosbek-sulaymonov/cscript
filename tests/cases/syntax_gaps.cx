@@ -1,0 +1,62 @@
+// Default parameters, evaluated at the top of the body so a later one can see
+// an earlier one — and an argument written as `undefined` counts as absent.
+function greet(name = "world", greeting = "hello " + name) {
+  return greeting;
+}
+console.log(greet(), greet("you"), greet("you", "hi"), greet(undefined));
+
+function span(a, b = a * 2, c = a + b) { return [a, b, c].join(","); }
+console.log(span(1), span(1, 10), span(1, 10, 100));
+
+const arrow = (a = 7, b = 8) => a * b;
+console.log(arrow(), arrow(2), arrow(2, 3));
+
+class Box {
+  constructor(size = 1) { this.size = size; }
+  scaled(by = 2) { return this.size * by; }
+}
+console.log(new Box().scaled(), new Box(3).scaled(4));
+
+async function later(value = "default") { return value; }
+console.log(await later(), await later("given"));
+
+function* counted(upTo = 3) { for (let i = 0; i < upTo; i++) yield i; }
+console.log([...counted()], [...counted(1)]);
+
+// A default may be any expression, including one that allocates.
+function collect(into = []) { into.push(1); return into.length; }
+console.log(collect(), collect([9, 9]));
+
+// The comma operator, which is not the comma that separates things.
+let steps = 0;
+const last = ((steps = steps + 1), (steps = steps + 1), steps);
+console.log(last, steps);
+const xs = [10, 20, 30];
+console.log(xs[(0, 2)]);
+
+// `void` runs its operand and answers undefined.
+let ran = 0;
+console.log(void (ran = 5), ran);
+
+// Numeric separators are punctuation and nothing else.
+console.log(1_000_000, 0xFF_FF, 1_0.5, 2_5e1_0);
+
+// A class as a value binds nothing of its own.
+const Anonymous = class { tag() { return "anon"; } };
+console.log(new Anonymous().tag());
+const Named = class Inner { tag() { return "named"; } };
+console.log(new Named().tag(), typeof Named);
+class Base { kind() { return "base"; } }
+const Derived = class extends Base {};
+console.log(new Derived().kind());
+
+// Several declarators in a `for`, which the condition and increment both see.
+const items = ["a", "b", "c"];
+for (let i = 0, total = items.length; i < total; i++) {
+  console.log(i, total, items[i]);
+}
+
+// An empty statement is a statement.
+class Trailing {};
+for (let i = 0; i < 1; i++);
+console.log(typeof Trailing);

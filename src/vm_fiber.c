@@ -105,12 +105,7 @@ void runFiber(ObjFiber *fiber) {
  * the body until it either finishes or reaches its first await. */
 bool callAsyncFunction(ObjClosure *closure, int argCount) {
   ObjFunction *function = closure->function;
-  if (argCount != function->arity) {
-    csVMRuntimeError("%s expects %d argument%s but got %d",
-                     function->name != NULL ? function->name->chars : "<anonymous>",
-                     function->arity, function->arity == 1 ? "" : "s", argCount);
-    return false;
-  }
+  if (!csVMCheckArity(function, &argCount)) return false;
 
   ObjFiber *fiber = csFiberNew();
   csPushTempRoot((Obj *)fiber);
@@ -371,12 +366,7 @@ void csGeneratorFinish(ObjGenerator *generator, Value returned) {
  * fiber of its own and hands back the handle. */
 bool callGeneratorFunction(ObjClosure *closure, int argCount) {
   ObjFunction *function = closure->function;
-  if (argCount != function->arity) {
-    csVMRuntimeError("%s expects %d argument%s but got %d",
-                     function->name != NULL ? function->name->chars : "<anonymous>",
-                     function->arity, function->arity == 1 ? "" : "s", argCount);
-    return false;
-  }
+  if (!csVMCheckArity(function, &argCount)) return false;
 
   ObjFiber *fiber = csFiberNew();
   csPushTempRoot((Obj *)fiber);

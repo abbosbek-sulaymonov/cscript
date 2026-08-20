@@ -222,18 +222,41 @@ static bool concatenateOrAdd(void) {
   return true;
 }
 
+/* Checks the argument count and pads the frame out to the parameter count.
+ *
+ * A parameter with a default is optional, so a call may supply fewer than
+ * there are parameters — but the body still refers to every one of them by
+ * slot, so the missing ones are pushed as undefined before the frame starts.
+ * That is also what makes an argument written as `undefined` and one left out
+ * the same thing, which is what JavaScript says. */
+bool csVMCheckArity(ObjFunction *function, int *argCount) {
+  if (*argCount < function->arity || *argCount > function->paramCount) {
+    const char *name =
+        function->name != NULL ? function->name->chars : "<anonymous>";
+    if (function->arity == function->paramCount) {
+      csVMRuntimeError("%s expects %d argument%s but got %d", name, function->arity,
+                       function->arity == 1 ? "" : "s", *argCount);
+    } else {
+      csVMRuntimeError("%s expects between %d and %d arguments but got %d", name,
+                       function->arity, function->paramCount, *argCount);
+    }
+    return false;
+  }
+
+  while (*argCount < function->paramCount) {
+    csVMPush(UNDEFINED_VAL);
+    (*argCount)++;
+  }
+  return true;
+}
+
 /* Pushes a frame for a user function. The frame's window starts at the callee
  * itself, so slot 0 is the function and slots 1..arity are the arguments —
  * exactly where the compiler assigned the parameters. */
 bool callClosure(ObjClosure *closure, int argCount) {
   ObjFunction *function = closure->function;
 
-  if (argCount != function->arity) {
-    csVMRuntimeError("%s expects %d argument%s but got %d",
-                     function->name != NULL ? function->name->chars : "<anonymous>",
-                     function->arity, function->arity == 1 ? "" : "s", argCount);
-    return false;
-  }
+  if (!csVMCheckArity(function, &argCount)) return false;
 
   if (vm.frameCount == vm.frameCapacity) {
     csVMRuntimeError("call stack overflow (limit %d frames)", vm.frameCapacity);

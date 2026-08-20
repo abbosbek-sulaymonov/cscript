@@ -174,6 +174,14 @@ AstNode *csAstAssignKind(AstArena *arena, int line, AstNode *target,
   return node;
 }
 
+AstNode *csAstSequence(AstArena *arena, int line, AstNode *first, AstNode *second) {
+  AstNode *node = newNode(arena, AST_SEQUENCE, line);
+  if (node == NULL) return NULL;
+  node->as.sequence.first = first;
+  node->as.sequence.second = second;
+  return node;
+}
+
 AstNode *csAstYield(AstArena *arena, int line, AstNode *value, bool isDelegate) {
   AstNode *node = newNode(arena, AST_YIELD, line);
   if (node == NULL) return NULL;
@@ -493,6 +501,7 @@ void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name,
   grown[count].type = type;
   grown[count].hasAnnotation = hasAnnotation;
   grown[count].pattern = NULL;
+  grown[count].defaultValue = NULL;
 
   function->as.function.params = grown;
   function->as.function.paramCount = count + 1;
@@ -747,6 +756,7 @@ const char *csUnaryOpName(UnaryOp op) {
     case UNARY_NEGATE: return "-";
     case UNARY_NOT:    return "!";
     case UNARY_TYPEOF: return "typeof";
+    case UNARY_VOID:   return "void";
   }
   return "?";
 }

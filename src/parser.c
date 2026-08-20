@@ -161,8 +161,15 @@ AstNode *makeStringLiteral(Parser *parser, const char *start, int length,
 
 double parseNumberLiteral(const char *start, int length) {
   char buffer[64];
-  int copyLength = length < (int)sizeof(buffer) - 1 ? length : (int)sizeof(buffer) - 1;
-  memcpy(buffer, start, (size_t)copyLength);
+  int limit = length < (int)sizeof(buffer) - 1 ? length : (int)sizeof(buffer) - 1;
+
+  /* `1_000_000`. The separators are dropped here rather than in the lexer, so
+   * the token still spans exactly what was written and an error can point at
+   * it. */
+  int copyLength = 0;
+  for (int i = 0; i < limit; i++) {
+    if (start[i] != '_') buffer[copyLength++] = start[i];
+  }
   buffer[copyLength] = '\0';
 
   if (copyLength > 2 && buffer[0] == '0' && (buffer[1] == 'x' || buffer[1] == 'X')) {

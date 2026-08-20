@@ -28,12 +28,14 @@ statement      = varDeclaration | destructuring
                | forStatement | forOfStatement
                | switchStatement | tryStatement
                | labelledStatement
+               | emptyStatement
                | "break" IDENTIFIER? ";" | "continue" IDENTIFIER? ";"
                | "throw" expression ";"
                | "return" expression? ";"
                | expressionStatement ;
 
 varDeclaration = ( "let" | "const" ) declarator ( "," declarator )* ";" ;
+emptyStatement = ";" ;
 declarator     = IDENTIFIER typeAnnotation? ( "=" expression )? ;
 destructuring  = ( "let" | "const" ) pattern "=" expression ";" ;
 typeAnnotation = ":" TYPE_NAME ;
@@ -48,7 +50,7 @@ objectEntry    = IDENTIFIER ( ":" ( IDENTIFIER | pattern ) )? ( "=" expression )
 functionDecl   = "async"? "function" "*"? IDENTIFIER
                  "(" parameters? ")" typeAnnotation? block ;
 parameters     = parameter ( "," parameter )* ;
-parameter      = ( IDENTIFIER typeAnnotation? | pattern ) ;
+parameter      = ( IDENTIFIER typeAnnotation? | pattern ) ( "=" expression )? ;
 
 classDecl      = "class" IDENTIFIER ( "extends" IDENTIFIER )? "{" member* "}" ;
 member         = "static" block                        (* static initialiser *)
@@ -79,7 +81,8 @@ labelledStatement = IDENTIFIER ":" statement ;
 ifStatement    = "if" "(" expression ")" statement ( "else" statement )? ;
 whileStatement = "while" "(" expression ")" statement ;
 doWhileStatement = "do" statement "while" "(" expression ")" ";" ;
-forStatement   = "for" "(" ( varDeclaration | expressionStatement | ";" )
+forStatement   = "for" "(" ( declarator ( "," declarator )* ";"
+                           | expressionStatement | ";" )
                            expression? ";" expression? ")" statement ;
 forOfStatement = "for" "await"? "(" ( "let" | "const" )
                  ( IDENTIFIER | pattern ) ( "of" | "in" )
@@ -91,7 +94,8 @@ tryStatement   = "try" block ( "catch" ( "(" IDENTIFIER ")" )? block )?
                  ( "finally" block )? ;
 expressionStatement = expression ";" ;
 
-expression     = assignment ;
+expression     = sequence ;
+sequence       = assignment ( "," assignment )* ;   (* the comma operator *)
 assignment     = ( IDENTIFIER | property | index )
                  ( "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "**="
                  | "&&=" | "||=" | "??=" ) assignment
@@ -109,7 +113,7 @@ term           = factor     ( ( "+" | "-" ) factor )* ;
 factor         = exponent   ( ( "*" | "/" | "%" ) exponent )* ;
 exponent       = unary      ( "**" exponent )? ;          (* right-associative *)
 
-unary          = ( "!" | "-" | "typeof" | "await" | "++" | "--" ) unary
+unary          = ( "!" | "-" | "typeof" | "await" | "void" | "++" | "--" ) unary
                | "delete" ( property | index )
                | "yield" "*"? assignment?
                | postfix ;
@@ -129,6 +133,7 @@ primary        = NUMBER | STRING | TEMPLATE | REGEX | IDENTIFIER
                | "new" IDENTIFIER ( "." propertyName )* ( "(" arguments? ")" )?
                | arrayLiteral | objectLiteral | arrowFunction
                | "async"? "function" "*"? IDENTIFIER? "(" parameters? ")" block
+               | "class" IDENTIFIER? ( "extends" IDENTIFIER )? "{" member* "}"
                | "(" expression ")" ;
 
 arrayLiteral   = "[" ( argument ( "," argument )* )? "]" ;
@@ -151,6 +156,7 @@ the unary operators are right-associative.
 
 | Level | Operators | Associativity |
 | --- | --- | --- |
+| 0 | `,` (the operator) | left |
 | 1 | `=` `+=` `-=` `*=` `/=` `%=` `**=` `&&=` `\|\|=` `??=` | right |
 | 2 | `? :` | right |
 | 3 | `\|\|` `??` (not mixable without parentheses) | left |
@@ -160,7 +166,7 @@ the unary operators are right-associative.
 | 7 | `+` `-` | left |
 | 8 | `*` `/` `%` | left |
 | 9 | `**` | right |
-| 10 | `!` `-` `typeof` `await` `delete` `++` `--` (prefix) | right |
+| 10 | `!` `-` `typeof` `await` `void` `delete` `++` `--` (prefix) | right |
 | 11 | `.` `?.` `[ ]` `( )` `++` `--` (postfix) | left |
 
 `yield` and `yield*` take an operand at level 1, so `yield a + b` yields the

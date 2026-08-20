@@ -44,14 +44,17 @@ asserted here.
 
 | | |
 | --- | --- |
-| Declarations | `let`, `const`, several per statement |
+| Declarations | `let`, `const`, several per statement and per `for` initialiser |
+| Classes as values | `const C = class { … }`, named or not |
+| Numeric separators | `1_000_000`, `0xFF_FF` |
+| `void` and the comma operator | `void x`, `(a, b)` — the operator, not the separator |
 | Functions | declarations, expressions, arrows, closures |
 | `this` | lexical in arrows, receiver in methods |
 | Classes | fields, methods, `static`, getters and setters, `extends`, `super` |
 | Private members | `#field`, `#method()`, `static #field` — off the shape, so invisible to `Object.keys`, `JSON.stringify` and subscripts |
 | Static blocks | `static { … }`, interleaved with static fields in source order |
 | Destructuring | array and object, nested, defaults, renaming, rest elements and rest properties |
-| Parameters | patterns as parameters, in every function form |
+| Parameters | patterns as parameters and defaults, in every function form |
 | Spread | array literals, object literals, call arguments, over strings |
 | Object literals | shorthand `{ x }`, computed keys `{ [k]: v }`, numeric keys `{ 1: v }`, methods `{ m() {} }`, spread `{ ...o }` |
 | Optional chaining | `?.`, `?.[ ]`, `?.()`, short-circuiting the whole chain |

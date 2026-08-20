@@ -16,6 +16,9 @@ typedef struct {
   TypeKind returnType;
   bool hasReturnAnnotation;
   int paramCount;
+  /* How many a call must supply. A parameter with a default is optional, so
+   * this stops at the first one that has one. */
+  int requiredCount;
   TypeKind paramTypes[UINT8_MAX];
 } Signature;
 
@@ -194,6 +197,13 @@ static const Signature *declareFunction(Checker *checker, AstNode *node) {
       node->as.function.hasReturnAnnotation ? node->as.function.returnType : TYPE_ANY;
   signature->hasReturnAnnotation = node->as.function.hasReturnAnnotation;
   signature->paramCount = node->as.function.paramCount;
+  signature->requiredCount = node->as.function.paramCount;
+  for (int i = 0; i < node->as.function.paramCount; i++) {
+    if (node->as.function.params[i].defaultValue != NULL) {
+      signature->requiredCount = i;
+      break;
+    }
+  }
   for (int i = 0; i < node->as.function.paramCount && i < UINT8_MAX; i++) {
     const AstParam *param = &node->as.function.params[i];
     signature->paramTypes[i] = param->hasAnnotation ? param->type : TYPE_ANY;
@@ -386,6 +396,9 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
         case UNARY_TYPEOF:
           result = TYPE_STRING;
           break;
+        case UNARY_VOID:
+          result = TYPE_UNDEFINED;
+          break;
       }
       break;
     }
@@ -413,6 +426,11 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
       /* A label is a jump target; it declares nothing and types nothing. */
       checkNode(checker, node->as.labeled.body);
       result = TYPE_UNDEFINED;
+      break;
+
+    case AST_SEQUENCE:
+      checkNode(checker, node->as.sequence.first);
+      result = checkNode(checker, node->as.sequence.second);
       break;
 
     case AST_YIELD:
@@ -546,10 +564,18 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
         if (node->as.call.arguments[i]->type == AST_SPREAD) hasSpread = true;
       }
 
-      if (!hasSpread && node->as.call.argCount != signature->paramCount) {
-        typeError(checker, node->line, "expected %d argument%s but got %d",
-                  signature->paramCount, signature->paramCount == 1 ? "" : "s",
-                  node->as.call.argCount);
+      if (!hasSpread && (node->as.call.argCount < signature->requiredCount ||
+                         node->as.call.argCount > signature->paramCount)) {
+        if (signature->requiredCount == signature->paramCount) {
+          typeError(checker, node->line, "expected %d argument%s but got %d",
+                    signature->paramCount, signature->paramCount == 1 ? "" : "s",
+                    node->as.call.argCount);
+        } else {
+          typeError(checker, node->line,
+                    "expected between %d and %d arguments but got %d",
+                    signature->requiredCount, signature->paramCount,
+                    node->as.call.argCount);
+        }
         result = TYPE_ERROR;
         break;
       }

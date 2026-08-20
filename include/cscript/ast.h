@@ -37,6 +37,7 @@ typedef enum {
   AST_SUPER,
   AST_AWAIT,
   AST_YIELD,
+  AST_SEQUENCE,
   AST_REGEX_LITERAL,
   AST_OPTIONAL_CHAIN,
   AST_DELETE,
@@ -67,6 +68,7 @@ typedef enum {
   UNARY_NEGATE, /* -x */
   UNARY_NOT,    /* !x */
   UNARY_TYPEOF, /* typeof x */
+  UNARY_VOID,   /* void x — evaluate it, then answer undefined */
 } UnaryOp;
 
 typedef enum {
@@ -182,6 +184,9 @@ typedef struct AstParam {
    * pattern is destructured from it at the top of the body, which is exactly
    * what writing it out by hand would do. */
   AstNode *pattern;
+  /* `function f(a = 1)`. Run at the top of the body when the argument was not
+   * given, which is also what an explicit `undefined` counts as. */
+  AstNode *defaultValue;
 } AstParam;
 
 struct AstNode {
@@ -215,6 +220,10 @@ struct AstNode {
     } logical;
     AstNode *grouping;                   /* AST_GROUPING */
     AstNode *deleteTarget;               /* AST_DELETE — a property or index */
+    struct {                             /* AST_SEQUENCE — `a, b` */
+      AstNode *first;                    /*   evaluated and discarded */
+      AstNode *second;                   /*   the value of the whole */
+    } sequence;
     struct {                             /* AST_YIELD */
       AstNode *value;                    /*   NULL for a bare `yield;` */
       bool isDelegate;                   /*   `yield*` */
@@ -292,6 +301,9 @@ struct AstNode {
       struct AstClassMember *members;
       int memberCount;
       AstNode *constructor;              /*   an AST_FUNCTION, or NULL */
+      /* `const C = class { … }`. It binds nothing of its own and leaves the
+       * class where an expression's value goes. */
+      bool isExpression;
     } classDecl;
     struct {                             /* AST_PROPERTY — obj.name */
       AstNode *object;
@@ -464,6 +476,9 @@ AstNode *csAstDelete(AstArena *arena, int line, AstNode *target);
 /* `yield v` and `yield* xs`. An expression: it produces whatever the next
  * `next(x)` passes back in. */
 AstNode *csAstYield(AstArena *arena, int line, AstNode *value, bool isDelegate);
+
+/* `a, b` — the comma operator, not a separator. */
+AstNode *csAstSequence(AstArena *arena, int line, AstNode *first, AstNode *second);
 AstNode *csAstUpdate(AstArena *arena, int line, AstNode *target, bool isIncrement,
                      bool isPrefix);
 AstNode *csAstCall(AstArena *arena, int line, AstNode *callee);

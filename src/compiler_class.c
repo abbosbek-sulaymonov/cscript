@@ -65,6 +65,7 @@ void compileFieldInitializer(const AstNode *node) {
   Compiler compiler;
   beginFunction(&compiler, FUNCTION_METHOD, " fields", 7);
   compiler.function->arity = 0;
+  compiler.function->paramCount = 0;
   emitFieldAssignments(node);
 
   ObjFunction *function = endFunction(line);
@@ -101,7 +102,16 @@ void compileConstructor(const AstNode *classNode) {
                 fn->as.function.nameLength);
   beginScope();
 
+  /* Same rule as any other function: a parameter with a default is optional,
+   * so the required count stops at the first one that has one. */
+  compiler.function->paramCount = fn->as.function.paramCount;
   compiler.function->arity = fn->as.function.paramCount;
+  for (int i = 0; i < fn->as.function.paramCount; i++) {
+    if (fn->as.function.params[i].defaultValue != NULL) {
+      compiler.function->arity = i;
+      break;
+    }
+  }
   if (fn->as.function.paramCount > UINT8_MAX) {
     errorAt(line, "too many parameters (limit %d)", UINT8_MAX);
   }
@@ -109,14 +119,10 @@ void compileConstructor(const AstNode *classNode) {
     const AstParam *param = &fn->as.function.params[i];
     addLocal(param->name, param->length, false, line);
   }
-  /* A destructured parameter is unpacked before anything else, including the
-   * super call — which may well want one of the names it binds. */
-  for (int i = 0; i < fn->as.function.paramCount; i++) {
-    const AstParam *param = &fn->as.function.params[i];
-    if (param->pattern == NULL) continue;
-    emitBytes(OP_GET_LOCAL, (uint8_t)(i + 1), line);
-    compileDestructurePattern(param->pattern, line);
-  }
+  /* Defaults and destructured parameters are dealt with before anything else,
+   * including the super call — which may well want one of the names they
+   * bind. */
+  compileParameterPrologue(fn, line);
 
   int first = 0;
   if (hasSuper) {
@@ -143,14 +149,29 @@ void compileConstructor(const AstNode *classNode) {
 
 void compileClassDecl(const AstNode *node) {
   int line = node->line;
+  bool isExpression = node->as.classDecl.isExpression;
   const char *name = node->as.classDecl.name;
   int nameLength = node->as.classDecl.nameLength;
+
+  /* An anonymous class expression still needs a name to refer to itself by
+   * while its body is compiled. This one is unwritable. */
+  if (name == NULL) {
+    name = " class";
+    nameLength = 6;
+  }
 
   emitConstantOp(OP_CLASS, identifierConstant(name, nameLength, line), line);
 
   /* Bound before the body is compiled, so a method can refer to the class it
-   * belongs to — including to construct one. */
-  if (current->scopeDepth > 0) {
+   * belongs to — including to construct one.
+   *
+   * An expression binds it in a scope of its own instead, so the name reaches
+   * the body and nothing else: `class C {}` used as a value declares no `C`
+   * for the code around it, which is the whole difference between the two. */
+  if (isExpression) {
+    beginScope();
+    addLocal(name, nameLength, true, line);
+  } else if (current->scopeDepth > 0) {
     addLocal(name, nameLength, true, line);
   } else {
     addGlobal(name, nameLength, true, line);
@@ -249,4 +270,12 @@ void compileClassDecl(const AstNode *node) {
 
   emitByte(OP_POP, line);
   if (hasSuper) endScope(line);
+
+  /* The class is sitting in its own local's slot, which — a local being a
+   * stack slot here — is already exactly where an expression leaves its value.
+   * So the binding is forgotten rather than popped. */
+  if (isExpression) {
+    current->scopeDepth--;
+    current->localCount--;
+  }
 }

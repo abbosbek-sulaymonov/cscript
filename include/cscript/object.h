@@ -61,7 +61,7 @@ typedef struct ObjNative {
   Obj obj;
   NativeFn function;
   ObjString *name; /* for error messages and disassembly */
-  int arity;       /* -1 means variadic */
+  int arity;            /* -1 means variadic */
 
   /* Static properties hung off a callable, so `Number(x)` and
    * `Number.isInteger` can both work. In JavaScript functions are objects and
@@ -314,7 +314,12 @@ typedef struct ObjRegex {
  * calls through exactly one mechanism. */
 struct ObjFunction {
   Obj obj;
+  /* How many arguments a call must supply. A parameter with a default is not
+   * among them, so `arity` is the minimum and `paramCount` the maximum — the
+   * VM pads the frame out to the second before the body runs, which is where
+   * the defaults are applied. */
   int arity;
+  int paramCount;
   int upvalueCount;
   Chunk chunk;
   ObjString *name; /* NULL for the implicit top-level function */

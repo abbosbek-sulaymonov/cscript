@@ -361,6 +361,11 @@ static void printNode(const AstNode *node, int depth) {
       printf("Label %.*s\n", node->as.labeled.length, node->as.labeled.name);
       printNode(node->as.labeled.body, depth + 1);
       break;
+    case AST_SEQUENCE:
+      printf("Sequence\n");
+      printNode(node->as.sequence.first, depth + 1);
+      printNode(node->as.sequence.second, depth + 1);
+      break;
     case AST_YIELD:
       printf(node->as.yield.isDelegate ? "YieldFrom\n" : "Yield\n");
       printNode(node->as.yield.value, depth + 1);

@@ -573,6 +573,12 @@ void compileNode(const AstNode *node) {
       compileOptionalChain(node);
       break;
 
+    case AST_SEQUENCE:
+      /* The first operand is evaluated only for what it does. */
+      compileForEffect(node->as.sequence.first);
+      compileNode(node->as.sequence.second);
+      break;
+
     case AST_YIELD:
       if (node->as.yield.isDelegate) {
         /* Delegating needs somewhere to keep its position across each
@@ -819,6 +825,11 @@ void compileNode(const AstNode *node) {
         case UNARY_NEGATE: emitByte(OP_NEGATE, line); break;
         case UNARY_NOT:    emitByte(OP_NOT, line); break;
         case UNARY_TYPEOF: emitByte(OP_TYPEOF, line); break;
+        /* `void x` runs x for whatever it does and answers undefined. */
+        case UNARY_VOID:
+          emitByte(OP_POP, line);
+          emitByte(OP_UNDEFINED, line);
+          break;
       }
       break;
 

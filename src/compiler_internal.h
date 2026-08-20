@@ -205,6 +205,7 @@ bool fusedConditionJump(const AstNode *condition, uint8_t *opcode);
 int emitConditionJump(const AstNode *condition, int line);
 bool containsFunction(const AstNode *node);
 void compileFunctionAs(const AstNode *node, FunctionKind kind);
+void compileParameterPrologue(const AstNode *node, int line);
 void compileFunction(const AstNode *node);
 bool compileThisLoad(int line);
 bool compileSuperLoad(int line);

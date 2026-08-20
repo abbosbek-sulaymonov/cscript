@@ -19,9 +19,12 @@ AstNode *parseClass(Parser *parser) {
 
   consume(parser, TOKEN_IDENTIFIER, "expected a class name");
   if (parser->diag->panicMode) return NULL;
-  const char *name = parser->previous.start;
-  int nameLength = parser->previous.length;
+  return parseClassBody(parser, line, parser->previous.start,
+                        parser->previous.length);
+}
 
+/* Everything after the name, which a class expression has none of. */
+AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLength) {
   const char *superName = NULL;
   int superLength = 0;
   if (matchToken(parser, TOKEN_EXTENDS)) {
@@ -542,6 +545,19 @@ AstNode *parseVarDeclaration(Parser *parser, bool isConst) {
     return parseDestructuring(parser, true, isConst);
   }
 
+  AstNode *list = parseDeclaratorList(parser, line, isConst);
+  if (list == NULL) return NULL;
+
+  consume(parser, TOKEN_SEMICOLON, "expected ';' after a variable declaration");
+  if (parser->diag->panicMode) return NULL;
+  return list;
+}
+
+/* `a = 1, b = 2` — everything after `let`, and before the semicolon that the
+ * caller owns. Several declarations come back as a statement list, which
+ * compiles as one and opens no scope of its own: that is what lets a `for`
+ * loop declare two variables and still see both in its condition. */
+AstNode *parseDeclaratorList(Parser *parser, int line, bool isConst) {
   AstNode *first = NULL;
   AstNode *list = NULL;
 
@@ -566,7 +582,5 @@ AstNode *parseVarDeclaration(Parser *parser, bool isConst) {
     if (!matchToken(parser, TOKEN_COMMA)) break;
   }
 
-  consume(parser, TOKEN_SEMICOLON, "expected ';' after a variable declaration");
-  if (parser->diag->panicMode) return NULL;
   return list != NULL ? list : first;
 }

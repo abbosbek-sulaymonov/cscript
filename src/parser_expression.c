@@ -422,6 +422,13 @@ AstNode *parsePrimary(Parser *parser) {
           if (!parseTypeAnnotation(parser, &paramType, &annotated)) return NULL;
           csAstFunctionAddParam(parser->arena, arrow, paramName, paramLength,
                                 paramType, annotated);
+
+          if (matchToken(parser, TOKEN_EQUAL)) {
+            AstNode *fallback = parsePrecedence(parser, PREC_ASSIGNMENT);
+            if (fallback == NULL) return NULL;
+            arrow->as.function.params[arrow->as.function.paramCount - 1]
+                .defaultValue = fallback;
+          }
         } while (matchToken(parser, TOKEN_COMMA));
       }
       consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the parameters");
@@ -459,6 +466,30 @@ AstNode *parsePrimary(Parser *parser) {
     AstNode *operand = parsePrecedence(parser, PREC_UNARY);
     if (operand == NULL) return NULL;
     return csAstUnary(parser->arena, line, UNARY_TYPEOF, operand);
+  }
+
+  if (matchToken(parser, TOKEN_VOID)) {
+    AstNode *operand = parsePrecedence(parser, PREC_UNARY);
+    if (operand == NULL) return NULL;
+    return csAstUnary(parser->arena, line, UNARY_VOID, operand);
+  }
+
+  if (matchToken(parser, TOKEN_CLASS)) {
+    /* `const C = class { … }` — a class as a value. It binds nothing in the
+     * enclosing scope; whatever it is assigned to does. A name may still be
+     * written, and is what the class calls itself. */
+    const char *name = NULL;
+    int nameLength = 0;
+    if (check(parser, TOKEN_IDENTIFIER)) {
+      advanceToken(parser);
+      name = parser->previous.start;
+      nameLength = parser->previous.length;
+    }
+
+    AstNode *klass = parseClassBody(parser, line, name, nameLength);
+    if (klass == NULL) return NULL;
+    klass->as.classDecl.isExpression = true;
+    return parseCallSuffixes(parser, klass);
   }
 
   if (matchToken(parser, TOKEN_YIELD)) {
@@ -599,6 +630,15 @@ AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence) {
       continue;
     }
 
+    if (check(parser, TOKEN_COMMA) && minPrecedence <= PREC_COMMA) {
+      int line = parser->current.line;
+      advanceToken(parser);
+      AstNode *second = parsePrecedence(parser, PREC_ASSIGNMENT);
+      if (second == NULL) return NULL;
+      left = csAstSequence(parser->arena, line, left, second);
+      continue;
+    }
+
     /* `?:` is right-associative and binds looser than everything except
      * assignment, so both arms parse at the conditional level. */
     if (check(parser, TOKEN_QUESTION) && minPrecedence <= PREC_CONDITIONAL) {
@@ -656,7 +696,11 @@ AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence) {
 }
 
 AstNode *parseExpression(Parser *parser) {
-  return parsePrecedence(parser, PREC_ASSIGNMENT);
+  /* The comma *operator*, which only exists where a whole expression is
+   * wanted. Everywhere a comma separates things — arguments, array elements,
+   * object entries, declarators — the parser asks for an assignment instead,
+   * so a separator can never be mistaken for one. */
+  return parsePrecedence(parser, PREC_COMMA);
 }
 
 /* Builds the concatenation a template literal desugars to.
@@ -874,6 +918,16 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
 
       csAstFunctionAddParam(parser->arena, function, paramName, paramLength, paramType,
                             annotated);
+
+      /* `function f(a = 1)`. The expression is kept on the parameter and run
+       * at the top of the body, so it can refer to the parameters before it —
+       * which is what `function f(a, b = a * 2)` means. */
+      if (matchToken(parser, TOKEN_EQUAL)) {
+        AstNode *fallback = parsePrecedence(parser, PREC_ASSIGNMENT);
+        if (fallback == NULL) return NULL;
+        function->as.function.params[function->as.function.paramCount - 1]
+            .defaultValue = fallback;
+      }
     } while (matchToken(parser, TOKEN_COMMA));
   }
   consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the parameters");

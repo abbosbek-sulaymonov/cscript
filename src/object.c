@@ -291,6 +291,7 @@ ObjFunction *csFunctionNew(void) {
   ObjFunction *function = CS_ALLOCATE(ObjFunction, 1);
   registerObject((Obj *)function, OBJ_FUNCTION);
   function->arity = 0;
+  function->paramCount = 0;
   function->upvalueCount = 0;
   function->name = NULL;
   function->module = NULL;

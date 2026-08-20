@@ -641,6 +641,40 @@ bool containsFunction(const AstNode *node) {
   }
 }
 
+/* The two things that happen to parameters before a body runs: a default
+ * fills in for an argument that was not given, and a pattern is unpacked from
+ * the slot the generated name holds. Shared with the constructor, which has a
+ * body of its own to build and would otherwise have to remember both. */
+void compileParameterPrologue(const AstNode *node, int line) {
+  /* The caller padded the frame with undefined for every argument it did not
+   * supply, and an argument written as `undefined` is not distinguishable from
+   * one left out — which is what JavaScript says too. */
+  for (int i = 0; i < node->as.function.paramCount; i++) {
+    const AstParam *param = &node->as.function.params[i];
+    if (param->defaultValue == NULL) continue;
+
+    emitBytes(OP_GET_LOCAL, (uint8_t)(i + 1), line);
+    emitByte(OP_UNDEFINED, line);
+    emitByte(OP_NOT_EQUAL, line);
+    int given = emitJump(OP_POP_JUMP_IF_FALSE, line);
+    int done = emitJump(OP_JUMP, line);
+
+    patchJump(given, line);
+    compileNode(param->defaultValue);
+    emitBytes(OP_SET_LOCAL_POP, (uint8_t)(i + 1), line);
+    patchJump(done, line);
+  }
+
+  /* A destructured parameter arrived under a generated name; the pattern it
+   * was written as is unpacked from that slot. */
+  for (int i = 0; i < node->as.function.paramCount; i++) {
+    const AstParam *param = &node->as.function.params[i];
+    if (param->pattern == NULL) continue;
+    emitBytes(OP_GET_LOCAL, (uint8_t)(i + 1), line);
+    compileDestructurePattern(param->pattern, line);
+  }
+}
+
 void compileFunctionAs(const AstNode *node, FunctionKind kind) {
   int line = node->line;
 
@@ -656,7 +690,17 @@ void compileFunctionAs(const AstNode *node, FunctionKind kind) {
   compiler.function->isGenerator = node->as.function.isGenerator;
   beginScope();
 
+  /* A parameter with a default is optional, so the required count stops at
+   * the first one that has it — which is also why JavaScript will not let a
+   * required parameter follow an optional one. */
+  compiler.function->paramCount = node->as.function.paramCount;
   compiler.function->arity = node->as.function.paramCount;
+  for (int i = 0; i < node->as.function.paramCount; i++) {
+    if (node->as.function.params[i].defaultValue != NULL) {
+      compiler.function->arity = i;
+      break;
+    }
+  }
   if (node->as.function.paramCount > UINT8_MAX) {
     errorAt(line, "too many parameters (limit %d)", UINT8_MAX);
   }
@@ -681,14 +725,7 @@ void compileFunctionAs(const AstNode *node, FunctionKind kind) {
     }
   }
 
-  /* A destructured parameter arrived under a generated name; the pattern it
-   * was written as is unpacked from that slot before the body runs. */
-  for (int i = 0; i < node->as.function.paramCount; i++) {
-    const AstParam *param = &node->as.function.params[i];
-    if (param->pattern == NULL) continue;
-    emitBytes(OP_GET_LOCAL, (uint8_t)(i + 1), line);
-    compileDestructurePattern(param->pattern, line);
-  }
+  compileParameterPrologue(node, line);
 
   compileStatements(node->as.function.body->as.block.statements,
                     node->as.function.body->as.block.count);

@@ -21,6 +21,7 @@
  * functions, because binary parsing is driven by this table. */
 typedef enum {
   PREC_NONE,
+  PREC_COMMA,       /* ,                 (left-associative) */
   PREC_ASSIGNMENT,  /* = += -= *= /= %=  (right-associative) */
   PREC_CONDITIONAL, /* ?:                (right-associative) */
   PREC_OR,         /* ||               */
@@ -73,12 +74,17 @@ AstNode *parseFunction(Parser *parser, bool requireName);
 
 /* src/parser_declaration.c */
 AstNode *parseClass(Parser *parser);
+
+/* The body of a class, after its name. `name` is NULL for `class { … }` used
+ * as an expression, which binds nothing of its own. */
+AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLength);
 bool parseModuleNameList(Parser *parser, AstNode *node, bool isImport);
 bool parseModuleSpecifier(Parser *parser, const char **out, int *outLength);
 AstNode *parseImport(Parser *parser);
 AstNode *parseExport(Parser *parser);
 AstNode *parsePattern(Parser *parser, bool isObject, bool isConst);
 AstNode *parseDestructuring(Parser *parser, bool isObject, bool isConst);
+AstNode *parseDeclaratorList(Parser *parser, int line, bool isConst);
 AstNode *finishVarDeclaration(Parser *parser, int line, const char *name,
                                      int nameLength, bool isConst);
 AstNode *parseVarDeclaration(Parser *parser, bool isConst);
