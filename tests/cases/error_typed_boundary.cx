@@ -1,0 +1,18 @@
+// A `number` annotation is not advice: the compiler emits a specialised add
+// for arithmetic on one and the JIT seeds the slot as a number and stops
+// guarding. The checker enforces it wherever it can see the argument's type —
+// but `any` is assignable to everything by design, so a value arriving through
+// an untyped edge has to be checked where it lands.
+function scale(x: number) {
+  return x * 2;
+}
+console.log(scale(21));
+
+const untyped: any = 21;
+console.log(scale(untyped));
+
+// The same edge carrying something that is not a number. Without the check at
+// the boundary this read the object's bits as a double and answered with
+// whatever fell out.
+const sneaky: any = 7n;
+console.log(scale(sneaky));

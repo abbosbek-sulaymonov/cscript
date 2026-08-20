@@ -1,0 +1,60 @@
+// A BigInt is a whole number with no upper bound, written with an `n` suffix.
+// It is a type of its own rather than a wider number, and that is the point of
+// it: mixing the two is refused rather than answered, because either answer
+// would be a lie about precision.
+const big = 9007199254740993n;
+console.log(big, typeof big);
+// The number a double cannot hold: 2^53 + 1 rounds down to 2^53 as a number.
+console.log(Number.MAX_SAFE_INTEGER + 2, big);
+
+// Arithmetic is exact however far it goes.
+console.log(big * big);
+console.log(2n ** 128n);
+console.log(123456789012345678901234567890n + 1n);
+console.log(100n - 250n, -7n * 3n);
+
+// Division truncates, and the remainder keeps the sign of the dividend — the
+// same rule `%` follows for numbers.
+console.log(10n / 3n, -10n / 3n, 10n % 3n, -10n % 3n);
+
+// Equality is by value, unlike every other object type.
+console.log(1n === 1n, 1n === 2n);
+// A BigInt never equals a number. Written as a pair of literals the checker
+// rejects it outright, so the cross-type comparison goes through a parameter
+// it cannot see into.
+function sameValue(a, b) {
+  return a === b;
+}
+console.log(sameValue(1n, 1), sameValue(1n, 1n));
+
+// Ordering is the one place a BigInt and a number mix, and it is exact: the
+// comparison below is decided without rounding either side to a double.
+console.log(1n < 2, 2n > 1, 1n <= 1, 1n >= 2);
+console.log(9007199254740993n > 9007199254740992);
+console.log(1n < NaN, 1n > NaN);
+
+// Conversions, in both directions.
+console.log(BigInt(42), BigInt("0xff"), BigInt("-100"), BigInt(true));
+console.log(BigInt("0b1010"), BigInt("0o17"), BigInt(""));
+console.log(Number(9n), Boolean(0n), Boolean(1n));
+
+// Text: the `n` is how a BigInt is *written*, not what it says.
+console.log(String(7n), `${7n}`, "" + 7n);
+console.log((255n).toString(16), (255n).toString(2), (-255n).toString(36));
+console.log([1n, 2n], String([1n, 2n]));
+
+// Truthiness follows the number: only zero is falsy.
+console.log(0n ? "yes" : "no", 1n ? "yes" : "no");
+
+// Collections compare a BigInt by value too.
+const seen = new Set([1n, 1n, 2n]);
+const named = new Map([[1n, "one"]]);
+console.log(seen.size, named.get(1n));
+
+// A loop, which is where the fused compare-and-branch is used.
+let total = 1n;
+for (let i = 1n; i <= 20n; i = i + 1n) total = total * i;
+console.log(total);
+
+// Sorting needs a comparator, exactly as it does for numbers.
+console.log([3n, 1n, 2n].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)));

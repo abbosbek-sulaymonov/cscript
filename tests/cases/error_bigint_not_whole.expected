@@ -1,0 +1,2 @@
+cscript: runtime error: BigInt cannot convert 1.5 — it is not a whole number
+  at error_bigint_not_whole.cx:3

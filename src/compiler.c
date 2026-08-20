@@ -504,6 +504,21 @@ void compileNode(const AstNode *node) {
       break;
     }
 
+    case AST_BIGINT_LITERAL: {
+      /* Parsed once, here, and stored in the constant pool: the digits never
+       * have to be read again however often the literal is evaluated. */
+      BigInt parsed;
+      csBigInit(&parsed);
+      if (!csBigFromText(&parsed, node->as.string.chars, node->as.string.length)) {
+        csBigFree(&parsed);
+        errorAt(node->line, "'%.*s' is not a whole number",
+                node->as.string.length, node->as.string.chars);
+        break;
+      }
+      emitConstant(OBJ_VAL(csBigIntNew(parsed)), line);
+      break;
+    }
+
     case AST_BOOL_LITERAL:
       emitByte(node->as.boolean ? OP_TRUE : OP_FALSE, line);
       break;

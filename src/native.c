@@ -733,6 +733,7 @@ void csNativesInstall(void) {
   csPopTempRoot();
 
   defineFunction("String", stringConvert, 1);
+  defineFunction("BigInt", csBigIntConstructorFn(), 1);
   defineFunction("Boolean", booleanConvert, 1);
 
   csArrayMethodsInstall();
@@ -746,6 +747,7 @@ void csNativesInstall(void) {
   csDateMethodsInstall();
   csWeakMethodsInstall();
   csSymbolMethodsInstall();
+  csBigIntMethodsInstall();
   defineFunction("Map", csMapConstructorFn(), -1);
   defineFunction("Set", csSetConstructorFn(), -1);
   defineFunction("WeakMap", csWeakMapConstructorFn(), -1);

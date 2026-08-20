@@ -74,6 +74,15 @@ AstNode *csAstNumber(AstArena *arena, int line, double value) {
   return node;
 }
 
+/* Shares the string node's payload: a BigInt literal travels as the digits it
+ * was written with, and is only turned into a number by the compiler, which is
+ * the first place there is a heap to put one on. */
+AstNode *csAstBigInt(AstArena *arena, int line, const char *chars, int length) {
+  AstNode *node = csAstString(arena, line, chars, length);
+  if (node != NULL) node->type = AST_BIGINT_LITERAL;
+  return node;
+}
+
 AstNode *csAstString(AstArena *arena, int line, const char *chars, int length) {
   AstNode *node = newNode(arena, AST_STRING_LITERAL, line);
   if (node == NULL) return NULL;

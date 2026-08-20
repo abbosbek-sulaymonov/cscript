@@ -128,7 +128,7 @@ postfix        = primary ( "." propertyName
 arguments      = argument ( "," argument )* ;
 argument       = "..."? expression ;
 
-primary        = NUMBER | STRING | TEMPLATE | REGEX | IDENTIFIER
+primary        = NUMBER | BIGINT | STRING | TEMPLATE | REGEX | IDENTIFIER
                | "true" | "false" | "null" | "undefined"
                | "this" | "super" ( "." propertyName | "(" arguments? ")" )
                | "new" ( IDENTIFIER | "(" expression ")" )
@@ -178,11 +178,13 @@ sum rather than yielding `a` and then adding.
 
 ## Types
 
-Five of JavaScript's primitives. `symbol` and `bigint` do not exist.
+Seven of JavaScript's primitives. A symbol is a value rather than a literal,
+so it has no row below; `Symbol("tag")` makes one.
 
 | Type | Literals | `typeof` |
 | --- | --- | --- |
 | number | `42`, `3.14`, `1e3`, `1.5e-2`, `0x1F` | `"number"` |
+| bigint | `42n`, `0xffn`, `0b1010n`, `0o17n` | `"bigint"` |
 | string | `"double"`, `'single'` | `"string"` |
 | boolean | `true`, `false` | `"boolean"` |
 | null | `null` | `"null"` ← **differs from JavaScript** |
@@ -230,6 +232,7 @@ let loose: any = 1;               // opted out of static checking
 | Type name | Matches |
 | --- | --- |
 | `number` | all numeric values |
+| `bigint` | whole numbers of any size — deliberately not a `number` |
 | `string` | |
 | `boolean` | |
 | `null` | |

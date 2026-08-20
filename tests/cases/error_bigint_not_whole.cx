@@ -1,0 +1,3 @@
+// `BigInt(1.5)` truncating would be the same silent loss the operators exist
+// to prevent, so it is refused instead.
+console.log(BigInt(1.5));

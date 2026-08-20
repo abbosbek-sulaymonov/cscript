@@ -252,10 +252,23 @@ static Token number(Lexer *lexer) {
     advance(lexer);
     if (!isHexDigit(peek(lexer))) return errorToken(lexer, "expected hex digits after '0x'");
     while (isHexPart(peek(lexer))) advance(lexer);
+    if (peek(lexer) == 'n') {
+      advance(lexer);
+      return makeToken(lexer, TOKEN_BIGINT);
+    }
     return makeToken(lexer, TOKEN_NUMBER);
   }
 
   while (isDigitPart(peek(lexer))) advance(lexer);
+
+  /* `123n` is a BigInt. The suffix is only legal on a whole decimal or hex
+   * literal, so it is looked for before the fraction and the exponent — and
+   * `1.5n` therefore lexes as `1.5` followed by an identifier, which is the
+   * syntax error JavaScript reports for it too. */
+  if (peek(lexer) == 'n') {
+    advance(lexer);
+    return makeToken(lexer, TOKEN_BIGINT);
+  }
 
   if (peek(lexer) == '.' && isDigit(peekNext(lexer))) {
     advance(lexer);
@@ -529,6 +542,7 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_PRIVATE_NAME:      return "PRIVATE_NAME";
     case TOKEN_STRING:            return "STRING";
     case TOKEN_NUMBER:            return "NUMBER";
+    case TOKEN_BIGINT:            return "BIGINT";
     case TOKEN_TEMPLATE:          return "TEMPLATE";
     case TOKEN_SWITCH:            return "SWITCH";
     case TOKEN_CASE:              return "CASE";

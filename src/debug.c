@@ -329,6 +329,9 @@ static void printNode(const AstNode *node, int depth) {
     case AST_STRING_LITERAL:
       printf("String \"%.*s\"\n", node->as.string.length, node->as.string.chars);
       break;
+    case AST_BIGINT_LITERAL:
+      printf("BigInt %.*sn\n", node->as.string.length, node->as.string.chars);
+      break;
     case AST_BOOL_LITERAL:
       printf("Bool %s\n", node->as.boolean ? "true" : "false");
       break;

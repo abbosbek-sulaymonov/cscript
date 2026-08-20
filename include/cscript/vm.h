@@ -193,6 +193,7 @@ typedef struct {
   Table dateMethods;
   Table weakMethods;
   Table symbolMethods;
+  Table bigintMethods;
   /* `Symbol.for`'s registry, keyed by description. Strong: a registered
    * symbol is meant to be findable again by name. */
   Table symbolRegistry;

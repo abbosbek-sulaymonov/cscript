@@ -71,6 +71,7 @@ void csVMInit(void) {
   csTableInit(&vm.dateMethods);
   csTableInit(&vm.weakMethods);
   csTableInit(&vm.symbolMethods);
+  csTableInit(&vm.bigintMethods);
   csTableInit(&vm.symbolRegistry);
   csTableInit(&vm.symbolsByKey);
   vm.iteratorSymbol = NULL;
@@ -119,6 +120,7 @@ void csVMFree(void) {
   csTableFree(&vm.dateMethods);
   csTableFree(&vm.weakMethods);
   csTableFree(&vm.symbolMethods);
+  csTableFree(&vm.bigintMethods);
   csTableFree(&vm.symbolRegistry);
   csTableFree(&vm.symbolsByKey);
   csTableFree(&vm.regexMethods);
@@ -196,6 +198,102 @@ void csVMRuntimeError(const char *format, ...) {
 
 /* JS `+`: if either side is a string, both are stringified and concatenated;
  * otherwise both are coerced to numbers and added. */
+/* --- BigInt arithmetic -----------------------------------------------------
+ *
+ * JavaScript keeps BigInt and Number strictly apart under the arithmetic
+ * operators: `1n + 1` is a TypeError. That looks unhelpful until you see what
+ * the alternative costs — widening the BigInt to a double would silently throw
+ * away exactly the precision it was created to keep, and narrowing the number
+ * would have to invent an answer for `1n + 0.5`. Refusing is the only choice
+ * that cannot be wrong. Ordering is different, and mixes freely: `1n < 2` has
+ * one right answer, and comparingExactly() finds it without rounding.
+ */
+
+/* Replaces the top two stack slots with the result of `op` applied to them.
+ * `symbol` is the operator as written, for the error. */
+static bool bigintArithmetic(char op, const char *symbol) {
+  Value b = peekStack(0);
+  Value a = peekStack(1);
+
+  if (!IS_BIGINT(a) || !IS_BIGINT(b)) {
+    csVMRuntimeError("cannot mix BigInt and %s in '%s'",
+                     csValueTypeName(IS_BIGINT(a) ? b : a), symbol);
+    return false;
+  }
+
+  const BigInt *left = &AS_BIGINT(a)->value;
+  const BigInt *right = &AS_BIGINT(b)->value;
+
+  BigInt result;
+  csBigInit(&result);
+  bool computed = false;
+  switch (op) {
+    case '+': computed = csBigAdd(&result, left, right); break;
+    case '-': computed = csBigSubtract(&result, left, right); break;
+    case '*': computed = csBigMultiply(&result, left, right); break;
+    case '/':
+    case '%':
+      if (csBigIsZero(right)) {
+        csBigFree(&result);
+        csVMRuntimeError("division of a BigInt by zero");
+        return false;
+      }
+      computed = op == '/' ? csBigDivide(&result, left, right)
+                           : csBigRemainder(&result, left, right);
+      break;
+    case 'p':
+      if (right->negative) {
+        csBigFree(&result);
+        csVMRuntimeError("a BigInt cannot be raised to a negative power");
+        return false;
+      }
+      computed = csBigPower(&result, left, right);
+      break;
+    default: break;
+  }
+
+  if (!computed) {
+    csBigFree(&result);
+    csVMRuntimeError("out of memory in BigInt arithmetic");
+    return false;
+  }
+
+  /* Allocated while both operands are still on the stack, so a collection
+   * triggered here cannot free the limbs being read. */
+  ObjBigInt *object = csBigIntNew(result);
+  vm.stackTop -= 2;
+  csVMPush(OBJ_VAL(object));
+  return true;
+}
+
+typedef enum {
+  ORDER_KNOWN,     /* `*order` holds it */
+  ORDER_UNORDERED, /* NaN was involved: every comparison is false */
+  ORDER_INVALID,   /* not comparable at all; an error has been reported */
+} OrderResult;
+
+/* Orders two values when at least one is a BigInt, without rounding either. */
+static OrderResult comparingExactly(Value a, Value b, int *order) {
+  if (IS_BIGINT(a) && IS_BIGINT(b)) {
+    *order = csBigCompare(&AS_BIGINT(a)->value, &AS_BIGINT(b)->value);
+    return ORDER_KNOWN;
+  }
+  if (IS_BIGINT(a) && IS_NUMBER(b)) {
+    *order = csBigCompareDouble(&AS_BIGINT(a)->value, AS_NUMBER(b));
+    return *order == 2 ? ORDER_UNORDERED : ORDER_KNOWN;
+  }
+  if (IS_NUMBER(a) && IS_BIGINT(b)) {
+    int reversed = csBigCompareDouble(&AS_BIGINT(b)->value, AS_NUMBER(a));
+    if (reversed == 2) return ORDER_UNORDERED;
+    *order = -reversed;
+    return ORDER_KNOWN;
+  }
+
+  csVMRuntimeError("cannot compare %s with %s", csValueTypeName(a),
+                   csValueTypeName(b));
+  return ORDER_INVALID;
+}
+
 static bool concatenateOrAdd(void) {
   Value b = peekStack(0);
   Value a = peekStack(1);
@@ -226,6 +324,8 @@ static bool concatenateOrAdd(void) {
     csVMPush(OBJ_VAL(result));
     return true;
   }
+
+  if (IS_BIGINT(a) || IS_BIGINT(b)) return bigintArithmetic('+', "+");
 
   if (!IS_NUMBER(a) || !IS_NUMBER(b)) {
     csVMRuntimeError("cannot add %s and %s", csValueTypeName(a), csValueTypeName(b));
@@ -268,7 +368,45 @@ static bool spliceBoundArguments(ObjBoundMethod *bound, int *argCount) {
  * slot, so the missing ones are pushed as undefined before the frame starts.
  * That is also what makes an argument written as `undefined` and one left out
  * the same thing, which is what JavaScript says. */
+/* The contract at the gradual boundary.
+ *
+ * A `number` annotation is not advice: the compiler emits OP_ADD_NUM for
+ * arithmetic on it and the JIT seeds the slot as a number and stops guarding.
+ * The checker enforces the annotation wherever it can see the argument's type
+ * — but `any` is assignable to everything by design, so a value that came in
+ * through an untyped edge reaches the callee unexamined. Without this check it
+ * would be read as a double it is not, and the answer would be quietly wrong
+ * rather than a reported error.
+ *
+ * This is the one check type.h promised gradual typing would need. Only
+ * `number` is checked, because `number` is the only annotation anything
+ * currently generates code from — guarding a type nothing trusts would cost
+ * without buying anything.
+ *
+ * Arguments the caller did not supply are not checked: those are about to be
+ * padded with undefined and then filled in by the defaults prologue. */
+static bool parameterTypesHold(ObjFunction *function, int argCount) {
+  if (function->paramTypes == NULL) return true;
+
+  int checked = argCount < function->paramCount ? argCount : function->paramCount;
+  for (int i = 0; i < checked; i++) {
+    if (function->paramTypes[i] != TYPE_NUMBER) continue;
+
+    Value argument = vm.stackTop[i - argCount];
+    if (IS_NUMBER(argument)) continue;
+
+    const char *name =
+        function->name != NULL ? function->name->chars : "<anonymous>";
+    csVMRuntimeError("%s: argument %d is %s but the parameter is number", name,
+                     i + 1, csValueTypeName(argument));
+    return false;
+  }
+  return true;
+}
+
 bool csVMCheckArity(ObjFunction *function, int *argCount) {
+  if (!parameterTypesHold(function, *argCount)) return false;
+
   /* A rest parameter takes whatever is left, so there is no upper bound and
    * the leftovers become one array in its slot. */
   if (function->hasRest) {
@@ -399,6 +537,13 @@ bool callValue(Value callee, int argCount) {
      * Returning a value instead is the *native* protocol, and this is the
      * level that already allows it. */
     {
+      /* The boundary check happens here too, and has to: this path answers the
+       * call without pushing a frame, so it never reaches csVMCheckArity —
+       * and compiled code trusts a `number` annotation completely. Without
+       * this, a value carried in through `any` was read as a double it is not,
+       * and the same program answered differently with the compiler on. */
+      if (!parameterTypesHold(closure->function, argCount)) return false;
+
       Value lowered;
       if (csJitTryRun(closure->function, vm.stackTop - argCount, argCount, &lowered)) {
         vm.stackTop -= argCount + 1;
@@ -480,6 +625,7 @@ static Table *methodTableFor(Value receiver) {
   if (IS_REGEX(receiver)) return &vm.regexMethods;
   if (IS_DATE(receiver)) return &vm.dateMethods;
   if (IS_SYMBOL(receiver)) return &vm.symbolMethods;
+  if (IS_BIGINT(receiver)) return &vm.bigintMethods;
   return NULL;
 }
 
@@ -1286,6 +1432,35 @@ InterpretResult run(int baseFrame) {
     double b = AS_NUMBER(csVMPop());                                        \
     double a = AS_NUMBER(csVMPop());                                        \
     csVMPush(valueType(a op b));                                            \
+  } while (false)
+
+/* The same, but a BigInt on either side takes the exact path instead. `code`
+ * is what bigintArithmetic() switches on; it differs from the operator only
+ * for `**`, which is not a character. */
+#define BINARY_ARITHMETIC_OP(op, code)                                      \
+  do {                                                                      \
+    if (IS_BIGINT(peekStack(0)) || IS_BIGINT(peekStack(1))) {               \
+      if (!bigintArithmetic(code, #op)) return CS_RUNTIME_ERROR;            \
+      break;                                                                \
+    }                                                                       \
+    BINARY_NUMERIC_OP(NUMBER_VAL, op);                                      \
+  } while (false)
+
+/* Ordering, where a BigInt and a number do mix. */
+#define BINARY_COMPARE_OP(op)                                               \
+  do {                                                                      \
+    if (IS_BIGINT(peekStack(0)) || IS_BIGINT(peekStack(1))) {               \
+      int order = 0;                                                        \
+      OrderResult ordering = comparingExactly(peekStack(1), peekStack(0),   \
+                                              &order);                      \
+      if (ordering == ORDER_INVALID) return CS_RUNTIME_ERROR;               \
+      vm.stackTop -= 2;                                                     \
+      /* Unordered means NaN, and every comparison with NaN is false —      \
+       * including `>=`, which is why this is not `!(...)`. */              \
+      csVMPush(BOOL_VAL(ordering == ORDER_KNOWN && (order op 0)));          \
+      break;                                                                \
+    }                                                                       \
+    BINARY_NUMERIC_OP(BOOL_VAL, op);                                        \
   } while (false)
 
 #ifdef CS_DEBUG_TRACE_EXECUTION
@@ -2974,11 +3149,15 @@ InterpretResult run(int baseFrame) {
         VM_NEXT();
       }
 
-      VM_CASE(OP_SUBTRACT) BINARY_NUMERIC_OP(NUMBER_VAL, -); VM_NEXT();
-      VM_CASE(OP_MULTIPLY) BINARY_NUMERIC_OP(NUMBER_VAL, *); VM_NEXT();
-      VM_CASE(OP_DIVIDE)   BINARY_NUMERIC_OP(NUMBER_VAL, /); VM_NEXT();
+      VM_CASE(OP_SUBTRACT) BINARY_ARITHMETIC_OP(-, '-'); VM_NEXT();
+      VM_CASE(OP_MULTIPLY) BINARY_ARITHMETIC_OP(*, '*'); VM_NEXT();
+      VM_CASE(OP_DIVIDE)   BINARY_ARITHMETIC_OP(/, '/'); VM_NEXT();
 
       VM_CASE(OP_MODULO) {
+        if (IS_BIGINT(peekStack(0)) || IS_BIGINT(peekStack(1))) {
+          if (!bigintArithmetic('%', "%")) return CS_RUNTIME_ERROR;
+          VM_NEXT();
+        }
         if (!IS_NUMBER(peekStack(0)) || !IS_NUMBER(peekStack(1))) {
           csVMRuntimeError("operands of '%%' must be numbers, got %s and %s",
                            csValueTypeName(peekStack(1)), csValueTypeName(peekStack(0)));
@@ -3003,6 +3182,10 @@ InterpretResult run(int baseFrame) {
       }
 
       VM_CASE(OP_EXPONENT) {
+        if (IS_BIGINT(peekStack(0)) || IS_BIGINT(peekStack(1))) {
+          if (!bigintArithmetic('p', "**")) return CS_RUNTIME_ERROR;
+          VM_NEXT();
+        }
         if (!IS_NUMBER(peekStack(0)) || !IS_NUMBER(peekStack(1))) {
           csVMRuntimeError("operands of '**' must be numbers, got %s and %s",
                            csValueTypeName(peekStack(1)), csValueTypeName(peekStack(0)));
@@ -3015,6 +3198,19 @@ InterpretResult run(int baseFrame) {
       }
 
       VM_CASE(OP_NEGATE)
+        if (IS_BIGINT(peekStack(0))) {
+          BigInt flipped;
+          csBigInit(&flipped);
+          if (!csBigNegate(&flipped, &AS_BIGINT(peekStack(0))->value)) {
+            csBigFree(&flipped);
+            csVMRuntimeError("out of memory negating a BigInt");
+            return CS_RUNTIME_ERROR;
+          }
+          ObjBigInt *negated = csBigIntNew(flipped);
+          csVMPop();
+          csVMPush(OBJ_VAL(negated));
+          VM_NEXT();
+        }
         if (!IS_NUMBER(peekStack(0))) {
           csVMRuntimeError("operand of unary '-' must be a number, got %s",
                            csValueTypeName(peekStack(0)));
@@ -3046,10 +3242,10 @@ InterpretResult run(int baseFrame) {
         VM_NEXT();
       }
 
-      VM_CASE(OP_GREATER)       BINARY_NUMERIC_OP(BOOL_VAL, >); VM_NEXT();
-      VM_CASE(OP_GREATER_EQUAL) BINARY_NUMERIC_OP(BOOL_VAL, >=); VM_NEXT();
-      VM_CASE(OP_LESS)          BINARY_NUMERIC_OP(BOOL_VAL, <); VM_NEXT();
-      VM_CASE(OP_LESS_EQUAL)    BINARY_NUMERIC_OP(BOOL_VAL, <=); VM_NEXT();
+      VM_CASE(OP_GREATER)       BINARY_COMPARE_OP(>); VM_NEXT();
+      VM_CASE(OP_GREATER_EQUAL) BINARY_COMPARE_OP(>=); VM_NEXT();
+      VM_CASE(OP_LESS)          BINARY_COMPARE_OP(<); VM_NEXT();
+      VM_CASE(OP_LESS_EQUAL)    BINARY_COMPARE_OP(<=); VM_NEXT();
 
       VM_CASE(OP_JUMP) {
         uint16_t offset = READ_SHORT();
@@ -3099,6 +3295,14 @@ InterpretResult run(int baseFrame) {
     uint16_t offset = READ_SHORT();                                            \
     Value b = peekStack(0);                                                    \
     Value a = peekStack(1);                                                    \
+    if (IS_BIGINT(a) || IS_BIGINT(b)) {                                        \
+      int order = 0;                                                           \
+      OrderResult ordering = comparingExactly(a, b, &order);                   \
+      if (ordering == ORDER_INVALID) return CS_RUNTIME_ERROR;                  \
+      vm.stackTop -= 2;                                                        \
+      if (!(ordering == ORDER_KNOWN && (order op 0))) frame->ip += offset;     \
+      break;                                                                   \
+    }                                                                          \
     if (!IS_NUMBER(a) || !IS_NUMBER(b)) {                                      \
       csVMRuntimeError("operands of '" #op "' must be numbers, got %s and %s", \
                        csValueTypeName(a), csValueTypeName(b));                 \
@@ -3274,6 +3478,8 @@ InterpretResult run(int baseFrame) {
 #undef VM_PROFILE_STEP
 #undef VM_TRACE_STEP
 #undef BINARY_NUMERIC_OP
+#undef BINARY_ARITHMETIC_OP
+#undef BINARY_COMPARE_OP
 #undef READ_STRING
 #undef READ_CONSTANT
 #undef READ_SHORT

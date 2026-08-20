@@ -1,0 +1,6 @@
+total: 1
+2 and 3
+true true
+cscript: runtime error: cannot mix BigInt and number in '+'
+  at add (error_bigint_mixing.cx:17)
+  at error_bigint_mixing.cx:19

@@ -1,0 +1,5 @@
+// Written out as literals, mixing a BigInt with a number is a mistake the
+// checker can see, so it never reaches the VM. Ordering is exempt: `1n < 2`
+// has one right answer and is allowed everywhere.
+console.log(1n < 2);
+const wrong = 1n + 1;

@@ -1,0 +1,4 @@
+42
+42
+cscript: runtime error: scale: argument 1 is bigint but the parameter is number
+  at error_typed_boundary.cx:18

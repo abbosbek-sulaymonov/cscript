@@ -528,6 +528,13 @@ ObjFiber *csFiberNew(void) {
   return fiber;
 }
 
+ObjBigInt *csBigIntNew(BigInt value) {
+  ObjBigInt *number = CS_ALLOCATE(ObjBigInt, 1);
+  registerObject((Obj *)number, OBJ_BIGINT);
+  number->value = value;
+  return number;
+}
+
 ObjSymbol *csSymbolNew(ObjString *description) {
   if (description != NULL) csPushTempRoot((Obj *)description);
 
@@ -797,6 +804,12 @@ void csObjectPrint(Value value) {
     case OBJ_GENERATOR:
       printf("Object [Generator] {}");
       break;
+    case OBJ_BIGINT: {
+      char *text = csBigToText(&AS_BIGINT(value)->value, 10);
+      printf("%sn", text != NULL ? text : "0");
+      free(text);
+      break;
+    }
     case OBJ_SYMBOL: {
       ObjSymbol *symbol = AS_SYMBOL(value);
       printf("Symbol(%s)",
@@ -975,6 +988,9 @@ void csObjectBlacken(Obj *object) {
     case OBJ_DATE:
       break; /* a number and nothing else */
 
+    case OBJ_BIGINT:
+      break; /* limbs, and nothing that can be collected */
+
     case OBJ_SYMBOL: {
       ObjSymbol *symbol = (ObjSymbol *)object;
       csMarkObject((Obj *)symbol->description);
@@ -1123,6 +1139,11 @@ void csObjectFree(Obj *object) {
 
     case OBJ_DATE:
       CS_FREE(ObjDate, object);
+      break;
+
+    case OBJ_BIGINT:
+      csBigFree(&((ObjBigInt *)object)->value);
+      CS_FREE(ObjBigInt, object);
       break;
 
     case OBJ_SYMBOL:

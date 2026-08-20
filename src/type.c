@@ -6,6 +6,7 @@ const char *csTypeName(TypeKind type) {
   switch (type) {
     case TYPE_ANY:       return "any";
     case TYPE_NUMBER:    return "number";
+    case TYPE_BIGINT:    return "bigint";
     case TYPE_STRING:    return "string";
     case TYPE_BOOLEAN:   return "boolean";
     case TYPE_NULL:      return "null";
@@ -23,6 +24,7 @@ bool csTypeFromName(const char *name, int length, TypeKind *out) {
     TypeKind type;
   } table[] = {
       {"any", TYPE_ANY},           {"number", TYPE_NUMBER},
+      {"bigint", TYPE_BIGINT},
       {"string", TYPE_STRING},     {"boolean", TYPE_BOOLEAN},
       {"null", TYPE_NULL},         {"undefined", TYPE_UNDEFINED},
       {"object", TYPE_OBJECT},

@@ -1,0 +1,19 @@
+// Mixing a BigInt with a number under an arithmetic operator is refused rather
+// than answered. Widening the BigInt to a double would throw away exactly the
+// precision it exists to keep, and narrowing the number would have to invent
+// an answer for `1n + 0.5` — so there is no correct result to produce.
+//
+// Concatenation is not arithmetic, and works: a string on either side of `+`
+// makes it concatenation whatever the other side is.
+console.log("total: " + 1n);
+console.log(`${2n} and ${3}`);
+
+// Ordering mixes freely, because it always has exactly one right answer.
+console.log(1n < 2, 3n > 2.5);
+
+// The checker catches a literal pair; this one is hidden behind a parameter so
+// that the runtime refusal is what gets shown.
+function add(a, b) {
+  return a + b;
+}
+console.log(add(1n, 1));

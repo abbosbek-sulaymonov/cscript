@@ -20,6 +20,10 @@ typedef enum {
   TYPE_ANY,
 
   TYPE_NUMBER,
+  /* Whole numbers with no upper bound. Deliberately *not* a subtype of number
+   * and not assignable to one: mixing the two is the mistake BigInt exists to
+   * make impossible, so the checker refuses it rather than widening. */
+  TYPE_BIGINT,
   TYPE_STRING,
   TYPE_BOOLEAN,
   TYPE_NULL,

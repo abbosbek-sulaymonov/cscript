@@ -5,6 +5,7 @@
 #include "cscript/chunk.h"
 #include "cscript/common.h"
 #include "cscript/table.h"
+#include "cscript/bigint.h"
 #include "cscript/value.h"
 
 typedef enum {
@@ -26,6 +27,7 @@ typedef enum {
   OBJ_REGEX,
   OBJ_DATE,  /* one instant, held as milliseconds since the epoch */
   OBJ_SYMBOL, /* a name that is equal to nothing but itself */
+  OBJ_BIGINT, /* a whole number with no upper bound */
 } ObjType;
 
 typedef struct ObjPromise ObjPromise;
@@ -256,6 +258,13 @@ struct ObjFiber {
  * one says something. `key` is the unique string a symbol-keyed property is
  * filed under; no source can write it, which is what keeps such a property
  * out of everything that walks an object by name. */
+/* A whole number with no upper bound. The limbs are plain malloc rather than
+ * collector memory: they are owned by this object alone and freed with it. */
+typedef struct ObjBigInt {
+  Obj obj;
+  BigInt value;
+} ObjBigInt;
+
 typedef struct ObjSymbol {
   Obj obj;
   ObjString *description; /* may be NULL */
@@ -498,6 +507,8 @@ typedef struct ObjBoundMethod {
 #define IS_GENERATOR(v) csIsObjType(v, OBJ_GENERATOR)
 #define IS_DATE(v)     csIsObjType(v, OBJ_DATE)
 #define IS_SYMBOL(v)   csIsObjType(v, OBJ_SYMBOL)
+#define IS_BIGINT(v)   csIsObjType(v, OBJ_BIGINT)
+#define AS_BIGINT(v)   ((ObjBigInt *)AS_OBJ(v))
 #define AS_SYMBOL(v)   ((ObjSymbol *)AS_OBJ(v))
 #define AS_DATE(v)     ((ObjDate *)AS_OBJ(v))
 #define AS_GENERATOR(v) ((ObjGenerator *)AS_OBJ(v))
@@ -594,6 +605,9 @@ ObjGenerator *csGeneratorNew(ObjFiber *fiber);
 ObjDate *csDateNew(double ms);
 
 ObjSymbol *csSymbolNew(ObjString *description);
+
+/* Takes ownership of `value`'s limbs. */
+ObjBigInt *csBigIntNew(BigInt value);
 
 /* Settles a promise and queues whatever was waiting on it. Settling an already
  * settled promise does nothing, which is what makes a resolve function safe to

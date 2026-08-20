@@ -40,7 +40,7 @@ typedef enum {
   TOKEN_AMP_AMP_EQUAL, TOKEN_PIPE_PIPE_EQUAL, TOKEN_QUESTION_QUESTION_EQUAL,
 
   /* Literals. */
-  TOKEN_IDENTIFIER, TOKEN_STRING, TOKEN_NUMBER, TOKEN_TEMPLATE, TOKEN_REGEX,
+  TOKEN_IDENTIFIER, TOKEN_STRING, TOKEN_NUMBER, TOKEN_BIGINT, TOKEN_TEMPLATE, TOKEN_REGEX,
   /* `#field`. Lexed with the hash so it can never collide with a name any
    * other syntax can write. */
   TOKEN_PRIVATE_NAME,

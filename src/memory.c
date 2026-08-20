@@ -135,6 +135,7 @@ static void markRoots(void) {
   csTableMark(&vm.dateMethods);
   csTableMark(&vm.weakMethods);
   csTableMark(&vm.symbolMethods);
+  csTableMark(&vm.bigintMethods);
   csTableMark(&vm.symbolRegistry);
   csMarkObject((Obj *)vm.iteratorSymbol);
   csMarkObject((Obj *)vm.asyncIteratorSymbol);

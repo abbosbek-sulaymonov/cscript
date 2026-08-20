@@ -1,0 +1,1 @@
+error_bigint_static.cx:5: error: cannot mix BigInt and number in '+'

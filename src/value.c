@@ -37,6 +37,12 @@ bool csValuesStrictEqual(Value a, Value b) {
   if (IS_NUMBER(a) != IS_NUMBER(b)) return false;
 
   if (IS_OBJ(a) && IS_OBJ(b)) {
+    /* BigInts are not interned — two of them can hold the same number without
+     * being the same object — so they are the one object type compared by
+     * value. `1n === 1` stays false: a number never reaches here. */
+    if (IS_BIGINT(a) && IS_BIGINT(b)) {
+      return csBigCompare(&AS_BIGINT(a)->value, &AS_BIGINT(b)->value) == 0;
+    }
     /* Strings are interned, so pointer identity is value equality. */
     return AS_OBJ(a) == AS_OBJ(b);
   }
@@ -52,6 +58,9 @@ bool csValuesStrictEqual(Value a, Value b) {
  * ever reached through the Number() built-in — no operator applies it. */
 double csValueToNumber(Value value) {
   if (IS_NUMBER(value)) return AS_NUMBER(value);
+  /* Number(2n) is 2, with whatever rounding a double forces — the explicit
+   * conversion is where JavaScript allows that loss, and only there. */
+  if (IS_BIGINT(value)) return csBigToDouble(&AS_BIGINT(value)->value);
   if (IS_UNDEFINED(value)) return NAN;
   if (IS_NULL(value)) return 0;
   if (IS_BOOL(value)) return AS_BOOL(value) ? 1 : 0;
@@ -77,6 +86,7 @@ bool csValueIsTruthy(Value value) {
   if (IS_BOOL(value)) return AS_BOOL(value);
   if (IS_NULL(value) || IS_UNDEFINED(value)) return false;
   if (IS_STRING(value)) return AS_STRING(value)->length > 0;
+  if (IS_BIGINT(value)) return !csBigIsZero(&AS_BIGINT(value)->value);
   return true; /* every other object is truthy */
 }
 
@@ -98,6 +108,7 @@ const char *csValueTypeName(Value value) {
    * function. CScript keeps the report and rejects the call. */
   if (IS_CLASS(value)) return "function";
   if (IS_SYMBOL(value)) return "symbol";
+  if (IS_BIGINT(value)) return "bigint";
   return "object";
 }
 
@@ -397,6 +408,18 @@ static bool sbAppendValue(StringBuilder *builder, Value value, bool quoteStrings
     return sbAppend(builder, buffer, (size_t)length);
   }
 
+  if (IS_BIGINT(value)) {
+    /* Shown with the `n` it is written with. This is the inspect path only —
+     * `String(1n)` and `"" + 1n` both give "1", as they do in JavaScript, and
+     * they go through csValueToCString instead. */
+    char *rendered = csBigToText(&AS_BIGINT(value)->value, 10);
+    if (rendered == NULL) return false;
+    bool ok = sbAppend(builder, rendered, strlen(rendered)) &&
+              sbAppend(builder, "n", 1);
+    free(rendered);
+    return ok;
+  }
+
   if (IS_OBJ(value)) {
     if (IS_ARRAY(value)) return sbAppendArray(builder, AS_ARRAY(value));
     if (IS_OBJECT(value)) return sbAppendObject(builder, AS_OBJECT(value));
@@ -492,6 +515,14 @@ char *csValueToCString(Value value, size_t *lengthOut) {
         length = (size_t)string->length;
       } else if (IS_CALLABLE(value)) {
         return renderCallable(value, lengthOut);
+      } else if (IS_BIGINT(value)) {
+        /* Without the trailing `n`: that is how a BigInt is *written*, not
+         * what it says when a program asks for its text. `String(1n)` is "1"
+         * in JavaScript too, and printing it shows the `n`. */
+        char *rendered = csBigToText(&AS_BIGINT(value)->value, 10);
+        if (rendered == NULL) return NULL;
+        if (lengthOut != NULL) *lengthOut = strlen(rendered);
+        return rendered;
       } else if (IS_SYMBOL(value)) {
         /* `String(symbol)` is `Symbol(description)`. JavaScript throws for an
          * implicit conversion and allows the explicit one; here there is one

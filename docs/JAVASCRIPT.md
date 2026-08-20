@@ -25,10 +25,11 @@ asserted here.
 | | |
 | --- | --- |
 | Numbers | IEEE 754 doubles, including `NaN`, `Infinity` and `-0` |
+| BigInt | `123n`, `0xffn`, arbitrary precision, and refusing to mix with a number |
 | Number formatting | ECMA-262 `Number::toString` — `1e21`, `1e-7`, `0.1 + 0.2` |
 | Strings | immutable, interned, `+` concatenates |
 | Template literals | `` `a${b}c` ``, nested |
-| `typeof` | for every type except `null` — see *Differs* — including `"symbol"` |
+| `typeof` | for every type except `null` — see *Differs* — including `"symbol"` and `"bigint"` |
 | Arithmetic | `+ - * / % **`, with `**` right-associative |
 | Comparison | `< <= > >=`, `=== !==` |
 | Logical | `&& ||` evaluate to an operand, not a boolean |
@@ -83,6 +84,8 @@ asserted here.
 `.allSettled` / `.any`, `AggregateError`, `setTimeout` / `setInterval` and
 their cancellers, `Map` and `Set`, regular expressions, 24 array methods, 22
 string methods, and `toFixed` / `toPrecision` / `toString(radix)` on numbers.
+`Symbol` with its registry and the well-known `Symbol.iterator` and
+`Symbol.asyncIterator`; `BigInt` with `toString(radix)` and `valueOf`.
 
 A function answers `length` — how many arguments it must be given, so a
 parameter with a default is not among them — and `name`.
@@ -216,6 +219,22 @@ continuing, which the fiber machinery does not have yet. `break` out of a
 `for...of` over a generator has the same gap, because it does not call
 `.return()` at all.
 
+### A `number` annotation is checked when `any` crosses into it
+
+The checker enforces an annotation wherever it can see the argument's type, but
+`any` is assignable to everything by design — that is what makes the system
+gradual. So a value that arrived through an untyped edge reaches an annotated
+parameter unexamined, and the annotation is not advice: arithmetic on a
+`number` parameter compiles to an unchecked add, and the JIT seeds the slot as
+a number and stops guarding.
+
+CScript therefore checks a `number` parameter against its argument on the way
+in, and reports `argument 1 is bigint but the parameter is number` rather than
+reading the value's bits as a double. JavaScript has no annotations to check
+and TypeScript erases its own, so this has no counterpart in either; it is the
+contract a sound gradual boundary needs, and it is one comparison per annotated
+parameter per call — too small to measure on a call-heavy benchmark.
+
 ### Known, not yet fixed
 
 **Property order for integer-like keys.** JavaScript enumerates `{ b: 1, 2: 2 }`
@@ -223,6 +242,38 @@ as `2, b` — integer-like keys first, ascending, then the rest in insertion
 order. CScript uses insertion order throughout. Uncommon in idiomatic code,
 since an integer-keyed object is usually an array, but it is a real difference
 and it is written down here rather than left to be discovered.
+
+### BigInt
+
+`123n` is a whole number with no upper bound, and a type of its own rather than
+a wider number. Arithmetic is exact however far it goes — `2n ** 128n` is the
+whole answer, not a rounded one — and `typeof` says `"bigint"`.
+
+Mixing a BigInt with a number under an arithmetic operator is refused, exactly
+as JavaScript refuses it. That looks unhelpful until you see the alternative:
+widening the BigInt to a double throws away precisely the precision it exists
+to keep, and narrowing the number has to invent an answer for `1n + 0.5`.
+Refusing is the only choice that cannot be wrong. Where both operands are
+literals CScript reports it before the program runs; otherwise the VM does.
+
+Ordering mixes freely — `1n < 2` has exactly one right answer — and is decided
+exactly, without rounding either side. `9007199254740993n > 9007199254740992`
+is `true`, which is not a comparison a double could make.
+
+Equality is by value, which makes a BigInt the one heap type not compared by
+identity. `1n === 1` stays `false`: they are different types.
+
+The `n` is how a BigInt is *written*, not what it says. `String(7n)` and
+`` `${7n}` `` are both `"7"`; printing one shows `7n`, as Node does.
+
+Not implemented: the bitwise operators and shifts on BigInts, which CScript has
+for no type, and `BigInt.asIntN` / `asUintN`, which exist to truncate to a
+width the language has no other use for.
+
+The arithmetic is sign-and-magnitude over 32-bit limbs, with division done one
+bit at a time. Knuth's algorithm D is much faster and much easier to get subtly
+wrong; the numbers a script divides are small, and being able to read the code
+and believe it is worth more than the constant factor here.
 
 ---
 
@@ -235,7 +286,6 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Regex lookbehind — `(?<=…)` — and named groups | Lookahead and backreferences work |
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
 | `Date` parsing beyond ISO, and its locale formats | `toLocaleString`, `Date.parse` of anything else, `setFullYear` and the other setters |
-| `BigInt` | No plans |
 | `arguments` | A rest parameter does the same job and says what it collects |
 | `new.target`, subclassing built-ins | |
 | Prototypes, `__proto__`, `Object.create` | Classes are the whole object model |

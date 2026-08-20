@@ -1,0 +1,4 @@
+// A BigInt has no infinity to divide into, so unlike `1 / 0` this has no
+// answer at all.
+console.log(6n / 2n);
+console.log(6n / 0n);

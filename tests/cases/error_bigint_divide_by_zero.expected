@@ -1,0 +1,3 @@
+3n
+cscript: runtime error: division of a BigInt by zero
+  at error_bigint_divide_by_zero.cx:4

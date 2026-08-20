@@ -152,6 +152,12 @@ AstNode *parsePrimary(Parser *parser) {
                             parseNumberLiteral(parser->previous.start,
                                                parser->previous.length)));
   }
+  if (matchToken(parser, TOKEN_BIGINT)) {
+    /* Minus the `n`, which the lexer included and the digits do not want. */
+    return parseCallSuffixes(
+        parser, csAstBigInt(parser->arena, line, parser->previous.start,
+                            parser->previous.length - 1));
+  }
   if (matchToken(parser, TOKEN_STRING)) {
     return parseCallSuffixes(
         parser, makeStringLiteral(parser, parser->previous.start,

@@ -179,6 +179,10 @@ static const MethodSignature BUILTIN_METHODS[] = {
     {TYPE_NUMBER, "toFixed", TYPE_STRING},
     {TYPE_NUMBER, "toPrecision", TYPE_STRING},
     {TYPE_NUMBER, "toString", TYPE_STRING},
+
+    {TYPE_BIGINT, "toString", TYPE_STRING},
+    {TYPE_BIGINT, "toLocaleString", TYPE_STRING},
+    {TYPE_BIGINT, "valueOf", TYPE_BIGINT},
 };
 
 /* Returns the signature for `name` on `receiver`, or NULL. */
@@ -256,6 +260,33 @@ static void checkFunctionBody(Checker *checker, AstNode *node,
   checker->currentReturnAnnotated = savedAnnotated;
 }
 
+/* Arithmetic where a BigInt is allowed, so long as *both* sides are one.
+ *
+ * This is the rule BigInt exists for: `1n + 1` has no answer that is both a
+ * BigInt and a number, so JavaScript throws rather than choose, and the checker
+ * says so at compile time. Returns the result type, or TYPE_ANY when it cannot
+ * tell yet and the VM must decide. */
+static bool arithmeticOnBigInts(Checker *checker, TypeKind left, TypeKind right,
+                                int line, const char *name, TypeKind *result) {
+  if (left != TYPE_BIGINT && right != TYPE_BIGINT) return false;
+
+  if (left == TYPE_BIGINT && right == TYPE_BIGINT) {
+    *result = TYPE_BIGINT;
+    return true;
+  }
+  /* `any` on the other side could still be a BigInt at run time. */
+  if (left == TYPE_ANY || right == TYPE_ANY || left == TYPE_ERROR ||
+      right == TYPE_ERROR) {
+    *result = TYPE_ANY;
+    return true;
+  }
+
+  typeError(checker, line, "cannot mix BigInt and %s in '%s'",
+            csTypeName(left == TYPE_BIGINT ? right : left), name);
+  *result = TYPE_ERROR;
+  return true;
+}
+
 /* Requires a number, reporting against the operator that wanted one. */
 static TypeKind requireNumber(Checker *checker, TypeKind type, int line,
                               const char *operatorName) {
@@ -277,6 +308,11 @@ static TypeKind checkBinary(Checker *checker, AstNode *node) {
        * makes it concatenation. */
       if (left == TYPE_ERROR || right == TYPE_ERROR) return TYPE_ERROR;
       if (left == TYPE_STRING || right == TYPE_STRING) return TYPE_STRING;
+      if (left == TYPE_BIGINT || right == TYPE_BIGINT) {
+        TypeKind result;
+        arithmeticOnBigInts(checker, left, right, line, name, &result);
+        return result;
+      }
       if (left == TYPE_ANY || right == TYPE_ANY) return TYPE_ANY;
       if (left == TYPE_NUMBER && right == TYPE_NUMBER) return TYPE_NUMBER;
       typeError(checker, line, "cannot add %s and %s", csTypeName(left),
@@ -299,6 +335,10 @@ static TypeKind checkBinary(Checker *checker, AstNode *node) {
     case BINARY_DIVIDE:
     case BINARY_MODULO:
     case BINARY_EXPONENT: {
+      TypeKind onBigInts;
+      if (arithmeticOnBigInts(checker, left, right, line, name, &onBigInts)) {
+        return onBigInts;
+      }
       TypeKind a = requireNumber(checker, left, line, name);
       TypeKind b = requireNumber(checker, right, line, name);
       return (a == TYPE_ERROR || b == TYPE_ERROR) ? TYPE_ERROR : TYPE_NUMBER;
@@ -308,8 +348,11 @@ static TypeKind checkBinary(Checker *checker, AstNode *node) {
     case BINARY_GREATER_EQUAL:
     case BINARY_LESS:
     case BINARY_LESS_EQUAL:
-      requireNumber(checker, left, line, name);
-      requireNumber(checker, right, line, name);
+      /* Ordering is the one place a BigInt and a number mix freely: there is
+       * always an answer, and the VM compares them exactly rather than by
+       * rounding the BigInt to a double. */
+      if (left != TYPE_BIGINT) requireNumber(checker, left, line, name);
+      if (right != TYPE_BIGINT) requireNumber(checker, right, line, name);
       return TYPE_BOOLEAN;
 
     case BINARY_EQUAL:
@@ -346,6 +389,7 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
   switch (node->type) {
     case AST_NUMBER_LITERAL:    result = TYPE_NUMBER; break;
     case AST_STRING_LITERAL:    result = TYPE_STRING; break;
+    case AST_BIGINT_LITERAL:    result = TYPE_BIGINT; break;
     case AST_BOOL_LITERAL:      result = TYPE_BOOLEAN; break;
     case AST_NULL_LITERAL:      result = TYPE_NULL; break;
     case AST_UNDEFINED_LITERAL: result = TYPE_UNDEFINED; break;
@@ -400,7 +444,10 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
       TypeKind operand = checkNode(checker, node->as.unary.operand);
       switch (node->as.unary.op) {
         case UNARY_NEGATE:
-          result = requireNumber(checker, operand, node->line, "-");
+          /* `-1n` is a BigInt; every other operand has to be a number. */
+          result = operand == TYPE_BIGINT
+                       ? TYPE_BIGINT
+                       : requireNumber(checker, operand, node->line, "-");
           break;
         case UNARY_NOT:
           result = TYPE_BOOLEAN; /* every type has a truthiness */

@@ -14,6 +14,7 @@
 typedef enum {
   /* Expressions. */
   AST_NUMBER_LITERAL,
+  AST_BIGINT_LITERAL,
   AST_STRING_LITERAL,
   AST_BOOL_LITERAL,
   AST_NULL_LITERAL,
@@ -213,7 +214,7 @@ struct AstNode {
   union {
     double number;                       /* AST_NUMBER_LITERAL */
     bool boolean;                        /* AST_BOOL_LITERAL */
-    struct {                             /* AST_STRING_LITERAL */
+    struct {                             /* AST_STRING_LITERAL, AST_BIGINT_LITERAL */
       const char *chars;                 /*   decoded, arena-owned */
       int length;
     } string;
@@ -467,6 +468,8 @@ void *csAstArenaAlloc(AstArena *arena, size_t size);
 /* Node constructors. Every one allocates from `arena`. */
 AstNode *csAstNumber(AstArena *arena, int line, double value);
 AstNode *csAstString(AstArena *arena, int line, const char *chars, int length);
+/* `chars` is the literal as written, without the trailing `n`. */
+AstNode *csAstBigInt(AstArena *arena, int line, const char *chars, int length);
 AstNode *csAstBool(AstArena *arena, int line, bool value);
 AstNode *csAstNull(AstArena *arena, int line);
 AstNode *csAstUndefined(AstArena *arena, int line);
