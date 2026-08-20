@@ -321,6 +321,7 @@ struct AstNode {
       AstNode *iterable;
       AstNode *body;
       bool isForIn;                      /*   iterate keys rather than values */
+      AstNode *pattern;                  /*   `for (const [k, v] of m)` */
     } forOf;
     struct {                             /* AST_TRY_STMT */
       AstNode *body;                     /*   an AST_BLOCK */

@@ -128,6 +128,7 @@ static void markRoots(void) {
 
   csPromiseMarkRoots();
   csTableMark(&vm.promiseMethods);
+  csTableMark(&vm.mapMethods);
   csTableMark(&vm.builtins);
   csTableMark(&vm.builtinConsts);
   csTableMark(&vm.modules);

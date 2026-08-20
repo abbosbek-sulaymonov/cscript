@@ -437,7 +437,8 @@ cscript/
 | **18 ✅** | The rest of the syntax: patterns, accessors, `do`/`for...in` | — |
 | **19 ✅** | Split the three largest files; documented against JavaScript | — |
 | **20 ✅** | Tiering: what gets hot, and how much of it is already typed | — |
-| next | A type-directed code generator, or `Map` and `Set` | — |
+| **21 ✅** | `Map` and `Set`, patterns as `for...of` bindings | — |
+| next | Regular expressions, or a type-directed code generator | — |
 
 ---
 

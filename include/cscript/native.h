@@ -26,6 +26,9 @@ void csJsonInstall(struct ObjObject *json);
 /* Promises, timers and the microtask queue. Split out of native.c because
  * they carry state of their own rather than being pure functions. */
 void csPromiseMethodsInstall(void);
+void csMapMethodsInstall(void);
+NativeFn csMapConstructorFn(void);
+NativeFn csSetConstructorFn(void);
 void csPromiseMarkRoots(void);
 ObjNative *csPromiseConstructor(void);
 void csPromiseInstallStatics(ObjObject *statics);

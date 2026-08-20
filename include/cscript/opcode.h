@@ -70,6 +70,10 @@
   /* `for...in` desugars to `for...of` over this: an object's own keys, or an  \
    * array's indices as strings, which is what JavaScript enumerates. */        \
   X(OP_ENUM_KEYS)         /*          replace top with its keys as an array */ \
+  /* `for...of` over a Map or Set. Arrays and strings are already iterable by  \
+   * index, so this leaves them alone and only unpacks the collections that    \
+   * are not — which keeps the loop itself one shape. */                        \
+  X(OP_ITER_PREPARE)      /*          replace a Map or Set with its entries  */ \
   X(OP_SET_INDEX)         /*          target[index] = value, leaving value  */ \
   X(OP_OBJECT)            /* [count]  build from `count` key/value pairs    */ \
   X(OP_ARRAY)             /* [count]  build from the top `count` values     */ \

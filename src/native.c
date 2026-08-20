@@ -595,6 +595,9 @@ void csNativesInstall(void) {
   csArrayMethodsInstall();
   csStringMethodsInstall();
   csPromiseMethodsInstall();
+  csMapMethodsInstall();
+  defineFunction("Map", csMapConstructorFn(), -1);
+  defineFunction("Set", csSetConstructorFn(), -1);
 
   /* `Promise` is callable and also carries statics, the same shape `Number`
    * has: `new Promise(executor)` and `Promise.all([...])` both work. */

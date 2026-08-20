@@ -21,6 +21,7 @@ typedef enum {
   OBJ_MODULE,       /* one source file: its own top-level scope */
   OBJ_PROMISE,
   OBJ_FIBER, /* a suspendable call: an async function's own stack */
+  OBJ_MAP,   /* also Set: a set is a map that stores only its keys */
 } ObjType;
 
 typedef struct ObjPromise ObjPromise;
@@ -221,6 +222,38 @@ struct ObjFiber {
   FiberState state;
 };
 
+/* One entry of a Map or Set. `present` is false for a tombstone: a deleted
+ * entry keeps its slot so that insertion order survives deletion, which
+ * JavaScript guarantees and real code depends on when iterating. */
+typedef struct {
+  Value key;
+  Value value;
+  bool present;
+} MapEntry;
+
+/* A Map, and also a Set — a set is a map that only ever looks at its keys, and
+ * sharing the implementation is cheaper than keeping two of the same thing in
+ * step.
+ *
+ * Unlike an object, the keys are *any* value rather than interned strings, so
+ * this cannot reuse Table: it needs a hash and an equality for numbers,
+ * booleans and object identity as well. Entries are kept in a dense array in
+ * insertion order, with a separate open-addressing index from hash to slot —
+ * which is what makes iteration ordered and lookup constant at the same time. */
+typedef struct ObjMap {
+  Obj obj;
+
+  MapEntry *entries; /* insertion order, tombstones included */
+  int count;         /* slots used in `entries`, live or not */
+  int capacity;
+  int liveCount;     /* what .size reports */
+
+  int *index;        /* hash slot -> index into `entries`, or -1 */
+  int indexCapacity;
+
+  bool isSet;
+} ObjMap;
+
 /* Compiled user code. Every function body is its own chunk, and the top level
  * of a module is itself a function — which is what lets the VM run modules and
  * calls through exactly one mechanism. */
@@ -340,6 +373,7 @@ typedef struct ObjBoundMethod {
 #define IS_CLASS(v)    csIsObjType(v, OBJ_CLASS)
 #define IS_MODULE(v)   csIsObjType(v, OBJ_MODULE)
 #define IS_PROMISE(v)  csIsObjType(v, OBJ_PROMISE)
+#define IS_MAP(v)      csIsObjType(v, OBJ_MAP)
 #define IS_BOUND_METHOD(v) csIsObjType(v, OBJ_BOUND_METHOD)
 
 #define AS_STRING(v)   ((ObjString *)AS_OBJ(v))
@@ -352,6 +386,7 @@ typedef struct ObjBoundMethod {
 #define AS_CLASS(v)    ((ObjClass *)AS_OBJ(v))
 #define AS_MODULE(v)   ((ObjModule *)AS_OBJ(v))
 #define AS_PROMISE(v)  ((ObjPromise *)AS_OBJ(v))
+#define AS_MAP(v)      ((ObjMap *)AS_OBJ(v))
 #define AS_BOUND_METHOD(v) ((ObjBoundMethod *)AS_OBJ(v))
 
 static inline bool csIsObjType(Value value, ObjType type) {
@@ -375,6 +410,26 @@ ObjClass *csClassNew(ObjString *name);
 ObjModule *csModuleNew(ObjString *path);
 
 ObjPromise *csPromiseNew(void);
+
+ObjMap *csMapNew(bool isSet);
+
+/* What iterating a Map or Set yields: a Set's values, or a Map's [key, value]
+ * pairs. Both `for...of` and spread need it, and they must agree. */
+ObjArray *csMapToArray(ObjMap *map);
+
+/* All four answer in constant time. `csMapGet` writes through `out` and
+ * returns whether the key was there at all, which is how a stored `undefined`
+ * stays distinguishable from a missing key. */
+bool csMapGet(ObjMap *map, Value key, Value *out);
+void csMapSet(ObjMap *map, Value key, Value value);
+bool csMapHas(ObjMap *map, Value key);
+bool csMapDelete(ObjMap *map, Value key);
+void csMapClear(ObjMap *map);
+
+/* Keys compare by SameValueZero: `===`, except that NaN matches itself and
+ * -0 matches +0. That is the rule Map and Set use, and it differs from `===`
+ * in exactly the two places where `===` is surprising. */
+bool csValuesSameValueZero(Value a, Value b);
 
 /* A suspendable call.
  *

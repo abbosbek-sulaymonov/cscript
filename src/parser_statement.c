@@ -198,6 +198,43 @@ AstNode *parseFor(Parser *parser) {
     bool isConst = check(parser, TOKEN_CONST);
     advanceToken(parser);
 
+    /* `for (const [k, v] of m)` — a pattern where the name would be. Only a
+     * for-of can take one, since there is nothing for a counted loop to
+     * destructure. */
+    if (check(parser, TOKEN_LEFT_BRACKET) || check(parser, TOKEN_LEFT_BRACE)) {
+      bool patternIsObject = check(parser, TOKEN_LEFT_BRACE);
+      advanceToken(parser);
+      AstNode *pattern = parsePattern(parser, patternIsObject, isConst);
+      if (pattern == NULL) return NULL;
+
+      bool patternForIn = check(parser, TOKEN_IN);
+      bool patternForOf = check(parser, TOKEN_IDENTIFIER) &&
+                          parser->current.length == 2 &&
+                          memcmp(parser->current.start, "of", 2) == 0;
+      if (!patternForOf && !patternForIn) {
+        errorAtCurrent(parser, "a pattern here needs 'of' or 'in'");
+        return NULL;
+      }
+      advanceToken(parser);
+
+      AstNode *iterable = parseExpression(parser);
+      consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the iterable");
+      if (iterable == NULL || parser->diag->panicMode) return NULL;
+
+      AstNode *body = parseStatement(parser);
+      if (body == NULL) return NULL;
+
+      /* The binding takes a name no source can write; the pattern unpacks it
+       * on each iteration, exactly as a destructured parameter does. */
+      AstNode *loop = csAstForOf(parser->arena, line, " element", 8, isConst,
+                                 iterable, body);
+      if (loop != NULL) {
+        loop->as.forOf.isForIn = patternForIn;
+        loop->as.forOf.pattern = pattern;
+      }
+      return loop;
+    }
+
     /* `for (const x of xs)` and `for (let i = 0; ...)` diverge right after the
      * binding name, so the name is read once and the shape decided from what
      * follows it. */

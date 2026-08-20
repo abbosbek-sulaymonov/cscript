@@ -164,6 +164,7 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_GET_INDEX:         return simpleInstruction("OP_GET_INDEX", offset);
     case OP_ITER_LENGTH:       return simpleInstruction("OP_ITER_LENGTH", offset);
     case OP_ENUM_KEYS:         return simpleInstruction("OP_ENUM_KEYS", offset);
+    case OP_ITER_PREPARE:      return simpleInstruction("OP_ITER_PREPARE", offset);
     case OP_SET_INDEX:         return simpleInstruction("OP_SET_INDEX", offset);
     case OP_OBJECT:            return byteInstruction("OP_OBJECT", chunk, offset);
     case OP_ARRAY:             return byteInstruction("OP_ARRAY", chunk, offset);

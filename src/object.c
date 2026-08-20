@@ -534,6 +534,16 @@ static void printFunctionName(const ObjFunction *function) {
   }
 }
 
+/* A value shown inside a container is quoted if it is a string, so that
+ * `[ '1' ]` and `[ 1 ]` are distinguishable. Three places want that. */
+static void printNested(Value value) {
+  if (IS_STRING(value)) {
+    printf("'%s'", AS_CSTRING(value));
+  } else {
+    csValuePrint(value);
+  }
+}
+
 void csObjectPrint(Value value) {
   switch (OBJ_TYPE(value)) {
     case OBJ_STRING:
@@ -567,6 +577,30 @@ void csObjectPrint(Value value) {
     case OBJ_MODULE:
       printf("[Module: %s]", AS_MODULE(value)->path->chars);
       break;
+    case OBJ_MAP: {
+      /* `Map(2) { 'a' => 1 }` and `Set(2) { 1, 2 }`, as Node prints them. */
+      ObjMap *map = AS_MAP(value);
+      printf("%s(%d)", map->isSet ? "Set" : "Map", map->liveCount);
+      if (map->liveCount == 0) {
+        printf(" {}");
+        break;
+      }
+      printf(" { ");
+      bool first = true;
+      for (int i = 0; i < map->count; i++) {
+        if (!map->entries[i].present) continue;
+        if (!first) printf(", ");
+        first = false;
+        printNested(map->entries[i].key);
+        if (!map->isSet) {
+          printf(" => ");
+          printNested(map->entries[i].value);
+        }
+      }
+      printf(" }");
+      break;
+    }
+
     case OBJ_FIBER:
       printf("[internal]");
       break;
@@ -671,6 +705,18 @@ void csObjectBlacken(Obj *object) {
       ObjBoundMethod *bound = (ObjBoundMethod *)object;
       csMarkValue(bound->receiver);
       csMarkObject(bound->method);
+      break;
+    }
+
+    case OBJ_MAP: {
+      ObjMap *map = (ObjMap *)object;
+      /* Only the live entries: a tombstone's key and value were cleared when
+       * it was deleted, so there is nothing there to keep alive. */
+      for (int i = 0; i < map->count; i++) {
+        if (!map->entries[i].present) continue;
+        csMarkValue(map->entries[i].key);
+        csMarkValue(map->entries[i].value);
+      }
       break;
     }
 
@@ -793,6 +839,14 @@ void csObjectFree(Obj *object) {
       /* The receiver and the method both belong to whoever else holds them. */
       CS_FREE(ObjBoundMethod, object);
       break;
+
+    case OBJ_MAP: {
+      ObjMap *map = (ObjMap *)object;
+      CS_FREE_ARRAY(MapEntry, map->entries, map->capacity);
+      CS_FREE_ARRAY(int, map->index, map->indexCapacity);
+      CS_FREE(ObjMap, object);
+      break;
+    }
 
     case OBJ_FIBER: {
       ObjFiber *fiber = (ObjFiber *)object;

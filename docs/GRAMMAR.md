@@ -1,4 +1,4 @@
-# CScript grammar and semantics — v0.18.0
+# CScript grammar and semantics — v0.20.0
 
 CScript's syntax is a **subset of TypeScript's**: every CScript program is a
 valid TypeScript program. `make test-node` enforces that by handing each
@@ -435,6 +435,14 @@ numeric order.
 
 Indexing is by byte, which is correct for ASCII and wrong for multi-byte UTF-8.
 
+**`Map` and `Set`** — `new Map()`, `new Map([[k, v], …])`, `new Set()`,
+`new Set([…])`, with `get` `set` `add` `has` `delete` `clear` `keys` `values`
+`entries` `forEach` and a `size` property. Both iterate in insertion order,
+survive deletion without disturbing it, work with `for...of` and spread, and
+key by **SameValueZero** — `===` except that `NaN` matches itself and `-0`
+matches `+0`, which are the two places `===` is surprising. Objects key by
+identity.
+
 **Namespaces** — `console.log` / `.error` / `.warn`; `Object.keys` / `.values` /
 `.entries` / `.assign` / `.hasOwn`; `Array.isArray` / `.of` / `.from`;
 `Number.isInteger` / `.isNaN` / `.isFinite` / `.parseInt` / `.parseFloat` and
@@ -686,7 +694,7 @@ Generators, `for await`, and async iterators are not implemented either.
 Each of these produces an error that names it:
 
 - Regular expressions
-- `Map`, `Set`, `Symbol`, `BigInt`
+- `Symbol`, `BigInt`, `WeakMap`, `WeakSet`
 - Labelled statements
 - Object rest — `const { a, ...rest } = o`
 - Generators, `for await`, async iterators

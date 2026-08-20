@@ -165,6 +165,7 @@ typedef struct {
   Table arrayMethods;
   Table stringMethods;
   Table promiseMethods;
+  Table mapMethods;
 
   /* The microtask queue, drained completely between macrotasks. A ring would
    * save the compaction; the queue is short-lived and this is one fewer index

@@ -63,6 +63,7 @@ void csVMInit(void) {
   csTableInit(&vm.arrayMethods);
   csTableInit(&vm.stringMethods);
   csTableInit(&vm.promiseMethods);
+  csTableInit(&vm.mapMethods);
 
   vm.microtasks = NULL;
   vm.microtaskCount = 0;
@@ -97,6 +98,7 @@ void csVMFree(void) {
   CS_FREE_ARRAY(Microtask, vm.microtasks, vm.microtaskCapacity);
   CS_FREE_ARRAY(ObjPromise *, vm.rejected, vm.rejectedCapacity);
   csTableFree(&vm.promiseMethods);
+  csTableFree(&vm.mapMethods);
   csTableFree(&vm.builtins);
   csTableFree(&vm.builtinConsts);
   csTableFree(&vm.modules);
@@ -324,6 +326,7 @@ static Table *methodTableFor(Value receiver) {
   if (IS_ARRAY(receiver)) return &vm.arrayMethods;
   if (IS_STRING(receiver)) return &vm.stringMethods;
   if (IS_PROMISE(receiver)) return &vm.promiseMethods;
+  if (IS_MAP(receiver)) return &vm.mapMethods;
   return NULL;
 }
 
@@ -724,6 +727,13 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
     }
 
     *out = UNDEFINED_VAL;
+    return true;
+  }
+
+  /* `.size` on a Map or Set, like `.length` on an array: intrinsic rather than
+   * stored, so the collection does not have to carry a property table. */
+  if (IS_MAP(receiver) && name->length == 4 && memcmp(name->chars, "size", 4) == 0) {
+    *out = NUMBER_VAL(AS_MAP(receiver)->liveCount);
     return true;
   }
 
@@ -1204,6 +1214,18 @@ InterpretResult run(int baseFrame) {
         return CS_RUNTIME_ERROR;
       }
 
+      VM_CASE(OP_ITER_PREPARE) {
+        /* Arrays and strings are already indexable, so the common case is a
+         * type test and nothing else. */
+        Value target = peekStack(0);
+        if (!IS_MAP(target)) VM_NEXT();
+
+        ObjArray *items = csMapToArray(AS_MAP(target));
+        csVMPop();
+        csVMPush(OBJ_VAL(items));
+        VM_NEXT();
+      }
+
       VM_CASE(OP_ENUM_KEYS) {
         Value target = peekStack(0);
         ObjArray *keys = csArrayNew();
@@ -1330,6 +1352,14 @@ InterpretResult run(int baseFrame) {
       }
 
       VM_CASE(OP_SPREAD_MARK) {
+        /* A Map or Set spreads to what iterating it yields, which is the same
+         * conversion `for...of` makes — they have to agree. */
+        if (IS_MAP(peekStack(0))) {
+          ObjArray *items = csMapToArray(AS_MAP(peekStack(0)));
+          csVMPop();
+          csVMPush(OBJ_VAL(items));
+        }
+
         Value value = peekStack(0);
         if (!IS_ARRAY(value) && !IS_STRING(value)) {
           csVMRuntimeError("only arrays and strings can be spread, got %s",

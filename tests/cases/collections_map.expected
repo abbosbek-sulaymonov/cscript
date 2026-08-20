@@ -1,0 +1,18 @@
+2 9 undefined true false
+Map(2) { 'a' => 9, 'b' => 2 }
+a 9
+b 2
+true false 1
+b 2
+3 true false
+Set(3) { 3, 1, 2 }
+v 3
+v 1
+v 2
+3,1,2
+2 20
+each x 10
+each y 20
+nan zero 2
+first undefined
+250 998 undefined

@@ -291,7 +291,11 @@ void compileForOf(const AstNode *node) {
   /* Slot 1: the iterable, evaluated once. `for...in` walks the same loop over
    * the key array, which is what the language means by enumerating an object. */
   compileNode(node->as.forOf.iterable);
-  if (node->as.forOf.isForIn) emitByte(OP_ENUM_KEYS, line);
+  if (node->as.forOf.isForIn) {
+    emitByte(OP_ENUM_KEYS, line);
+  } else {
+    emitByte(OP_ITER_PREPARE, line);
+  }
   addLocal(" iterable", 9, true, line);
   int iterableSlot = current->localCount - 1;
 
@@ -321,6 +325,13 @@ void compileForOf(const AstNode *node) {
   emitByte(OP_GET_INDEX, line);
   addLocal(node->as.forOf.name, node->as.forOf.nameLength, node->as.forOf.isConst,
            line);
+
+  /* `for (const [k, v] of m)` — the element is in its slot; the pattern binds
+   * the pieces beside it, fresh on every iteration. */
+  if (node->as.forOf.pattern != NULL) {
+    emitBytes(OP_GET_LOCAL, (uint8_t)(current->localCount - 1), line);
+    compileDestructurePattern(node->as.forOf.pattern, line);
+  }
 
   compileNode(node->as.forOf.body);
   endScope(line);

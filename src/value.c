@@ -247,6 +247,28 @@ static bool sbAppend(StringBuilder *builder, const char *text, size_t length) {
 
 static bool sbAppendValue(StringBuilder *builder, Value value, bool quoteStrings);
 
+/* `Map(2) { 'a' => 1 }` and `Set(2) { 1, 2 }`, as Node prints them. */
+static bool sbAppendMap(StringBuilder *builder, ObjMap *map) {
+  char header[32];
+  int length = snprintf(header, sizeof header, "%s(%d)",
+                        map->isSet ? "Set" : "Map", map->liveCount);
+  if (!sbAppend(builder, header, (size_t)length)) return false;
+  if (map->liveCount == 0) return sbAppend(builder, " {}", 3);
+  if (!sbAppend(builder, " { ", 3)) return false;
+
+  bool first = true;
+  for (int i = 0; i < map->count; i++) {
+    if (!map->entries[i].present) continue;
+    if (!first && !sbAppend(builder, ", ", 2)) return false;
+    first = false;
+    if (!sbAppendValue(builder, map->entries[i].key, true)) return false;
+    if (map->isSet) continue;
+    if (!sbAppend(builder, " => ", 4)) return false;
+    if (!sbAppendValue(builder, map->entries[i].value, true)) return false;
+  }
+  return sbAppend(builder, " }", 2);
+}
+
 /* `Promise { 1 }`, `Promise { <pending> }`, `Promise { <rejected> 'why' }` —
  * the same shapes Node prints, so a program that logs one still matches. */
 static bool sbAppendPromise(StringBuilder *builder, ObjPromise *promise) {
@@ -369,6 +391,7 @@ static bool sbAppendValue(StringBuilder *builder, Value value, bool quoteStrings
     if (IS_ARRAY(value)) return sbAppendArray(builder, AS_ARRAY(value));
     if (IS_OBJECT(value)) return sbAppendObject(builder, AS_OBJECT(value));
     if (IS_PROMISE(value)) return sbAppendPromise(builder, AS_PROMISE(value));
+    if (IS_MAP(value)) return sbAppendMap(builder, AS_MAP(value));
     if (IS_STRING(value) && quoteStrings) {
       ObjString *string = AS_STRING(value);
       return sbAppend(builder, "'", 1) &&
@@ -451,6 +474,14 @@ char *csValueToCString(Value value, size_t *lengthOut) {
         length = (size_t)string->length;
       } else if (IS_CALLABLE(value)) {
         return renderCallable(value, lengthOut);
+      } else if (!IS_ARRAY(value) && !IS_OBJECT(value) && !IS_PROMISE(value) &&
+                 !IS_MAP(value)) {
+        /* A heap type with no rendering of its own — a module, a shape, a
+         * fiber. Naming it stops the fall-through below from calling back into
+         * this function and recursing until the stack runs out, which is what
+         * a new object type used to do until someone added a case here. */
+        text = "[internal]";
+        length = 10;
       } else {
         StringBuilder builder = {NULL, 0, 0};
         bool ok = IS_ARRAY(value) ? sbAppendArrayAsString(&builder, AS_ARRAY(value))

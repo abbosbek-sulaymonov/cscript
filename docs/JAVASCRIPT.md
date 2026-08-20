@@ -59,8 +59,11 @@ asserted here.
 `console`, `Math` (25 functions and constants), `JSON.stringify` / `.parse`,
 `Object.keys` / `.values` / `.entries` / `.assign` / `.hasOwn`, `Array.isArray`
 / `.of` / `.from`, `Number` and its limits, `parseInt`, `parseFloat`, `isNaN`,
-`isFinite`, `Promise` with `.resolve` / `.reject` / `.all` / `.race`, 21 array
-methods and 21 string methods.
+`isFinite`, `Promise` with `.resolve` / `.reject` / `.all` / `.race`, `Map` and
+`Set`, 21 array methods and 21 string methods.
+
+`Map` and `Set` key by SameValueZero and iterate in insertion order, including
+after deletions — both checked against Node.
 
 Ordering is part of this. Settling a promise *queues* its reactions rather than
 calling them; `.finally` and resolving a promise with a promise each cost the
@@ -147,7 +150,7 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Missing | Note |
 | --- | --- |
 | Regular expressions | The largest remaining gap |
-| `Map`, `Set` | Next by value |
+| `WeakMap`, `WeakSet` | Would need weak references in the collector |
 | `Symbol`, `BigInt` | No plans |
 | Generators, `yield` | |
 | `for await`, async iterators | |

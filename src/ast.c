@@ -564,6 +564,7 @@ AstNode *csAstForOf(AstArena *arena, int line, const char *name, int nameLength,
   node->as.forOf.iterable = iterable;
   node->as.forOf.body = body;
   node->as.forOf.isForIn = false;
+  node->as.forOf.pattern = NULL;
   return node;
 }
 
