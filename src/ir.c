@@ -598,6 +598,58 @@ failed:
   return NULL;
 }
 
+void csIrForwardSlots(IrFunction *ir) {
+  /* Within a block only. Across one, a slot may be written by another path,
+   * and proving it is not needs the dataflow this deliberately does without. */
+  int *rename = (int *)malloc(sizeof(int) * (size_t)(ir->registerCount + 1));
+
+  for (int b = 0; b < ir->blockCount; b++) {
+    IrBlock *block = &ir->blocks[b];
+    for (int r = 0; r < ir->registerCount; r++) rename[r] = r;
+
+    /* slotHolder[s] is the register whose value slot s currently holds, or -1
+     * when that is not known. */
+    int slotHolder[IR_MAX_STACK];
+    for (int s = 0; s < IR_MAX_STACK; s++) slotHolder[s] = -1;
+
+    int kept = 0;
+    for (int i = 0; i < block->count; i++) {
+      IrInst inst = block->instructions[i];
+
+      /* Operands first: an earlier forward may have renamed them. */
+      if (inst.a >= 0 && inst.op != IR_LOAD_LOCAL && inst.op != IR_STORE_LOCAL &&
+          inst.op != IR_JUMP && inst.a < ir->registerCount) {
+        inst.a = rename[inst.a];
+      }
+      if (inst.b >= 0 && inst.op != IR_LOAD_LOCAL && inst.op != IR_STORE_LOCAL &&
+          inst.op != IR_JUMP && inst.b < ir->registerCount) {
+        inst.b = rename[inst.b];
+      }
+      if (inst.op == IR_STORE_LOCAL && inst.b >= 0 && inst.b < ir->registerCount) {
+        inst.b = rename[inst.b];
+      }
+
+      if (inst.op == IR_LOAD_LOCAL && inst.a >= 0 && inst.a < IR_MAX_STACK &&
+          slotHolder[inst.a] >= 0) {
+        /* The value is already in a register: rename and drop the load. */
+        rename[inst.result] = slotHolder[inst.a];
+        continue;
+      }
+
+      if (inst.op == IR_STORE_LOCAL && inst.a >= 0 && inst.a < IR_MAX_STACK) {
+        slotHolder[inst.a] = inst.b;
+      } else if (inst.op == IR_LOAD_LOCAL && inst.a >= 0 && inst.a < IR_MAX_STACK) {
+        slotHolder[inst.a] = inst.result;
+      }
+
+      block->instructions[kept++] = inst;
+    }
+    block->count = kept;
+  }
+
+  free(rename);
+}
+
 bool csIrIsFullyTyped(const IrFunction *ir) {
   /* The question is not whether every value is typed — the compiler appends an
    * unreachable `return undefined` to every function, and a blanket check

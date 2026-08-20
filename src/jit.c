@@ -11,6 +11,7 @@
 
 #include "cscript/debug.h"
 #include "cscript/ir.h"
+#include "cscript/jitcode.h"
 #include "cscript/jit.h"
 #include "cscript/memory.h"
 #include "cscript/object.h"
@@ -27,6 +28,9 @@ typedef struct {
   const char *refusal;      /* why a backend would skip it, or NULL */
   const char *irRefusal;    /* why it would not lower, or NULL */
   IrFunction *ir;           /* the lowered form, when it lowered */
+  JitCode *code;            /* machine code, when it compiled */
+  const char *codeRefusal;
+  Value *scratch;           /* the compiled code's working space */
 } HotEntry;
 
 static HotEntry hot[CS_JIT_MAX_HOT];
@@ -100,12 +104,30 @@ int csJitThreshold(void) {
 }
 
 bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *out) {
-  if (function->jitState != JIT_HOT) return false;
+  /* Both states are runnable: JIT_HOT has lowered IR, JIT_COMPILED also has
+   * machine code. Admitting only the first rejected exactly the functions that
+   * had got furthest. */
+  if (function->jitState != JIT_HOT && function->jitState != JIT_COMPILED) return false;
   for (int i = 0; i < hotCount; i++) {
     if (hot[i].function != function) continue;
     if (hot[i].ir == NULL) return false;
     /* Only where every value is proved: see csIrIsFullyTyped. */
     if (!csIrIsFullyTyped(hot[i].ir)) return false;
+
+    /* Compiled code, when there is any. The frame it needs is the slots array
+     * the interpreter would have used, with the arguments already in place. */
+    if (hot[i].code != NULL) {
+      Value slots[256];
+      if (hot[i].ir->slotCount > 256) return false;
+      for (int s = 0; s < hot[i].ir->slotCount; s++) slots[s] = UNDEFINED_VAL;
+      for (int a = 0; a < argCount && a + 1 < hot[i].ir->slotCount; a++) {
+        slots[a + 1] = args[a];
+      }
+      uint64_t bits = hot[i].code->entry(slots, hot[i].scratch);
+      memcpy(out, &bits, sizeof(Value));
+      substituted++;
+      return true;
+    }
     if (!csIrInterpret(hot[i].ir, args, argCount, out)) return false;
     substituted++;
     return true;
@@ -132,6 +154,26 @@ void csJitConsider(ObjFunction *function) {
   const char *why = NULL;
   hot[hotCount].ir = csIrLower(function, &why);
   hot[hotCount].irRefusal = why;
+  if (hot[hotCount].ir != NULL) csIrForwardSlots(hot[hotCount].ir);
+  hot[hotCount].code = NULL;
+  hot[hotCount].codeRefusal = NULL;
+  hot[hotCount].scratch = NULL;
+
+  /* Machine code only where every arithmetic operand is proved a number.
+   * Nothing else is attempted, because anything else would need a guard. */
+  if (hot[hotCount].ir != NULL && csIrIsFullyTyped(hot[hotCount].ir)) {
+    const char *codeWhy = NULL;
+    hot[hotCount].code = csJitCompile(hot[hotCount].ir, &codeWhy);
+    hot[hotCount].codeRefusal = codeWhy;
+    if (hot[hotCount].code != NULL) {
+      hot[hotCount].scratch =
+          (Value *)calloc((size_t)hot[hotCount].ir->registerCount + 1, sizeof(Value));
+      /* Stored as data, because ISO C does not promise a function pointer
+       * fits in a void*. It is only ever read back through the same cast. */
+      memcpy(&function->jitCode, &hot[hotCount].code->entry, sizeof(void *));
+      function->jitState = JIT_COMPILED;
+    }
+  }
 
   hotCount++;
 }
@@ -211,7 +253,19 @@ void csJitDumpProfile(void) {
     }
   }
 
-  printf("  %ld call%s answered by the IR rather than the interpreter\n", substituted,
+  int compiled = 0;
+  for (int i = 0; i < hotCount; i++) {
+    if (hot[i].code != NULL) compiled++;
+  }
+  printf("  %d of %d compiled to machine code\n", compiled, hotCount);
+  for (int i = 0; i < hotCount; i++) {
+    if (hot[i].ir != NULL && hot[i].code == NULL && hot[i].codeRefusal != NULL) {
+      printf("  %-24s did not compile: %s\n",
+             hot[i].function->name != NULL ? hot[i].function->name->chars : "<top level>",
+             hot[i].codeRefusal);
+    }
+  }
+  printf("  %ld call%s answered without the interpreter\n", substituted,
          substituted == 1 ? "" : "s");
 
   int sites = typedTotal + genericTotal;

@@ -90,6 +90,21 @@ void csIrFree(IrFunction *ir);
 /* Prints the IR, for `make jit`. */
 void csIrPrint(const IrFunction *ir);
 
+/* Forwards a value stored to a slot into the load that reads it straight back.
+ *
+ * The lowering deliberately mirrors the frame, storing every value and loading
+ * it again, because that is the only model that survives locals which were
+ * declared rather than stored. The cost is that a two-multiply function does
+ * more memory traffic than the bytecode did — which is why the first compiled
+ * code came out slower than the interpreter it replaced.
+ *
+ * This removes the round trip where it is provably redundant: a load whose
+ * slot has not been written since the store that fed it reads a value already
+ * in hand. Nothing moves, nothing is reordered, and the store stays — a named
+ * local may be read again later, and proving otherwise is a separate analysis.
+ */
+void csIrForwardSlots(IrFunction *ir);
+
 /* Whether every value in the IR is provably a number or a boolean.
  *
  * This is the gate on actually *running* the lowered form. A function with an

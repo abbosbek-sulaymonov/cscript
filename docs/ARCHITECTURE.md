@@ -765,6 +765,60 @@ it is defined for all types and needs no proof. The unreachable `return
 undefined` the compiler appends to every function is excluded for the same
 reason, having failed the blanket version of the check on its own.
 
+## Stage 3: machine code, and why it is not yet faster
+
+`make jit` now compiles fully-typed numeric functions to arm64 and runs them.
+It works, it is verified, and **it is not faster than the interpreter.** That
+result is the point of writing this section.
+
+### What it does
+
+A function whose every arithmetic operand is proved numeric is compiled to real
+instructions: `ldr d0` / `fmul d0, d0, d1` / `str d0`, with no type test, no
+guard and nothing to deoptimise to. NaN-boxing is what makes the load free — a
+number's `Value` *is* its double, bit for bit, so a slot goes straight into a
+floating-point register.
+
+On Apple Silicon the pages need `MAP_JIT`, `pthread_jit_write_protect_np`
+around the writes, and `sys_icache_invalidate` afterwards. Without the last one
+the processor executes whatever was in the page before.
+
+Correctness is checked the same way the IR was: `make test-ir` runs the
+compiled code in place of the interpreter and requires all 79 golden cases to
+be unchanged.
+
+### The measurement
+
+| | interpreted | compiled | Node |
+| --- | ---: | ---: | ---: |
+| 3M calls to a two-multiply function | 136 ms | 137 ms | 6 ms |
+| one call, 20M-iteration loop | 473 ms | 485 ms | 35 ms |
+
+The first attempt was 26% *slower*. Forwarding redundant slot round-trips in
+the IR brought it to parity. The second row is the diagnosis: with a single
+call there is no per-call overhead left, and the compiled code is still 3%
+behind — so the problem is the code, not the call path.
+
+### Why
+
+The IR mirrors the frame: every value is stored to a slot and loaded back. That
+model was not a shortcut, it was forced — a local declared rather than stored
+is invisible otherwise. But it means a two-multiply function performs more
+memory operations than the bytecode did. Removing dispatch bought less than
+that cost.
+
+There is a general lesson in it, and it is the same one the register-VM
+measurement produced: **this interpreter is not dispatch-bound.** Its
+instructions already do real work, its operand stack is small and hot in L1,
+and `ip` and `stackTop` live in registers across the loop. Naive machine code
+competes with that badly. A JIT beats an interpreter by keeping values in
+registers, not by removing the switch.
+
+So the next step is not more opcodes or a better encoder — it is a register
+allocator, keeping IR values in `d0`–`d15` instead of a scratch array. That is
+the change with the measurement attached, and it can be made without touching
+anything above it.
+
 ## Build configurations
 
 Each configuration compiles into its own directory under `build/`. Sharing one
