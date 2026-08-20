@@ -53,7 +53,18 @@ void compileImport(const AstNode *node) {
     emitByte(OP_IMPORT_NAMESPACE, line);
     defineModuleBinding(node->as.import.namespaceName, node->as.import.namespaceLength,
                         line);
-    return;
+  }
+
+  if (node->as.import.defaultName != NULL) {
+    ObjString *key = csStringCopy("default", 7);
+    if (!csTableGet(&imported->exports, key, NULL)) {
+      errorAt(line, "'%s' has no default export", node->as.import.specifier);
+    } else {
+      emitConstantOp(OP_CONSTANT, moduleConstant, line);
+      emitConstantOp(OP_IMPORT_NAME, identifierConstant("default", 7, line), line);
+      defineModuleBinding(node->as.import.defaultName, node->as.import.defaultLength,
+                          line);
+    }
   }
 
   for (int i = 0; i < node->as.import.nameCount; i++) {
@@ -88,6 +99,90 @@ void compileExport(const AstNode *node) {
 
   if (current->kind != FUNCTION_SCRIPT || current->scopeDepth > 0) {
     errorAt(line, "'export' is only allowed at the top level of a file");
+    return;
+  }
+
+  /* `export … from "./m.cx"`. The module is already compiled, so its export
+   * list is known here and a name that is not in it is a compile error — the
+   * same guarantee a plain import gets. */
+  if (node->as.export.specifier != NULL) {
+    char resolved[4096];
+    if (!csModuleResolve(currentUnit->module->path->chars, node->as.export.specifier,
+                         resolved, sizeof resolved)) {
+      errorAt(line, "cannot find module '%s'", node->as.export.specifier);
+      return;
+    }
+    ObjModule *from = csModuleFind(resolved);
+    if (from == NULL) {
+      errorAt(line, "module '%s' was not loaded", node->as.export.specifier);
+      return;
+    }
+    int moduleConstant = makeConstant(OBJ_VAL(from), line);
+
+    if (node->as.export.isStar) {
+      /* Everything it exports except its default, which `export *` leaves
+       * behind — two modules re-exported into one would otherwise each claim
+       * the same name. */
+      for (int i = 0; i < from->exports.capacity; i++) {
+        ObjString *name = from->exports.entries[i].key;
+        if (name == NULL) continue;
+        if (name->length == 7 && memcmp(name->chars, "default", 7) == 0) continue;
+        /* A name this file already has stays as it is. JavaScript lets an
+         * explicit export win over a star, which is what makes
+         * `export { a } from "…"; export * from "…";` mean something. */
+        if (findGlobal(name->chars, name->length) != NULL) continue;
+
+        emitConstantOp(OP_CONSTANT, moduleConstant, line);
+        emitConstantOp(OP_IMPORT_NAME,
+                       identifierConstant(name->chars, name->length, line), line);
+        defineModuleBinding(name->chars, name->length, line);
+        markExported(name->chars, name->length, line);
+      }
+      return;
+    }
+
+    for (int i = 0; i < node->as.export.nameCount; i++) {
+      const AstModuleName *entry = &node->as.export.names[i];
+      ObjString *exported = csStringCopy(entry->name, entry->nameLength);
+      if (!csTableGet(&from->exports, exported, NULL)) {
+        errorAt(line, "'%s' has no export named '%.*s'", node->as.export.specifier,
+                entry->nameLength, entry->name);
+        continue;
+      }
+      emitConstantOp(OP_CONSTANT, moduleConstant, line);
+      emitConstantOp(OP_IMPORT_NAME,
+                     identifierConstant(entry->name, entry->nameLength, line), line);
+      defineModuleBinding(entry->alias, entry->aliasLength, line);
+      markExported(entry->alias, entry->aliasLength, line);
+    }
+    return;
+  }
+
+  /* `export default …`. Filed under a name that is a keyword, so the only way
+   * back to it is an import. */
+  if (node->as.export.isDefault) {
+    const AstNode *declaration = node->as.export.declaration;
+
+    if (declaration->type == AST_FUNCTION || declaration->type == AST_CLASS_DECL) {
+      /* `export default function f() {}` declares `f` here too, so the
+       * declaration is compiled once and its binding loaded back. */
+      compileNode(declaration);
+      if (declaration->type == AST_FUNCTION) {
+        compileIdentifierLoad(declaration->as.function.name,
+                              declaration->as.function.nameLength, line);
+      } else {
+        compileIdentifierLoad(declaration->as.classDecl.name,
+                              declaration->as.classDecl.nameLength, line);
+      }
+    } else {
+      /* An expression. Only its value is wanted, so the statement wrapper —
+       * whose whole job is to discard it — is stepped over rather than
+       * compiled and then compensated for. */
+      compileNode(declaration->as.expression);
+    }
+
+    defineModuleBinding("default", 7, line);
+    markExported("default", 7, line);
     return;
   }
 

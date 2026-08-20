@@ -1,0 +1,14 @@
+import square, { sides, area } from "./shapes.cx";
+console.log(square, sides, area(3));
+
+// A default export that is a declaration binds its name in its own file too.
+import paint from "./colours.cx";
+console.log(paint("fence"));
+
+// Re-exports arrive under the same names, and `export *` skips the default.
+import answer, { sides as reSides, area as reArea, hue } from "./reexport.cx";
+console.log(answer, reSides, reArea(4), hue);
+
+// A namespace sees every re-export, default included where one was written.
+import * as all from "./reexport.cx";
+console.log(all.sides, all.hue, all.default);

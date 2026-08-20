@@ -258,10 +258,42 @@ AstNode *parseImport(Parser *parser) {
     if (!parseModuleSpecifier(parser, &specifier, &specifierLength)) return NULL;
     node->as.import.specifier = specifier;
     node->as.import.specifierLength = specifierLength;
+  } else if (check(parser, TOKEN_IDENTIFIER)) {
+    /* `import d from "./m.cx";` and `import d, { a } from "./m.cx";`
+     *
+     * A default import is a named import of the name `default`, which is a
+     * keyword and so cannot be written any other way. */
+    advanceToken(parser);
+    const char *defaultName = parser->previous.start;
+    int defaultLength = parser->previous.length;
+
+    node = csAstImport(parser->arena, line, "", 0);
+    if (node == NULL) return NULL;
+    node->as.import.defaultName = defaultName;
+    node->as.import.defaultLength = defaultLength;
+
+    if (matchToken(parser, TOKEN_COMMA)) {
+      if (matchToken(parser, TOKEN_STAR)) {
+        if (!matchContextual(parser, "as")) {
+          errorAtCurrent(parser, "expected 'as' after 'import *'");
+          return NULL;
+        }
+        consume(parser, TOKEN_IDENTIFIER, "expected a name after 'as'");
+        if (parser->diag->panicMode) return NULL;
+        node->as.import.namespaceName = parser->previous.start;
+        node->as.import.namespaceLength = parser->previous.length;
+      } else if (!parseModuleNameList(parser, node, true)) {
+        return NULL;
+      }
+    }
+
+    const char *specifier;
+    int specifierLength;
+    if (!parseModuleSpecifier(parser, &specifier, &specifierLength)) return NULL;
+    node->as.import.specifier = specifier;
+    node->as.import.specifierLength = specifierLength;
   } else {
-    errorAtCurrent(parser,
-                   "a default import is not supported; write "
-                   "'import { name } from \"...\"' or 'import * as ns from \"...\"'");
+    errorAtCurrent(parser, "expected a name, '{' or '* as' after 'import'");
     return NULL;
   }
 
@@ -276,23 +308,60 @@ AstNode *parseExport(Parser *parser) {
   int line = parser->previous.line;
 
   if (matchToken(parser, TOKEN_STAR)) {
-    errorAtCurrent(parser, "'export *' is not supported; name what you re-export");
-    return NULL;
+    /* `export * from "./m.cx";` — everything that module exports, except its
+     * default, which JavaScript deliberately leaves behind. */
+    AstNode *node = csAstExport(parser->arena, line, NULL);
+    if (node == NULL) return NULL;
+    node->as.export.isStar = true;
+
+    if (!checkContextual(parser, "from")) {
+      errorAtCurrent(parser, "expected 'from' after 'export *'");
+      return NULL;
+    }
+    if (!parseModuleSpecifier(parser, &node->as.export.specifier,
+                              &node->as.export.specifierLength)) {
+      return NULL;
+    }
+    consume(parser, TOKEN_SEMICOLON, "expected ';' after the export");
+    if (parser->diag->panicMode) return NULL;
+    return node;
   }
-  if (check(parser, TOKEN_DEFAULT)) {
-    errorAtCurrent(parser,
-                   "a default export is not supported; export a named binding "
-                   "instead");
-    return NULL;
+
+  if (matchToken(parser, TOKEN_DEFAULT)) {
+    /* `export default …`. The binding is filed under `default`, a keyword no
+     * source can name, so it is reachable only through an import. */
+    AstNode *node = csAstExport(parser->arena, line, NULL);
+    if (node == NULL) return NULL;
+    node->as.export.isDefault = true;
+
+    if (matchToken(parser, TOKEN_CLASS)) {
+      node->as.export.declaration = parseClass(parser);
+    } else if (matchToken(parser, TOKEN_FUNCTION)) {
+      node->as.export.declaration = parseFunction(parser, true);
+    } else {
+      AstNode *value = parseExpression(parser);
+      if (value == NULL) return NULL;
+      node->as.export.declaration = csAstExpressionStmt(parser->arena, line, value);
+      consume(parser, TOKEN_SEMICOLON, "expected ';' after the exported value");
+    }
+    if (node->as.export.declaration == NULL || parser->diag->panicMode) return NULL;
+    return node;
   }
 
   if (check(parser, TOKEN_LEFT_BRACE)) {
     AstNode *node = csAstExport(parser->arena, line, NULL);
     if (node == NULL) return NULL;
     if (!parseModuleNameList(parser, node, false)) return NULL;
+    /* `export { a, b as c } from "./m.cx";` — the names come from there and
+     * are never bound here under their own names. */
     if (checkContextual(parser, "from")) {
-      errorAtCurrent(parser, "re-exporting from another module is not supported yet");
-      return NULL;
+      if (!parseModuleSpecifier(parser, &node->as.export.specifier,
+                                &node->as.export.specifierLength)) {
+        return NULL;
+      }
+      consume(parser, TOKEN_SEMICOLON, "expected ';' after the export list");
+      if (parser->diag->panicMode) return NULL;
+      return node;
     }
     consume(parser, TOKEN_SEMICOLON, "expected ';' after the export list");
     if (parser->diag->panicMode) return NULL;

@@ -59,7 +59,7 @@ asserted here.
 | `break` / `continue` | including labelled, and out of `try` with a `finally` |
 | Labelled statements | on loops, on `switch`, and on blocks |
 | Exceptions | `try`/`catch`/`finally`/`throw`, any value throwable |
-| Modules | `import`, `export`, named and namespace, per-file scope |
+| Modules | `import`/`export`, named, default, namespace, `export *`, re-exports, per-file scope |
 | Asynchrony | `async`/`await`, promises, `setTimeout`, the microtask queue |
 
 ### The standard library
@@ -169,7 +169,7 @@ Each of these produces an error that names it, rather than failing obscurely.
 | `new.target`, subclassing built-ins | |
 | Prototypes, `__proto__`, `Object.create` | Classes are the whole object model |
 | `arguments`, `Function.prototype.call` / `.apply` / `.bind` | A method already keeps its receiver |
-| `default` exports, `export *`, re-exports, dynamic `import()` | Named exports only |
+| Dynamic `import()` | Static `import` and `export` are resolved before the program runs |
 | Bare import specifiers — `import x from "lodash"` | No package system to resolve against |
 | Sparse arrays and holes | Deliberate: they are why engines need a second array representation |
 | Unicode-correct string indexing | Strings are indexed by byte, which is correct for ASCII |

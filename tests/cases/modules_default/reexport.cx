@@ -1,0 +1,5 @@
+// Named re-export, then a star that must not reclaim what was named.
+export { sides } from "./shapes.cx";
+export * from "./shapes.cx";
+export * from "./colours.cx";
+export default 42;

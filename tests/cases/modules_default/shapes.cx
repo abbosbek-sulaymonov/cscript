@@ -1,0 +1,3 @@
+export const sides = 4;
+export function area(n) { return n * n; }
+export default "square";

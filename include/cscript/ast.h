@@ -263,11 +263,19 @@ struct AstNode {
       int nameCount;
       const char *namespaceName;         /*   non-NULL for `import * as ns` */
       int namespaceLength;
+      const char *defaultName;           /*   non-NULL for `import d from …` */
+      int defaultLength;
     } import;
     struct {                             /* AST_EXPORT */
       AstNode *declaration;              /*   NULL for `export { a, b };` */
       struct AstModuleName *names;       /*   only for the list form */
       int nameCount;
+      /* `export … from "./m.cx"` re-exports without binding anything here that
+       * was not already imported. NULL when the names are this file's own. */
+      const char *specifier;
+      int specifierLength;
+      bool isStar;                       /*   `export * from …` */
+      bool isDefault;                    /*   `export default …` */
     } export;
     struct {                             /* AST_CLASS_DECL */
       const char *name;

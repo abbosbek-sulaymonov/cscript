@@ -1,0 +1,2 @@
+export const hue = "blue";
+export default function paint(what) { return `${what} painted ${hue}`; }
