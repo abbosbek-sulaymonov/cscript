@@ -628,6 +628,25 @@ an async call suspends, and the event loop, which runs only after the program
 does. Benchmarks were flat across the whole change, which is what said the line
 was drawn in the right place.
 
+## Measuring
+
+One rule, learned the hard way: **measure the measurement first.**
+
+`bench/run.sh` spent most of this project calling `python3` twice per
+repetition to read the clock, which put that interpreter's own ~19 ms startup
+inside every number it produced. Node's 37 ms of process startup did the same
+from the other side. Together they reported CScript as 1.4–5.1× slower than
+Node when the real figure on compute is 8–34×.
+
+A constant offset is worse than noise. Noise is visible and averages out; an
+offset silently flatters whichever side is slower, because it is a smaller
+share of a bigger number. Every relative claim built on that harness was wrong
+in the same direction.
+
+The harness now times inside one process and reports startup separately, so
+both true things are visible: CScript starts about 18× faster than Node, and
+its interpreter loop is about 25× slower.
+
 ## Tiering: what a JIT would compile
 
 There is no code generator. There is the thing that has to come before one: a

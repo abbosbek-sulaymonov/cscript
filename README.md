@@ -250,24 +250,39 @@ and it paid off immediately when milestone 2 added two more.
 Measured on an Apple M3 Pro, best of seven, via `bench/run.sh`.
 
 ```
-benchmark             cscript         node      ratio
----------------------------------------------------------
-arrays                   88 ms         62 ms       1.4x
-locals                  168 ms         62 ms       2.7x
-loop_empty              188 ms         62 ms       3.0x
-globals                 214 ms         63 ms       3.4x
-branches                232 ms         63 ms       3.7x
-strings                 235 ms         58 ms       4.1x
-classes                 235 ms         68 ms       3.5x
-loop_arith              262 ms         65 ms       4.0x
-properties              331 ms         65 ms       5.1x
+startup: cscript 2 ms, node 37 ms — subtracted from the compute column
 
-native reference (loop_arith):  Go 27 ms   ·   C -O2 26 ms
+benchmark          cscript       node     cscript       node    ratio
+                   (total)    (total)   (compute)  (compute)
+---------------------------------------------------------------------
+arrays               69 ms      45 ms       67 ms       8 ms     8.4x
+locals              148 ms      43 ms      146 ms       6 ms    24.3x
+loop_empty          160 ms      42 ms      158 ms       5 ms    31.6x
+globals             195 ms      43 ms      193 ms       6 ms    32.2x
+branches            210 ms      44 ms      208 ms       7 ms    29.7x
+strings             216 ms      39 ms      214 ms       2 ms   107.0x
+classes             231 ms      50 ms      229 ms      13 ms    17.6x
+loop_arith          228 ms      46 ms      226 ms       9 ms    25.1x
+properties          307 ms      46 ms      305 ms       9 ms    33.9x
+
+native reference (loop_arith, total):  Go 8 ms   ·   C -O2 8 ms
 ```
 
-CScript is **about 10× slower than Go** and 1.3–4.7× slower than Node's JIT. It
-was 22× slower than Go before this work; `bench/` exists so that number is
-measured rather than asserted.
+**CScript is 8–34× slower than Node on compute, and roughly 35× slower than Go
+or C.** The `strings` figure of 107× is not a real ratio: V8 can see that loop
+produces nothing and removes it.
+
+That is a much worse number than this table used to report, and the correction
+is worth more than the result. The harness called `python3` twice per
+repetition to read the clock, which put that interpreter's own ~19 ms startup
+*inside every measurement*. A constant offset does not merely add noise — it
+flatters whichever program is slower, because it is a smaller share of a bigger
+number. Node's 37 ms of process startup was doing the same thing from the other
+side. Together they turned a 25× gap into a reported 4×.
+
+Both columns are kept because both are true. A CLI that runs for 40 ms really
+does start 18× faster than Node; an interpreter loop really is 25× slower.
+Quoting only the first would be the mistake that was already being made.
 
 Three optimisations account for the 32% improvement, and the measurements are
 worth more than the summary:

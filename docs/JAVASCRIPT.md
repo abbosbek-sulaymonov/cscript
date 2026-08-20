@@ -184,9 +184,14 @@ Measured, not asserted; `bench/run.sh` prints this table and the README carries
 the current numbers.
 
 CScript is a bytecode interpreter with inline caches and hidden classes. Node
-is a tracing JIT with two optimising compilers behind it. On the benchmarks
-here CScript runs **1.4× to 5.1× slower**, and about 9× slower than the same
-loop in Go.
+is a tracing JIT with two optimising compilers behind it.
+
+On compute — process startup measured and subtracted — CScript runs **8× to
+34× slower than Node**, and about 35× slower than the same loop in C or Go.
+
+CScript *starts* about 18× faster: 2 ms against Node's 37 ms. For a script that
+runs for a few milliseconds that dominates, which is why `bench/run.sh` reports
+end-to-end time as well. Neither number alone is the answer.
 
 The gap is narrowest on array work, where most of the time is in the same kind
 of C either way, and widest on property-heavy code, where V8's inline caches

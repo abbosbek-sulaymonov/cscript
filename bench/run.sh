@@ -23,30 +23,58 @@ if [[ ! -x "$BIN" ]]; then
   exit 1
 fi
 
-# `time` in the shell only has 10 ms resolution here, so measure in Python.
-now() { python3 -c 'import time; print(time.perf_counter())'; }
-
+# Timing runs inside one Python process rather than shelling out for a clock.
+#
+# The previous version called python3 twice per repetition to read the clock,
+# which put that second interpreter's own startup — about 19 ms — inside every
+# measurement it took. A constant offset like that does not just add noise: it
+# flatters whichever program is slower, because it is a smaller share of a
+# bigger number, and it made the Node comparison look far closer than it is.
 best_ms() {
-  local best=""
-  for ((rep = 0; rep < REPS; rep++)); do
-    local start stop ms
-    start="$(now)"
-    "$@" >/dev/null 2>&1 || return 1
-    stop="$(now)"
-    ms="$(python3 -c "print(round((${stop}-${start})*1000))")"
-    if [[ -z "$best" || "$ms" -lt "$best" ]]; then best="$ms"; fi
-  done
-  printf '%s' "$best"
+  python3 - "$@" <<'PYTHON'
+import subprocess, sys, time
+reps = int(__import__("os").environ.get("REPS", "3"))
+best = None
+for _ in range(reps):
+    started = time.perf_counter()
+    done = subprocess.run(sys.argv[1:], stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL)
+    elapsed = (time.perf_counter() - started) * 1000
+    if done.returncode != 0:
+        sys.exit(1)
+    if best is None or elapsed < best:
+        best = elapsed
+print(round(best))
+PYTHON
 }
 
 have_node=0
 command -v node >/dev/null 2>&1 && have_node=1
 
-printf '%-16s %12s %12s %10s\n' "benchmark" "cscript" "node" "ratio"
-printf -- '---------------------------------------------------------\n'
-
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+
+# Startup, measured and then subtracted.
+#
+# Node takes about 37 ms to start and CScript about 2. On a benchmark that runs
+# for 200 ms that is a fifth of the total, and on a short one it is most of it
+# — so a table of end-to-end times flatters whichever interpreter starts
+# faster and says very little about either one's speed. Both numbers are
+# reported: the one a user of a CLI feels, and the one that is actually about
+# the interpreter.
+: > "$tmp/empty.js"
+: > "$tmp/empty.cx"
+cs_startup="$(best_ms "$BIN" "$tmp/empty.cx")"
+node_startup=0
+[[ $have_node -eq 1 ]] && node_startup="$(best_ms node "$tmp/empty.js")"
+
+printf 'startup: cscript %s ms, node %s ms — subtracted from the compute column\n\n' \
+  "$cs_startup" "$node_startup"
+printf '%-14s %11s %10s %11s %10s %8s\n' \
+  "benchmark" "cscript" "node" "cscript" "node" "ratio"
+printf '%-14s %11s %10s %11s %10s %8s\n' \
+  "" "(total)" "(total)" "(compute)" "(compute)" ""
+printf -- '---------------------------------------------------------------------\n'
 
 total_cs=0
 for program in "$ROOT"/bench/*.cx; do
@@ -59,24 +87,30 @@ for program in "$ROOT"/bench/*.cx; do
   if [[ $have_node -eq 1 ]]; then
     cp "$program" "$tmp/$name.js"
     nd="$(best_ms node "$tmp/$name.js")" || nd=""
+    cs_compute=$((cs - cs_startup))
+    nd_compute=$((nd - node_startup))
+    (( cs_compute < 1 )) && cs_compute=1
+    (( nd_compute < 1 )) && nd_compute=1
+
     if [[ -n "$nd" && "$nd" -gt 0 ]]; then
-      ratio="$(python3 -c "print(f'{${cs}/${nd}:.1f}x')")"
+      ratio="$(python3 -c "print(f'{${cs_compute}/${nd_compute}:.1f}x')")"
     else
       ratio="-"
     fi
-    printf '%-16s %10s ms %10s ms %10s\n' "$name" "$cs" "${nd:--}" "$ratio"
+    printf '%-14s %8s ms %7s ms %8s ms %7s ms %8s\n' \
+      "$name" "$cs" "${nd:--}" "$cs_compute" "$nd_compute" "$ratio"
   else
-    printf '%-16s %10s ms %12s %10s\n' "$name" "$cs" "-" "-"
+    printf '%-14s %8s ms %10s %11s %10s %8s\n' "$name" "$cs" "-" "-" "-" "-"
   fi
 done
 
-printf -- '---------------------------------------------------------\n'
-printf '%-16s %10s ms\n' "total" "$total_cs"
+printf -- '---------------------------------------------------------------------\n'
+printf '%-14s %8s ms\n' "total" "$total_cs"
 
 # Native reference points, built on demand, for the primary arithmetic loop.
 if [[ -z "$FILTER" || "loop_arith" == *"$FILTER"* ]]; then
   echo
-  echo "native reference (bench/native/loop_arith.*):"
+  echo "native reference (bench/native/loop_arith.*), total time:"
   if command -v cc >/dev/null 2>&1; then
     cc -O2 -o "$tmp/loop_c" "$ROOT/bench/native/loop_arith.c" 2>/dev/null &&
       printf '  %-14s %10s ms\n' "C -O2" "$(best_ms "$tmp/loop_c")"
