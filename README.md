@@ -475,6 +475,12 @@ cscript/
 | **24 ✅** | An arm64 backend — correct, verified, and not yet faster | — |
 | **25 ✅** | Register allocation: −5% on calls, still level on loops | — |
 | **26 ✅** | On-stack replacement — loops **8.9× faster**, 1.6× of Node | — |
+| **27 ✅** | `?.`, `??`, `&&=`/`\|\|=`/`??=`, object-literal methods | — |
+| **28 ✅** | `in`, `delete`, object spread and rest, labelled statements | — |
+| **29 ✅** | `#private` members, `static { }` blocks | — |
+| **30 ✅** | Default exports, re-exports, `export *` | — |
+| **31 ✅** | Generators — `function*`, `yield`, `yield*`, pull-driven `for...of` | — |
+| next | `for await` and async generators | — |
 | next | Lowering top-level code, so a script reaches the compiler | — |
 | next | Inlining, so a small function is worth compiling | — |
 | next | Guards and deoptimisation, for code the types do not prove | — |
