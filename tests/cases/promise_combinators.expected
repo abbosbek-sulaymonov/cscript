@@ -1,0 +1,13 @@
+[{"status":"fulfilled","value":1},{"status":"rejected","reason":"no"},{"status":"fulfilled","value":3}]
+[]
+2
+7
+AggregateError All promises were rejected [ 'first', 'second' ]
+AggregateError 0
+[ 1, 2 ]
+first
+all rejected with bad
+AggregateError custom [ 'x' ]
+tick 1
+tick 2
+tick 3

@@ -163,8 +163,8 @@ static bool promiseConstruct(Value receiver, int argCount, Value *args, Value *r
   return true;
 }
 
-/* Builds the [results, remaining, target] state both combinators share. */
-static ObjArray *combineState(int count, ObjPromise *target) {
+/* Builds the [results, remaining, target, mode] state the combinators share. */
+static ObjArray *combineState(int count, ObjPromise *target, CombineMode mode) {
   ObjArray *results = csArrayNew();
   csPushTempRoot((Obj *)results);
   for (int i = 0; i < count; i++) csValueArrayWrite(&results->elements, UNDEFINED_VAL);
@@ -174,13 +174,17 @@ static ObjArray *combineState(int count, ObjPromise *target) {
   csValueArrayWrite(&state->elements, OBJ_VAL(results));
   csValueArrayWrite(&state->elements, NUMBER_VAL(count));
   csValueArrayWrite(&state->elements, OBJ_VAL(target));
+  csValueArrayWrite(&state->elements, NUMBER_VAL((double)mode));
   csPopTempRoot();
   csPopTempRoot();
   return state;
 }
 
-static bool combinator(int argCount, Value *args, Value *result, bool isRace) {
-  const char *name = isRace ? "Promise.race" : "Promise.all";
+static bool combinator(int argCount, Value *args, Value *result, CombineMode mode) {
+  static const char *names[] = {"Promise.all", "Promise.race",
+                                "Promise.allSettled", "Promise.any"};
+  const char *name = names[mode];
+
   if (argCount != 1 || !IS_ARRAY(args[0])) {
     csVMRuntimeError("%s expects an array", name);
     return false;
@@ -191,24 +195,34 @@ static bool combinator(int argCount, Value *args, Value *result, bool isRace) {
   ObjPromise *target = csPromiseNew();
   csPushTempRoot((Obj *)target);
 
-  /* An empty Promise.all is already done; an empty Promise.race never is,
-   * which is what the specification says and is worth not "fixing". */
-  if (count == 0 && !isRace) {
-    ObjArray *empty = csArrayNew();
-    csPromiseFulfill(target, OBJ_VAL(empty));
+  /* Nothing to wait for. `all` and `allSettled` are already done; `any` has
+   * nothing that could ever succeed; and an empty `race` never settles, which
+   * is what the specification says and is worth not "fixing". */
+  if (count == 0) {
+    if (mode == COMBINE_ALL || mode == COMBINE_ALL_SETTLED) {
+      csPromiseFulfill(target, OBJ_VAL(csArrayNew()));
+    } else if (mode == COMBINE_ANY) {
+      ObjArray *none = csArrayNew();
+      csPushTempRoot((Obj *)none);
+      csPromiseReject(target, csAggregateError(none));
+      csPopTempRoot();
+    }
     csPopTempRoot();
     *result = OBJ_VAL(target);
     return true;
   }
 
-  ObjArray *state = combineState(isRace ? 0 : count, target);
+  /* Race is the one that keeps no per-input slot: whichever settles first is
+   * the answer, so there is nothing to collect. */
+  bool byIndex = mode != COMBINE_RACE;
+  ObjArray *state = combineState(byIndex ? count : 0, target, mode);
   csPushTempRoot((Obj *)state);
 
   for (int i = 0; i < count; i++) {
     Value element = inputs->elements.values[i];
     if (!IS_PROMISE(element)) {
       /* A plain value counts as already fulfilled, so mixing them is fine. */
-      csVMQueueCombine(state, isRace ? -1 : i, element, false);
+      csVMQueueCombine(state, byIndex ? i : -1, element, false);
       continue;
     }
     ObjPromise *input = AS_PROMISE(element);
@@ -219,11 +233,11 @@ static bool combinator(int argCount, Value *args, Value *result, bool isRace) {
     if (input->state == PROMISE_PENDING) {
       Reaction *reaction = &input->reactions[input->reactionCount - 1];
       reaction->combineState = state;
-      reaction->combineIndex = isRace ? -1 : i;
+      reaction->combineIndex = byIndex ? i : -1;
     } else {
       Microtask *task = &vm.microtasks[vm.microtaskCount - 1];
       task->combineState = state;
-      task->combineIndex = isRace ? -1 : i;
+      task->combineIndex = byIndex ? i : -1;
     }
   }
 
@@ -235,20 +249,31 @@ static bool combinator(int argCount, Value *args, Value *result, bool isRace) {
 
 static bool promiseAll(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
-  return combinator(argCount, args, result, false);
+  return combinator(argCount, args, result, COMBINE_ALL);
 }
 
 static bool promiseRace(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
-  return combinator(argCount, args, result, true);
+  return combinator(argCount, args, result, COMBINE_RACE);
+}
+
+static bool promiseAllSettled(Value receiver, int argCount, Value *args,
+                              Value *result) {
+  (void)receiver;
+  return combinator(argCount, args, result, COMBINE_ALL_SETTLED);
+}
+
+static bool promiseAny(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  return combinator(argCount, args, result, COMBINE_ANY);
 }
 
 /* Timers. Kept sorted by due time, ties broken by registration order, so the
  * output of a program with several timers is reproducible. */
-static bool setTimeoutNative(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
+static bool scheduleTimer(int argCount, Value *args, Value *result,
+                          const char *name, bool repeating) {
   if (argCount < 1) {
-    csVMRuntimeError("setTimeout expects a function and an optional delay");
+    csVMRuntimeError("%s expects a function and an optional delay", name);
     return false;
   }
   double delay = argCount > 1 && IS_NUMBER(args[1]) ? AS_NUMBER(args[1]) : 0;
@@ -265,6 +290,9 @@ static bool setTimeoutNative(Value receiver, int argCount, Value *args, Value *r
   timer.id = vm.nextTimerId++;
   timer.callback = args[0];
   timer.cancelled = false;
+  /* An interval with no delay would spin the loop with nothing between turns,
+   * so it is treated as the shortest one a browser would give it. */
+  timer.repeatMs = repeating ? (delay > 1 ? delay : 1) : 0;
 
   int at = vm.timerCount;
   while (at > 0 && (vm.timers[at - 1].dueMs > timer.dueMs ||
@@ -280,6 +308,17 @@ static bool setTimeoutNative(Value receiver, int argCount, Value *args, Value *r
   return true;
 }
 
+static bool setTimeoutNative(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  return scheduleTimer(argCount, args, result, "setTimeout", false);
+}
+
+static bool setIntervalNative(Value receiver, int argCount, Value *args,
+                              Value *result) {
+  (void)receiver;
+  return scheduleTimer(argCount, args, result, "setInterval", true);
+}
+
 static bool clearTimeoutNative(Value receiver, int argCount, Value *args,
                                Value *result) {
   (void)receiver;
@@ -287,6 +326,11 @@ static bool clearTimeoutNative(Value receiver, int argCount, Value *args,
   if (argCount < 1 || !IS_NUMBER(args[0])) return true;
 
   int id = (int)AS_NUMBER(args[0]);
+
+  /* The interval that is running right now is not in the queue to be found,
+   * so it is marked separately and the loop checks before re-arming it. */
+  if (id == vm.firingTimerId) vm.firingCancelled = true;
+
   for (int i = 0; i < vm.timerCount; i++) {
     if (vm.timers[i].id != id) continue;
     memmove(&vm.timers[i], &vm.timers[i + 1],
@@ -355,6 +399,16 @@ void csPromiseInstallStatics(ObjObject *statics) {
   csObjectSetProperty(statics, "all", OBJ_VAL(all));
   csPopTempRoot();
 
+  ObjNative *allSettled = csNativeNew(promiseAllSettled, "allSettled", -1);
+  csPushTempRoot((Obj *)allSettled);
+  csObjectSetProperty(statics, "allSettled", OBJ_VAL(allSettled));
+  csPopTempRoot();
+
+  ObjNative *anyOf = csNativeNew(promiseAny, "any", -1);
+  csPushTempRoot((Obj *)anyOf);
+  csObjectSetProperty(statics, "any", OBJ_VAL(anyOf));
+  csPopTempRoot();
+
   ObjNative *race = csNativeNew(promiseRace, "race", -1);
   csPushTempRoot((Obj *)race);
   csObjectSetProperty(statics, "race", OBJ_VAL(race));
@@ -362,5 +416,6 @@ void csPromiseInstallStatics(ObjObject *statics) {
 }
 
 NativeFn csSetTimeoutFn(void) { return setTimeoutNative; }
+NativeFn csSetIntervalFn(void) { return setIntervalNative; }
 NativeFn csClearTimeoutFn(void) { return clearTimeoutNative; }
 NativeFn csQueueMicrotaskFn(void) { return queueMicrotaskNative; }

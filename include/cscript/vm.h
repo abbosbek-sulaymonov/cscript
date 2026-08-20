@@ -54,16 +54,30 @@ typedef struct {
   int combineIndex;
 } Microtask;
 
-/* A pending setTimeout. Ties are broken by `sequence` so two timers with the
- * same delay fire in the order they were registered, which is what makes
- * output reproducible. */
+/* A pending setTimeout, or a setInterval that keeps coming back. Ties are
+ * broken by `sequence` so two timers with the same delay fire in the order
+ * they were registered, which is what makes output reproducible. */
 typedef struct {
   double dueMs;
   long sequence;
   int id;
   Value callback;
   bool cancelled;
+  /* Zero for setTimeout. An interval is re-armed *after* its callback returns
+   * rather than on a fixed grid, so a slow callback cannot queue up behind
+   * itself — which is what browsers and Node both do. */
+  double repeatMs;
 } Timer;
+
+/* Which combinator a queued settlement belongs to. Kept in the shared state
+ * rather than in the microtask, because it is a property of the call that made
+ * them all rather than of any one settlement. */
+typedef enum {
+  COMBINE_ALL,         /* first rejection wins; otherwise every value    */
+  COMBINE_RACE,        /* the first settlement of either kind            */
+  COMBINE_ALL_SETTLED, /* never rejects; one record per input            */
+  COMBINE_ANY,         /* first fulfilment wins; all rejected is an error */
+} CombineMode;
 
 /* Defined in object.h, which includes this header for Value. */
 struct ObjClosure;
@@ -181,6 +195,14 @@ typedef struct {
   Timer timers[CS_TIMERS_MAX];
   int timerCount;
   int nextTimerId;
+
+  /* The interval whose callback is running, and whether it cancelled itself.
+   *
+   * A timer is off the queue while it runs, so `clearInterval(handle)` from
+   * inside its own callback would find nothing to mark and the interval could
+   * never be stopped from within — which is where most of them are stopped. */
+  int firingTimerId;
+  bool firingCancelled;
   long timerSequence;
 
   /* Rejected promises nothing has listened to yet. Checked when the loop runs

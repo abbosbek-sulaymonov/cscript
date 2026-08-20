@@ -739,7 +739,10 @@ predictable.
 
 **The loop.** Everything synchronous runs first, then the microtask queue is
 drained completely, then one timer gets a turn, and so on until both are
-empty. `setTimeout`, `clearTimeout` and `queueMicrotask` are the way in.
+empty. `setTimeout`, `setInterval`, `clearTimeout`, `clearInterval` and
+`queueMicrotask` are the way in. An interval is re-armed after its callback
+returns rather than on a fixed grid, so a slow callback cannot queue up behind
+itself — and it may stop itself, which is where most intervals are stopped.
 
 A rejection nothing ever listened to is reported and exits non-zero, as it
 does in Node — a promise that failed with no one watching is a bug, and the

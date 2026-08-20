@@ -1,0 +1,45 @@
+// allSettled never rejects: every input gets a record either way.
+const mixed = await Promise.allSettled([
+  Promise.resolve(1),
+  Promise.reject("no"),
+  3,
+]);
+console.log(JSON.stringify(mixed));
+console.log(JSON.stringify(await Promise.allSettled([])));
+
+// any takes the first fulfilment and ignores the rejections around it.
+console.log(await Promise.any([Promise.reject("a"), Promise.resolve(2)]));
+console.log(await Promise.any([Promise.reject("a"), 7]));
+
+// When every one rejects, the reasons are kept rather than thrown away.
+try {
+  await Promise.any([Promise.reject("first"), Promise.reject("second")]);
+} catch (error) {
+  console.log(error.name, error.message, error.errors);
+}
+try {
+  await Promise.any([]);
+} catch (error) {
+  console.log(error.name, error.errors.length);
+}
+
+// The two that already existed still behave.
+console.log(await Promise.all([1, Promise.resolve(2)]));
+console.log(await Promise.race([Promise.resolve("first"), Promise.reject("x")]));
+try {
+  await Promise.all([Promise.reject("bad"), Promise.resolve(1)]);
+} catch (error) {
+  console.log("all rejected with", error);
+}
+
+// AggregateError is a global in its own right.
+const built = new AggregateError(["x"], "custom");
+console.log(built.name, built.message, built.errors);
+
+// An interval repeats until something stops it, including itself.
+let ticks = 0;
+const handle = setInterval(() => {
+  ticks += 1;
+  console.log("tick", ticks);
+  if (ticks === 3) clearInterval(handle);
+}, 1);

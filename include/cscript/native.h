@@ -12,6 +12,10 @@ struct ObjObject;
 /* Installs every built-in into the VM's globals table. Call once, after
  * csVMInit and before interpreting anything. */
 void csNativesInstall(void);
+
+/* The value `Promise.any` rejects with, and what the `AggregateError` global
+ * builds. `errors` becomes its `errors` property. */
+Value csAggregateError(ObjArray *errors);
 void csGeneratorMethodsInstall(void);
 
 /* Registers the built-in array methods into vm.arrayMethods. Called by
@@ -40,6 +44,7 @@ void csPromiseMarkRoots(void);
 ObjNative *csPromiseConstructor(void);
 void csPromiseInstallStatics(ObjObject *statics);
 NativeFn csSetTimeoutFn(void);
+NativeFn csSetIntervalFn(void);
 NativeFn csClearTimeoutFn(void);
 NativeFn csQueueMicrotaskFn(void);
 

@@ -8,6 +8,7 @@
 #include <time.h>
 
 #include "cscript/memory.h"
+#include "cscript/native.h"
 #include "cscript/object.h"
 #include "cscript/vm.h"
 #include "vm_internal.h"
@@ -50,28 +51,83 @@ void csVMQueueCombine(ObjArray *state, int index, Value argument, bool isRejecti
   task->combineIndex = index;
 }
 
-/* Promise.all and Promise.race, settled from the inside. The state is
- * [results, remaining, target]; a negative index means the first settlement
- * wins, which is race. */
+/* `{ status, value }` or `{ status, reason }`, which is the only thing
+ * allSettled reports and the reason it never rejects. */
+static Value settlementRecord(Value outcome, bool isRejection) {
+  ObjObject *record = csObjectNew("Object");
+  csPushTempRoot((Obj *)record);
+  if (IS_OBJ(outcome)) csPushTempRoot(AS_OBJ(outcome));
+
+  ObjString *status = csStringCopy(isRejection ? "rejected" : "fulfilled",
+                                   isRejection ? 8 : 9);
+  csPushTempRoot((Obj *)status);
+  csObjectSetProperty(record, "status", OBJ_VAL(status));
+  csPopTempRoot();
+
+  csObjectSetProperty(record, isRejection ? "reason" : "value", outcome);
+
+  if (IS_OBJ(outcome)) csPopTempRoot();
+  csPopTempRoot();
+  return OBJ_VAL(record);
+}
+
+/* The four combinators, settled from the inside. The state is
+ * [results, remaining, target, mode]; a negative index means the first
+ * settlement wins, which is race. */
 void runCombine(const Microtask *task) {
   ObjArray *state = task->combineState;
   ObjPromise *target = AS_PROMISE(state->elements.values[2]);
+  CombineMode mode = (CombineMode)AS_NUMBER(state->elements.values[3]);
 
-  if (task->isRejection) {
-    csPromiseReject(target, task->argument);
-    return;
-  }
-  if (task->combineIndex < 0) {
-    csPromiseFulfill(target, task->argument);
-    return;
+  /* A combinator that has already decided ignores the rest, which is what
+   * lets `race` and `any` leave their losers running harmlessly. */
+  if (target->state != PROMISE_PENDING) return;
+
+  switch (mode) {
+    case COMBINE_RACE:
+      if (task->isRejection) {
+        csPromiseReject(target, task->argument);
+      } else {
+        csPromiseFulfill(target, task->argument);
+      }
+      return;
+
+    case COMBINE_ALL:
+      /* The first rejection is the answer; the rest no longer matter. */
+      if (task->isRejection) {
+        csPromiseReject(target, task->argument);
+        return;
+      }
+      break;
+
+    case COMBINE_ANY:
+      /* The mirror image: the first fulfilment wins, and rejections are only
+       * collected in case every one of them rejects. */
+      if (!task->isRejection) {
+        csPromiseFulfill(target, task->argument);
+        return;
+      }
+      break;
+
+    case COMBINE_ALL_SETTLED:
+      break;
   }
 
   ObjArray *results = AS_ARRAY(state->elements.values[0]);
-  results->elements.values[task->combineIndex] = task->argument;
+  results->elements.values[task->combineIndex] =
+      mode == COMBINE_ALL_SETTLED
+          ? settlementRecord(task->argument, task->isRejection)
+          : task->argument;
 
   double remaining = AS_NUMBER(state->elements.values[1]) - 1;
   state->elements.values[1] = NUMBER_VAL(remaining);
-  if (remaining == 0) csPromiseFulfill(target, state->elements.values[0]);
+  if (remaining != 0) return;
+
+  if (mode == COMBINE_ANY) {
+    csPromiseReject(target, csAggregateError(results));
+  } else {
+    csPromiseFulfill(target, state->elements.values[0]);
+  }
 }
 
 void csVMNoteRejection(ObjPromise *promise) {
@@ -252,6 +308,8 @@ InterpretResult csVMRunEventLoop(void) {
     /* Off the queue, so the collector no longer reaches it through the timer
      * list — the same trap the microtask loop avoids by not advancing. */
     if (IS_OBJ(next.callback)) csPushTempRoot(AS_OBJ(next.callback));
+    vm.firingTimerId = next.id;
+    vm.firingCancelled = false;
     Value ignored;
     if (!csVMCallAdapted(next.callback, NULL, 0, &ignored)) {
       if (vm.hasPendingException) {
@@ -267,6 +325,29 @@ InterpretResult csVMRunEventLoop(void) {
     }
     if (IS_OBJ(next.callback)) csPopTempRoot();
     resetStack();
+
+    /* An interval goes back on the queue only now, so a callback that took
+     * longer than the interval cannot pile up behind itself. `clearInterval`
+     * during the callback wins, because the handle is gone by then. */
+    bool stopped = vm.firingCancelled;
+    vm.firingTimerId = -1;
+    vm.firingCancelled = false;
+
+    if (next.repeatMs > 0 && !stopped && vm.timerCount < CS_TIMERS_MAX) {
+      Timer again = next;
+      again.dueMs = nowMs() + next.repeatMs;
+      again.sequence = vm.timerSequence++;
+
+      int at = vm.timerCount;
+      while (at > 0 && (vm.timers[at - 1].dueMs > again.dueMs ||
+                        (vm.timers[at - 1].dueMs == again.dueMs &&
+                         vm.timers[at - 1].sequence > again.sequence))) {
+        vm.timers[at] = vm.timers[at - 1];
+        at--;
+      }
+      vm.timers[at] = again;
+      vm.timerCount++;
+    }
   }
 
   return reportUnhandledRejections();

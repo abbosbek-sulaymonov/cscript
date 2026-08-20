@@ -73,6 +73,8 @@ void csVMInit(void) {
   vm.microtaskHead = 0;
   vm.timerCount = 0;
   vm.nextTimerId = 1;
+  vm.firingTimerId = -1;
+  vm.firingCancelled = false;
   vm.timerSequence = 0;
   vm.rejected = NULL;
   vm.rejectedCount = 0;

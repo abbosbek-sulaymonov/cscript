@@ -466,6 +466,52 @@ static bool errorConstruct(Value receiver, int argCount, Value *args, Value *res
   return true;
 }
 
+/* AggregateError(errors, message) — what `Promise.any` rejects with when every
+ * input rejected, and a global in its own right.
+ *
+ * Same shape as Error with one more field: `errors`, the reasons in the order
+ * their promises were given. Without it `any` would have to throw away exactly
+ * the information the caller wanted. */
+Value csAggregateError(ObjArray *errors) {
+  ObjObject *error = csObjectNew("AggregateError");
+  csPushTempRoot((Obj *)error);
+  csPushTempRoot((Obj *)errors);
+
+  ObjString *name = csStringCopy("AggregateError", 14);
+  csPushTempRoot((Obj *)name);
+  csObjectSetProperty(error, "name", OBJ_VAL(name));
+  csPopTempRoot();
+
+  ObjString *message = csStringCopy("All promises were rejected", 26);
+  csPushTempRoot((Obj *)message);
+  csObjectSetProperty(error, "message", OBJ_VAL(message));
+  csPopTempRoot();
+
+  csObjectSetProperty(error, "errors", OBJ_VAL(errors));
+
+  csPopTempRoot();
+  csPopTempRoot();
+  return OBJ_VAL(error);
+}
+
+static bool aggregateErrorConstruct(Value receiver, int argCount, Value *args,
+                                    Value *result) {
+  (void)receiver;
+  ObjArray *errors = argCount >= 1 && IS_ARRAY(args[0]) ? AS_ARRAY(args[0])
+                                                        : csArrayNew();
+  csPushTempRoot((Obj *)errors);
+  Value error = csAggregateError(errors);
+  csPopTempRoot();
+
+  if (argCount >= 2) {
+    csPushTempRoot(AS_OBJ(error));
+    csObjectSetProperty(AS_OBJECT(error), "message", args[1]);
+    csPopTempRoot();
+  }
+  *result = error;
+  return true;
+}
+
 /* Defines a global, keeping the value rooted across the table insert. */
 static void defineGlobal(const char *name, Value value) {
   if (IS_OBJ(value)) csPushTempRoot(AS_OBJ(value));
@@ -584,6 +630,7 @@ void csNativesInstall(void) {
   defineFunction("isNaN", globalIsNaN, -1);
   defineFunction("isFinite", globalIsFinite, -1);
   defineFunction("Error", errorConstruct, -1);
+  defineFunction("AggregateError", aggregateErrorConstruct, -1);
 
   /* Explicit conversions, so nothing has to rely on implicit coercion. */
   csPopTempRoot();
@@ -616,6 +663,10 @@ void csNativesInstall(void) {
 
   defineFunction("setTimeout", csSetTimeoutFn(), -1);
   defineFunction("clearTimeout", csClearTimeoutFn(), -1);
+  /* An interval is cancelled the same way a timeout is — the two share one
+   * queue and one kind of handle, so one canceller is enough. */
+  defineFunction("setInterval", csSetIntervalFn(), -1);
+  defineFunction("clearInterval", csClearTimeoutFn(), -1);
   defineFunction("queueMicrotask", csQueueMicrotaskFn(), -1);
 
   defineGlobal("NaN", NUMBER_VAL(NAN));

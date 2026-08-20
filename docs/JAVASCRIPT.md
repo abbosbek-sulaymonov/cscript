@@ -60,7 +60,8 @@ asserted here.
 | Labelled statements | on loops, on `switch`, and on blocks |
 | Exceptions | `try`/`catch`/`finally`/`throw`, any value throwable |
 | Modules | `import`/`export`, named, default, namespace, `export *`, re-exports, per-file scope |
-| Asynchrony | `async`/`await`, promises, `setTimeout`, the microtask queue |
+| Asynchrony | `async`/`await`, promises, `setTimeout`/`setInterval`, the microtask queue |
+| Promise combinators | `all`, `race`, `allSettled`, `any` — with `AggregateError` |
 | Generators | `function*`, `yield`, `yield*`, `next(v)`, `for...of`, spread |
 | Top-level `await` | In any file, including one another file imports |
 | `for await` | Over any sync iterable, awaiting each element |
