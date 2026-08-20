@@ -61,6 +61,7 @@ asserted here.
 | Exceptions | `try`/`catch`/`finally`/`throw`, any value throwable |
 | Modules | `import`/`export`, named, default, namespace, `export *`, re-exports, per-file scope |
 | Asynchrony | `async`/`await`, promises, `setTimeout`, the microtask queue |
+| Generators | `function*`, `yield`, `yield*`, `next(v)`, `for...of`, spread |
 
 ### The standard library
 
@@ -141,6 +142,22 @@ As it is in Node — listed because it is a deliberate choice rather than an
 accident. A promise that failed with nobody watching is a bug, and the
 alternative is a program that silently does half its work.
 
+### A generator's `.return()` does not run a pending `finally`
+
+```js
+function* g() { try { yield 1; } finally { console.log("cleanup"); } }
+const it = g();
+it.next();
+it.return(9);   // JavaScript prints "cleanup" first; CScript does not
+```
+
+Abandoning a suspended generator drops its fiber, and the fiber owns its whole
+stack, so nothing leaks — but the `finally` blocks on that stack never run.
+Running them would mean resuming the body in a mode that unwinds without
+continuing, which the fiber machinery does not have yet. `break` out of a
+`for...of` over a generator has the same gap, because it does not call
+`.return()` at all.
+
 ### Known, not yet fixed
 
 **Property order for integer-like keys.** JavaScript enumerates `{ b: 1, 2: 2 }`
@@ -160,9 +177,9 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Regex backreferences, lookaround, named groups | The engine is a backtracker; these are the parts left out |
 | A function as a `replace` replacement | `$1` and `$&` in a string work |
 | `WeakMap`, `WeakSet` | Would need weak references in the collector |
+| `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
 | `Symbol`, `BigInt` | No plans |
-| Generators, `yield` | |
-| `for await`, async iterators | |
+| `for await`, async iterators, `async function*` | Reported as unsupported rather than accepted |
 | Top-level `await` | Would make running a module asynchronous and reorder every import |
 | Getters and setters on object *literals* | Methods and shorthand work; accessors do not |
 | Computed member names in a class body | Computed keys work in object literals |

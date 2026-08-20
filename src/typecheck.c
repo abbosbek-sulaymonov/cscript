@@ -415,6 +415,12 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
       result = TYPE_UNDEFINED;
       break;
 
+    case AST_YIELD:
+      /* What `next(x)` sends back in is whatever the caller chose. */
+      checkNode(checker, node->as.yield.value);
+      result = TYPE_ANY;
+      break;
+
     case AST_DELETE:
       /* Whether the property was there is not a question about types. */
       checkNode(checker, node->as.deleteTarget);

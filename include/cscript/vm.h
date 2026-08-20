@@ -166,6 +166,7 @@ typedef struct {
   Table stringMethods;
   Table promiseMethods;
   Table mapMethods;
+  Table generatorMethods;
   Table regexMethods;
 
   /* The microtask queue, drained completely between macrotasks. A ring would

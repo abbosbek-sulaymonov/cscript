@@ -53,6 +53,17 @@ void swapExecutionState(ObjFiber *fiber);
 void finishFiber(ObjFiber *fiber, ObjFiber *enclosing, InterpretResult result);
 void runFiber(ObjFiber *fiber);
 bool callAsyncFunction(ObjClosure *closure, int argCount);
+
+/* Builds a generator for a `function*` call, without running any of it. */
+bool callGeneratorFunction(ObjClosure *closure, int argCount);
+
+/* Runs a generator to its next `yield` or its end. `sent` becomes the value
+ * the suspended `yield` produces. Returns false only when the body failed,
+ * which has already been reported. */
+bool csGeneratorNext(ObjGenerator *generator, Value sent, Value *value, bool *done);
+
+/* Marks a generator finished without running any more of it, for `.return()`. */
+void csGeneratorFinish(ObjGenerator *generator, Value returned);
 void csVMResumeFiber(ObjFiber *fiber, Value value, bool isRejection);
 
 #endif /* CSCRIPT_VM_INTERNAL_H */

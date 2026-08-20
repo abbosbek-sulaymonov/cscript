@@ -299,6 +299,9 @@ AstNode *parsePrimary(Parser *parser) {
           continue;
         }
 
+        /* `*m() {}` — a generator method, read before the key. */
+        bool isGeneratorEntry = matchToken(parser, TOKEN_STAR);
+
         /* `get x() {}` in an object literal is an accessor, which only classes
          * support — worth naming rather than failing at the missing colon. */
         if (checkWord(parser, "get") || checkWord(parser, "set")) {
@@ -343,6 +346,7 @@ AstNode *parsePrimary(Parser *parser) {
         /* `{ m() {} }` is `{ m: function m() {} }`. Named after the key, so a
          * stack trace says which method it was. */
         if (check(parser, TOKEN_LEFT_PAREN)) {
+          parser->pendingGenerator = isGeneratorEntry;
           AstNode *method = parseFunctionRest(parser, key->line, key->as.string.chars,
                                               key->as.string.length, true);
           if (method == NULL) return NULL;
@@ -440,6 +444,30 @@ AstNode *parsePrimary(Parser *parser) {
     AstNode *operand = parsePrecedence(parser, PREC_UNARY);
     if (operand == NULL) return NULL;
     return csAstUnary(parser->arena, line, UNARY_TYPEOF, operand);
+  }
+
+  if (matchToken(parser, TOKEN_YIELD)) {
+    if (!parser->inGenerator) {
+      csDiagnosticError(parser->diag, line, NULL, 0,
+                        "'yield' is only allowed inside a generator, written "
+                        "'function* name()'");
+      return NULL;
+    }
+    bool isDelegate = matchToken(parser, TOKEN_STAR);
+
+    /* `yield;` and `yield}` produce undefined. Anything that could start an
+     * expression is the value. */
+    AstNode *value = NULL;
+    if (!check(parser, TOKEN_SEMICOLON) && !check(parser, TOKEN_RIGHT_BRACE) &&
+        !check(parser, TOKEN_RIGHT_PAREN) && !check(parser, TOKEN_RIGHT_BRACKET) &&
+        !check(parser, TOKEN_COMMA) && !check(parser, TOKEN_EOF)) {
+      value = parsePrecedence(parser, PREC_ASSIGNMENT);
+      if (value == NULL) return NULL;
+    } else if (isDelegate) {
+      errorAtCurrent(parser, "'yield*' needs something to delegate to");
+      return NULL;
+    }
+    return csAstYield(parser->arena, line, value, isDelegate);
   }
 
   if (matchToken(parser, TOKEN_AWAIT)) {
@@ -753,6 +781,10 @@ AstNode *finishArrow(Parser *parser, AstNode *function, int line) {
    * zero rather than leaving the enclosing depth alone. */
   int enclosingAsync = parser->asyncDepth;
   parser->asyncDepth = function->as.function.isAsync ? enclosingAsync + 1 : 0;
+  /* There is no such thing as a generator arrow, so a `yield` written in one
+   * belongs to nothing. */
+  bool enclosingGenerator = parser->inGenerator;
+  parser->inGenerator = false;
 
   if (matchToken(parser, TOKEN_LEFT_BRACE)) {
     function->as.function.body = parseBlock(parser);
@@ -760,6 +792,7 @@ AstNode *finishArrow(Parser *parser, AstNode *function, int line) {
     AstNode *value = parsePrecedence(parser, PREC_ASSIGNMENT);
     if (value == NULL) {
       parser->asyncDepth = enclosingAsync;
+      parser->inGenerator = enclosingGenerator;
       return NULL;
     }
     /* `x => expr` is `x => { return expr; }`. */
@@ -769,6 +802,7 @@ AstNode *finishArrow(Parser *parser, AstNode *function, int line) {
   }
 
   parser->asyncDepth = enclosingAsync;
+  parser->inGenerator = enclosingGenerator;
   return function->as.function.body != NULL ? function : NULL;
 }
 
@@ -779,7 +813,20 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
                                   int nameLength, bool isMethod) {
   AstNode *function = csAstFunction(parser->arena, line, name, nameLength);
   function->as.function.isAsync = parser->pendingAsync;
+  function->as.function.isGenerator = parser->pendingGenerator;
+  bool wasAsync = parser->pendingAsync;
+  bool wasGenerator = parser->pendingGenerator;
   parser->pendingAsync = false;
+  parser->pendingGenerator = false;
+
+  /* An async generator needs `for await`, which does not exist here, so one
+   * would be a generator whose `async` quietly meant nothing. */
+  if (wasAsync && wasGenerator) {
+    csDiagnosticError(parser->diag, line, NULL, 0,
+                      "an async generator is not supported; a function can be "
+                      "'async' or 'function*', not both");
+    return NULL;
+  }
 
   consume(parser, TOKEN_LEFT_PAREN,
           isMethod ? "expected '(' after the method name"
@@ -834,8 +881,13 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
 
   int enclosingAsync = parser->asyncDepth;
   parser->asyncDepth = function->as.function.isAsync ? enclosingAsync + 1 : 0;
+  bool enclosingGenerator = parser->inGenerator;
+  parser->inGenerator = function->as.function.isGenerator;
+
   function->as.function.body = parseBlock(parser);
+
   parser->asyncDepth = enclosingAsync;
+  parser->inGenerator = enclosingGenerator;
   if (function->as.function.body == NULL) return NULL;
 
   return function;
@@ -846,6 +898,8 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
  * A named declaration binds the closure; an anonymous one is an expression. */
 AstNode *parseFunction(Parser *parser, bool requireName) {
   int line = parser->previous.line;
+
+  bool isGenerator = matchToken(parser, TOKEN_STAR);
 
   const char *name = NULL;
   int nameLength = 0;
@@ -858,6 +912,7 @@ AstNode *parseFunction(Parser *parser, bool requireName) {
     return NULL;
   }
 
+  parser->pendingGenerator = isGenerator;
   AstNode *function = parseFunctionRest(parser, line, name, nameLength, false);
   /* `requireName` is exactly statement position, which is exactly where a
    * function declares its name. */

@@ -12,6 +12,7 @@ struct ObjObject;
 /* Installs every built-in into the VM's globals table. Call once, after
  * csVMInit and before interpreting anything. */
 void csNativesInstall(void);
+void csGeneratorMethodsInstall(void);
 
 /* Registers the built-in array methods into vm.arrayMethods. Called by
  * csNativesInstall; separated only because there are a lot of them. */

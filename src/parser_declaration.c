@@ -82,6 +82,9 @@ AstNode *parseClass(Parser *parser) {
       }
     }
 
+    /* `*next() {}` — a generator method. Read before the name, like `async`. */
+    bool isGeneratorMember = matchToken(parser, TOKEN_STAR);
+
     if (!consumePropertyName(parser, "expected a member name")) return NULL;
     if (parser->diag->panicMode) return NULL;
     const char *memberName = parser->previous.start;
@@ -113,6 +116,7 @@ AstNode *parseClass(Parser *parser) {
         return NULL;
       }
       parser->pendingAsync = isAsyncMember;
+      parser->pendingGenerator = isGeneratorMember;
       AstNode *method = parseFunctionRest(parser, memberLine,
                                           isConstructor ? name : memberName,
                                           isConstructor ? nameLength : memberLength,

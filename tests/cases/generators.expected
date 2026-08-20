@@ -1,0 +1,22 @@
+nothing has run yet
+started
+between
+{ value: 1, done: false } { value: 2, done: false } { value: 'finished', done: true } { value: undefined, done: true }
+ask
+11
+{ value: 30, done: true }
+n 0
+n 1
+n 2
+n 3
+a
+got 1
+b
+got 2
+[ 1, 2, 3 ] 3
+[ 1, 2, 3 ] []
+[ 1, 'a', 'b', 'x', 'y', 2 ]
+[ 10, 20 ]
+[ 7, 7 ]
+1
+caught from inside

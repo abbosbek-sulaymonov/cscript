@@ -22,6 +22,7 @@ typedef enum {
   OBJ_PROMISE,
   OBJ_FIBER, /* a suspendable call: an async function's own stack */
   OBJ_MAP,   /* also Set: a set is a map that stores only its keys */
+  OBJ_GENERATOR, /* a paused call the caller pulls values out of */
   OBJ_REGEX,
 } ObjType;
 
@@ -227,7 +228,27 @@ struct ObjFiber {
    * body returns or throws. */
   ObjPromise *promise;
   FiberState state;
+
+  /* Set when this fiber is a generator's body rather than an async call. The
+   * two suspend the same way — that is the whole reason generators cost so
+   * little here — but they hand the value to different places: an await to a
+   * promise reaction, a yield straight back to whoever called `next`. */
+  struct ObjGenerator *generator;
 };
+
+/* A generator: a call that was never run, and a handle to run it in pieces.
+ *
+ * The body lives on its own ObjFiber, exactly as an async function's does.
+ * What differs is who drives it: an async body is resumed by the event loop
+ * when a promise settles, and a generator body is resumed by `next`. */
+typedef struct ObjGenerator {
+  Obj obj;
+  struct ObjFiber *fiber;
+
+  Value yielded;  /* what the last `yield` produced, or the return value */
+  bool done;      /* the body ran off its end or returned */
+  bool running;   /* inside next(): re-entering would corrupt the fiber */
+} ObjGenerator;
 
 /* One entry of a Map or Set. `present` is false for a tombstone: a deleted
  * entry keeps its slot so that insertion order survives deletion, which
@@ -300,6 +321,8 @@ struct ObjFunction {
   /* Written as a method, so a call through a property keeps the receiver in
    * slot 0 instead of overwriting it with the function. */
   bool isMethod;
+  /* `function*`: calling it builds a generator instead of running anything. */
+  bool isGenerator;
 
   /* What the checker proved about each parameter, kept so it survives into
    * the run time. Without this an annotation stops at the compiler, and a
@@ -412,6 +435,8 @@ typedef struct ObjBoundMethod {
 #define IS_MODULE(v)   csIsObjType(v, OBJ_MODULE)
 #define IS_PROMISE(v)  csIsObjType(v, OBJ_PROMISE)
 #define IS_MAP(v)      csIsObjType(v, OBJ_MAP)
+#define IS_GENERATOR(v) csIsObjType(v, OBJ_GENERATOR)
+#define AS_GENERATOR(v) ((ObjGenerator *)AS_OBJ(v))
 #define IS_REGEX(v)    csIsObjType(v, OBJ_REGEX)
 #define IS_BOUND_METHOD(v) csIsObjType(v, OBJ_BOUND_METHOD)
 
@@ -488,6 +513,9 @@ bool csValuesSameValueZero(Value a, Value b);
  * here and the caller's back in. */
 typedef struct ObjFiber ObjFiber;
 ObjFiber *csFiberNew(void);
+
+/* Wraps a fiber that has been set up but not started. */
+ObjGenerator *csGeneratorNew(ObjFiber *fiber);
 
 /* Settles a promise and queues whatever was waiting on it. Settling an already
  * settled promise does nothing, which is what makes a resolve function safe to

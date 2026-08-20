@@ -440,7 +440,46 @@ void compileUpdate(const AstNode *node) {
  * form has to produce the old value, which costs a duplicate and two pops that
  * nothing ever reads. In effect position none of that is observable, so a local
  * update collapses to a single in-place instruction. */
+/* `yield* xs` — yield everything `xs` produces, one at a time.
+ *
+ * A loop rather than an opcode, because delegating means suspending once per
+ * element and an instruction that suspends cannot also be the loop around
+ * itself. The iterable and the position live in locals, which is why this is
+ * only reachable in statement position: an expression compiles with values
+ * already on the stack, and a local's slot is its height. */
+static void compileYieldDelegate(const AstNode *node) {
+  int line = node->line;
+  beginScope();
+
+  compileNode(node->as.yield.value);
+  emitByte(OP_ITER_PREPARE, line);
+  addLocal(" delegate", 9, true, line);
+  int sourceSlot = current->localCount - 1;
+
+  emitConstant(NUMBER_VAL(0), line);
+  addLocal(" position", 9, false, line);
+  int positionSlot = current->localCount - 1;
+
+  int loopStart = currentChunk()->count;
+  emitBytes(OP_GET_LOCAL, (uint8_t)sourceSlot, line);
+  emitBytes(OP_GET_LOCAL, (uint8_t)positionSlot, line);
+  int exitJump = emitJump(OP_ITER_STEP, line);
+
+  emitByte(OP_YIELD, line);
+  emitByte(OP_POP, line); /* whatever next() sent; a delegate passes it nowhere */
+  emitBytes(OP_INC_LOCAL, (uint8_t)positionSlot, line);
+  emitLoop(loopStart, line);
+
+  patchJump(exitJump, line);
+  endScope(line);
+}
+
 void compileForEffect(const AstNode *node) {
+  if (node != NULL && node->type == AST_YIELD && node->as.yield.isDelegate) {
+    compileYieldDelegate(node);
+    return;
+  }
+
   if (node != NULL && node->type == AST_UPDATE) {
     const AstNode *target = node->as.update.target;
     const char *name = target->as.identifier.name;
@@ -604,6 +643,7 @@ void compileFunctionAs(const AstNode *node, FunctionKind kind) {
   beginFunction(&compiler, kind, node->as.function.name,
                 node->as.function.nameLength);
   compiler.function->isAsync = node->as.function.isAsync;
+  compiler.function->isGenerator = node->as.function.isGenerator;
   beginScope();
 
   compiler.function->arity = node->as.function.paramCount;

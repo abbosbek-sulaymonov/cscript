@@ -64,6 +64,7 @@ void csVMInit(void) {
   csTableInit(&vm.stringMethods);
   csTableInit(&vm.promiseMethods);
   csTableInit(&vm.mapMethods);
+  csTableInit(&vm.generatorMethods);
   csTableInit(&vm.regexMethods);
 
   vm.microtasks = NULL;
@@ -100,6 +101,7 @@ void csVMFree(void) {
   CS_FREE_ARRAY(ObjPromise *, vm.rejected, vm.rejectedCapacity);
   csTableFree(&vm.promiseMethods);
   csTableFree(&vm.mapMethods);
+  csTableFree(&vm.generatorMethods);
   csTableFree(&vm.regexMethods);
   csTableFree(&vm.builtins);
   csTableFree(&vm.builtinConsts);
@@ -235,6 +237,9 @@ bool callClosure(ObjClosure *closure, int argCount) {
     return false;
   }
 
+  /* A generator's body never runs here: the call builds the handle. */
+  if (function->isGenerator) return callGeneratorFunction(closure, argCount);
+
   CS_JIT_TICK(function);
 
 #ifdef CS_DEBUG_JIT
@@ -363,6 +368,7 @@ static Table *methodTableFor(Value receiver) {
   if (IS_STRING(receiver)) return &vm.stringMethods;
   if (IS_PROMISE(receiver)) return &vm.promiseMethods;
   if (IS_MAP(receiver)) return &vm.mapMethods;
+  if (IS_GENERATOR(receiver)) return &vm.generatorMethods;
   if (IS_REGEX(receiver)) return &vm.regexMethods;
   return NULL;
 }
@@ -1440,6 +1446,60 @@ InterpretResult run(int baseFrame) {
         return CS_RUNTIME_ERROR;
       }
 
+      VM_CASE(OP_ITER_STEP) {
+        uint16_t offset = READ_SHORT();
+        Value index = peekStack(0);
+        Value iterable = peekStack(1);
+
+        if (IS_ARRAY(iterable)) {
+          /* The length is read each pass, so a body that appends is seen —
+           * which is what the index-driven loop did before. */
+          ObjArray *array = AS_ARRAY(iterable);
+          int at = (int)AS_NUMBER(index);
+          vm.stackTop -= 2;
+          if (at >= array->elements.count) {
+            frame->ip += offset;
+            VM_NEXT();
+          }
+          csVMPush(array->elements.values[at]);
+          VM_NEXT();
+        }
+
+        if (IS_STRING(iterable)) {
+          ObjString *string = AS_STRING(iterable);
+          int at = (int)AS_NUMBER(index);
+          vm.stackTop -= 2;
+          if (at >= string->length) {
+            frame->ip += offset;
+            VM_NEXT();
+          }
+          csVMPush(OBJ_VAL(csStringCopy(string->chars + at, 1)));
+          VM_NEXT();
+        }
+
+        if (IS_GENERATOR(iterable)) {
+          ObjGenerator *generator = AS_GENERATOR(iterable);
+          Value produced;
+          bool done;
+          /* Resuming runs a nested interpreter on the generator's own stack.
+           * It restores this one before returning, so `frame` still points
+           * where it did. */
+          if (!csGeneratorNext(generator, UNDEFINED_VAL, &produced, &done)) {
+            return CS_RUNTIME_ERROR;
+          }
+          vm.stackTop -= 2;
+          if (done) {
+            frame->ip += offset;
+            VM_NEXT();
+          }
+          csVMPush(produced);
+          VM_NEXT();
+        }
+
+        csVMRuntimeError("%s is not iterable", csValueTypeName(iterable));
+        return CS_RUNTIME_ERROR;
+      }
+
       VM_CASE(OP_SET_INDEX) {
         Value value = peekStack(0);
         Value index = peekStack(1);
@@ -1524,6 +1584,30 @@ InterpretResult run(int baseFrame) {
           ObjArray *items = csMapToArray(AS_MAP(peekStack(0)));
           csVMPop();
           csVMPush(OBJ_VAL(items));
+        }
+
+        /* A generator spreads to everything it has left. Spreading is eager by
+         * definition — the array has to be complete before it exists — so
+         * running the body to its end here is not a shortcut, it is what the
+         * operation means. An endless generator does not terminate, which is
+         * equally true in JavaScript. */
+        if (IS_GENERATOR(peekStack(0))) {
+          ObjGenerator *generator = AS_GENERATOR(peekStack(0));
+          ObjArray *drained = csArrayNew();
+          csPushTempRoot((Obj *)drained);
+          for (;;) {
+            Value produced;
+            bool done;
+            if (!csGeneratorNext(generator, UNDEFINED_VAL, &produced, &done)) {
+              csPopTempRoot();
+              return CS_RUNTIME_ERROR;
+            }
+            if (done) break;
+            csValueArrayWrite(&drained->elements, produced);
+          }
+          csPopTempRoot();
+          csVMPop();
+          csVMPush(OBJ_VAL(drained));
         }
 
         Value value = peekStack(0);
@@ -2204,6 +2288,22 @@ InterpretResult run(int baseFrame) {
         vm.stackTop -= 2;
         csVMPush(OBJ_VAL(namespaceObject));
         VM_NEXT();
+      }
+
+      VM_CASE(OP_YIELD) {
+        ObjFiber *fiber = vm.currentFiber;
+        if (fiber == NULL || fiber->generator == NULL) {
+          csVMRuntimeError("'yield' outside a generator");
+          return CS_RUNTIME_ERROR;
+        }
+
+        fiber->generator->yielded = csVMPop();
+        /* The frame's ip is already past this instruction, so resuming lands
+         * on the next one — and what `next(x)` pushes arrives exactly where
+         * the yielded value was, which is what makes `const x = yield v` a
+         * two-way exchange. */
+        vm.fiberSuspended = true;
+        return CS_OK;
       }
 
       VM_CASE(OP_AWAIT) {

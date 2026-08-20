@@ -23,10 +23,20 @@ typedef struct {
    * `async` is contextual, so it is recognised at the call site and handed to
    * whichever of the three function forms follows it. */
   bool pendingAsync;
+  /* Set by whoever read the `*`, consumed by parseFunctionRest — the same
+   * hand-off `async` uses, because both modifiers are read before the name
+   * and applied after it. */
+  bool pendingGenerator;
 
   /* How many async function bodies enclose the point being parsed, so `await`
    * can be rejected where it means nothing. */
   int asyncDepth;
+
+  /* Whether the body being parsed is a generator's, so `yield` can be
+   * rejected where it means nothing. Not a depth: a `yield` belongs to the
+   * nearest function body, and an ordinary function nested in a generator is
+   * not one. */
+  bool inGenerator;
 } Parser;
 
 /* Returns the program node, or NULL if the source had a syntax error. */

@@ -69,6 +69,16 @@
    * arrays and strings are iterable today, which is why this is one opcode    \
    * rather than an iterator protocol. */                                       \
   X(OP_ITER_LENGTH)       /*          replace top with its length           */ \
+  /* One step of `for...of`: pops the iterable and the index, and either      \
+   * pushes the next element or jumps past the loop.                          \
+   *                                                                          \
+   * One instruction rather than the six it replaces, because a generator     \
+   * cannot be driven by an index at all — asking it for its length would mean \
+   * running it to the end first, which is wrong for an infinite one and wrong \
+   * for the order side effects happen in. Arrays keep a bounds check and a    \
+   * load, and lose four dispatches. */                                        \
+  X(OP_ITER_STEP)         /* [hi][lo] pop index and iterable, push the next  \
+                           *          element, or jump when there is none    */ \
   /* `for...in` desugars to `for...of` over this: an object's own keys, or an  \
    * array's indices as strings, which is what JavaScript enumerates. */        \
   X(OP_ENUM_KEYS)         /*          replace top with its keys as an array */ \
@@ -155,6 +165,11 @@
    * its value in the promise's place — or throws, if it rejected. Only ever   \
    * emitted inside an async function, which is the only thing that has a      \
    * fiber to suspend. */                                                       \
+  /* `yield v`. Hands the value straight back to whoever called `next`, and    \
+   * leaves the frame exactly where it is: the fiber's stack is its own, so     \
+   * nothing has to be copied to pause here. What `next(x)` passes back arrives \
+   * in the yielded value's place, which is why this leaves one value behind.  */ \
+  X(OP_YIELD)                                                                   \
   X(OP_AWAIT)             /*          pop a promise, resume with its value  */ \
                                                                               \
   /* Closures. OP_CLOSURE is followed by one (isLocal, index) pair per         \

@@ -296,6 +296,7 @@ ObjFunction *csFunctionNew(void) {
   function->module = NULL;
   function->isAsync = false;
   function->isMethod = false;
+  function->isGenerator = false;
   function->paramTypes = NULL;
   function->hotness = 0;
   function->jitState = 0; /* JIT_INTERPRETED */
@@ -515,7 +516,21 @@ ObjFiber *csFiberNew(void) {
   fiber->openUpvalues = NULL;
   fiber->promise = NULL;
   fiber->state = FIBER_READY;
+  fiber->generator = NULL;
   return fiber;
+}
+
+ObjGenerator *csGeneratorNew(ObjFiber *fiber) {
+  csPushTempRoot((Obj *)fiber);
+  ObjGenerator *generator = CS_ALLOCATE(ObjGenerator, 1);
+  registerObject((Obj *)generator, OBJ_GENERATOR);
+  generator->fiber = fiber;
+  generator->yielded = UNDEFINED_VAL;
+  generator->done = false;
+  generator->running = false;
+  fiber->generator = generator;
+  csPopTempRoot();
+  return generator;
 }
 
 ObjClass *csClassNew(ObjString *name) {
@@ -702,6 +717,9 @@ void csObjectPrint(Value value) {
     case OBJ_FIBER:
       printf("[internal]");
       break;
+    case OBJ_GENERATOR:
+      printf("Object [Generator] {}");
+      break;
     case OBJ_PROMISE: {
       ObjPromise *promise = AS_PROMISE(value);
       if (promise->state == PROMISE_PENDING) {
@@ -841,6 +859,14 @@ void csObjectBlacken(Obj *object) {
         csMarkObject((Obj *)upvalue);
       }
       csMarkObject((Obj *)fiber->promise);
+      csMarkObject((Obj *)fiber->generator);
+      break;
+    }
+
+    case OBJ_GENERATOR: {
+      ObjGenerator *generator = (ObjGenerator *)object;
+      csMarkObject((Obj *)generator->fiber);
+      csMarkValue(generator->yielded);
       break;
     }
 
@@ -971,6 +997,12 @@ void csObjectFree(Obj *object) {
       CS_FREE_ARRAY(CallFrame, fiber->frames, CS_FIBER_FRAMES);
       CS_FREE_ARRAY(ExceptionHandler, fiber->handlers, CS_FIBER_HANDLERS);
       CS_FREE(ObjFiber, object);
+      break;
+    }
+
+    case OBJ_GENERATOR: {
+      /* The fiber is an object of its own and is swept on its own. */
+      CS_FREE(ObjGenerator, object);
       break;
     }
 

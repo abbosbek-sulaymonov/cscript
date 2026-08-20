@@ -174,6 +174,14 @@ AstNode *csAstAssignKind(AstArena *arena, int line, AstNode *target,
   return node;
 }
 
+AstNode *csAstYield(AstArena *arena, int line, AstNode *value, bool isDelegate) {
+  AstNode *node = newNode(arena, AST_YIELD, line);
+  if (node == NULL) return NULL;
+  node->as.yield.value = value;
+  node->as.yield.isDelegate = isDelegate;
+  return node;
+}
+
 AstNode *csAstDelete(AstArena *arena, int line, AstNode *target) {
   AstNode *node = newNode(arena, AST_DELETE, line);
   if (node == NULL) return NULL;

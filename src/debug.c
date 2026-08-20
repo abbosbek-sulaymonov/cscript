@@ -164,6 +164,7 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     }
     case OP_SET_PROPERTY:      return cachedInstruction("OP_SET_PROPERTY", chunk, offset);
     case OP_GET_INDEX:         return simpleInstruction("OP_GET_INDEX", offset);
+    case OP_ITER_STEP:         return jumpInstruction("OP_ITER_STEP", 1, chunk, offset);
     case OP_ITER_LENGTH:       return simpleInstruction("OP_ITER_LENGTH", offset);
     case OP_ENUM_KEYS:         return simpleInstruction("OP_ENUM_KEYS", offset);
     case OP_ITER_PREPARE:      return simpleInstruction("OP_ITER_PREPARE", offset);
@@ -221,6 +222,7 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_INSTANCEOF:        return simpleInstruction("OP_INSTANCEOF", offset);
     case OP_IMPORT_NAME:       return constantInstruction("OP_IMPORT_NAME", chunk, offset);
     case OP_IMPORT_NAMESPACE:  return simpleInstruction("OP_IMPORT_NAMESPACE", offset);
+    case OP_YIELD:             return simpleInstruction("OP_YIELD", offset);
     case OP_AWAIT:             return simpleInstruction("OP_AWAIT", offset);
     case OP_NEW:               return byteInstruction("OP_NEW", chunk, offset);
     case OP_SUPER_CALL:        return byteInstruction("OP_SUPER_CALL", chunk, offset);
@@ -354,6 +356,10 @@ static void printNode(const AstNode *node, int depth) {
     case AST_LABELED_STMT:
       printf("Label %.*s\n", node->as.labeled.length, node->as.labeled.name);
       printNode(node->as.labeled.body, depth + 1);
+      break;
+    case AST_YIELD:
+      printf(node->as.yield.isDelegate ? "YieldFrom\n" : "Yield\n");
+      printNode(node->as.yield.value, depth + 1);
       break;
     case AST_DELETE:
       printf("Delete\n");

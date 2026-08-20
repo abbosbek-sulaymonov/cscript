@@ -320,20 +320,17 @@ void compileForOf(const AstNode *node) {
   Loop loop;
   beginLoop(&loop, true);
 
-  /* index < length(iterable). ITER_LENGTH replaces the iterable with its
-   * length, leaving exactly the two operands the fused compare wants. The
-   * length is recomputed each pass, so a body that appends is seen. */
-  emitBytes(OP_GET_LOCAL, (uint8_t)indexSlot, line);
+  /* One step: the next element, or out. Asking for a length first would work
+   * for an array and not for a generator, which has no length short of running
+   * it to the end. */
   emitBytes(OP_GET_LOCAL, (uint8_t)iterableSlot, line);
-  emitByte(OP_ITER_LENGTH, line);
-  int exitJump = emitJump(OP_JUMP_IF_NOT_LESS, line);
+  emitBytes(OP_GET_LOCAL, (uint8_t)indexSlot, line);
+  int exitJump = emitJump(OP_ITER_STEP, line);
 
   /* The binding is a fresh local per iteration, so a closure made in the body
-   * captures that iteration's value rather than sharing one cell. */
+   * captures that iteration's value rather than sharing one cell. The element
+   * ITER_STEP pushed is already sitting where the local belongs. */
   beginScope();
-  emitBytes(OP_GET_LOCAL, (uint8_t)iterableSlot, line);
-  emitBytes(OP_GET_LOCAL, (uint8_t)indexSlot, line);
-  emitByte(OP_GET_INDEX, line);
   addLocal(node->as.forOf.name, node->as.forOf.nameLength, node->as.forOf.isConst,
            line);
 

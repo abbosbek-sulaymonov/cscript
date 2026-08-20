@@ -344,6 +344,8 @@ AstNode *csParse(const char *source, AstArena *arena, Diagnostics *diag) {
   parser.diag = diag;
   parser.pendingAsync = false;
   parser.asyncDepth = 0;
+  parser.inGenerator = false;
+  parser.pendingGenerator = false;
   csLexerInit(&parser.lexer, source, diag);
 
   /* Prime `current`; `previous` is not read until after the first advance. */

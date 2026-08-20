@@ -573,6 +573,23 @@ void compileNode(const AstNode *node) {
       compileOptionalChain(node);
       break;
 
+    case AST_YIELD:
+      if (node->as.yield.isDelegate) {
+        /* Delegating needs somewhere to keep its position across each
+         * suspension, and a local's slot is the stack height it was declared
+         * at — which only holds where nothing else is part-way evaluated. */
+        errorAt(line, "'yield*' is only supported as a statement of its own, "
+                      "not inside a larger expression");
+        break;
+      }
+      if (node->as.yield.value != NULL) {
+        compileNode(node->as.yield.value);
+      } else {
+        emitByte(OP_UNDEFINED, line);
+      }
+      emitByte(OP_YIELD, line);
+      break;
+
     case AST_DELETE: {
       const AstNode *target = node->as.deleteTarget;
       if (target->type == AST_PROPERTY) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # What the JIT backend is worth, on the benchmarks it can compile.
 #
-#   bench/jit.sh                 every bench/jit_*.cx
+#   bench/jit.sh                 every bench/jit/*.cx
 #   REPS=5 bench/jit.sh          more repetitions (default 3)
 #
 # Each program is run three ways in the *same* binary — the `jit` build — so
@@ -67,7 +67,7 @@ printf '%-14s %11s %11s %9s %11s %9s\n' \
   benchmark interpreted compiled speedup node "vs node"
 echo "---------------------------------------------------------------------------"
 
-for source in "$ROOT"/bench/jit_*.cx; do
+for source in "$ROOT"/bench/jit/*.cx; do
   name=$(basename "$source" .cx)
 
   off=$(CS_JIT_THRESHOLD=2000000000 best_ms "$BIN" "$source")

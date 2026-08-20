@@ -36,6 +36,7 @@ typedef enum {
   AST_THIS,
   AST_SUPER,
   AST_AWAIT,
+  AST_YIELD,
   AST_REGEX_LITERAL,
   AST_OPTIONAL_CHAIN,
   AST_DELETE,
@@ -214,6 +215,10 @@ struct AstNode {
     } logical;
     AstNode *grouping;                   /* AST_GROUPING */
     AstNode *deleteTarget;               /* AST_DELETE — a property or index */
+    struct {                             /* AST_YIELD */
+      AstNode *value;                    /*   NULL for a bare `yield;` */
+      bool isDelegate;                   /*   `yield*` */
+    } yield;
     struct {                             /* AST_LABELED_STMT — `outer: for …` */
       const char *name;
       int length;
@@ -380,6 +385,9 @@ struct AstNode {
       /* `{ m() {} }`. Written as a method, so `this` is the object it was
        * called on — the same rule a class body follows. */
       bool isMethod;
+      /* `function*`. The body does not run when it is called: the call builds
+       * a generator and hands it back, paused before its first instruction. */
+      bool isGenerator;
     } function;
     AstNode *returnValue;                /* AST_RETURN_STMT, may be NULL */
     struct {                             /* AST_FOR_OF_STMT */
@@ -450,6 +458,10 @@ AstNode *csAstOptionalChain(AstArena *arena, int line, AstNode *expression);
 /* `delete o.k`. The target is a property or an index; anything else is
  * reported where it is written. */
 AstNode *csAstDelete(AstArena *arena, int line, AstNode *target);
+
+/* `yield v` and `yield* xs`. An expression: it produces whatever the next
+ * `next(x)` passes back in. */
+AstNode *csAstYield(AstArena *arena, int line, AstNode *value, bool isDelegate);
 AstNode *csAstUpdate(AstArena *arena, int line, AstNode *target, bool isIncrement,
                      bool isPrefix);
 AstNode *csAstCall(AstArena *arena, int line, AstNode *callee);

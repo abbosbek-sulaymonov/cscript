@@ -1,0 +1,88 @@
+// A generator call runs none of the body: it hands back a paused call.
+function* counter() {
+  console.log("started");
+  yield 1;
+  console.log("between");
+  yield 2;
+  return "finished";
+}
+
+const it = counter();
+console.log("nothing has run yet");
+console.log(it.next(), it.next(), it.next(), it.next());
+
+// `yield` is an expression: what next(x) sends arrives in its place.
+function* echo() {
+  const first = yield "ask";
+  const second = yield first + 1;
+  return first + second;
+}
+const chat = echo();
+console.log(chat.next().value);
+console.log(chat.next(10).value);
+console.log(chat.next(20));
+
+// for...of pulls one value at a time, so side effects interleave with the body
+// and an endless generator is fine as long as the loop leaves.
+function* naturals() {
+  let n = 0;
+  while (true) yield n++;
+}
+for (const n of naturals()) {
+  if (n > 3) break;
+  console.log("n", n);
+}
+
+function* noisy() {
+  console.log("a");
+  yield 1;
+  console.log("b");
+  yield 2;
+}
+for (const v of noisy()) console.log("got", v);
+
+// Spread drains it, which is eager by definition.
+function* three() { yield 1; yield 2; yield 3; }
+console.log([...three()], Math.max(...three()));
+
+// A generator is used up once.
+const once = three();
+console.log([...once], [...once]);
+
+// Delegation, including into a string and through a nested generator.
+function* inner() { yield "a"; yield "b"; }
+function* outer() {
+  yield 1;
+  yield* inner();
+  yield* "xy";
+  yield 2;
+}
+console.log([...outer()]);
+
+// Generator methods, on classes and on object literals, with a receiver.
+class Bag {
+  items = [10, 20];
+  *each() {
+    for (const item of this.items) yield item;
+  }
+}
+console.log([...new Bag().each()]);
+
+const holder = {
+  n: 7,
+  *twice() { yield this.n; yield this.n; },
+};
+console.log([...holder.twice()]);
+
+// A throw out of a generator reaches whoever pulled.
+function* boom() {
+  yield 1;
+  throw new Error("from inside");
+}
+const fuse = boom();
+console.log(fuse.next().value);
+try {
+  fuse.next();
+} catch (e) {
+  console.log("caught", e.message);
+}
