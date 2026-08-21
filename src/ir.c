@@ -751,6 +751,10 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
       exit->a = floorOffset;
       exit->b = blockFloor;
       ir->hasExits = true;
+      /* Remembered so the tiering report can say what the compiler gave up on
+       * rather than only that it did. The first one is the interesting one:
+       * everything after it is downstream of the same gap. */
+      if (ir->firstExitOn == NULL) ir->firstExitOn = csOpcodeName((OpCode)opcode);
 
       /* Everything up to the next jump target is the interpreter's now.
        * Blocks past it are still lowered: a loop whose body this compiler
@@ -1084,7 +1088,64 @@ void csIrFree(IrFunction *ir) {
   free(ir);
 }
 
+static const char *opName(IrOp op);
+
+/* Where the typing stops, which is the question the tiering report could not
+ * answer: a function is refused for not being fully typed, and until now
+ * nothing said which value it could not prove. The answer is always a pair —
+ * the arithmetic that wanted a number, and the instruction that produced the
+ * operand it could not have. */
+bool csIrFirstUntyped(const IrFunction *ir, const char **producer,
+                      const char **consumer) {
+  *producer = NULL;
+  *consumer = NULL;
+
+  for (int b = 0; b < ir->blockCount; b++) {
+    for (int i = 0; i < ir->blocks[b].count; i++) {
+      const IrInst *inst = &ir->blocks[b].instructions[i];
+      switch (inst->op) {
+        case IR_ADD: case IR_SUB: case IR_MUL: case IR_DIV: case IR_MOD:
+        case IR_LT: case IR_LE: case IR_GT: case IR_GE:
+          break;
+        default:
+          continue;
+      }
+
+      int wanted[2] = {inst->a, inst->b};
+      for (int k = 0; k < 2; k++) {
+        if (ir->registerTypes[wanted[k]] == IR_TYPE_NUMBER) continue;
+
+        /* Whatever wrote that register, searched from the start because the
+         * IR is small and this runs once, for a report. */
+        *consumer = opName(inst->op);
+        *producer = "unknown";
+        for (int pb = 0; pb < ir->blockCount; pb++) {
+          for (int pi = 0; pi < ir->blocks[pb].count; pi++) {
+            const IrInst *candidate = &ir->blocks[pb].instructions[pi];
+            if (candidate->result != wanted[k]) continue;
+            *producer = opName(candidate->op);
+          }
+        }
+        return true;
+      }
+    }
+  }
+
+  /* Nothing to compile rather than something unproved: the body reached
+   * whatever the lowering could not express and became an exit, so there is no
+   * arithmetic left to be worth compiling. Naming that opcode is what turns
+   * the refusal into a work item. */
+  if (ir->firstExitOn != NULL) {
+    *consumer = "nothing";
+    *producer = ir->firstExitOn;
+    return true;
+  }
+  return false;
+}
+
 /* ---- printing ---------------------------------------------------------- */
+
+const char *csIrOpName(IrOp op) { return opName(op); }
 
 static const char *opName(IrOp op) {
   switch (op) {

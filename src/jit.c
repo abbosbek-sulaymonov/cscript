@@ -373,7 +373,44 @@ void csJitDumpProfile(void) {
     }
   }
 
+  /* Why the ones that did not, and where the rest stopped short. A count of
+   * refusals is what turns "the compiler took part in 14 programs" into a list
+   * of the next things to build, in the order they would pay. */
   printf("\n  %d of %d lowered to typed IR\n", lowered, hotCount);
+
+  for (int i = 0; i < hotCount; i++) {
+    if (hot[i].ir != NULL || hot[i].irRefusal == NULL) continue;
+    int same = 0;
+    for (int j = 0; j < i; j++) {
+      if (hot[j].irRefusal != NULL && hot[j].ir == NULL &&
+          strcmp(hot[j].irRefusal, hot[i].irRefusal) == 0) {
+        same = 1;
+        break;
+      }
+    }
+    if (same) continue;
+
+    int count = 0;
+    for (int j = 0; j < hotCount; j++) {
+      if (hot[j].ir == NULL && hot[j].irRefusal != NULL &&
+          strcmp(hot[j].irRefusal, hot[i].irRefusal) == 0) {
+        count++;
+      }
+    }
+    printf("    %3d not lowered: %s\n", count, hot[i].irRefusal);
+  }
+
+  for (int i = 0; i < hotCount; i++) {
+    if (hot[i].ir == NULL) continue;
+    const char *producer = NULL;
+    const char *consumer = NULL;
+    if (!csIrFirstUntyped(hot[i].ir, &producer, &consumer)) continue;
+    const char *name = hot[i].function->name != NULL
+                           ? hot[i].function->name->chars
+                           : "<top level>";
+    printf("    %-24.24s untyped: %s wanted a number from %s\n", name, consumer,
+           producer);
+  }
   if (totalRegisters > 0) {
     /* The number stage 2 exists to produce: how much of a hot function's
      * data flow is provably numeric, and could therefore live unboxed in a
@@ -400,6 +437,16 @@ void csJitDumpProfile(void) {
     if (hot[i].code != NULL) compiled++;
   }
   printf("  %d of %d compiled to machine code\n", compiled, hotCount);
+  for (int i = 0; i < hotCount; i++) {
+    if (hot[i].code != NULL) continue;
+    const char *name = hot[i].function->name != NULL
+                           ? hot[i].function->name->chars
+                           : "<top level>";
+    if (hot[i].ir == NULL) continue; /* the lowering already said why */
+    const char *why = hot[i].codeRefusal;
+    if (why == NULL) why = "not fully typed";
+    printf("    %-24.24s not compiled: %s\n", name, why);
+  }
   for (int i = 0; i < hotCount; i++) {
     if (hot[i].ir != NULL && hot[i].code == NULL && hot[i].codeRefusal != NULL) {
       printf("  %-24s did not compile: %s\n",

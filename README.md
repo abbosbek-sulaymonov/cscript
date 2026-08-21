@@ -518,7 +518,7 @@ cscript/
 | **53 ✅** | Guessed parameter types with a guard, so ordinary calls compile | — |
 | next | Calling a CScript function from compiled code, which needs frames and safepoints | — |
 | next | Inlining, so a small function is worth compiling | — |
-| next | Property reads in compiled code, which is what `properties` and `classes` are waiting on | — |
+| next | Shape-guarded property access — 84 of the sites the compiler stops at, the largest addressable cluster | — |
 
 ---
 

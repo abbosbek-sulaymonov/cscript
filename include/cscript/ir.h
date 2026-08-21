@@ -109,6 +109,11 @@ typedef struct {
    * — because an exit resumes the interpreter part-way through a body that a
    * call entry has not yet begun. */
   bool hasExits;
+
+  /* The bytecode opcode the lowering first gave up on, or NULL. What the
+   * tiering report needs to say where the compiler stops, rather than only
+   * that it stopped. */
+  const char *firstExitOn;
 } IrFunction;
 
 /* Lowers a function's bytecode.
@@ -136,6 +141,16 @@ void csIrRegisterOperands(const IrInst *inst, int *a, int *b);
  * loads that claimed more. Must run before the IR is trusted: the lowering's
  * own tracking is linear, and a loop makes linear order the wrong order. */
 void csIrReconcileSlotTypes(IrFunction *ir);
+
+/* The name of an IR opcode, for diagnostics. */
+const char *csIrOpName(IrOp op);
+
+/* Why a lowered function is not fully typed: the opcode that produced the
+ * first arithmetic operand nothing could prove a number, and the arithmetic
+ * that wanted it. Both are written as names; `NULL` when the function *is*
+ * fully typed. Returns false when it is fully typed. */
+bool csIrFirstUntyped(const IrFunction *ir, const char **producer,
+                      const char **consumer);
 
 /* Prints the IR, for `make jit`. */
 void csIrPrint(const IrFunction *ir);
