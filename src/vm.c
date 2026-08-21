@@ -294,6 +294,49 @@ static OrderResult comparingExactly(Value a, Value b, int *order) {
   return ORDER_INVALID;
 }
 
+/* An object's own `toString`, if it has one anywhere in its chain.
+ *
+ * JavaScript calls it whenever an object is converted to a string, and CScript
+ * ignoring it was a silent wrong answer rather than a deliberate divergence:
+ * the documented difference is only about what an object with *no* toString
+ * renders as. Inspection is a separate question and stays as it was — Node's
+ * console.log does not call toString either. */
+static bool findUserToString(Value value, Value *method) {
+  if (!IS_OBJECT(value)) return false;
+
+  ObjString *name = csStringCopy("toString", 8);
+  for (ObjObject *at = AS_OBJECT(value); at != NULL; at = at->prototype) {
+    Value found;
+    if (csObjectGet(at, name, &found) && IS_CLOSURE(found)) {
+      *method = found;
+      return true;
+    }
+    if (at->klass == NULL) continue;
+    ObjClosure *declared = csClassFindMethod(at->klass, name);
+    if (declared != NULL) {
+      *method = OBJ_VAL(declared);
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Text for `value` the way a string conversion wants it: through the object's
+ * own `toString` when it has one, and through the built-in rendering
+ * otherwise. The caller owns the returned buffer, as with csValueToCString. */
+char *csVMValueToText(Value value, size_t *length) {
+  Value method;
+  if (!findUserToString(value, &method)) return csValueToCString(value, length);
+
+  csVMPush(value); /* the receiver a method call reads out of slot 0 */
+  Value produced;
+  if (!csVMCallCallback(method, 0, &produced)) return NULL;
+
+  /* Whatever it answered with is then converted the ordinary way, so a
+   * toString that returns a number is not a second special case. */
+  return csValueToCString(produced, length);
+}
+
 static bool concatenateOrAdd(void) {
   Value b = peekStack(0);
   Value a = peekStack(1);
@@ -301,8 +344,8 @@ static bool concatenateOrAdd(void) {
   if (IS_STRING(a) || IS_STRING(b)) {
     size_t aLength = 0;
     size_t bLength = 0;
-    char *aText = csValueToCString(a, &aLength);
-    char *bText = csValueToCString(b, &bLength);
+    char *aText = csVMValueToText(a, &aLength);
+    char *bText = csVMValueToText(b, &bLength);
     if (aText == NULL || bText == NULL) {
       free(aText);
       free(bText);
@@ -897,6 +940,7 @@ static bool receiverHasMethod(Value receiver, ObjString *name) {
     for (ObjClass *klass = AS_CLASS(receiver); klass != NULL;
          klass = klass->superclass) {
       if (csTableGet(&klass->statics, name, &found)) return true;
+      if (csTableGet(&klass->staticGetters, name, &found)) return true;
     }
     return false;
   }
@@ -1243,6 +1287,26 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
      * checking for absence is too common to make it an error. */
     if (csObjectGet(object, name, out)) return true;
 
+    /* `constructor` names whatever built the object: its class, or the
+     * function `new` was applied to. Neither is an ordinary property — the
+     * first is not stored at all and the second lives beside the shape — so
+     * both are answered here rather than found by the walk below. */
+    if (name->length == 11 && memcmp(name->chars, "constructor", 11) == 0) {
+      for (ObjObject *at = object; at != NULL; at = at->prototype) {
+        if (at->klass != NULL && !at->klass->isAccessorHolder) {
+          *out = OBJ_VAL(at->klass);
+          return true;
+        }
+        Value owner;
+        if (csObjectGetPrivate(at, csStringCopy("#constructor", 12), &owner)) {
+          *out = owner;
+          return true;
+        }
+      }
+      *out = UNDEFINED_VAL;
+      return true;
+    }
+
     /* `__proto__` reads the link itself rather than a property, which is the
      * only way to reach it without going through Object.getPrototypeOf. */
     if (isProtoKey(name)) {
@@ -1250,27 +1314,35 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
       return true;
     }
 
-    /* The prototype chain. It is walked after the object's own properties and
-     * before its class's methods, because an own property shadows an inherited
-     * one and a class instance with a prototype is the unusual case. */
-    if (object->prototype != NULL &&
-        csObjectGetInherited(object->prototype, name, out)) {
-      /* Bound to the object it was reached *through*, not the prototype it was
-       * found on — that is what makes `this` mean the instance. */
-      *out = bindIfMethod(receiver, *out);
-      return true;
-    }
+    /* Everything else the object might answer with, at each link of the chain
+     * in turn: a data property, an accessor, a method.
+     *
+     * An accessor lives on a class rather than in the shape — a synthetic one
+     * per object for a literal's `get x()`, the real one for an instance — so
+     * asking each link the same three questions is what makes an inherited
+     * getter work at all. Doing it level by level is also what gives shadowing
+     * the right answer: a nearer link's data property beats a further link's
+     * getter, exactly as in JavaScript. */
+    for (ObjObject *at = object; at != NULL; at = at->prototype) {
+      /* The object's own data properties were checked above. */
+      if (at != object && csObjectGet(at, name, out)) {
+        /* Bound to the object it was reached *through*, not the prototype it
+         * was found on — that is what makes `this` mean the instance. */
+        *out = bindIfMethod(receiver, *out);
+        return true;
+      }
+      if (at->klass == NULL) continue;
 
-    if (object->klass != NULL) {
-      ObjClosure *getter = csClassFindGetter(object->klass, name);
+      ObjClosure *getter = csClassFindGetter(at->klass, name);
       if (getter != NULL) {
         /* A getter is a call, so it runs a nested loop. It never enters the
-         * shape, which is why the inline caches never see one. */
+         * shape, which is why the inline caches never see one. The receiver is
+         * the object asked, not the one that turned out to define it. */
         csVMPush(receiver);
         return csVMCallCallback(OBJ_VAL(getter), 0, out);
       }
 
-      ObjClosure *method = csClassFindMethod(object->klass, name);
+      ObjClosure *method = csClassFindMethod(at->klass, name);
       if (method != NULL) {
         /* Reading a method without calling it is the one case that has to
          * allocate, because the receiver has to travel with it. */
@@ -1410,6 +1482,13 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
         *out = statik;
         return true;
       }
+      /* A static getter is run rather than handed back, and `this` inside it
+       * is the class it was asked of. */
+      Value getter;
+      if (csTableGet(&klass->staticGetters, name, &getter)) {
+        csVMPush(receiver);
+        return csVMCallCallback(getter, 0, out);
+      }
     }
     *out = UNDEFINED_VAL;
     return true;
@@ -1437,6 +1516,22 @@ static bool propertyWriteSlow(ObjString *name, PropertyCache *cache, Value recei
   /* A class carries its statics, so assigning to one is how a counter kept on
    * the class is updated. It never enters a shape, so it never caches. */
   if (IS_CLASS(receiver)) {
+    for (ObjClass *klass = AS_CLASS(receiver); klass != NULL;
+         klass = klass->superclass) {
+      Value setter;
+      if (csTableGet(&klass->staticSetters, name, &setter)) {
+        csVMPush(receiver);
+        csVMPush(value);
+        Value ignored;
+        return csVMCallCallback(setter, 1, &ignored);
+      }
+      Value getter;
+      if (csTableGet(&klass->staticGetters, name, &getter)) {
+        csVMRuntimeError("'%s' has only a getter and cannot be assigned to",
+                         name->chars);
+        return false;
+      }
+    }
     csTableSet(&AS_CLASS(receiver)->statics, name, value);
     return true;
   }
@@ -1490,9 +1585,11 @@ static bool propertyWriteSlow(ObjString *name, PropertyCache *cache, Value recei
 
   /* A setter takes the write instead of the object storing it. Checked before
    * the store, so the property never enters the shape and the caches stay out
-   * of it. */
-  if (AS_OBJECT(receiver)->klass != NULL) {
-    ObjClosure *setter = csClassFindSetter(AS_OBJECT(receiver)->klass, name);
+   * of it — and looked for up the whole chain, because a setter inherited from
+   * a prototype is still the thing that owns this name. */
+  for (ObjObject *at = AS_OBJECT(receiver); at != NULL; at = at->prototype) {
+    if (at->klass == NULL) continue;
+    ObjClosure *setter = csClassFindSetter(at->klass, name);
     if (setter != NULL) {
       csVMPush(receiver);
       csVMPush(value);
@@ -1501,7 +1598,7 @@ static bool propertyWriteSlow(ObjString *name, PropertyCache *cache, Value recei
     }
     /* A getter with no setter is read-only, and silently dropping the write is
      * how a bug hides. */
-    if (csClassFindGetter(AS_OBJECT(receiver)->klass, name) != NULL) {
+    if (csClassFindGetter(at->klass, name) != NULL) {
       csVMRuntimeError("'%s' has only a getter and cannot be assigned to",
                        name->chars);
       return false;
@@ -2673,6 +2770,7 @@ InterpretResult run(int baseFrame) {
          * learn about this. */
         if (object->klass == NULL) {
           object->klass = csClassNew(object->name);
+          object->klass->isAccessorHolder = true;
         }
         csTableSet(isGetter ? &object->klass->getters : &object->klass->setters,
                    name, closure);
@@ -2896,6 +2994,8 @@ InterpretResult run(int baseFrame) {
                       : kind == 1 ? &klass->statics
                       : kind == 2 ? &klass->getters
                       : kind == 3 ? &klass->setters
+                      : kind == 5 ? &klass->staticGetters
+                      : kind == 6 ? &klass->staticSetters
                                   : &klass->statics;
         csTableSet(into, name, value);
         csPopTempRoot();
@@ -2905,11 +3005,16 @@ InterpretResult run(int baseFrame) {
       }
 
       VM_CASE(OP_GETTER)
-      VM_CASE(OP_SETTER) {
+      VM_CASE(OP_SETTER)
+      VM_CASE(OP_STATIC_GETTER)
+      VM_CASE(OP_STATIC_SETTER) {
         ObjString *name = READ_STRING();
         ObjClass *klass = AS_CLASS(peekStack(1));
-        csTableSet(instruction == OP_GETTER ? &klass->getters : &klass->setters, name,
-                   peekStack(0));
+        Table *into = instruction == OP_GETTER          ? &klass->getters
+                      : instruction == OP_SETTER        ? &klass->setters
+                      : instruction == OP_STATIC_GETTER ? &klass->staticGetters
+                                                        : &klass->staticSetters;
+        csTableSet(into, name, peekStack(0));
         csVMPop();
         VM_NEXT();
       }

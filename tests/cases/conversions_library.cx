@@ -1,0 +1,49 @@
+// An object's own `toString` is what a string conversion uses. JavaScript
+// calls it too; ignoring it was a silent wrong answer rather than a
+// divergence. What an object with *no* toString renders as is the deliberate
+// difference, and it is unchanged.
+class Temperature {
+  constructor(c) { this.c = c; }
+  toString() { return `${this.c}C`; }
+}
+const t = new Temperature(21);
+console.log(`${t}`, String(t), "" + t);
+
+// Inspection is a separate question: console.log shows the contents, which is
+// what Node does with an object carrying a toString too.
+console.log(t);
+
+// Inherited from a prototype, and written on a literal.
+const base = { toString() { return "base"; } };
+console.log(`${Object.create(base)}`);
+console.log(`${{ toString() { return "literal"; } }}`);
+
+// Array.from over everything it can convert, and with a mapping function that
+// is handed only the arguments it asked for.
+console.log(Array.from([1, 2], (x) => x * 2));
+console.log(Array.from("ab"));
+console.log(Array.from(new Set([1, 1, 2])));
+console.log(Array.from(new Map([["a", 1]])));
+function* counted() { yield 1; yield 2; }
+console.log(Array.from(counted()));
+console.log(Array.from({ length: 3 }, (_, i) => i));
+console.log(Array.from({ 0: "x", length: 1 }));
+console.log(Array.from([1, 2, 3], (x, i) => x + i));
+
+// reduceRight folds from the end, with and without an initial value.
+console.log([1, 2, 3].reduceRight((a, b) => a + b));
+console.log(["a", "b", "c"].reduceRight((a, b) => a + b));
+console.log([1, 2].reduceRight((a, b) => a + b, 10));
+console.log([[1, 2], [3]].reduceRight((a, b) => a.concat(b)));
+
+// A class member may be named after an accessor keyword. `get` is a modifier
+// only when a name follows it.
+class Store {
+  get = () => "field named get";
+  set = 2;
+  get size() { return 7; }
+}
+const store = new Store();
+console.log(store.get(), store.set, store.size);
+class Plain { get() { return "method named get"; } }
+console.log(new Plain().get());

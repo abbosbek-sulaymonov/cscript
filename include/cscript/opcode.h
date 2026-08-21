@@ -168,6 +168,8 @@
   X(OP_STATIC_FIELD)      /* [const16]  pop a value onto its statics        */ \
   X(OP_GETTER)            /* [const16]  pop a closure onto its getters      */ \
   X(OP_SETTER)            /* [const16]  pop a closure onto its setters      */ \
+  X(OP_STATIC_GETTER)     /* [const16]  pop a closure onto its static getters*/ \
+  X(OP_STATIC_SETTER)     /* [const16]  pop a closure onto its static setters*/ \
   /* The same five, with the name taken from the stack rather than the         \
    * constant pool — `class C { [key]() {} }` does not know it until the class \
    * is being built. `kind` picks which table. */                              \

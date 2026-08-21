@@ -234,11 +234,13 @@ void compileClassDecl(const AstNode *node) {
     uint8_t opcode = OP_METHOD;
     uint8_t computedKind = 0;
     if (member->kind == MEMBER_GETTER) {
-      opcode = OP_GETTER;
-      computedKind = 2;
+      /* `static get x()` answers for the class rather than for an instance, so
+       * it is filed apart from both the instance accessors and the statics. */
+      opcode = member->isStatic ? OP_STATIC_GETTER : OP_GETTER;
+      computedKind = member->isStatic ? 5 : 2;
     } else if (member->kind == MEMBER_SETTER) {
-      opcode = OP_SETTER;
-      computedKind = 3;
+      opcode = member->isStatic ? OP_STATIC_SETTER : OP_SETTER;
+      computedKind = member->isStatic ? 6 : 3;
     } else if (member->isStatic) {
       opcode = OP_STATIC_METHOD;
       computedKind = 1;

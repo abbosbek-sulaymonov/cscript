@@ -242,6 +242,8 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_GETTER:            return constantInstruction("OP_GETTER", chunk, offset);
     case OP_CLASS_MEMBER:       return byteInstruction("OP_CLASS_MEMBER", chunk, offset);
     case OP_SETTER:            return constantInstruction("OP_SETTER", chunk, offset);
+    case OP_STATIC_GETTER:     return constantInstruction("OP_STATIC_GETTER", chunk, offset);
+    case OP_STATIC_SETTER:     return constantInstruction("OP_STATIC_SETTER", chunk, offset);
     case OP_GET_SUPER:         return constantInstruction("OP_GET_SUPER", chunk, offset);
     case OP_SUPER_INVOKE:      return invokeInstruction("OP_SUPER_INVOKE", chunk, offset);
     case OP_INVOKE:            return invokeInstruction("OP_INVOKE", chunk, offset);

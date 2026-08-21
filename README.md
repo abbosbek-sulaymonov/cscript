@@ -510,6 +510,7 @@ cscript/
 | **45 ✅** | `BigInt` — arbitrary precision, and a checked `number` boundary | — |
 | **46 ✅** | Prototypes — `Object.create`, `__proto__`, and a chain reads walk | — |
 | **47 ✅** | Constructor functions — `new F()`, `F.prototype`, and call-site `this` | — |
+| **48 ✅** | Inherited and static accessors, `constructor`, a `toString` that is called | — |
 | next | Calling a CScript function from compiled code, which needs frames and safepoints | — |
 | next | Inlining, so a small function is worth compiling | — |
 | next | Guards and deoptimisation, for code the types do not prove | — |

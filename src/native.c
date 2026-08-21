@@ -8,6 +8,7 @@
 #include "cscript/native.h"
 #include "cscript/object.h"
 #include "cscript/vm.h"
+#include "vm_internal.h"
 
 /* Writes the arguments separated by spaces, the way console.log does.
  *
@@ -123,9 +124,12 @@ static bool stringConvert(Value receiver, int argCount, Value *args, Value *resu
     return false;
   }
   size_t length = 0;
-  char *text = csValueToCString(args[0], &length);
+  char *text = csVMValueToText(args[0], &length);
   if (text == NULL) {
-    csVMRuntimeError("out of memory converting to string");
+    /* A failing user `toString` has already reported why. */
+    if (!vm.hasPendingException) {
+      csVMRuntimeError("out of memory converting to string");
+    }
     return false;
   }
   ObjString *string = csStringCopy(text, (int)length);
@@ -401,10 +405,24 @@ static bool arrayOf(Value receiver, int argCount, Value *args, Value *result) {
 }
 
 /* Copies an array, or explodes a string into its characters. */
+/* `Array.from(source)` and `Array.from(source, fn)`.
+ *
+ * Anything it cannot convert is named rather than quietly answered with an
+ * empty array, which is what this used to do — a wrong answer that looks like
+ * a right one is the failure mode the whole project is written against. */
 static bool arrayFrom(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   if (argCount < 1) {
     csVMRuntimeError("Array.from expects a value");
+    return false;
+  }
+
+  Value mapper = argCount > 1 ? args[1] : UNDEFINED_VAL;
+  bool hasMapper = !IS_UNDEFINED(mapper) && !IS_NULL(mapper);
+  if (hasMapper && !IS_CLOSURE(mapper) && !IS_NATIVE(mapper) &&
+      !IS_BOUND_METHOD(mapper)) {
+    csVMRuntimeError("Array.from expects a function as its second argument, got %s",
+                     csValueTypeName(mapper));
     return false;
   }
 
@@ -423,6 +441,72 @@ static bool arrayFrom(Value receiver, int argCount, Value *args, Value *result) 
       csPushTempRoot((Obj *)piece);
       csValueArrayWrite(&array->elements, OBJ_VAL(piece));
       csPopTempRoot();
+    }
+  } else if (IS_MAP(args[0]) && !AS_MAP(args[0])->isWeak) {
+    /* A Set gives its members and a Map gives `[key, value]` pairs, which is
+     * what csMapToArray already builds for spreading one. */
+    ObjArray *entries = csMapToArray(AS_MAP(args[0]));
+    /* Reachable from nothing else, and appending allocates. */
+    csPushTempRoot((Obj *)entries);
+    for (int i = 0; i < entries->elements.count; i++) {
+      csValueArrayWrite(&array->elements, entries->elements.values[i]);
+    }
+    csPopTempRoot();
+  } else if (IS_GENERATOR(args[0])) {
+    /* Drained to its end, because the array has to be complete before it
+     * exists. An endless generator does not terminate, which is equally true
+     * of `Array.from` in JavaScript. */
+    for (;;) {
+      Value produced;
+      bool done;
+      if (!csGeneratorNext(AS_GENERATOR(args[0]), UNDEFINED_VAL, &produced, &done)) {
+        csPopTempRoot();
+        return false;
+      }
+      if (done) break;
+      csValueArrayWrite(&array->elements, produced);
+    }
+  } else if (IS_OBJECT(args[0])) {
+    /* An array-like: `{ length: 2 }` becomes two undefineds, and `{ 0: "a",
+     * length: 1 }` becomes `["a"]`. */
+    Value length;
+    if (!csObjectGet(AS_OBJECT(args[0]), csStringCopy("length", 6), &length) ||
+        !IS_NUMBER(length)) {
+      csPopTempRoot();
+      csVMRuntimeError("Array.from cannot convert an object without a numeric "
+                       "'length'");
+      return false;
+    }
+    int count = (int)AS_NUMBER(length);
+    for (int i = 0; i < count; i++) {
+      char digits[16];
+      int written = snprintf(digits, sizeof digits, "%d", i);
+      Value element;
+      if (!csObjectGet(AS_OBJECT(args[0]), csStringCopy(digits, written), &element)) {
+        element = UNDEFINED_VAL;
+      }
+      csValueArrayWrite(&array->elements, element);
+    }
+  } else {
+    csPopTempRoot();
+    csVMRuntimeError("Array.from cannot convert %s", csValueTypeName(args[0]));
+    return false;
+  }
+
+  /* The mapping runs afterwards rather than as each element is taken, so a
+   * callback that allocates cannot disturb a half-built source. */
+  if (hasMapper) {
+    for (int i = 0; i < array->elements.count; i++) {
+      /* Adapted rather than called directly, so a one-parameter callback is
+       * not handed the index it never asked for — the same courtesy `map` and
+       * `filter` extend, and the reason CScript's strict arity is liveable. */
+      Value callArgs[2] = {array->elements.values[i], NUMBER_VAL(i)};
+      Value mapped;
+      if (!csVMCallAdapted(mapper, callArgs, 2, &mapped)) {
+        csPopTempRoot();
+        return false;
+      }
+      array->elements.values[i] = mapped;
     }
   }
 

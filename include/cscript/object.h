@@ -496,6 +496,18 @@ struct ObjClass {
   Table getters;
   Table setters;
 
+  /* `static get x()`. Kept apart from the instance accessors because they
+   * answer for different receivers — one for the class, one for an instance —
+   * and apart from `statics` because a static getter is run rather than
+   * handed back. */
+  Table staticGetters;
+  Table staticSetters;
+
+  /* Made on demand to hold an object literal's `get x()`, rather than declared
+   * by a `class`. It is not a type anything is an instance of, so `constructor`
+   * must not answer with it. */
+  bool isAccessorHolder;
+
   /* The constructor, or NULL. A class without one is constructed by the
    * nearest ancestor that has one, which is how `class Dog extends Animal {}`
    * still accepts Animal's arguments. */

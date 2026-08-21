@@ -1,0 +1,60 @@
+// An accessor lives on a class rather than in the object's shape — a synthetic
+// one per object for a literal's `get x()`, the real one for an instance. So
+// finding an inherited getter means asking each link of the prototype chain
+// the same three questions: own data property, accessor, method.
+const base = {
+  _v: 1,
+  get v() { return this._v; },
+  set v(n) { this._v = n * 2; },
+  describe() { return `v is ${this.v}`; },
+};
+
+const derived = Object.create(base);
+console.log(derived.v, derived.describe());
+
+// The setter is inherited too, and what it writes is the object's own.
+derived.v = 5;
+console.log(derived.v, derived._v, base._v, Object.keys(derived));
+
+// A nearer link's data property beats a further link's getter, which is what
+// makes the level-by-level walk the right shape.
+const shadowing = Object.create(base);
+shadowing.v = 100;
+console.log(shadowing.v, shadowing._v);
+
+// `this` inside an inherited accessor is the object it was asked of.
+const first = Object.create(base);
+const second = Object.create(base);
+first._v = 10;
+second._v = 20;
+console.log(first.v, second.v);
+
+// Static accessors answer for the class, and are inherited by a subclass.
+class Config {
+  static stored = 0;
+  static get version() { return "1.0"; }
+  static get level() { return Config.stored; }
+  static set level(n) { Config.stored = n * 10; }
+}
+console.log(Config.version, Config.level);
+Config.level = 3;
+console.log(Config.level, Config.stored);
+
+class Derived extends Config {}
+console.log(Derived.version);
+
+// A getter with no setter refuses the write rather than dropping it.
+class ReadOnly {
+  static get fixed() { return 1; }
+}
+console.log(ReadOnly.fixed);
+
+// `constructor` names whatever built the object, and is not enumerable —
+// `Object.keys` of a prototype is empty, as it is in JavaScript.
+function Widget() {}
+console.log(new Widget().constructor === Widget, Object.keys(Widget.prototype));
+class Gadget {}
+class SubGadget extends Gadget {}
+console.log(new Gadget().constructor === Gadget);
+console.log(new SubGadget().constructor === SubGadget);
+console.log(Object.create(Widget.prototype).constructor === Widget);

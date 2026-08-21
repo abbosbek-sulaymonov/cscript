@@ -469,6 +469,41 @@ static bool arrayReduce(Value receiver, int argCount, Value *args, Value *result
   return true;
 }
 
+/* The same fold, from the end. Written out rather than sharing a direction
+ * flag with reduce: the two loops differ in three places, and a flag threaded
+ * through all of them reads worse than the second loop does. */
+static bool arrayReduceRight(Value receiver, int argCount, Value *args,
+                             Value *result) {
+  if (!requireCallback(argCount, args, "reduceRight")) return false;
+  ObjArray *array = ARRAY_OF(receiver);
+
+  int index = array->elements.count - 1;
+  Value accumulator;
+  if (argCount >= 2) {
+    accumulator = args[1];
+  } else {
+    if (array->elements.count == 0) {
+      csVMRuntimeError("reduceRight of an empty array with no initial value");
+      return false;
+    }
+    accumulator = array->elements.values[index--];
+  }
+
+  for (; index >= 0; index--) {
+    csVMPush(accumulator);
+    Value callArgs[4] = {accumulator, array->elements.values[index],
+                         NUMBER_VAL(index), receiver};
+
+    Value produced;
+    if (!csVMCallAdapted(args[0], callArgs, 4, &produced)) return false;
+    csVMPop();
+    accumulator = produced;
+  }
+
+  *result = accumulator;
+  return true;
+}
+
 /* find/findIndex/some/every share one walk; `mode` selects what to return. */
 typedef enum {
   SEARCH_FIND,
@@ -626,6 +661,7 @@ void csArrayMethodsInstall(void) {
   defineArrayMethod("map", arrayMap, -1);
   defineArrayMethod("filter", arrayFilter, -1);
   defineArrayMethod("reduce", arrayReduce, -1);
+  defineArrayMethod("reduceRight", arrayReduceRight, -1);
   defineArrayMethod("find", arrayFind, -1);
   defineArrayMethod("findIndex", arrayFindIndex, -1);
   defineArrayMethod("some", arraySome, -1);

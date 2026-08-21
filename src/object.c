@@ -367,14 +367,28 @@ ObjClosure *csClosureNew(ObjFunction *function) {
 }
 
 ObjObject *csClosurePrototype(ObjClosure *closure) {
-  if (closure->prototype == NULL) {
-    csPushTempRoot((Obj *)closure);
-    closure->prototype = csObjectNew(closure->function->name != NULL
+  if (closure->prototype != NULL) return closure->prototype;
+
+  csPushTempRoot((Obj *)closure);
+  ObjObject *prototype = csObjectNew(closure->function->name != NULL
                                          ? closure->function->name->chars
                                          : "Object");
-    csPopTempRoot();
-  }
-  return closure->prototype;
+  closure->prototype = prototype;
+
+  /* `F.prototype.constructor === F`, filed in the table beside the shape
+   * rather than as an ordinary property. That table exists for names nothing
+   * that enumerates may see, which is exactly what `constructor` is: JavaScript
+   * makes it non-enumerable, so `Object.keys(F.prototype)` is empty there and
+   * has to be empty here. The leading hash is what keeps it unwritable from
+   * source — a `#name` outside a class body does not compile. */
+  csPushTempRoot((Obj *)prototype);
+  ObjString *key = csStringCopy("#constructor", 12);
+  csPushTempRoot((Obj *)key);
+  csObjectPutPrivate(prototype, key, OBJ_VAL(closure));
+  csPopTempRoot();
+  csPopTempRoot();
+  csPopTempRoot();
+  return prototype;
 }
 
 ObjModule *csModuleNew(ObjString *path) {
@@ -638,6 +652,9 @@ ObjClass *csClassNew(ObjString *name) {
   csTableInit(&klass->statics);
   csTableInit(&klass->getters);
   csTableInit(&klass->setters);
+  csTableInit(&klass->staticGetters);
+  csTableInit(&klass->staticSetters);
+  klass->isAccessorHolder = false;
   csPopTempRoot();
   return klass;
 }
@@ -973,6 +990,8 @@ void csObjectBlacken(Obj *object) {
       csTableMark(&klass->methods);
       csTableMark(&klass->statics);
       csTableMark(&klass->getters);
+      csTableMark(&klass->staticGetters);
+      csTableMark(&klass->staticSetters);
       csTableMark(&klass->setters);
       break;
     }
@@ -1147,6 +1166,8 @@ void csObjectFree(Obj *object) {
       csTableFree(&klass->methods);
       csTableFree(&klass->statics);
       csTableFree(&klass->getters);
+      csTableFree(&klass->staticGetters);
+      csTableFree(&klass->staticSetters);
       csTableFree(&klass->setters);
       CS_FREE(ObjClass, object);
       break;

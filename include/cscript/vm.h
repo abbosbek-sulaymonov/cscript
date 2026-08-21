@@ -321,6 +321,10 @@ Value csVMPeek(int distance);
  * this adds no new way to run out of stack. */
 bool csVMCallCallback(Value callee, int argCount, Value *result);
 
+/* Text for a string conversion: an object's own `toString` when it has one,
+ * and the built-in rendering otherwise. The caller owns the buffer. */
+char *csVMValueToText(Value value, size_t *length);
+
 /* Calls `callee` with as many of `args` as it actually declares, padding with
  * undefined if it declares more.
  *

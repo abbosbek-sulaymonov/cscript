@@ -109,9 +109,14 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
     /* `get x() {}` — an accessor, unless `get` is the member's own name, which
      * it is whenever `(` follows it directly. */
     ClassMemberKind memberKind = MEMBER_METHOD;
+    /* `get` is only a modifier when a name or a computed key follows it.
+     * `get() {}` is a method called `get`, and `get = ...` is a field called
+     * `get` — the same rule the object-literal parser follows, and without it
+     * a field may not be named after an accessor keyword. */
     if ((nameIs(memberName, memberLength, "get") ||
          nameIs(memberName, memberLength, "set")) &&
-        !check(parser, TOKEN_LEFT_PAREN)) {
+        !check(parser, TOKEN_LEFT_PAREN) && !check(parser, TOKEN_EQUAL) &&
+        !check(parser, TOKEN_SEMICOLON)) {
       memberKind = memberName[0] == 'g' ? MEMBER_GETTER : MEMBER_SETTER;
 
       /* `get [key]() {}` — the accessor's name may be computed too. */

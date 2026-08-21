@@ -80,10 +80,12 @@ asserted here.
 `Object.keys` / `.values` / `.entries` / `.fromEntries` / `.assign` /
 `.hasOwn` / `.freeze` / `.isFrozen` / `.getOwnPropertyNames` / `.create` /
 `.getPrototypeOf` / `.setPrototypeOf`, `Array.isArray`
-/ `.of` / `.from`, `Number` and its limits, `parseInt`, `parseFloat`, `isNaN`,
+/ `.of` / `.from` — the latter over an array, a string, a Map or Set, a
+generator or an array-like, with an optional mapping function — `Number` and
+its limits, `parseInt`, `parseFloat`, `isNaN`,
 `isFinite`, `Promise` with `.resolve` / `.reject` / `.all` / `.race` /
 `.allSettled` / `.any`, `AggregateError`, `setTimeout` / `setInterval` and
-their cancellers, `Map` and `Set`, regular expressions, 24 array methods, 22
+their cancellers, `Map` and `Set`, regular expressions, 25 array methods, 22
 string methods, and `toFixed` / `toPrecision` / `toString(radix)` on numbers.
 `Symbol` with its registry and the well-known `Symbol.iterator` and
 `Symbol.asyncIterator`; `BigInt` with `toString(radix)` and `valueOf`.
@@ -150,6 +152,12 @@ says nothing and is a byword for a bug that reached the screen. **Arrays match
 JavaScript exactly**: `String([1, [2, 3]])` is `"1,2,3"`, because that one is
 useful rather than a wart.
 
+This is only about an object with no `toString` of its own. One that has a
+`toString` — declared on a class, written on a literal, or inherited from a
+prototype — has it called, exactly as JavaScript does. Inspection is a separate
+question and shows the contents either way, which is what Node's `console.log`
+does with such an object too.
+
 ### A method keeps its receiver
 
 `const f = instance.method; f()` works for a class method and for one reached
@@ -175,7 +183,11 @@ receiver, whatever kind of method they find.
 ### There is no root `Object.prototype`
 
 `Object.getPrototypeOf({})` is `null` here and `Object.prototype` in
-JavaScript. A plain object starts with no prototype because the methods that
+JavaScript, and for the same reason `({}).constructor` is `undefined` rather
+than the `Object` builtin. `constructor` does answer for anything actually
+built by something: a class instance names its class, and an object made with
+`new F()` names `F`. It is not enumerable, so `Object.keys(F.prototype)` is
+empty here as it is in JavaScript. A plain object starts with no prototype because the methods that
 would live on a root — `hasOwnProperty`, `toString`, `valueOf` — are not
 properties of any object here: `Object.hasOwn` asks the same question as a
 static, and how a value renders is the language's answer rather than a method

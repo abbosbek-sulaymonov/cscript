@@ -1,0 +1,18 @@
+21C 21C 21C
+Temperature { c: 21 }
+base
+literal
+[ 2, 4 ]
+[ 'a', 'b' ]
+[ 1, 2 ]
+[ [ 'a', 1 ] ]
+[ 1, 2 ]
+[ 0, 1, 2 ]
+[ 'x' ]
+[ 1, 3, 5 ]
+6
+cba
+13
+[ 3, 1, 2 ]
+field named get 2 7
+method named get
