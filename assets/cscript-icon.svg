@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="CScript">
+  <title>CScript</title>
+  <!-- The mark has to survive being drawn at 16 pixels next to a filename,
+       which rules out anything with interior detail: one shape, one letter,
+       and a caret that reads as a chevron at any size. -->
+  <defs>
+    <linearGradient id="cscript-ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b6cb0"/>
+      <stop offset="1" stop-color="#1a365d"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#cscript-ground)"/>
+  <!-- The C, drawn as a stroked arc rather than text so it renders the same
+       everywhere without depending on a font being present. -->
+  <path d="M41 21a15 15 0 1 0 0 22"
+        fill="none" stroke="#f7fafc" stroke-width="7"
+        stroke-linecap="round"/>
+  <!-- The caret: the script half, and what distinguishes this from a C icon. -->
+  <path d="M46 25l7 7-7 7" fill="none" stroke="#63b3ed" stroke-width="6"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,43 @@
+{
+  "name": "cscript",
+  "displayName": "CScript",
+  "description": "Syntax highlighting and file icons for CScript (.cx)",
+  "version": "0.1.0",
+  "publisher": "abbosbek-sulaymonov",
+  "license": "MIT",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages"],
+  "icon": "icons/cscript-marketplace.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abbosbek-sulaymonov/cscript"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "cscript",
+        "aliases": ["CScript", "cscript"],
+        "extensions": [".cx"],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/cscript-file.svg",
+          "dark": "./icons/cscript-file.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "cscript",
+        "scopeName": "source.cscript",
+        "path": "./syntaxes/cscript.tmLanguage.json"
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "cscript-icons",
+        "label": "CScript (file icons)",
+        "path": "./icons/cscript-icon-theme.json"
+      }
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+# GitHub reads `.cx` as JavaScript.
+#
+# CScript *is* JavaScript syntax — a program that runs here runs under Node —
+# so the JavaScript grammar highlights it correctly, and the repository counts
+# as what it mostly is. A language of its own in this table needs a change to
+# github/linguist, which has adoption criteria this does not meet yet.
+*.cx linguist-language=JavaScript
+
+# Generated or vendored, and not what the repository is about.
+tests/cases/*.expected linguist-generated=true
+tests/cases/*/expected linguist-generated=true

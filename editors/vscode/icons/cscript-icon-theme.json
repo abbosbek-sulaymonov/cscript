@@ -1,0 +1,13 @@
+{
+  "//": "A file icon theme that gives .cx files the CScript mark and leaves everything else to VS Code's defaults. Shipping a theme is the only way an extension can set a file icon: the icon in the explorer comes from whichever theme is active, and an extension cannot add one to a theme it does not own.",
+  "hidesExplorerArrows": false,
+  "iconDefinitions": {
+    "_cscript": { "iconPath": "./cscript-file.svg" }
+  },
+  "fileExtensions": {
+    "cx": "_cscript"
+  },
+  "light": {
+    "fileExtensions": { "cx": "_cscript" }
+  }
+}

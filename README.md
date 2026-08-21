@@ -1,4 +1,4 @@
-# CScript
+<img src="assets/cscript-logo.svg" alt="CScript" height="56">
 
 A **gradually typed** language with **TypeScript's syntax and none of
 JavaScript's footguns**, implemented from scratch in C11 as a bytecode virtual
@@ -520,6 +520,36 @@ cscript/
 | next | Inlining, so a small function is worth compiling | — |
 | **54 ✅** | Property reads lowered against a shape, checked once at entry | — |
 | next | Emitting a property read in machine code, which the IR now describes | — |
+
+---
+
+## Editor support
+
+`editors/vscode` is a Visual Studio Code extension: the CScript grammar for
+`.cx`, bracket and comment behaviour, and a file icon.
+
+The grammar is not the JavaScript one with a different name. It tells a BigInt
+literal from an ordinary number, a regular expression from a division, and
+CScript's type annotations from anything JavaScript has — that last being the
+one part of the syntax that is not JavaScript.
+
+```bash
+cd editors/vscode
+npx @vscode/vsce package
+code --install-extension cscript-0.1.0.vsix
+```
+
+The file icon has a catch worth stating plainly: VS Code takes the icon beside
+a filename from whichever **file icon theme** is active, and an extension
+cannot add an icon to a theme it does not own. Either select *CScript (file
+icons)*, which this ships, or add one mapping to the theme you already use —
+`editors/vscode/README.md` has the two lines for Material and vscode-icons.
+
+On GitHub, `.gitattributes` maps `.cx` to JavaScript, which is what makes the
+files highlight and the repository count as what it mostly is. A language of
+its own there — and with it a custom icon in the file browser — needs a change
+to [github/linguist](https://github.com/github-linguist/linguist), whose
+adoption criteria this does not meet yet.
 
 ---
 
