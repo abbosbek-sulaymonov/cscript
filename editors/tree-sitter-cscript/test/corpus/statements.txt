@@ -1,0 +1,74 @@
+================================================================================
+A typed declaration
+================================================================================
+
+const size: number = 10;
+
+--------------------------------------------------------------------------------
+
+(program
+  (variable_declaration
+    (variable_declarator
+      (identifier)
+      (type_annotation (primitive_type))
+      (primary_expression (number)))))
+
+================================================================================
+A BigInt is not a number
+================================================================================
+
+const huge = 42n;
+
+--------------------------------------------------------------------------------
+
+(program
+  (variable_declaration
+    (variable_declarator
+      (identifier)
+      (primary_expression (bigint)))))
+
+================================================================================
+A labelled loop and the break that names it
+================================================================================
+
+outer: while (true) {
+  break outer;
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (labeled_statement
+    (identifier)
+    (while_statement
+      (primary_expression (true))
+      (statement_block
+        (break_statement (identifier))))))
+
+================================================================================
+A private field and a static block
+================================================================================
+
+class Shape {
+  #sides = 0;
+  static {
+    setup();
+  }
+}
+
+--------------------------------------------------------------------------------
+
+(program
+  (class_declaration
+    (identifier)
+    (class_body
+      (field_definition
+        (private_property_identifier)
+        (primary_expression (number)))
+      (static_block
+        (statement_block
+          (expression_statement
+            (primary_expression
+              (call_expression
+                (primary_expression (identifier))
+                (arguments)))))))))

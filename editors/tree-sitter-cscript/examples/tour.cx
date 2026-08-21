@@ -1,0 +1,91 @@
+// Every construct the grammar claims, in one file that also runs.
+import { helper } from "./lib.cx";
+
+const size: number = 10;
+const huge = 9007199254740993n;
+let label = `size is ${size}`;
+const pattern = /(?<name>[a-z]+)\d*/g;
+
+function scale(value: number, factor = 2): number {
+  return value * factor;
+}
+
+async function fetchAll(sources) {
+  const out = [];
+  for await (const item of sources) {
+    out.push(item);
+  }
+  return out;
+}
+
+function* counter(from) {
+  let at = from;
+  while (true) {
+    yield at++;
+  }
+}
+
+class Shape {
+  #sides = 0;
+  static registry = [];
+
+  static {
+    Shape.registry.push("Shape");
+  }
+
+  constructor(sides) {
+    this.#sides = sides;
+  }
+
+  get sides() {
+    return this.#sides;
+  }
+
+  set sides(value) {
+    this.#sides = value;
+  }
+
+  describe() {
+    return `${this.#sides} sides`;
+  }
+}
+
+class Square extends Shape {
+  constructor() {
+    super(4);
+  }
+}
+
+const point = { x: 1, y: 2, get sum() { return this.x + this.y; } };
+const { x, y = 0, ...rest } = point;
+const [first, ...others] = [1, 2, 3];
+
+outer: for (let i = 0; i < size; i++) {
+  for (const key of Object.keys(point)) {
+    if (key === "x") continue outer;
+    break;
+  }
+}
+
+switch (size) {
+  case 10:
+    label = "ten";
+    break;
+  default:
+    label = "other";
+}
+
+try {
+  throw new Shape(3);
+} catch (error) {
+  label = String(error);
+} finally {
+  label = label ?? "none";
+}
+
+const doubled = [1, 2, 3].map((n) => n * 2);
+const guarded = point?.x ?? 0;
+const typed = typeof huge === "bigint";
+
+export { scale, counter };
+export default Square;

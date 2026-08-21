@@ -1,0 +1,13 @@
+# The fragment to add to github-linguist/linguist's languages.yml, in
+# alphabetical position. See README.md in this directory for the two fields
+# that are filled in at submission time and why.
+CScript:
+  type: programming
+  color: "#2b6cb0"
+  extensions:
+    - ".cx"
+  tm_scope: source.cscript
+  ace_mode: javascript
+  codemirror_mode: javascript
+  codemirror_mime_type: text/javascript
+  # language_id: assigned by Linguist's tooling; must be unique.

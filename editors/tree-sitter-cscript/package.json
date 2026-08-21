@@ -1,0 +1,24 @@
+{
+  "name": "tree-sitter-cscript",
+  "version": "0.1.0",
+  "description": "CScript grammar for tree-sitter",
+  "main": "bindings/node",
+  "license": "MIT",
+  "keywords": [
+    "parser",
+    "tree-sitter",
+    "cscript"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abbosbek-sulaymonov/cscript"
+  },
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "test": "tree-sitter test",
+    "parse": "tree-sitter parse"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.24.0"
+  }
+}

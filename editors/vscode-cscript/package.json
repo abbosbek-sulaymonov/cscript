@@ -1,0 +1,75 @@
+{
+  "name": "cscript-language",
+  "displayName": "CScript Language Support",
+  "description": "Syntax highlighting and language support for the CScript programming language.",
+  "version": "0.1.0",
+  "publisher": "abbosbek-sulaymonov",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "cscript",
+    "cx",
+    "gradual typing",
+    "language"
+  ],
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abbosbek-sulaymonov/cscript"
+  },
+  "bugs": {
+    "url": "https://github.com/abbosbek-sulaymonov/cscript/issues"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "cscript",
+        "aliases": [
+          "CScript",
+          "cscript"
+        ],
+        "extensions": [
+          ".cx"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/cscript-file.svg",
+          "dark": "./icons/cscript-file.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "cscript",
+        "scopeName": "source.cscript",
+        "path": "./syntaxes/cscript.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "cscript",
+        "path": "./snippets/cscript.json"
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "cscript-icons",
+        "label": "CScript (file icons)",
+        "path": "./icons/cscript-icon-theme.json"
+      }
+    ]
+  },
+  "scripts": {
+    "test": "node test/scopes.mjs",
+    "test:corpus": "node test/tokenize.mjs $(find ../../tests/cases ../../examples -name '*.cx')"
+  },
+  "devDependencies": {
+    "vscode-textmate": "^9.0.0",
+    "vscode-oniguruma": "^2.0.1"
+  }
+}

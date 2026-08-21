@@ -1,0 +1,125 @@
+{
+  "//": "Only forms the grammar in docs/GRAMMAR.md actually admits. A snippet for syntax the compiler would reject is worse than no snippet.",
+  "Function declaration": {
+    "prefix": "fn",
+    "body": ["function ${1:name}(${2:params}) {", "\t$0", "}"],
+    "description": "A function declaration"
+  },
+  "Typed function": {
+    "prefix": "fnt",
+    "body": [
+      "function ${1:name}(${2:value}: ${3|number,string,boolean,bigint,object,any|}): ${4|number,string,boolean,bigint,object,any|} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "A function with annotated parameter and return types"
+  },
+  "Async function": {
+    "prefix": "afn",
+    "body": ["async function ${1:name}(${2:params}) {", "\t$0", "}"],
+    "description": "An async function declaration"
+  },
+  "Generator function": {
+    "prefix": "gfn",
+    "body": ["function* ${1:name}(${2:params}) {", "\tyield $0;", "}"],
+    "description": "A generator function"
+  },
+  "Arrow function": {
+    "prefix": "arrow",
+    "body": ["const ${1:name} = (${2:params}) => ${0:value};"],
+    "description": "An arrow function bound to a const"
+  },
+  "Class": {
+    "prefix": "class",
+    "body": [
+      "class ${1:Name} {",
+      "\tconstructor(${2:params}) {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "A class with a constructor"
+  },
+  "Class extending another": {
+    "prefix": "classe",
+    "body": [
+      "class ${1:Name} extends ${2:Base} {",
+      "\tconstructor(${3:params}) {",
+      "\t\tsuper(${4:args});",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "A subclass — super() must come first"
+  },
+  "Getter and setter": {
+    "prefix": "getset",
+    "body": [
+      "get ${1:name}() {",
+      "\treturn this.#${1:name};",
+      "}",
+      "",
+      "set ${1:name}(${2:value}) {",
+      "\tthis.#${1:name} = ${2:value};",
+      "}"
+    ],
+    "description": "A paired accessor over a private field"
+  },
+  "for...of": {
+    "prefix": "forof",
+    "body": ["for (const ${1:item} of ${2:items}) {", "\t$0", "}"],
+    "description": "Iterate a collection"
+  },
+  "for await...of": {
+    "prefix": "forawait",
+    "body": ["for await (const ${1:item} of ${2:source}) {", "\t$0", "}"],
+    "description": "Iterate an async iterable"
+  },
+  "Counting for": {
+    "prefix": "for",
+    "body": [
+      "for (let ${1:i} = 0; ${1:i} < ${2:count}; ${1:i}++) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "A counting loop"
+  },
+  "try/catch": {
+    "prefix": "try",
+    "body": ["try {", "\t$1", "} catch (${2:error}) {", "\t$0", "}"],
+    "description": "Guard a block — note that runtime errors are not catchable"
+  },
+  "switch": {
+    "prefix": "switch",
+    "body": [
+      "switch (${1:subject}) {",
+      "\tcase ${2:value}:",
+      "\t\t$0",
+      "\t\tbreak;",
+      "\tdefault:",
+      "\t\tbreak;",
+      "}"
+    ],
+    "description": "A switch statement"
+  },
+  "Named import": {
+    "prefix": "imp",
+    "body": ["import { ${1:name} } from \"./${2:module}.cx\";"],
+    "description": "Import named bindings — specifiers are relative and carry the extension"
+  },
+  "Namespace import": {
+    "prefix": "impall",
+    "body": ["import * as ${1:name} from \"./${2:module}.cx\";"],
+    "description": "Import a module namespace"
+  },
+  "Dynamic import": {
+    "prefix": "impdyn",
+    "body": ["const ${1:name} = await import(\"./${2:module}.cx\");"],
+    "description": "Load a module named at run time"
+  },
+  "Export": {
+    "prefix": "exp",
+    "body": ["export const ${1:name} = ${0:value};"],
+    "description": "Export a binding"
+  }
+}

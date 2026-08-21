@@ -525,31 +525,45 @@ cscript/
 
 ## Editor support
 
-`editors/vscode` is a Visual Studio Code extension: the CScript grammar for
-`.cx`, bracket and comment behaviour, and a file icon.
-
-The grammar is not the JavaScript one with a different name. It tells a BigInt
-literal from an ordinary number, a regular expression from a division, and
-CScript's type annotations from anything JavaScript has — that last being the
-one part of the syntax that is not JavaScript.
-
-```bash
-cd editors/vscode
-npx @vscode/vsce package
-code --install-extension cscript-0.1.0.vsix
+```
+Name             CScript
+Language id      cscript
+File extension   .cx
+TextMate scope   source.cscript
 ```
 
-The file icon has a catch worth stating plainly: VS Code takes the icon beside
-a filename from whichever **file icon theme** is active, and an extension
-cannot add an icon to a theme it does not own. Either select *CScript (file
-icons)*, which this ships, or add one mapping to the theme you already use —
-`editors/vscode/README.md` has the two lines for Material and vscode-icons.
+| `editors/` | | |
+| --- | --- | --- |
+| `vscode-cscript/` | VS Code: grammar, editing behaviour, snippets, file icon | working |
+| `tree-sitter-cscript/` | Neovim, Helix, Zed | scaffold — parses 99 of 113 valid programs |
+| `linguist/` | what a GitHub Linguist contribution needs | prepared, not submitted |
 
-On GitHub, `.gitattributes` maps `.cx` to JavaScript, which is what makes the
-files highlight and the repository count as what it mostly is. A language of
-its own there — and with it a custom icon in the file browser — needs a change
-to [github/linguist](https://github.com/github-linguist/linguist), whose
-adoption criteria this does not meet yet.
+Both grammars are derived from [docs/GRAMMAR.md](docs/GRAMMAR.md), which is
+what the parser implements — so neither highlights a form the compiler would
+reject. They tell apart what a JavaScript grammar would flatten: a BigInt
+literal from an ordinary number, a regular expression from a division, and
+CScript's type annotations from anything JavaScript has.
+
+The VS Code grammar is checked rather than assumed. `node test/tokenize.mjs`
+tokenises every CScript program in the repository and reports anything left
+unscoped — none, across 169 files and 34,534 tokens — and `node test/scopes.mjs`
+asserts that particular text carries a particular scope, which is what caught
+`new.target` being read as `new` followed by a property.
+
+```bash
+cd editors/vscode-cscript
+npx @vscode/vsce package
+code --install-extension cscript-language-0.1.0.vsix
+```
+
+Two things worth stating rather than leaving to be discovered. VS Code takes
+the icon beside a filename from whichever **file icon theme** is active, and an
+extension cannot add one to a theme it does not own — so either select *CScript
+(file icons)*, which this ships, or add one mapping to the theme you already
+use. And on GitHub, `.gitattributes` maps `.cx` to JavaScript, which is what
+makes files highlight; GitHub does **not** know the name CScript and will not
+until a [Linguist](https://github.com/github-linguist/linguist) contribution is
+accepted, whose bar is adoption this does not have yet.
 
 ---
 

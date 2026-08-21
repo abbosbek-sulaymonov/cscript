@@ -1,0 +1,547 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "CScript",
+  "scopeName": "source.cscript",
+  "//": "Derived from docs/GRAMMAR.md, which is what the parser implements. Nothing here highlights a form the compiler rejects, and the two places CScript differs from JavaScript \u2014 type annotations and BigInt literals \u2014 get scopes of their own rather than borrowing one.",
+  "patterns": [
+    {
+      "include": "#expression"
+    }
+  ],
+  "repository": {
+    "expression": {
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#annotation"
+        },
+        {
+          "include": "#template"
+        },
+        {
+          "include": "#string"
+        },
+        {
+          "include": "#regex"
+        },
+        {
+          "include": "#number"
+        },
+        {
+          "include": "#declaration"
+        },
+        {
+          "include": "#class-member"
+        },
+        {
+          "include": "#label"
+        },
+        {
+          "include": "#keyword"
+        },
+        {
+          "include": "#constant"
+        },
+        {
+          "include": "#call"
+        },
+        {
+          "include": "#operator"
+        },
+        {
+          "include": "#identifier"
+        },
+        {
+          "include": "#punctuation"
+        }
+      ]
+    },
+    "comment": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.cscript",
+          "begin": "//",
+          "end": "$",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.cscript"
+            }
+          }
+        },
+        {
+          "name": "comment.block.cscript",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "captures": {
+            "0": {
+              "name": "punctuation.definition.comment.cscript"
+            }
+          }
+        }
+      ]
+    },
+    "annotation": {
+      "//": "`typeAnnotation = \":\" TYPE_NAME`. The one part of the syntax that is not JavaScript, and the lattice is a fixed set of names \u2014 so they are matched exactly rather than as any identifier.",
+      "match": "(:)\\s*\\b(number|bigint|string|boolean|null|undefined|object|any)\\b",
+      "captures": {
+        "1": {
+          "name": "punctuation.separator.annotation.cscript"
+        },
+        "2": {
+          "name": "support.type.primitive.cscript"
+        }
+      }
+    },
+    "string": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.cscript",
+          "begin": "\"",
+          "end": "\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.cscript"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.cscript"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#escape"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.cscript",
+          "begin": "'",
+          "end": "'",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.cscript"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.cscript"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#escape"
+            }
+          ]
+        }
+      ]
+    },
+    "escape": {
+      "name": "constant.character.escape.cscript",
+      "match": "\\\\(u\\{[0-9A-Fa-f]+\\}|u[0-9A-Fa-f]{4}|x[0-9A-Fa-f]{2}|[0'\"\\\\bfnrtv]|\\n|.)"
+    },
+    "template": {
+      "//": "Template literals nest, and an interpolation holds a whole expression \u2014 which is why it recurses into the top rule rather than a subset.",
+      "name": "string.template.cscript",
+      "begin": "`",
+      "end": "`",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.template.begin.cscript"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.template.end.cscript"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#escape"
+        },
+        {
+          "name": "meta.template.expression.cscript",
+          "begin": "\\$\\{",
+          "end": "\\}",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.begin.cscript"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.end.cscript"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#expression"
+            }
+          ]
+        }
+      ]
+    },
+    "regex": {
+      "//": "Only where a value is wanted, so `a / b / c` is division rather than a pattern. The lookbehind lists the positions after which a regex may start.",
+      "name": "string.regexp.cscript",
+      "begin": "(?<=[=(,:\\[!&|?{;+\\-*/%^~]|^|\\breturn\\b|\\bcase\\b|\\btypeof\\b|\\bof\\b|=>)\\s*(/)(?![/*])",
+      "end": "(/)([dgimsuvy]*)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.string.begin.cscript"
+        }
+      },
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.string.end.cscript"
+        },
+        "2": {
+          "name": "keyword.other.flag.regexp.cscript"
+        }
+      },
+      "patterns": [
+        {
+          "name": "constant.character.escape.regexp.cscript",
+          "match": "\\\\."
+        },
+        {
+          "name": "keyword.other.group.regexp.cscript",
+          "match": "\\(\\?(<[A-Za-z_$][\\w$]*>|<=|<!|=|!|:)"
+        },
+        {
+          "name": "constant.character.class.regexp.cscript",
+          "match": "\\[\\^?|\\]"
+        },
+        {
+          "name": "keyword.operator.quantifier.regexp.cscript",
+          "match": "[*+?]\\??|\\{\\d+(,\\d*)?\\}\\??"
+        }
+      ]
+    },
+    "number": {
+      "patterns": [
+        {
+          "//": "A BigInt is a different type, not a wider number, so it reads differently at a glance.",
+          "name": "constant.numeric.bigint.cscript",
+          "match": "\\b(0[xX][0-9a-fA-F][0-9a-fA-F_]*|0[oO][0-7][0-7_]*|0[bB][01][01_]*|\\d[\\d_]*)n\\b"
+        },
+        {
+          "name": "constant.numeric.hex.cscript",
+          "match": "\\b0[xX][0-9a-fA-F][0-9a-fA-F_]*\\b"
+        },
+        {
+          "name": "constant.numeric.octal.cscript",
+          "match": "\\b0[oO][0-7][0-7_]*\\b"
+        },
+        {
+          "name": "constant.numeric.binary.cscript",
+          "match": "\\b0[bB][01][01_]*\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.cscript",
+          "match": "(?<![\\w$])((\\d[\\d_]*)?\\.\\d[\\d_]*|\\d[\\d_]*\\.?)([eE][+-]?\\d+)?"
+        }
+      ]
+    },
+    "declaration": {
+      "patterns": [
+        {
+          "match": "\\b(async\\s+)?(function)\\s*(\\*)?\\s+([A-Za-z_$][\\w$]*)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.async.cscript"
+            },
+            "2": {
+              "name": "storage.type.function.cscript"
+            },
+            "3": {
+              "name": "keyword.generator.asterisk.cscript"
+            },
+            "4": {
+              "name": "entity.name.function.cscript"
+            }
+          }
+        },
+        {
+          "match": "\\b(class)\\s+([A-Za-z_$][\\w$]*)(?:\\s+(extends)\\s+([A-Za-z_$][\\w$]*))?",
+          "captures": {
+            "1": {
+              "name": "storage.type.class.cscript"
+            },
+            "2": {
+              "name": "entity.name.type.class.cscript"
+            },
+            "3": {
+              "name": "storage.modifier.extends.cscript"
+            },
+            "4": {
+              "name": "entity.other.inherited-class.cscript"
+            }
+          }
+        },
+        {
+          "match": "\\b(let|const)\\s+([A-Za-z_$][\\w$]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.cscript"
+            },
+            "2": {
+              "name": "variable.other.declaration.cscript"
+            }
+          }
+        }
+      ]
+    },
+    "class-member": {
+      "//": "`static` blocks, accessors and private fields \u2014 the parts of a class body the EBNF names separately.",
+      "patterns": [
+        {
+          "match": "\\b(static)\\s+(?=\\{)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.cscript"
+            }
+          }
+        },
+        {
+          "match": "\\b(static\\s+)?(get|set)\\s+([A-Za-z_$#][\\w$]*|(?=\\[))",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.cscript"
+            },
+            "2": {
+              "name": "storage.type.accessor.cscript"
+            },
+            "3": {
+              "name": "entity.name.function.accessor.cscript"
+            }
+          }
+        },
+        {
+          "name": "variable.other.property.private.cscript",
+          "match": "#[A-Za-z_$][\\w$]*"
+        }
+      ]
+    },
+    "label": {
+      "//": "`labelledStatement = IDENTIFIER \":\" statement`, and the `break`/`continue` that name one.",
+      "patterns": [
+        {
+          "match": "^\\s*([A-Za-z_$][\\w$]*)\\s*(:)(?!\\s*[:=])(?=\\s*(for|while|do|switch|\\{))",
+          "captures": {
+            "1": {
+              "name": "entity.name.label.cscript"
+            },
+            "2": {
+              "name": "punctuation.separator.label.cscript"
+            }
+          }
+        },
+        {
+          "match": "\\b(break|continue)\\s+([A-Za-z_$][\\w$]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.flow.cscript"
+            },
+            "2": {
+              "name": "entity.name.label.cscript"
+            }
+          }
+        }
+      ]
+    },
+    "keyword": {
+      "patterns": [
+        {
+          "//": "`new.target`, which is one token pair rather than a property read.",
+          "name": "variable.language.new-target.cscript",
+          "match": "\\bnew\\.target\\b"
+        },
+        {
+          "name": "keyword.control.conditional.cscript",
+          "match": "\\b(if|else|switch|case|default)\\b"
+        },
+        {
+          "name": "keyword.control.loop.cscript",
+          "match": "\\b(for|while|do|of|in)\\b"
+        },
+        {
+          "name": "keyword.control.flow.cscript",
+          "match": "\\b(return|break|continue|throw)\\b"
+        },
+        {
+          "name": "keyword.control.trycatch.cscript",
+          "match": "\\b(try|catch|finally)\\b"
+        },
+        {
+          "name": "keyword.control.import.cscript",
+          "match": "\\b(import|export|from|as)\\b"
+        },
+        {
+          "name": "keyword.control.flow.await.cscript",
+          "match": "\\b(await)\\b"
+        },
+        {
+          "name": "keyword.control.flow.yield.cscript",
+          "match": "\\byield\\b\\s*\\*?"
+        },
+        {
+          "name": "keyword.operator.expression.cscript",
+          "match": "\\b(typeof|instanceof|delete|void|new)\\b"
+        },
+        {
+          "name": "storage.modifier.cscript",
+          "match": "\\b(async|static|extends)\\b"
+        },
+        {
+          "name": "storage.type.cscript",
+          "match": "\\b(function|class|let|const)\\b"
+        },
+        {
+          "name": "variable.language.this.cscript",
+          "match": "\\b(this|super)\\b"
+        }
+      ]
+    },
+    "constant": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.cscript",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "constant.language.null.cscript",
+          "match": "\\b(null|undefined)\\b"
+        },
+        {
+          "name": "constant.language.numeric.cscript",
+          "match": "\\b(NaN|Infinity)\\b"
+        },
+        {
+          "//": "The standard library, which is part of the language here rather than an object lying around \u2014 it is frozen and cannot be reassigned.",
+          "name": "support.class.builtin.cscript",
+          "match": "\\b(console|Math|JSON|Object|Array|Number|String|Boolean|Symbol|BigInt|Promise|Map|Set|WeakMap|WeakSet|Date|Error|AggregateError|RegExp)\\b"
+        },
+        {
+          "name": "support.function.builtin.cscript",
+          "match": "\\b(parseInt|parseFloat|isNaN|isFinite|setTimeout|setInterval|clearTimeout|clearInterval|structuredClone)\\b"
+        },
+        {
+          "name": "variable.other.constant.cscript",
+          "match": "\\b[A-Z][A-Z0-9_]{2,}\\b"
+        }
+      ]
+    },
+    "call": {
+      "patterns": [
+        {
+          "match": "([A-Za-z_$][\\w$]*)\\s*(?=\\()",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.call.cscript"
+            }
+          }
+        },
+        {
+          "match": "(?<=\\.)\\s*([A-Za-z_$][\\w$]*)\\s*(?=\\()",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.method.cscript"
+            }
+          }
+        },
+        {
+          "match": "(?<=\\.)([A-Za-z_$][\\w$]*)",
+          "captures": {
+            "1": {
+              "name": "variable.other.property.cscript"
+            }
+          }
+        }
+      ]
+    },
+    "operator": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arrow.cscript",
+          "match": "=>"
+        },
+        {
+          "name": "keyword.operator.spread.cscript",
+          "match": "\\.\\.\\."
+        },
+        {
+          "name": "keyword.operator.optional.cscript",
+          "match": "\\?\\."
+        },
+        {
+          "name": "keyword.operator.assignment.compound.cscript",
+          "match": "(\\*\\*=|\\?\\?=|\\|\\|=|&&=|[+\\-*/%]=)"
+        },
+        {
+          "name": "keyword.operator.comparison.cscript",
+          "match": "(===|!==)"
+        },
+        {
+          "name": "keyword.operator.relational.cscript",
+          "match": "(<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.logical.cscript",
+          "match": "(&&|\\|\\||\\?\\?|!)"
+        },
+        {
+          "name": "keyword.operator.increment.cscript",
+          "match": "(\\+\\+|--)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.cscript",
+          "match": "(\\*\\*|[+\\-*/%])"
+        },
+        {
+          "name": "keyword.operator.ternary.cscript",
+          "match": "[?:]"
+        },
+        {
+          "name": "keyword.operator.assignment.cscript",
+          "match": "="
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.terminator.statement.cscript",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.separator.comma.cscript",
+          "match": ","
+        },
+        {
+          "name": "punctuation.accessor.cscript",
+          "match": "\\."
+        },
+        {
+          "name": "punctuation.section.block.cscript",
+          "match": "[{}]"
+        },
+        {
+          "name": "punctuation.section.brackets.cscript",
+          "match": "[\\[\\]]"
+        },
+        {
+          "name": "punctuation.section.parens.cscript",
+          "match": "[()]"
+        }
+      ]
+    },
+    "identifier": {
+      "//": "Everything a more specific rule did not claim. Last in the list, so a keyword, a call or a property has already been taken by then \u2014 what is left is a plain variable, and a theme that colours one has something to colour.",
+      "name": "variable.other.readwrite.cscript",
+      "match": "[A-Za-z_$][\\w$]*"
+    }
+  }
+}
