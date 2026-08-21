@@ -371,6 +371,14 @@ AstNode *csAstNewTarget(AstArena *arena, int line) {
   return newNode(arena, AST_NEW_TARGET, line);
 }
 
+AstNode *csAstDynamicImport(AstArena *arena, int line, AstNode *specifier) {
+  AstNode *node = newNode(arena, AST_DYNAMIC_IMPORT, line);
+  if (node == NULL) return NULL;
+  node->as.unary.op = UNARY_VOID; /* unused; the node has one operand */
+  node->as.unary.operand = specifier;
+  return node;
+}
+
 AstNode *csAstAwait(AstArena *arena, int line, AstNode *operand) {
   AstNode *node = newNode(arena, AST_AWAIT, line);
   if (node == NULL) return NULL;

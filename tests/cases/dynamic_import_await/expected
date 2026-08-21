@@ -1,0 +1,1 @@
+'awaits.cx' has a top-level await, which import() cannot wait for; import it statically instead

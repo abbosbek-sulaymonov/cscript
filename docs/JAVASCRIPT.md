@@ -243,6 +243,32 @@ any shape, which a fixed-width calculation would not be.
 `$<` as text, and one that has names treats an unknown name as an empty
 capture.
 
+### Dynamic `import()`
+
+`import(specifier)` names a module at run time and answers a promise for its
+namespace. The specifier is an expression, so it may be computed.
+
+Reading and compiling a file is synchronous here, so the promise is already
+settled when it is handed back. That is a difference in *when* the work happens
+rather than in what a program can observe: the result is still a promise, still
+reached through `await` or `.then`, and still delivered on a microtask. What it
+does change is ordering between two imports started in the same turn — theirs
+settle as the I/O completes, ours in source order.
+
+A module that cannot be found or read rejects rather than stopping the program,
+which is the whole point of asking for one at run time. An error *inside* the
+module is a runtime error and keeps travelling, because runtime errors are not
+catchable here.
+
+A module whose own top level awaits cannot be imported this way: settling it
+would mean running the event loop from inside the call that asked for it, and
+naming that beats handing back a namespace of names that are not there yet.
+Importing such a module statically works, because the loader drives it in
+dependency order before anything that needs it runs.
+
+A namespace is one object per module, so `import * as a` and `await import(…)`
+of the same file give the same object — as they do in JavaScript.
+
 ### `new.target`
 
 `new.target` is whatever `new` was applied to, and undefined for a plain call —
@@ -455,7 +481,6 @@ Each of these produces an error that names it, rather than failing obscurely.
 | `Date`'s locale formats | `toLocaleString` and `toLocaleDateString`. Every non-ISO input form is implementation-defined in JavaScript too, so `Date.parse` of one is NaN |
 | `arguments` | Deliberate, and now for a stronger reason than taste: arity is checked, so a call may not pass more arguments than the function declares. There are never extra arguments for `arguments` to collect, and it could only ever repeat the parameters. A rest parameter is how you accept a variable number, and it says so in the signature |
 | Subclassing built-ins — `class MyArray extends Array` | |
-| Dynamic `import()` | Static `import` and `export` are resolved before the program runs |
 | Bare import specifiers — `import x from "lodash"` | No package system to resolve against |
 | Sparse arrays and holes | Deliberate: they are why engines need a second array representation |
 | Unicode-correct string indexing | Strings are indexed by byte, which is correct for ASCII |

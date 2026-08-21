@@ -182,6 +182,12 @@ struct ObjModule {
   /* The compiled top level, kept only until it runs. */
   ObjFunction *body;
 
+  /* The frozen view of `exports`, built the first time one is asked for.
+   * Cached because a namespace is one object per module in JavaScript —
+   * `import * as a` and `await import(…)` of the same file give the same
+   * object — and rebuilding it would quietly make them different. */
+  ObjObject *namespaceView;
+
   /* Loaded but not finished: a module reached again while this is set closes
    * an import cycle. */
   bool loading;

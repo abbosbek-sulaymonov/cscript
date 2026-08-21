@@ -1,0 +1,10 @@
+// A module whose top level awaits has to settle before its namespace is worth
+// anything, and settling it means running the event loop from inside the call
+// that asked for it. Naming that beats handing back a namespace of names that
+// are not there yet — importing such a module statically works, because the
+// loader drives it in dependency order before anything that needs it runs.
+try {
+  await import("./awaits.cx");
+} catch (e) {
+  console.log(e.message);
+}

@@ -37,6 +37,9 @@ typedef enum {
   AST_THIS,
   /* `new.target` — what `new` was applied to, or undefined for a plain call. */
   AST_NEW_TARGET,
+  /* `import(specifier)` — loads a module named at run time and answers a
+   * promise for its namespace. The operand is in `as.unary.operand`. */
+  AST_DYNAMIC_IMPORT,
   AST_SUPER,
   AST_AWAIT,
   AST_YIELD,
@@ -526,6 +529,7 @@ AstNode *csAstCall(AstArena *arena, int line, AstNode *callee);
 AstNode *csAstNew(AstArena *arena, int line, AstNode *callee);
 AstNode *csAstThis(AstArena *arena, int line);
 AstNode *csAstNewTarget(AstArena *arena, int line);
+AstNode *csAstDynamicImport(AstArena *arena, int line, AstNode *specifier);
 AstNode *csAstRegex(AstArena *arena, int line, const char *source, int sourceLength,
                     const char *flags, int flagsLength);
 AstNode *csAstAwait(AstArena *arena, int line, AstNode *operand);

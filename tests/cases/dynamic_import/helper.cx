@@ -1,0 +1,4 @@
+export const answer = 42;
+export function greet(name) {
+  return `hello ${name}`;
+}

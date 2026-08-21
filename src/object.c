@@ -436,6 +436,7 @@ ObjModule *csModuleNew(ObjString *path) {
   registerObject((Obj *)module, OBJ_MODULE);
   module->path = path;
   module->body = NULL;
+  module->namespaceView = NULL;
   module->loading = false;
   module->executed = false;
   csTableInit(&module->globals);
@@ -1125,6 +1126,7 @@ void csObjectBlacken(Obj *object) {
 
     case OBJ_MODULE: {
       ObjModule *module = (ObjModule *)object;
+      csMarkObject((Obj *)module->namespaceView);
       csMarkObject((Obj *)module->path);
       csMarkObject((Obj *)module->body);
       csTableMark(&module->globals);

@@ -1,0 +1,38 @@
+// `import(specifier)` names a module at run time and answers a promise for its
+// namespace. Reading and compiling a file is synchronous here, so the promise
+// is already settled when it is handed back — a difference in *when* the work
+// happens rather than in what a program can observe, since the result is still
+// reached through `await` or `.then`.
+const m = await import("./helper.cx");
+console.log(m.answer, m.greet("world"));
+console.log(Object.keys(m));
+
+// A namespace is one object per module: the static and dynamic forms of the
+// same file give the same object.
+import * as statically from "./helper.cx";
+const again = await import("./helper.cx");
+console.log(m === again, m === statically);
+
+// A module runs once however it is reached, and however often.
+const first = await import("./counted.cx");
+const second = await import("./counted.cx");
+console.log(first.value, second.value, first === second);
+
+// A namespace is a view rather than somewhere to put things: writing to one is
+// refused. JavaScript refuses it too, as an exotic object rather than a frozen
+// one, so only the refusal is common ground and the shape of it is not.
+
+// A module that cannot be found rejects rather than stopping the program,
+// which is the whole point of asking for one at run time.
+try {
+  await import("./missing.cx");
+} catch (e) {
+  /* The wording of the message is this implementation's, so only its shape is
+   * worth pinning against Node. */
+  console.log("rejected:", typeof e.message);
+}
+
+// The specifier is an expression, so it may be computed.
+const name = "./helper";
+const computed = await import(`${name}.cx`);
+console.log(computed.answer);

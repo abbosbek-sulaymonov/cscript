@@ -441,7 +441,15 @@ AstNode *parseStatement(Parser *parser) {
 
   if (matchToken(parser, TOKEN_DO)) return parseDoWhile(parser);
 
-  if (matchToken(parser, TOKEN_IMPORT)) return parseImport(parser);
+  /* `import(…)` in statement position is an expression, not a declaration —
+   * the parenthesis is the whole of what separates them. */
+  if (check(parser, TOKEN_IMPORT)) {
+    Lexer probe = parser->lexer;
+    if (csLexerNext(&probe).type != TOKEN_LEFT_PAREN) {
+      advanceToken(parser);
+      return parseImport(parser);
+    }
+  }
 
   if (matchToken(parser, TOKEN_EXPORT)) return parseExport(parser);
 

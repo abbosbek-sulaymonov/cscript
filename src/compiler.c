@@ -1119,6 +1119,11 @@ void compileNode(const AstNode *node) {
       compileThisLoad(line);
       break;
 
+    case AST_DYNAMIC_IMPORT:
+      compileNode(node->as.unary.operand);
+      emitByte(OP_DYNAMIC_IMPORT, line);
+      break;
+
     case AST_NEW_TARGET:
       /* Rejected in an arrow rather than answered with undefined. An arrow
        * borrows `this` from what encloses it and JavaScript has `new.target`

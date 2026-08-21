@@ -195,6 +195,7 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
     case OP_OBJECT_SET:        return simpleInstruction("OP_OBJECT_SET", offset);
     case OP_SET_PROTOTYPE:     return simpleInstruction("OP_SET_PROTOTYPE", offset);
     case OP_NEW_TARGET:        return simpleInstruction("OP_NEW_TARGET", offset);
+    case OP_DYNAMIC_IMPORT:    return simpleInstruction("OP_DYNAMIC_IMPORT", offset);
     case OP_INVOKE_INDEX:      return byteInstruction("OP_INVOKE_INDEX", chunk, offset);
     case OP_OBJECT_ACCESSOR:   return byteInstruction("OP_OBJECT_ACCESSOR", chunk, offset);
     case OP_OBJECT_MERGE:      return simpleInstruction("OP_OBJECT_MERGE", offset);
@@ -471,6 +472,10 @@ static void printNode(const AstNode *node, int depth) {
     case AST_REGEX_LITERAL:
       printf("Regex /%.*s/%.*s\n", node->as.regex.sourceLength, node->as.regex.source,
              node->as.regex.flagsLength, node->as.regex.flags);
+      break;
+    case AST_DYNAMIC_IMPORT:
+      printf("DynamicImport\n");
+      printNode(node->as.unary.operand, depth + 1);
       break;
     case AST_NEW_TARGET:
       printf("NewTarget\n");

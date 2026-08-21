@@ -379,6 +379,164 @@ char *csVMValueToText(Value value, size_t *length) {
   return csValueToCString(produced, length);
 }
 
+/* A module's exports as one frozen object.
+ *
+ * The keys are sorted, because that is what the specification says a
+ * namespace's keys are — the exporting file's declaration order is
+ * deliberately not observable through one. Returns false with an error already
+ * reported when the module exports more names than one can hold. */
+static bool buildNamespace(ObjModule *module, Value *out) {
+  /* One namespace object per module: `import * as a` and `await import(…)` of
+   * the same file give the same object in JavaScript, and rebuilding it would
+   * quietly make them different. */
+  if (module->namespaceView != NULL) {
+    *out = OBJ_VAL(module->namespaceView);
+    return true;
+  }
+
+  /* Collected first so the sort does not have to happen against a hash
+   * table. */
+  ObjString *names[CS_NAMESPACE_MAX];
+  int count = 0;
+  for (int i = 0; i < module->exports.capacity; i++) {
+    Entry *entry = &module->exports.entries[i];
+    if (entry->key == NULL) continue;
+    if (count == CS_NAMESPACE_MAX) {
+      csVMRuntimeError("'%s' exports more than %d names", module->path->chars,
+                       CS_NAMESPACE_MAX);
+      return false;
+    }
+    names[count++] = entry->key;
+  }
+
+  /* Insertion sort: export lists are short, and this keeps the comparison —
+   * code-unit order, shorter first on a prefix — in one readable place. */
+  for (int i = 1; i < count; i++) {
+    ObjString *key = names[i];
+    int j = i - 1;
+    while (j >= 0) {
+      int shorter = names[j]->length < key->length ? names[j]->length : key->length;
+      int order = memcmp(names[j]->chars, key->chars, (size_t)shorter);
+      if (order == 0) order = names[j]->length - key->length;
+      if (order <= 0) break;
+      names[j + 1] = names[j];
+      j--;
+    }
+    names[j + 1] = key;
+  }
+
+  ObjObject *namespaceObject = csObjectNew(module->path->chars);
+  /* Kept on the stack while the copies below, which allocate, run. */
+  csVMPush(OBJ_VAL(namespaceObject));
+
+  for (int i = 0; i < count; i++) {
+    Value value;
+    if (!csTableGet(&module->globals, names[i], &value)) continue;
+    csObjectPut(namespaceObject, names[i], value);
+  }
+
+  /* A namespace is a view of another module, not somewhere to put things. */
+  csObjectFreeze(namespaceObject);
+  csVMPop();
+  module->namespaceView = namespaceObject;
+  *out = OBJ_VAL(namespaceObject);
+  return true;
+}
+
+/* An Error object with a formatted message, for something a program is meant
+ * to catch rather than be stopped by. */
+static Value csVMMakeError(const char *format, ...) {
+  char message[512];
+  va_list args;
+  va_start(args, format);
+  vsnprintf(message, sizeof message, format, args);
+  va_end(args);
+
+  ObjObject *error = csObjectNew("Error");
+  csPushTempRoot((Obj *)error);
+  ObjString *name = csStringCopy("Error", 5);
+  csPushTempRoot((Obj *)name);
+  csObjectSetProperty(error, "name", OBJ_VAL(name));
+  csPopTempRoot();
+  ObjString *text = csStringCopy(message, (int)strlen(message));
+  csPushTempRoot((Obj *)text);
+  csObjectSetProperty(error, "message", OBJ_VAL(text));
+  csPopTempRoot();
+  csPopTempRoot();
+  return OBJ_VAL(error);
+}
+
+/* Loads, compiles and runs a module named at run time, and answers its
+ * namespace. False with an error reported.
+ *
+ * The bodies run as nested calls rather than through csVMRunBody, which resets
+ * the stack when it finishes — right for a top level and fatal in the middle
+ * of one. */
+static bool importAtRuntime(ObjModule *from, ObjString *specifier, Value *out,
+                            bool *fatal) {
+  *fatal = false;
+
+  char resolved[4096];
+  const char *fromPath = from != NULL ? from->path->chars : "<main>";
+  if (!csModuleResolve(fromPath, specifier->chars, resolved, sizeof resolved)) {
+    *out = csVMMakeError("cannot find module '%s'", specifier->chars);
+    return false;
+  }
+
+  ObjModule *module = csModuleLoadResolved(resolved, specifier->chars, NULL, 0);
+  if (module == NULL) {
+    *out = csVMMakeError("cannot load module '%s'", specifier->chars);
+    return false;
+  }
+
+  /* Everything the load queued, in dependency order — which for a module
+   * already loaded is nothing at all, so importing one twice runs it once. */
+  for (int i = 0; i < vm.pendingCount; i++) {
+    ObjModule *pending = vm.pending[i];
+    if (pending->executed) continue;
+
+    ObjFunction *body = pending->body;
+    pending->executed = true;
+    pending->body = NULL;
+
+    if (body->isAsync) {
+      /* A top level that awaits has to settle before the namespace is worth
+       * anything, and settling it means running the event loop from inside
+       * this call. Naming that beats handing back a namespace of names that
+       * are not there yet. */
+      vm.pendingCount = 0;
+      *out = csVMMakeError("'%s' has a top-level await, which import() cannot "
+                           "wait for; import it statically instead",
+                           csModuleDisplayPath(pending->path->chars));
+      return false;
+    }
+
+    csPushTempRoot((Obj *)body);
+    ObjClosure *closure = csClosureNew(body);
+    csPopTempRoot();
+
+    int baseFrame = vm.frameCount;
+    csVMPush(OBJ_VAL(closure));
+    if (!callClosure(closure, 0)) {
+      vm.pendingCount = 0;
+      *fatal = true;
+      return false;
+    }
+    if (run(baseFrame) != CS_OK) {
+      /* Something inside the module went wrong. A runtime error is not
+       * catchable here, so it keeps travelling rather than becoming a
+       * rejection that hides it. */
+      vm.pendingCount = 0;
+      *fatal = true;
+      return false;
+    }
+    csVMPop(); /* what the body left behind */
+  }
+  vm.pendingCount = 0;
+
+  return buildNamespace(module, out);
+}
+
 static bool concatenateOrAdd(void) {
   Value b = peekStack(0);
   Value a = peekStack(1);
@@ -2776,6 +2934,43 @@ InterpretResult run(int baseFrame) {
         VM_NEXT();
       }
 
+      VM_CASE(OP_DYNAMIC_IMPORT) {
+        /* `import(specifier)` — a module named at run time.
+         *
+         * Reading and compiling a file is synchronous here, so the promise is
+         * settled before it is handed back. That is a difference from
+         * JavaScript only in *when* the work happens, not in what a program
+         * can observe: the result is still a promise, so it is still reached
+         * through `await` or `.then`, and the microtask that delivers it runs
+         * in the same turn it would have anyway. */
+        Value specifier = peekStack(0);
+        if (!IS_STRING(specifier)) {
+          csVMRuntimeError("import() expects a string, got %s",
+                           csValueTypeName(specifier));
+          return CS_RUNTIME_ERROR;
+        }
+
+        ObjPromise *promise = csPromiseNew();
+        csVMPop();
+        csVMPush(OBJ_VAL(promise));
+
+        Value loaded;
+        bool fatal = false;
+        if (importAtRuntime(frame->closure->function->module, AS_STRING(specifier),
+                            &loaded, &fatal)) {
+          csPromiseFulfill(promise, loaded);
+        } else if (fatal) {
+          return CS_RUNTIME_ERROR;
+        } else {
+          /* A module that cannot be found or read rejects rather than stopping
+           * the program, which is the whole point of asking for one at run
+           * time. */
+          csPromiseReject(promise, loaded);
+        }
+        frame = &vm.frames[vm.frameCount - 1];
+        VM_NEXT();
+      }
+
       VM_CASE(OP_NEW_TARGET)
         csVMPush(frame->newTarget);
         VM_NEXT();
@@ -3440,58 +3635,12 @@ InterpretResult run(int baseFrame) {
       }
 
       VM_CASE(OP_IMPORT_NAMESPACE) {
-        ObjModule *module = AS_MODULE(peekStack(0));
-
-        /* Sorted, because that is what the specification says a namespace's
-         * keys are — the exporting file's declaration order is deliberately
-         * not observable through one. Collected first so the sort does not
-         * have to happen against a hash table. */
-        ObjString *names[CS_NAMESPACE_MAX];
-        int count = 0;
-        for (int i = 0; i < module->exports.capacity; i++) {
-          Entry *entry = &module->exports.entries[i];
-          if (entry->key == NULL) continue;
-          if (count == CS_NAMESPACE_MAX) {
-            csVMRuntimeError("'%s' exports more than %d names",
-                             module->path->chars, CS_NAMESPACE_MAX);
-            return CS_RUNTIME_ERROR;
-          }
-          names[count++] = entry->key;
+        Value namespaceValue;
+        if (!buildNamespace(AS_MODULE(peekStack(0)), &namespaceValue)) {
+          return CS_RUNTIME_ERROR;
         }
-
-        /* Insertion sort: export lists are short, and this keeps the
-         * comparison — code-unit order, shorter first on a prefix — in one
-         * readable place. */
-        for (int i = 1; i < count; i++) {
-          ObjString *key = names[i];
-          int j = i - 1;
-          while (j >= 0) {
-            int shorter = names[j]->length < key->length ? names[j]->length : key->length;
-            int order = memcmp(names[j]->chars, key->chars, (size_t)shorter);
-            if (order == 0) order = names[j]->length - key->length;
-            if (order <= 0) break;
-            names[j + 1] = names[j];
-            j--;
-          }
-          names[j + 1] = key;
-        }
-
-        ObjObject *namespaceObject = csObjectNew(module->path->chars);
-        /* Kept on the stack under the module so the copies below, which
-         * allocate, cannot collect it. */
-        csVMPush(OBJ_VAL(namespaceObject));
-
-        for (int i = 0; i < count; i++) {
-          Value value;
-          if (!csTableGet(&module->globals, names[i], &value)) continue;
-          csObjectPut(namespaceObject, names[i], value);
-        }
-
-        /* A namespace is a view of another module, not somewhere to put
-         * things. */
-        csObjectFreeze(namespaceObject);
-        vm.stackTop -= 2;
-        csVMPush(OBJ_VAL(namespaceObject));
+        csVMPop();
+        csVMPush(namespaceValue);
         VM_NEXT();
       }
 

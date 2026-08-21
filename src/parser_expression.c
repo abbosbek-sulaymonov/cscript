@@ -206,6 +206,23 @@ AstNode *parsePrimary(Parser *parser) {
     return NULL;
   }
 
+  /* `import(specifier)` — a module named at run time. It is not a call of
+   * anything: `import` is a keyword, so this is its own form rather than an
+   * identifier that happens to be callable. */
+  if (check(parser, TOKEN_IMPORT)) {
+    Lexer probe = parser->lexer;
+    if (csLexerNext(&probe).type == TOKEN_LEFT_PAREN) {
+      advanceToken(parser); /* `import` */
+      advanceToken(parser); /* `(` */
+      AstNode *specifier = parsePrecedence(parser, PREC_ASSIGNMENT);
+      if (specifier == NULL) return NULL;
+      consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the module name");
+      if (parser->diag->panicMode) return NULL;
+      return parseCallSuffixes(parser,
+                               csAstDynamicImport(parser->arena, line, specifier));
+    }
+  }
+
   if (matchToken(parser, TOKEN_NEW)) {
     /* Whatever the class is reached through: a name, a property of one, an
      * element of an array, or a parenthesised expression. The one thing it may

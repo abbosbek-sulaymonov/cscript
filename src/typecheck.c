@@ -870,6 +870,11 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
       result = TYPE_OBJECT;
       break;
 
+    case AST_DYNAMIC_IMPORT:
+      checkNode(checker, node->as.unary.operand);
+      result = TYPE_ANY; /* a promise, which the lattice does not model */
+      break;
+
     case AST_THIS:
     case AST_NEW_TARGET:
     case AST_SUPER:

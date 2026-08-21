@@ -1,0 +1,4 @@
+// Runs once however many times it is imported, which is what makes a module a
+// module rather than an include.
+console.log("counted.cx ran");
+export const value = 7;
