@@ -74,6 +74,18 @@ second asserts that particular text carries a particular scope, which is what
 catches a rule that matches but matches as the wrong thing: it is how
 `new.target` was found being read as `new` followed by a property.
 
+## The mark
+
+A large C with the word set in its opening, the way C++ puts its `++` there.
+The C is what survives being drawn at sixteen pixels beside a filename; the
+word is what makes it this language rather than another one, and is legible
+from about twenty-four pixels up. That is the trade a wordmark makes, and C++'s
+own icon makes it too.
+
+In the SVG the C is a stroked arc rather than a letter, so it renders the same
+without depending on a font being installed, and the word carries `textLength`
+so it cannot overflow the tile on a machine that has a different one.
+
 ## The file icon, and its one catch
 
 VS Code takes the icon beside a filename from whichever **file icon theme** is
