@@ -15,6 +15,9 @@
 #include <string.h>
 
 #include "cscript/debug.h"
+#include "cscript/memory.h"
+#include "cscript/shape.h"
+#include "cscript/vm.h"
 #include "cscript/ir.h"
 #include "cscript/type.h"
 #include "cscript/opcode.h"
@@ -225,6 +228,78 @@ static bool lowerBinary(Lowering *low, IrBlock *block, IrOp op, IrType type, int
   inst->b = right;
   inst->type = type;
   return push(low, block, result, line);
+}
+
+/* Does any instruction in this chunk store to `slot`?
+ *
+ * Asked of the bytecode rather than of the IR because the answer has to be
+ * known while the IR is still being built. A parameter that is never assigned
+ * is the common case and the only one this admits. */
+static bool slotIsNeverWritten(const Chunk *chunk, int slot) {
+  for (int offset = 0; offset < chunk->count;) {
+    uint8_t opcode = chunk->code[offset];
+    if ((opcode == OP_SET_LOCAL || opcode == OP_SET_LOCAL_POP) &&
+        chunk->code[offset + 1] == slot) {
+      return false;
+    }
+    int next = csInstructionLength(chunk, offset);
+    if (next <= offset) return false;
+    offset = next;
+  }
+  return true;
+}
+
+/* Records what a property read takes for granted, merging with an assumption
+ * already made about the same slot and property. Two reads of the same field
+ * cost one check. */
+static bool rememberEntryShape(IrFunction *ir, int slot, Shape *shape, int property) {
+  for (int i = 0; i < ir->entryShapeCount; i++) {
+    IrEntryShape *existing = &ir->entryShapes[i];
+    if (existing->slot != slot) continue;
+    /* One slot, one layout. A second shape for the same slot would mean the
+     * site is not monomorphic after all. */
+    if (existing->shape != shape) return false;
+    if (existing->property == property) return true;
+  }
+
+  if (ir->entryShapeCount == ir->entryShapeCapacity) {
+    int capacity = ir->entryShapeCapacity < 4 ? 4 : ir->entryShapeCapacity * 2;
+    IrEntryShape *grown = (IrEntryShape *)realloc(
+        ir->entryShapes, sizeof(IrEntryShape) * (size_t)capacity);
+    if (grown == NULL) return false;
+    ir->entryShapes = grown;
+    ir->entryShapeCapacity = capacity;
+  }
+
+  ir->entryShapes[ir->entryShapeCount].slot = slot;
+  ir->entryShapes[ir->entryShapeCount].shape = shape;
+  ir->entryShapes[ir->entryShapeCount].property = property;
+  ir->entryShapes[ir->entryShapeCount].expectsNumber = true;
+  ir->entryShapeCount++;
+  return true;
+}
+
+bool csIrEntryShapesHold(const IrFunction *ir, const Value *slots) {
+  for (int i = 0; i < ir->entryShapeCount; i++) {
+    const IrEntryShape *assumed = &ir->entryShapes[i];
+    Value held = slots[assumed->slot];
+    if (!IS_OBJECT(held)) return false;
+
+    ObjObject *object = AS_OBJECT(held);
+    if (object->shape != assumed->shape) return false;
+    if (assumed->property >= object->shape->slotCount) return false;
+    if (assumed->expectsNumber &&
+        !IS_NUMBER(object->as.slots.values[assumed->property])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void csIrMarkShapes(const IrFunction *ir) {
+  for (int i = 0; i < ir->entryShapeCount; i++) {
+    csMarkObject((Obj *)ir->entryShapes[i].shape);
+  }
 }
 
 IrFunction *csIrLower(ObjFunction *function, const char **reason) {
@@ -459,6 +534,46 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
         inst->result = result;
         inst->a = slot;
         inst->type = low.slotType[slot];
+        if (slot + 1 > ir->slotCount) ir->slotCount = slot + 1;
+        if (!push(&low, block, result, line)) goto failed;
+        break;
+      }
+
+      /* `local.name`, where the site has settled on one layout.
+       *
+       * Three things have to hold, and all three are checkable here. The site
+       * must be monomorphic — a cache that has seen one shape is the profile
+       * this needs, and it is already being kept. The slot must be one the
+       * function never writes, or the object checked at entry would not be the
+       * object read here. And the property must hold a number, because
+       * anything else has no unboxed form and nothing downstream could use
+       * it. */
+      case OP_GET_LOCAL_PROPERTY: {
+        int slot = chunk->code[offset + 1];
+        int cacheIndex = (chunk->code[offset + 4] << 8) | chunk->code[offset + 5];
+        if (cacheIndex >= chunk->propertyCacheCount) {
+          low.reason = csOpcodeName((OpCode)opcode);
+          goto failed;
+        }
+
+        const PropertyCache *cache = &chunk->propertyCaches[cacheIndex];
+        if (cache->shape == NULL || cache->shape == vm.absentShape ||
+            cache->slot < 0 || !slotIsNeverWritten(chunk, slot)) {
+          low.reason = csOpcodeName((OpCode)opcode);
+          goto failed;
+        }
+
+        if (!rememberEntryShape(ir, slot, cache->shape, cache->slot)) {
+          low.reason = csOpcodeName((OpCode)opcode);
+          goto failed;
+        }
+
+        int result = newRegister(ir, IR_TYPE_NUMBER);
+        IrInst *inst = append(block, IR_LOAD_PROPERTY, line);
+        inst->result = result;
+        inst->a = slot;
+        inst->b = cache->slot;
+        inst->type = IR_TYPE_NUMBER;
         if (slot + 1 > ir->slotCount) ir->slotCount = slot + 1;
         if (!push(&low, block, result, line)) goto failed;
         break;
@@ -867,6 +982,8 @@ void csIrRegisterOperands(const IrInst *inst, int *a, int *b) {
     case IR_CONST:
     case IR_JUMP:
     case IR_EXIT:
+    /* `a` is a frame slot and `b` a storage index; neither is a register. */
+    case IR_LOAD_PROPERTY:
     case IR_LOAD_LOCAL:
     case IR_LOAD_GLOBAL:
       break; /* neither field is a register */
@@ -1167,6 +1284,7 @@ static const char *opName(IrOp op) {
     case IR_JUMP: return "jump";
     case IR_BRANCH: return "branch";
     case IR_RETURN: return "return";
+    case IR_LOAD_PROPERTY: return "loadprop";
     case IR_EXIT:   return "exit";
     case IR_LOAD_GLOBAL:  return "loadg";
     case IR_STORE_GLOBAL: return "storeg";
@@ -1288,6 +1406,14 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
       switch (inst->op) {
         case IR_CONST: registers[inst->result] = inst->constant; break;
         case IR_LOAD_LOCAL: registers[inst->result] = slots[inst->a]; break;
+
+        case IR_LOAD_PROPERTY: {
+          /* Unguarded, because the entry check already proved the layout and
+           * the slot is one this function never writes. */
+          ObjObject *object = AS_OBJECT(slots[inst->a]);
+          registers[inst->result] = object->as.slots.values[inst->b];
+          break;
+        }
         case IR_STORE_LOCAL: slots[inst->a] = registers[inst->b]; break;
 
         case IR_ADD:

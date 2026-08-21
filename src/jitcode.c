@@ -706,6 +706,14 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
 
       switch (inst->op) {
+        case IR_LOAD_PROPERTY:
+          /* Left to the IR interpreter for now: the load itself is one indexed
+           * read, but the object's storage pointer has to be reached through
+           * two indirections the encoder does not emit yet. The lowering and
+           * the entry checks are what needed proving first. */
+          *why = "reads a property";
+          goto unsupported;
+
         case IR_CONST: {
           /* A number's Value is its double, so the bits go straight across. */
           uint64_t bits;

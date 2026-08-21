@@ -518,7 +518,8 @@ cscript/
 | **53 ✅** | Guessed parameter types with a guard, so ordinary calls compile | — |
 | next | Calling a CScript function from compiled code, which needs frames and safepoints | — |
 | next | Inlining, so a small function is worth compiling | — |
-| next | Shape-guarded property access — 84 of the sites the compiler stops at, the largest addressable cluster | — |
+| **54 ✅** | Property reads lowered against a shape, checked once at entry | — |
+| next | Emitting a property read in machine code, which the IR now describes | — |
 
 ---
 

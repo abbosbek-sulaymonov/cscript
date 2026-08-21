@@ -1,0 +1,32 @@
+// A function that reads properties off parameters it never assigns — the shape
+// the compiler lowers against an inline cache, and the one it could not touch
+// before. What is checked here is that the compiled answer is the interpreted
+// one, including where the assumptions stop holding.
+function dot(a, b) {
+  return a.x * b.x + a.y * b.y;
+}
+
+const unit = { x: 3, y: 4 };
+let total = 0;
+for (let i = 0; i < 200; i++) {
+  total = total + dot(unit, unit);
+}
+console.log(total);
+
+// A different layout at the same site: the entry check has to refuse rather
+// than read the wrong storage index.
+const flipped = { y: 4, x: 3 };
+console.log(dot(unit, flipped), dot(flipped, flipped));
+
+// A property that is not a number is refused by the entry check, so the
+// interpreter answers — see error_jit_property_type for what it then says.
+
+// An object whose layout grew after the site settled.
+const grown = { x: 1, y: 2 };
+grown.z = 3;
+console.log(dot(grown, unit));
+
+// And an inherited property, which is not own storage at all.
+const base = { x: 10, y: 20 };
+const derived = Object.create(base);
+console.log(dot(derived, unit));

@@ -1,0 +1,4 @@
+5000
+cscript: runtime error: operands of '*' must be numbers, got string and number
+  at dot (error_jit_property_type.cx:6)
+  at error_jit_property_type.cx:16

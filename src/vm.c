@@ -718,6 +718,7 @@ bool callClosure(ObjClosure *closure, int argCount) {
  * has been used, and going on paying for it on every call would be a tax on
  * exactly the code the compiler is trying to speed up. A call that arrives
  * after that with a different type is caught by the entry guard instead. */
+#ifdef CS_DEBUG_JIT
 static void observeArguments(ObjFunction *function, int argCount) {
   if (function->paramCount == 0 || function->paramCount > 8) return;
 
@@ -736,6 +737,7 @@ static void observeArguments(ObjFunction *function, int argCount) {
     function->observedParams[i] = isNumber ? CS_PARAM_NUMBER : CS_PARAM_MIXED;
   }
 }
+#endif
 
 bool csVMCallClosureWith(ObjClosure *closure, int argCount, bool hasReceiver) {
   ObjFunction *function = closure->function;

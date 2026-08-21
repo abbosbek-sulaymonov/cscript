@@ -194,6 +194,18 @@ bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *
      * annotation next to it, and the reason speculating is safe. */
     if (!observedTypesHold(hot[i].function, args, argCount)) return false;
 
+    /* And the layouts the property reads were lowered against. The arguments
+     * are about to become the frame's slots, so they are what to ask. */
+    if (hot[i].ir->entryShapeCount > 0) {
+      Value entrySlots[256];
+      if (hot[i].ir->slotCount > 256) return false;
+      for (int s = 0; s < hot[i].ir->slotCount; s++) entrySlots[s] = UNDEFINED_VAL;
+      for (int a = 0; a < argCount && a + 1 < hot[i].ir->slotCount; a++) {
+        entrySlots[a + 1] = args[a];
+      }
+      if (!csIrEntryShapesHold(hot[i].ir, entrySlots)) return false;
+    }
+
     /* Compiled code, when there is any. The frame it needs is the slots array
      * the interpreter would have used, with the arguments already in place. */
     if (hot[i].code != NULL) {
@@ -239,6 +251,7 @@ bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots,
       /* The parameters this code was lowered on the strength of are still in
        * their slots, and still have to be what they were guessed to be. */
       if (!observedTypesHoldInFrame(function, slots)) return false;
+      if (!csIrEntryShapesHold(hot[i].ir, slots)) return false;
 
       int exit = -1;
       uint64_t bits = hot[i].code->osr[o].entry(slots, hot[i].scratch, &exit);
@@ -259,6 +272,17 @@ bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots,
     return false;
   }
   return false;
+}
+
+/* The shapes every compiled body is holding on to. They are ordinary
+ * collectable objects, and a shape's transition edges are weak — so without
+ * this a shape nothing else referred to could be freed and its memory come
+ * back as a different shape, which would make an entry check pass exactly when
+ * it must fail. */
+void csJitMarkRoots(void) {
+  for (int i = 0; i < hotCount; i++) {
+    if (hot[i].ir != NULL) csIrMarkShapes(hot[i].ir);
+  }
 }
 
 void csJitConsider(ObjFunction *function) {

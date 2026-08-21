@@ -3,6 +3,7 @@
 
 #include "cscript/compiler.h"
 #include "cscript/memory.h"
+#include "cscript/jit.h"
 #include "cscript/native.h"
 #include "cscript/object.h"
 #include "cscript/shape.h"
@@ -157,6 +158,7 @@ static void markRoots(void) {
     csMarkObject(vm.tempRoots[i]);
   }
   csCompilerMarkRoots();
+  csJitMarkRoots();
 }
 
 static void traceReferences(void) {

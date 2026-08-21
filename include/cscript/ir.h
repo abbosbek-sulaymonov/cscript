@@ -54,6 +54,19 @@ typedef enum {
   IR_LOAD_GLOBAL,  /* a := globals[name a]                  */
   IR_STORE_GLOBAL, /* globals[name a] := b                  */
 
+  /* `result := slots[a].<property b>`, where `b` is an index into the object's
+   * own storage rather than a name.
+   *
+   * There is no guard on it, and that is the whole design. A guard in the body
+   * would be an exit, and a function with an exit can only be entered where a
+   * frame already exists — so guarding here would have bought property reads
+   * at the price of never answering a call with them, which is the only place
+   * they would pay. Instead the shape the read was lowered against is recorded
+   * as an entry assumption and checked once, before the body starts: see
+   * IrEntryShape. That works because the object comes from a frame slot the
+   * function never writes, so what was true at entry is still true here. */
+  IR_LOAD_PROPERTY,
+
   IR_JUMP,        /* -> block a                             */
   IR_BRANCH,      /* if a then block b else block c         */
   IR_RETURN,      /* return a                               */
@@ -77,6 +90,18 @@ typedef struct {
   IrType type;    /* of `result` */
   int line;
 } IrInst;
+
+/* One thing the compiled body takes for granted about the frame it is given.
+ *
+ * Checked at entry, by both the call path and the OSR path, and the code is
+ * simply not run when it does not hold — which is the cheapest possible
+ * deoptimisation: nothing has happened yet, so there is nothing to undo. */
+typedef struct {
+  int slot;            /* the frame slot holding the object */
+  Shape *shape;        /* the layout it must still have */
+  int property;        /* the storage index the reads use */
+  bool expectsNumber;  /* and whether they need it to hold one */
+} IrEntryShape;
 
 typedef struct {
   IrInst *instructions;
@@ -114,6 +139,12 @@ typedef struct {
    * tiering report needs to say where the compiler stops, rather than only
    * that it stopped. */
   const char *firstExitOn;
+
+  /* What IR_LOAD_PROPERTY was lowered against. Empty for a function that reads
+   * no properties, which is most of them. */
+  IrEntryShape *entryShapes;
+  int entryShapeCount;
+  int entryShapeCapacity;
 } IrFunction;
 
 /* Lowers a function's bytecode.
@@ -151,6 +182,16 @@ const char *csIrOpName(IrOp op);
  * fully typed. Returns false when it is fully typed. */
 bool csIrFirstUntyped(const IrFunction *ir, const char **producer,
                       const char **consumer);
+
+/* Do a frame's slots still match what the body was lowered to assume? Both
+ * entries ask this, and neither may skip it. */
+bool csIrEntryShapesHold(const IrFunction *ir, const Value *slots);
+
+/* Keeps the shapes an entry assumption names alive. They are ordinary
+ * collectable objects and a shape's transition edges are weak, so nothing else
+ * would — and a freed shape whose memory came back as a different one would
+ * make the check pass when it must fail. */
+void csIrMarkShapes(const IrFunction *ir);
 
 /* Prints the IR, for `make jit`. */
 void csIrPrint(const IrFunction *ir);

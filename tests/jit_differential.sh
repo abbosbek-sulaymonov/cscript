@@ -33,22 +33,35 @@ for source in "$ROOT"/tests/cases/*.cx "$ROOT"/tests/cases/*/main.cx \
 
   interpreted="$(CS_JIT_THRESHOLD=2000000000 "$BIN" "$source" 2>&1)"
   hot="$(CS_JIT_THRESHOLD=1 "$BIN" "$source" 2>&1)"
+  # Compiling on the very first call is the harshest setting, and for one kind
+  # of lowering it is *too* harsh to be a test: a property read is lowered
+  # against what its inline cache has seen, and at a threshold of one the cache
+  # has not run yet. A second setting lets the sites warm first, so the
+  # profile-dependent paths are actually reached rather than only agreed with.
+  warm="$(CS_JIT_THRESHOLD=40 "$BIN" "$source" 2>&1)"
   checked=$((checked + 1))
 
   # How much the compiler actually took, so a run of agreements cannot be
   # mistaken for coverage.
-  taken="$(CS_JIT_REPORT=1 CS_JIT_THRESHOLD=1 "$BIN" "$source" 2>&1 |
-           grep -E 'answered without|taken over|handed back' |
-           grep -oE '^  [0-9]+' | tr -d ' ' | paste -sd+ - | bc)"
-  compiled=$((compiled + ${taken:-0}))
-  [[ ${taken:-0} -gt 0 ]] && touched=$((touched + 1))
+  taken=0
+  for threshold in 1 40; do
+    part="$(CS_JIT_REPORT=1 CS_JIT_THRESHOLD=$threshold "$BIN" "$source" 2>&1 |
+            grep -E 'answered without|taken over|handed back' |
+            grep -oE '^  [0-9]+' | tr -d ' ' | paste -sd+ - | bc)"
+    taken=$((taken + ${part:-0}))
+  done
+  compiled=$((compiled + taken))
+  [[ $taken -gt 0 ]] && touched=$((touched + 1))
 
-  if [[ "$interpreted" != "$hot" ]]; then
+  for variant in hot warm; do
+    other="${!variant}"
+    [[ "$interpreted" == "$other" ]] && continue
     failed=$((failed + 1))
-    echo "DIFFERS  $name"
-    diff <(printf '%s\n' "$interpreted") <(printf '%s\n' "$hot") |
+    echo "DIFFERS  $name ($variant)"
+    diff <(printf '%s\n' "$interpreted") <(printf '%s\n' "$other") |
       sed 's/^/         /' | head -8
-  fi
+    break
+  done
 done
 
 echo "-------------------------------------------"

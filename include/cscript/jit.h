@@ -68,6 +68,11 @@ typedef enum {
  * decision is what has to be shown to be right before the generator exists. */
 void csJitConsider(ObjFunction *function);
 
+/* Marks what compiled code assumes about object layouts. jit.c is in every
+ * build, so this is too — it simply has nothing to mark where no function was
+ * ever considered. */
+void csJitMarkRoots(void);
+
 /* Runs a hot function's lowered IR in place of its bytecode, when it has any
  * and the IR covers what it does.
  *
