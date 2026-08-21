@@ -1,0 +1,65 @@
+// A descriptor says what a property is allowed to have done to it. A property
+// written the ordinary way has all three attributes, so there is nothing to
+// record; the side table an object grows here exists only once one of these
+// has said otherwise, which is what leaves every shape and inline cache alone.
+const o = { a: 1 };
+Object.defineProperty(o, "hidden", { value: 2 });
+
+// An attribute a descriptor leaves out is false, not inherited — which
+// surprises people and is exactly what JavaScript specifies.
+console.log(o.hidden, Object.keys(o), JSON.stringify(o));
+console.log(o);
+console.log(Object.getOwnPropertyDescriptor(o, "hidden"));
+console.log(Object.getOwnPropertyDescriptor(o, "a"));
+console.log(Object.getOwnPropertyDescriptor(o, "missing"));
+
+// Asked for explicitly, the attributes are what was asked for.
+Object.defineProperty(o, "shown", { value: 3, enumerable: true, writable: true });
+console.log(Object.keys(o), o.shown);
+o.shown = 9;
+console.log(o.shown, JSON.stringify(o));
+
+// A spread and Object.assign copy what enumerates, and nothing else.
+console.log({ ...o }, Object.assign({}, o));
+const { a, ...rest } = o;
+console.log(a, rest);
+
+// An accessor defined by descriptor behaves as one written in a literal.
+const box = { _v: 1 };
+Object.defineProperty(box, "v", {
+  get() { return this._v * 10; },
+  set(n) { this._v = n; },
+  enumerable: true,
+  configurable: true,
+});
+console.log(box.v, Object.keys(box));
+box.v = 5;
+console.log(box.v, box._v);
+const described = Object.getOwnPropertyDescriptor(box, "v");
+console.log(typeof described.get, typeof described.set, described.enumerable);
+
+// Own accessors take their place in the insertion order and are enumerated.
+// A class's accessors are not: those belong to the class, not the instance.
+const literal = { b: 1, get a() { return 2; }, set c(v) {} };
+console.log(literal);
+console.log(Object.keys(literal), Object.values(literal));
+console.log(Object.entries(literal));
+console.log(JSON.stringify(literal), { ...literal });
+class Klass { get g() { return 1; } }
+console.log(Object.keys(new Klass()), JSON.stringify(new Klass()));
+
+// Several at once, and a fresh object described as it is made.
+const many = {};
+Object.defineProperties(many, {
+  x: { value: 1, enumerable: true },
+  y: { value: 2 },
+});
+console.log(many.x, many.y, Object.keys(many));
+
+const made = Object.create(null, {
+  p: { value: 1, enumerable: true },
+  q: { value: 2 },
+});
+console.log(made.p, made.q, Object.keys(made), Object.getPrototypeOf(made));
+
+console.log(Object.getOwnPropertyDescriptors({ p: 1 }).p);

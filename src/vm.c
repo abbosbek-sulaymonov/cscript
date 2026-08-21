@@ -72,6 +72,7 @@ void csVMInit(void) {
   csTableInit(&vm.weakMethods);
   csTableInit(&vm.symbolMethods);
   csTableInit(&vm.bigintMethods);
+  vm.accessorMarker = NULL;
   csTableInit(&vm.symbolRegistry);
   csTableInit(&vm.symbolsByKey);
   vm.iteratorSymbol = NULL;
@@ -97,6 +98,7 @@ void csVMInit(void) {
   vm.absentShape = NULL;
   vm.emptyShape = csShapeNewRoot();
   vm.absentShape = csShapeNewRoot();
+  vm.accessorMarker = csObjectNew("<accessor>");
 
   csNativesInstall();
 
@@ -292,6 +294,45 @@ static OrderResult comparingExactly(Value a, Value b, int *order) {
   csVMRuntimeError("cannot compare %s with %s", csValueTypeName(a),
                    csValueTypeName(b));
   return ORDER_INVALID;
+}
+
+bool csVMIsAccessorSlot(Value value) {
+  return IS_OBJ(value) && AS_OBJ(value) == (Obj *)vm.accessorMarker;
+}
+
+unsigned csVMAccessorKind(ObjObject *object, ObjString *key) {
+  if (object->klass == NULL) return 0;
+  Value stored;
+  if (!csObjectGet(object, key, &stored) || !csVMIsAccessorSlot(stored)) return 0;
+
+  unsigned kind = 0;
+  if (csClassFindGetter(object->klass, key) != NULL) kind |= CS_ACCESSOR_GET;
+  if (csClassFindSetter(object->klass, key) != NULL) kind |= CS_ACCESSOR_SET;
+  return kind;
+}
+
+bool csVMReadOwnProperty(ObjObject *object, ObjString *key, Value *out) {
+  Value stored;
+  if (!csObjectGet(object, key, &stored)) {
+    *out = UNDEFINED_VAL;
+    return true;
+  }
+  if (!csVMIsAccessorSlot(stored)) {
+    *out = stored;
+    return true;
+  }
+
+  /* An accessor with no getter reads as undefined, which is what a
+   * write-only property is worth. */
+  ObjClosure *getter = object->klass != NULL
+                           ? csClassFindGetter(object->klass, key)
+                           : NULL;
+  if (getter == NULL) {
+    *out = UNDEFINED_VAL;
+    return true;
+  }
+  csVMPush(OBJ_VAL(object));
+  return csVMCallCallback(OBJ_VAL(getter), 0, out);
 }
 
 /* An object's own `toString`, if it has one anywhere in its chain.
@@ -1285,7 +1326,9 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
     /* Dictionary mode, an accessor, an inherited method, or a genuinely absent
      * property. Reading a missing property gives undefined, as in JavaScript —
      * checking for absence is too common to make it an error. */
-    if (csObjectGet(object, name, out)) return true;
+    /* An own accessor's slot holds a stand-in rather than a value, so finding
+     * it means the answer is further down, where accessors are looked for. */
+    if (csObjectGet(object, name, out) && !csVMIsAccessorSlot(*out)) return true;
 
     /* `constructor` names whatever built the object: its class, or the
      * function `new` was applied to. Neither is an ordinary property — the
@@ -1325,7 +1368,8 @@ static bool propertyReadSlow(ObjString *name, PropertyCache *cache, Value receiv
      * getter, exactly as in JavaScript. */
     for (ObjObject *at = object; at != NULL; at = at->prototype) {
       /* The object's own data properties were checked above. */
-      if (at != object && csObjectGet(at, name, out)) {
+      if (at != object && csObjectGet(at, name, out) &&
+          !csVMIsAccessorSlot(*out)) {
         /* Bound to the object it was reached *through*, not the prototype it
          * was found on — that is what makes `this` mean the instance. */
         *out = bindIfMethod(receiver, *out);
@@ -1603,6 +1647,16 @@ static bool propertyWriteSlow(ObjString *name, PropertyCache *cache, Value recei
                        name->chars);
       return false;
     }
+  }
+
+  /* A property `Object.defineProperty` marked read-only refuses the write
+   * rather than dropping it: a store that silently does nothing is how a bug
+   * hides, and an ES module throws here too. The object left shape mode when
+   * the property was defined, so the write fast path never reaches this
+   * property and the check costs nothing anywhere else. */
+  if ((csObjectAttributes(AS_OBJECT(receiver), name) & CS_PROP_WRITABLE) == 0) {
+    csVMRuntimeError("'%s' is read-only and cannot be assigned to", name->chars);
+    return false;
   }
 
   csObjectPut(AS_OBJECT(receiver), name, value);
@@ -2112,7 +2166,9 @@ InterpretResult run(int baseFrame) {
         if (IS_OBJECT(target)) {
           ObjObject *object = AS_OBJECT(target);
           for (int i = 0; i < csObjectCount(object); i++) {
-            csValueArrayWrite(&keys->elements, OBJ_VAL(csObjectKeyAt(object, i)));
+            ObjString *key = csObjectKeyAt(object, i);
+            if (!csObjectIsEnumerable(object, key)) continue;
+            csValueArrayWrite(&keys->elements, OBJ_VAL(key));
           }
         } else if (IS_ARRAY(target)) {
           /* JavaScript enumerates an array's indices, as strings. */
@@ -2608,6 +2664,12 @@ InterpretResult run(int baseFrame) {
                            AS_OBJECT(target)->name->chars);
           return CS_RUNTIME_ERROR;
         }
+        if ((csObjectAttributes(AS_OBJECT(target), name) &
+             CS_PROP_CONFIGURABLE) == 0) {
+          csVMRuntimeError("'%s' is not configurable and cannot be deleted",
+                           name->chars);
+          return CS_RUNTIME_ERROR;
+        }
         /* JavaScript answers true when the property was not there either —
          * false is reserved for one it refused to remove, and a frozen
          * built-in is reported above rather than answered. */
@@ -2774,6 +2836,12 @@ InterpretResult run(int baseFrame) {
         }
         csTableSet(isGetter ? &object->klass->getters : &object->klass->setters,
                    name, closure);
+
+        /* The name also takes a slot, holding the stand-in, so that it is
+         * enumerated in the order it was written. Shape mode has to go with
+         * it: the read fast path would hand the stand-in back as a value. */
+        csObjectLeaveShapeMode(object);
+        csObjectPut(object, name, OBJ_VAL(vm.accessorMarker));
         csPopTempRoot();
 
         vm.stackTop -= 2;
@@ -2790,8 +2858,10 @@ InterpretResult run(int baseFrame) {
            * target cannot change the source. */
           for (int i = 0; i < csObjectCount(from); i++) {
             ObjString *key = csObjectKeyAt(from, i);
+            if (!csObjectIsEnumerable(from, key)) continue;
             Value value;
-            if (csObjectGet(from, key, &value)) csObjectPut(object, key, value);
+            if (!csVMReadOwnProperty(from, key, &value)) return CS_RUNTIME_ERROR;
+            csObjectPut(object, key, value);
           }
         } else if (IS_ARRAY(source)) {
           /* `{ ...[a, b] }` is `{ 0: a, 1: b }` — the indices are the keys. */
@@ -2833,6 +2903,7 @@ InterpretResult run(int baseFrame) {
         ObjObject *from = AS_OBJECT(source);
         for (int i = 0; i < csObjectCount(from); i++) {
           ObjString *key = csObjectKeyAt(from, i);
+          if (!csObjectIsEnumerable(from, key)) continue;
 
           bool named = false;
           for (int n = 0; n < taken && !named; n++) {
@@ -2841,7 +2912,8 @@ InterpretResult run(int baseFrame) {
           if (named) continue;
 
           Value value;
-          if (csObjectGet(from, key, &value)) csObjectPut(rest, key, value);
+          if (!csVMReadOwnProperty(from, key, &value)) return CS_RUNTIME_ERROR;
+          csObjectPut(rest, key, value);
         }
 
         csPopTempRoot();

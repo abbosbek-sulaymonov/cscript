@@ -194,6 +194,14 @@ typedef struct {
   Table weakMethods;
   Table symbolMethods;
   Table bigintMethods;
+
+  /* Stands in the slot of an object's *own* accessor, so that `get x()` takes
+   * a place in the insertion order and is enumerated like any other property.
+   * The accessor itself lives on the object's class, where the property paths
+   * already look for one; this only marks that the name is there. It is an
+   * object nothing hands to a program, so no value a script can produce is
+   * ever mistaken for it. */
+  ObjObject *accessorMarker;
   /* `Symbol.for`'s registry, keyed by description. Strong: a registered
    * symbol is meant to be findable again by name. */
   Table symbolRegistry;
@@ -324,6 +332,19 @@ bool csVMCallCallback(Value callee, int argCount, Value *result);
 /* Text for a string conversion: an object's own `toString` when it has one,
  * and the built-in rendering otherwise. The caller owns the buffer. */
 char *csVMValueToText(Value value, size_t *length);
+
+/* Does this slot hold the stand-in for an own accessor rather than a value? */
+bool csVMIsAccessorSlot(Value value);
+
+/* Which of a getter and a setter an own accessor has: CS_ACCESSOR_GET and
+ * CS_ACCESSOR_SET, or zero when the name is not an own accessor. */
+#define CS_ACCESSOR_GET 1u
+#define CS_ACCESSOR_SET 2u
+unsigned csVMAccessorKind(ObjObject *object, ObjString *key);
+
+/* One own property's value, running its getter when it has one. False with an
+ * error already reported. Use this wherever an enumeration needs values. */
+bool csVMReadOwnProperty(ObjObject *object, ObjString *key, Value *out);
 
 /* Calls `callee` with as many of `args` as it actually declares, padding with
  * undefined if it declares more.

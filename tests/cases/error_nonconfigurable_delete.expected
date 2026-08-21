@@ -1,0 +1,3 @@
+2
+cscript: runtime error: 'sealed' is not configurable and cannot be deleted
+  at error_nonconfigurable_delete.cx:6

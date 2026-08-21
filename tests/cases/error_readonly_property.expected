@@ -1,0 +1,4 @@
+1 [ 'fixed' ]
+true
+cscript: runtime error: 'fixed' is read-only and cannot be assigned to
+  at error_readonly_property.cx:12

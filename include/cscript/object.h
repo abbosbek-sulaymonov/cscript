@@ -131,6 +131,16 @@ typedef struct ObjObject {
    * own dispatch rather than being rebuilt on top of this. */
   struct ObjObject *prototype;
 
+  /* Per-property attributes, or NULL — which is what almost every object has.
+   *
+   * A property written the ordinary way is writable, enumerable and
+   * configurable, so there is nothing to record: the table exists only once
+   * `Object.defineProperty` has said otherwise about some name. Keeping it off
+   * to the side rather than in the shape is what leaves the shapes — and so
+   * every inline cache — untouched by a feature most programs never use. The
+   * cost to everything else is one pointer test per enumerated key. */
+  Table *attributes;
+
   /* Private fields and symbol-keyed properties, or NULL.
    *
    * Off to the side of the shape on purpose, and for the same reason in both
@@ -592,7 +602,28 @@ ObjString *csStringConcat(ObjString *a, ObjString *b);
 ObjString *csStringTakeOwnership(char *chars, int length);
 
 ObjNative *csNativeNew(NativeFn function, const char *name, int arity);
+/* What a property may have done to it. A property that has never been through
+ * `Object.defineProperty` has all three. */
+#define CS_PROP_WRITABLE 1u
+#define CS_PROP_ENUMERABLE 2u
+#define CS_PROP_CONFIGURABLE 4u
+#define CS_PROP_DEFAULT \
+  (CS_PROP_WRITABLE | CS_PROP_ENUMERABLE | CS_PROP_CONFIGURABLE)
+
 ObjObject *csObjectNew(const char *name);
+
+/* The attributes of one own property. CS_PROP_DEFAULT when nothing has said
+ * otherwise, which is the answer for almost every property of almost every
+ * object. */
+/* Drops an object out of shape mode, so the write fast path stops recognising
+ * it. Needed once any of its properties is not writable. */
+void csObjectLeaveShapeMode(ObjObject *object);
+
+unsigned csObjectAttributes(ObjObject *object, ObjString *key);
+void csObjectSetAttributes(ObjObject *object, ObjString *key, unsigned attributes);
+
+/* Should this key be listed by `Object.keys`, JSON, a spread or a print? */
+bool csObjectIsEnumerable(ObjObject *object, ObjString *key);
 
 /* Reads `key` from `object` or, failing that, from its prototype chain. False
  * when no object in the chain has it. */

@@ -101,6 +101,7 @@ ObjObject *csObjectNew(const char *name) {
   object->builtByConstructor = false;
   object->prototype = NULL;
   object->privates = NULL;
+  object->attributes = NULL;
   object->as.slots.values = NULL;
   object->as.slots.capacity = 0;
 
@@ -118,10 +119,16 @@ static void ensureSlots(ObjObject *object, int needed) {
   object->as.slots.capacity = capacity;
 }
 
-/* Moves an object out of shape mode for good. Called once, when it grows past
- * the slot limit; see the comment on CS_SHAPE_MAX_SLOTS for why that limit
- * exists. Every allocation below happens while the object is still a valid
- * shape-mode object, so a collection in the middle is harmless. */
+/* Moves an object out of shape mode for good. Called when it grows past the
+ * slot limit — see the comment on CS_SHAPE_MAX_SLOTS for why that limit
+ * exists — and when `Object.defineProperty` makes one of its properties
+ * non-writable, because the write fast path recognises a shape and stores
+ * straight into the slot without asking anything else. Leaving shape mode is
+ * how such a property stops being reachable that way, and it costs only the
+ * object it happened to, rather than a test on every write in the program.
+ *
+ * Every allocation below happens while the object is still a valid shape-mode
+ * object, so a collection in the middle is harmless. */
 static void convertToDictionary(ObjObject *object) {
   Shape *shape = object->shape;
   int count = shape->slotCount;
@@ -298,6 +305,38 @@ bool csObjectSetPrototype(ObjObject *object, ObjObject *prototype) {
   }
   object->prototype = prototype;
   return true;
+}
+
+void csObjectLeaveShapeMode(ObjObject *object) {
+  if (object->shape != NULL) convertToDictionary(object);
+}
+
+unsigned csObjectAttributes(ObjObject *object, ObjString *key) {
+  if (object->attributes == NULL) return CS_PROP_DEFAULT;
+  Value stored;
+  if (!csTableGet(object->attributes, key, &stored)) return CS_PROP_DEFAULT;
+  return (unsigned)AS_NUMBER(stored);
+}
+
+void csObjectSetAttributes(ObjObject *object, ObjString *key, unsigned attributes) {
+  if (object->attributes == NULL) {
+    if (attributes == CS_PROP_DEFAULT) return; /* nothing to record */
+    csPushTempRoot((Obj *)object);
+    csPushTempRoot((Obj *)key);
+    Table *table = CS_ALLOCATE(Table, 1);
+    csTableInit(table);
+    object->attributes = table;
+    csPopTempRoot();
+    csPopTempRoot();
+  }
+  csTableSet(object->attributes, key, NUMBER_VAL((double)attributes));
+}
+
+bool csObjectIsEnumerable(ObjObject *object, ObjString *key) {
+  /* The pointer test is the whole cost for an object nothing has defined a
+   * property on, which is nearly all of them. */
+  if (object->attributes == NULL) return true;
+  return (csObjectAttributes(object, key) & CS_PROP_ENUMERABLE) != 0;
 }
 
 int csObjectCount(const ObjObject *object) {
@@ -670,6 +709,7 @@ ObjObject *csInstanceNew(ObjClass *klass) {
   instance->builtByConstructor = false;
   instance->prototype = NULL;
   instance->privates = NULL;
+  instance->attributes = NULL;
   instance->as.slots.values = NULL;
   instance->as.slots.capacity = 0;
   csPopTempRoot();
@@ -962,6 +1002,7 @@ void csObjectBlacken(Obj *object) {
           csMarkObject((Obj *)instance->as.dictionary.keys[i]);
         }
       }
+      if (instance->attributes != NULL) csTableMark(instance->attributes);
       if (instance->privates != NULL) {
         csTableMark(instance->privates);
         /* A property keyed by a symbol keeps that symbol alive, which is what
@@ -1152,6 +1193,10 @@ void csObjectFree(Obj *object) {
       if (instance->privates != NULL) {
         csTableFree(instance->privates);
         CS_FREE(Table, instance->privates);
+      }
+      if (instance->attributes != NULL) {
+        csTableFree(instance->attributes);
+        CS_FREE(Table, instance->attributes);
       }
       CS_FREE(ObjObject, object);
       break;

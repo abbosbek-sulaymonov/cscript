@@ -109,6 +109,7 @@ static void markRoots(void) {
   if (vm.hasPendingException) csMarkValue(vm.pendingException);
 
   csMarkObject((Obj *)vm.emptyShape);
+  csMarkObject((Obj *)vm.accessorMarker);
   csMarkObject((Obj *)vm.absentShape);
   /* Anything queued is reachable from nowhere else: a microtask holds the only
    * reference to its handler and its result promise until it runs. */

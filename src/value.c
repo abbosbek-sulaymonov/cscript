@@ -8,6 +8,7 @@
 #include "cscript/object.h"
 #include "cscript/table.h"
 #include "cscript/value.h"
+#include "cscript/vm.h"
 
 void csValueArrayInit(ValueArray *array) {
   array->count = 0;
@@ -323,7 +324,7 @@ static bool sbAppendObject(StringBuilder *builder, ObjObject *object) {
    * plain literal carries the name "Object" and prints without a label, the
    * same way Node leaves that one out. */
   ObjString *label = NULL;
-  if (object->klass != NULL) {
+  if (object->klass != NULL && !object->klass->isAccessorHolder) {
     label = object->klass->name;
   } else if (object->builtByConstructor && object->name != NULL) {
     label = object->name;
@@ -337,12 +338,26 @@ static bool sbAppendObject(StringBuilder *builder, ObjObject *object) {
   bool first = true;
   for (int i = 0; i < csObjectCount(object); i++) {
     ObjString *key = csObjectKeyAt(object, i);
+    if (!csObjectIsEnumerable(object, key)) continue;
     Value value = csObjectValueAt(object, i);
 
     if (!sbAppend(builder, first ? " " : ", ", first ? 1 : 2)) return false;
     first = false;
     if (!sbAppend(builder, key->chars, (size_t)key->length)) return false;
     if (!sbAppend(builder, ": ", 2)) return false;
+
+    /* An accessor is named rather than run. Inspecting an object must not have
+     * side effects, and a getter is a call — Node prints `[Getter]` for the
+     * same reason. */
+    if (csVMIsAccessorSlot(value)) {
+      unsigned kind = csVMAccessorKind(object, key);
+      const char *shown = kind == (CS_ACCESSOR_GET | CS_ACCESSOR_SET)
+                              ? "[Getter/Setter]"
+                          : kind == CS_ACCESSOR_SET ? "[Setter]"
+                                                    : "[Getter]";
+      if (!sbAppend(builder, shown, strlen(shown))) return false;
+      continue;
+    }
     if (!sbAppendValue(builder, value, true)) return false;
   }
 

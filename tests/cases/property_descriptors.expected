@@ -1,0 +1,20 @@
+2 [ 'a' ] {"a":1}
+{ a: 1 }
+{ value: 2, writable: false, enumerable: false, configurable: false }
+{ value: 1, writable: true, enumerable: true, configurable: true }
+undefined
+[ 'a', 'shown' ] 3
+9 {"a":1,"shown":9}
+{ a: 1, shown: 9 } { a: 1, shown: 9 }
+1 { shown: 9 }
+10 [ '_v', 'v' ]
+50 5
+function function true
+{ b: 1, a: [Getter], c: [Setter] }
+[ 'b', 'a', 'c' ] [ 1, 2, undefined ]
+[ [ 'b', 1 ], [ 'a', 2 ], [ 'c', undefined ] ]
+{"b":1,"a":2} { b: 1, a: 2, c: undefined }
+[] {}
+1 2 [ 'x' ]
+1 2 [ 'p' ] null
+{ value: 1, writable: true, enumerable: true, configurable: true }

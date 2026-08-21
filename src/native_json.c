@@ -128,7 +128,9 @@ static bool jsonWrite(JsonBuffer *out, Value value) {
     bool first = true;
     for (int i = 0; i < csObjectCount(object); i++) {
       ObjString *key = csObjectKeyAt(object, i);
-      Value property = csObjectValueAt(object, i);
+      if (!csObjectIsEnumerable(object, key)) continue;
+      Value property;
+      if (!csVMReadOwnProperty(object, key, &property)) return false;
 
       /* A property with no JSON form is omitted entirely. */
       JsonBuffer probe = {NULL, 0, 0, false};

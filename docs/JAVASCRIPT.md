@@ -79,7 +79,8 @@ asserted here.
 `console`, `Math` (25 functions and constants), `JSON.stringify` / `.parse`,
 `Object.keys` / `.values` / `.entries` / `.fromEntries` / `.assign` /
 `.hasOwn` / `.freeze` / `.isFrozen` / `.getOwnPropertyNames` / `.create` /
-`.getPrototypeOf` / `.setPrototypeOf`, `Array.isArray`
+`.getPrototypeOf` / `.setPrototypeOf` / `.defineProperty` / `.defineProperties`
+/ `.getOwnPropertyDescriptor` / `.getOwnPropertyDescriptors`, `Array.isArray`
 / `.of` / `.from` — the latter over an array, a string, a Map or Set, a
 generator or an array-like, with an optional mapping function — `Number` and
 its limits, `parseInt`, `parseFloat`, `isNaN`,
@@ -225,24 +226,56 @@ which is how a typo becomes a silent branch. Here the two kinds of failure stay
 separate: a `throw` is a decision the program made, and a runtime error is a
 mistake in it.
 
-### An object literal's accessors are not enumerated
+### Property descriptors
 
-```js
-const o = { a: 1, get b() { return 2; } };
-o.b;                 // 2, as in JavaScript
-Object.keys(o);      // [ 'a' ] here; [ 'a', 'b' ] in JavaScript
-JSON.stringify(o);   // {"a":1} here; {"a":1,"b":2} in JavaScript
-```
+`Object.defineProperty`, `defineProperties`, `getOwnPropertyDescriptor`,
+`getOwnPropertyDescriptors` and `Object.create`'s second argument all work,
+with `value`, `writable`, `enumerable`, `configurable`, `get` and `set`.
 
-An accessor lives on a hidden class the object gets for itself, which is where
-the property paths already look — so reading and writing one costs nothing at
-all for every object that has none. The alternative is a slot in the object's
-shape holding a marker, and a test for that marker on every property read in
-the program.
+An attribute a descriptor leaves out is false rather than inherited, so
+`Object.defineProperty(o, "x", { value: 1 })` makes a property that is hidden
+and read-only. That surprises people and is exactly what JavaScript specifies.
 
-Property reads are the hot path and already the widest gap against Node, so
-that tax is not worth paying for a feature whose point is the reading rather
-than the listing. It is a real difference and it is here rather than buried.
+A property written the ordinary way has all three attributes, so there is
+nothing to record about it: an object grows the side table these live in only
+once `defineProperty` has said otherwise about one of its names. Every other
+object pays one pointer test per enumerated key and nothing at all on a read.
+
+Writing to a read-only property is refused rather than dropped, and deleting or
+redefining a non-configurable one is too — the same three answers an ES module
+gives, and for the same reason a store that silently does nothing is worth
+refusing.
+
+What is *not* modelled is a descriptor on anything but an ordinary object:
+array indices, `length`, and the built-in namespaces do not take one.
+
+### Own accessors take a slot, so that they enumerate
+
+An accessor written on an object — `{ get b() {} }`, or defined through a
+descriptor — lives on a hidden class the object gets for itself, which is where
+the property paths already look. Reading and writing one therefore costs
+nothing at all for every object that has none.
+
+That used to mean an accessor was invisible to `Object.keys`, JSON and a
+spread, and this document argued the alternative was not worth its price: a
+slot in the object's shape holding a marker, and a test for that marker on
+every property read in the program.
+
+The price turned out to be avoidable. The name does take a slot holding a
+stand-in, which is what puts it in the insertion order — but the object also
+leaves shape mode when it gains one, so it is never served by an inline cache
+and the test for the stand-in sits on the slow path, which such an object was
+always going to take. Objects with no accessors are untouched; the cost falls
+on the ones that have them, which is where it belongs.
+
+So `Object.keys`, `Object.values`, `Object.entries`, `JSON.stringify`, a spread
+and `Object.assign` all see own accessors now, in the order they were written,
+and reading their values runs the getter. Inspecting one prints `[Getter]`,
+`[Setter]` or `[Getter/Setter]` rather than running it, because looking at an
+object must not have side effects — which is what Node prints too.
+
+A class's accessors are still not enumerated on an instance. They belong to the
+class rather than to the object, which is where JavaScript puts them as well.
 
 ### A generator's `.return()` does not run a pending `finally`
 
@@ -380,7 +413,6 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Regex lookbehind — `(?<=…)` — and named groups | Lookahead and backreferences work |
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
 | `Date` parsing beyond ISO, and its locale formats | `toLocaleString`, `Date.parse` of anything else, `setFullYear` and the other setters |
-| `Object.defineProperty` and property descriptors | Writability, enumerability and configurability are not modelled, so `Object.create` refuses a second argument rather than ignoring it |
 | `arguments` | A rest parameter does the same job and says what it collects |
 | `new.target`, subclassing built-ins | |
 | Dynamic `import()` | Static `import` and `export` are resolved before the program runs |

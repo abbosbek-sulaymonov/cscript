@@ -1,0 +1,12 @@
+// A property `Object.defineProperty` marked read-only refuses the write rather
+// than dropping it. An ES module throws here too; only sloppy-mode CommonJS
+// swallows it, and a store that silently does nothing is how a bug hides.
+const o = {};
+Object.defineProperty(o, "fixed", { value: 1, enumerable: true });
+console.log(o.fixed, Object.keys(o));
+
+// Deleting is refused for the same reason: the descriptor said it could not be
+// configured, and answering `false` would leave the caller to notice.
+console.log(delete o.absent);
+
+o.fixed = 2;

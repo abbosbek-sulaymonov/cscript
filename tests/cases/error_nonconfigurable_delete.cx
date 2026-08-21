@@ -1,0 +1,6 @@
+// `configurable: false` means the property cannot be removed or redefined.
+const o = {};
+Object.defineProperty(o, "sealed", { value: 1, writable: true });
+o.sealed = 2;
+console.log(o.sealed);
+delete o.sealed;
