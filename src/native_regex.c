@@ -57,6 +57,35 @@ static ObjArray *buildMatchArray(const RegexMatch *match, const char *subject) {
   return result;
 }
 
+/* `.groups` — the named captures, or undefined when the pattern has no names.
+ * JavaScript gives an object with no prototype here; there is no root prototype
+ * to leave off, so an ordinary object says the same thing. */
+static void attachGroups(ObjArray *array, const Regex *regex,
+                         const RegexMatch *match, const char *subject) {
+  int count = csRegexNameCount(regex);
+  if (count == 0) {
+    csArrayPutExtra(array, "groups", 6, UNDEFINED_VAL);
+    return;
+  }
+
+  ObjObject *groups = csObjectNew("Object");
+  csPushTempRoot((Obj *)groups);
+  for (int i = 0; i < count; i++) {
+    int group = 0;
+    const char *name = csRegexNameAt(regex, i, &group);
+
+    Value captured = UNDEFINED_VAL;
+    if (group < match->groupCount && match->groups[group].start >= 0) {
+      captured = OBJ_VAL(csStringCopy(
+          subject + match->groups[group].start,
+          match->groups[group].end - match->groups[group].start));
+    }
+    csObjectSetProperty(groups, name, captured);
+  }
+  csArrayPutExtra(array, "groups", 6, OBJ_VAL(groups));
+  csPopTempRoot();
+}
+
 static bool regexTest(Value receiver, int argCount, Value *args, Value *result) {
   if (!requireRegex(receiver, "test")) return false;
   if (argCount < 1 || !IS_STRING(args[0])) {
@@ -125,6 +154,7 @@ static bool regexExec(Value receiver, int argCount, Value *args, Value *result) 
    * nothing for these. */
   csArrayPutExtra(array, "index", 5, NUMBER_VAL(match.groups[0].start));
   csArrayPutExtra(array, "input", 5, OBJ_VAL(subject));
+  attachGroups(array, regex->program, &match, subject->chars);
   csPopTempRoot();
   *result = OBJ_VAL(array);
   return true;
@@ -180,6 +210,7 @@ bool csRegexStringMatch(Value receiver, int argCount, Value *args, Value *result
     csPushTempRoot((Obj *)array);
     csArrayPutExtra(array, "index", 5, NUMBER_VAL(match.groups[0].start));
     csArrayPutExtra(array, "input", 5, OBJ_VAL(subject));
+    attachGroups(array, regex->program, &match, subject->chars);
     csPopTempRoot();
     *result = OBJ_VAL(array);
     return true;
@@ -355,6 +386,39 @@ bool csRegexStringReplace(Value receiver, int argCount, Value *args, Value *resu
           length += (size_t)span;
         }
         i++;
+      } else if (next == '<') {
+        /* `$<name>` — the capture that group answers to. An unterminated one,
+         * or a name the pattern does not have, is written out as it stands,
+         * which is what JavaScript does with it. */
+        int nameStart = i + 2;
+        int nameEnd = nameStart;
+        while (nameEnd < replacement->length && replacement->chars[nameEnd] != '>') {
+          nameEnd++;
+        }
+        /* A pattern with no names at all leaves `$<` alone; one that has
+         * names treats an unknown one as an empty capture. That asymmetry is
+         * JavaScript's, and it is what keeps `$<` usable as text in a pattern
+         * that never meant it as a reference. */
+        bool named = csRegexNameCount(regex->program) > 0;
+        int group = nameEnd < replacement->length && named
+                        ? csRegexGroupNamed(regex->program,
+                                            replacement->chars + nameStart,
+                                            nameEnd - nameStart)
+                        : -1;
+        if (!named || nameEnd >= replacement->length) {
+          out[length++] = c;
+          continue;
+        }
+        if (group < 0) {
+          i = nameEnd; /* an unknown name contributes nothing */
+          continue;
+        }
+        if (group < match.groupCount && match.groups[group].start >= 0) {
+          int span = match.groups[group].end - match.groups[group].start;
+          memcpy(out + length, subject->chars + match.groups[group].start, (size_t)span);
+          length += (size_t)span;
+        }
+        i = nameEnd;
       } else {
         out[length++] = c;
       }

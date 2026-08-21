@@ -1,0 +1,41 @@
+// `(?<name>…)` is an ordinary capturing group that also answers to a name, so
+// only the mapping is new — the matching is not.
+const date = "2024-01-05".match(/(?<year>\d{4})-(?<month>\d\d)-(?<day>\d\d)/);
+console.log(date[1], date[2], date[3]);
+console.log(date.groups.year, date.groups.month, date.groups.day);
+
+// A pattern with no names has no groups object at all.
+console.log("ab".match(/a/).groups);
+
+// A group that did not take part captures nothing.
+const partial = "a".match(/(?<first>a)(?<second>b)?/);
+console.log(partial.groups.first, partial.groups.second);
+
+// `$<name>` in a replacement, and a name the pattern does not have written out
+// as it stands — which is what JavaScript does with it.
+console.log("foo123".replace(/(?<word>[a-z]+)/, "[$<word>]"));
+console.log("foo".replace(/(?<word>[a-z]+)/, "$<missing>"));
+console.log("a-b".replace(/(?<l>\w)-(?<r>\w)/, "$<r>-$<l>"));
+
+// Lookbehind. The engine cannot run a program backwards, so it tries every
+// start position at or before the cursor and requires the body to finish
+// exactly there — correct for a body of any shape, which a width calculation
+// would not be.
+console.log("price: $30".match(/(?<=\$)\d+/)[0]);
+console.log("cost 40".match(/(?<=\$)\d+/));
+console.log("xay".replace(/(?<!x)a/, "!"), "yay".replace(/(?<!x)a/, "!"));
+
+// A body that is not a fixed width.
+console.log("aaab".match(/(?<=a+)b/)[0]);
+console.log("cab".match(/(?<=c|z)ab/)[0]);
+
+// Lookbehind and lookahead together, and inside a repetition.
+console.log("a1b2c3".replace(/(?<=[a-z])\d/g, "#"));
+console.log("$1 $2 x3".match(/(?<=\$)\d/g));
+
+// Named groups survive `exec` with the `g` flag, one match at a time.
+const pattern = /(?<letter>[a-z])(?<digit>\d)/g;
+let found;
+while ((found = pattern.exec("a1b2")) !== null) {
+  console.log(found.groups.letter, found.groups.digit, found.index);
+}

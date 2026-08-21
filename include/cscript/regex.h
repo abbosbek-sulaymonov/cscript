@@ -45,6 +45,12 @@ void csRegexFree(Regex *regex);
 /* How many capture groups the pattern has, group 0 included. */
 int csRegexGroupCount(const Regex *regex);
 
+/* `(?<name>…)` — how many groups have names, what they are, and which group a
+ * name belongs to. `csRegexGroupNamed` answers -1 for a name nothing has. */
+int csRegexNameCount(const Regex *regex);
+const char *csRegexNameAt(const Regex *regex, int index, int *group);
+int csRegexGroupNamed(const Regex *regex, const char *name, int length);
+
 /* Searches `subject` from `start`. Returns true and fills `match` when the
  * pattern matches somewhere at or after `start`.
  *

@@ -226,6 +226,23 @@ which is how a typo becomes a silent branch. Here the two kinds of failure stay
 separate: a `throw` is a decision the program made, and a runtime error is a
 mistake in it.
 
+### Regular expressions
+
+Lookbehind — `(?<=…)` and `(?<!…)` — and named groups `(?<name>…)`, with
+`.groups` on a match and `$<name>` in a replacement, alongside the lookahead,
+backreferences, classes and quantifiers that were already there.
+
+The engine is a backtracker and cannot run a program backwards, so a lookbehind
+does the other thing that gives the same answer: it tries every start position
+at or before the cursor, nearest first, and requires the body to finish exactly
+there. That costs a scan proportional to how far back it looks, which for the
+assertions people write is a handful of bytes — and it is correct for a body of
+any shape, which a fixed-width calculation would not be.
+
+`$<name>` follows JavaScript's asymmetry: a pattern with no names at all leaves
+`$<` as text, and one that has names treats an unknown name as an empty
+capture.
+
 ### Property descriptors
 
 `Object.defineProperty`, `defineProperties`, `getOwnPropertyDescriptor`,
@@ -410,7 +427,6 @@ Each of these produces an error that names it, rather than failing obscurely.
 
 | Missing | Note |
 | --- | --- |
-| Regex lookbehind — `(?<=…)` — and named groups | Lookahead and backreferences work |
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
 | `Date` parsing beyond ISO, and its locale formats | `toLocaleString`, `Date.parse` of anything else, `setFullYear` and the other setters |
 | `arguments` | A rest parameter does the same job and says what it collects |

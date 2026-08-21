@@ -32,7 +32,16 @@ typedef enum {
   /* `(?=…)` and `(?!…)`. `x` is 1 when negated; `y` is where to continue when
    * the assertion holds. The body runs as a sub-match that consumes nothing. */
   RE_LOOK,
-  RE_LOOK_END,      /* the end of a lookahead body             */
+  /* `(?<=…)` and `(?<!…)`. The body is the same shape as a lookahead's, but it
+   * has to match text *ending* where the cursor is rather than starting there.
+   * This engine cannot run a program backwards, so it does the other thing
+   * that gives the same answer: try every start position at or before the
+   * cursor and require the body to finish exactly at it. That is linear in how
+   * far back it looks, which for the assertions people write is a handful of
+   * bytes — and it is correct for a body of any shape, which a width
+   * calculation would not be. */
+  RE_LOOKBEHIND,
+  RE_LOOK_END,      /* the end of a lookahead or lookbehind body */
   RE_MATCH,
 } ReOp;
 
@@ -46,6 +55,11 @@ typedef struct {
   uint8_t bits[32]; /* one bit per byte value */
 } ReClass;
 
+typedef struct {
+  char *name; /* NUL-terminated, owned */
+  int group;
+} ReGroupName;
+
 struct Regex {
   ReInst *code;
   int count;
@@ -56,6 +70,13 @@ struct Regex {
   int classCapacity;
 
   int groupCount; /* including group 0 */
+
+  /* `(?<name>…)`. A named group is an ordinary capturing group that also
+   * answers to a name, so only the mapping is new — the matching is not. */
+  ReGroupName *names;
+  int nameCount;
+  int nameCapacity;
+
   bool ignoreCase;
   bool multiline;
   bool dotAll;
@@ -257,9 +278,47 @@ static void parseClass(ReParser *parser) {
 }
 
 /* Parses one atom, returning where its code starts so a quantifier can wrap it. */
+/* Records `name` as another way to ask for group `group`. */
+static void addGroupName(ReParser *parser, const char *name, int length,
+                         int group) {
+  Regex *regex = parser->regex;
+  for (int i = 0; i < regex->nameCount; i++) {
+    if ((int)strlen(regex->names[i].name) == length &&
+        memcmp(regex->names[i].name, name, (size_t)length) == 0) {
+      fail(parser, "two groups cannot share a name");
+      return;
+    }
+  }
+
+  if (regex->nameCount == regex->nameCapacity) {
+    int capacity = regex->nameCapacity < 4 ? 4 : regex->nameCapacity * 2;
+    ReGroupName *grown =
+        (ReGroupName *)realloc(regex->names, sizeof(ReGroupName) * (size_t)capacity);
+    if (grown == NULL) {
+      fail(parser, "out of memory recording a group name");
+      return;
+    }
+    regex->names = grown;
+    regex->nameCapacity = capacity;
+  }
+
+  char *copy = (char *)malloc((size_t)length + 1);
+  if (copy == NULL) {
+    fail(parser, "out of memory recording a group name");
+    return;
+  }
+  memcpy(copy, name, (size_t)length);
+  copy[length] = '\0';
+  regex->names[regex->nameCount].name = copy;
+  regex->names[regex->nameCount].group = group;
+  regex->nameCount++;
+}
+
 static int parseAtom(ReParser *parser) {
   Regex *regex = parser->regex;
   int start = regex->count;
+  const char *pendingName = NULL;
+  int pendingNameLength = 0;
   char c = nextChar(parser);
 
   switch (c) {
@@ -283,11 +342,39 @@ static int parseAtom(ReParser *parser) {
           emit(regex, RE_LOOK_END, 0, 0);
           regex->code[look].y = regex->count;
           return start;
-        } else if (kind == '<') {
-          /* Lookbehind has to run the body backwards from each position, which
-           * this engine has no way to do; naming it beats a generic error. */
-          fail(parser, "lookbehind and named groups are not supported");
+        } else if (kind == '<' && parser->position + 2 < parser->length &&
+                   (parser->pattern[parser->position + 2] == '=' ||
+                    parser->pattern[parser->position + 2] == '!')) {
+          bool negated = parser->pattern[parser->position + 2] == '!';
+          parser->position += 3;
+          int look = emit(regex, RE_LOOKBEHIND, negated ? 1 : 0, 0);
+
+          parseAlternation(parser);
+          if (parser->failed) return start;
+          if (atEnd(parser) || nextChar(parser) != ')') {
+            fail(parser, "unterminated lookbehind: missing ')'");
+            return start;
+          }
+          emit(regex, RE_LOOK_END, 0, 0);
+          regex->code[look].y = regex->count;
           return start;
+        } else if (kind == '<') {
+          /* `(?<name>…)` — a capturing group that also answers to a name. */
+          parser->position += 2;
+          int nameStart = parser->position;
+          while (!atEnd(parser) && peekChar(parser) != '>') parser->position++;
+          if (atEnd(parser)) {
+            fail(parser, "unterminated group name: missing '>'");
+            return start;
+          }
+          int nameLength = parser->position - nameStart;
+          if (nameLength == 0) {
+            fail(parser, "a named group needs a name");
+            return start;
+          }
+          parser->position++; /* the '>' */
+          pendingName = parser->pattern + nameStart;
+          pendingNameLength = nameLength;
         } else {
           fail(parser, "unsupported group modifier after '(?'");
           return start;
@@ -302,6 +389,10 @@ static int parseAtom(ReParser *parser) {
         }
         group = regex->groupCount++;
         emit(regex, RE_SAVE, group * 2, 0);
+        if (pendingName != NULL) {
+          addGroupName(parser, pendingName, pendingNameLength, group);
+          if (parser->failed) return start;
+        }
       }
 
       parseAlternation(parser);
@@ -561,10 +652,29 @@ void csRegexFree(Regex *regex) {
   if (regex == NULL) return;
   free(regex->code);
   free(regex->classes);
+  for (int i = 0; i < regex->nameCount; i++) free(regex->names[i].name);
+  free(regex->names);
   free(regex);
 }
 
 int csRegexGroupCount(const Regex *regex) { return regex->groupCount; }
+
+int csRegexNameCount(const Regex *regex) { return regex->nameCount; }
+
+const char *csRegexNameAt(const Regex *regex, int index, int *group) {
+  *group = regex->names[index].group;
+  return regex->names[index].name;
+}
+
+int csRegexGroupNamed(const Regex *regex, const char *name, int length) {
+  for (int i = 0; i < regex->nameCount; i++) {
+    if ((int)strlen(regex->names[i].name) == length &&
+        memcmp(regex->names[i].name, name, (size_t)length) == 0) {
+      return regex->names[i].group;
+    }
+  }
+  return -1;
+}
 
 /* ---- the matcher ------------------------------------------------------- */
 
@@ -675,6 +785,39 @@ static bool matchFrom(const Regex *regex, const char *subject, int length,
         int ignored = sp;
         bool held = matchFrom(regex, subject, length, pc + 1, sp, slots, steps,
                               exhausted, RE_LOOK_END, &ignored);
+        if (*exhausted) { alive = false; break; }
+
+        bool wanted = inst->x == 0;
+        alive = held == wanted;
+        if (!held || !wanted) {
+          memcpy(slots, saved, sizeof(int) * (size_t)(regex->groupCount * 2));
+        }
+        pc = inst->y;
+        break;
+      }
+
+      case RE_LOOKBEHIND: {
+        /* Every start position at or before the cursor, nearest first, and the
+         * body must finish exactly here. Nearest first because a lookbehind is
+         * usually short, so the answer is usually found immediately. */
+        int saved[CS_REGEX_MAX_GROUPS * 2];
+        memcpy(saved, slots, sizeof(int) * (size_t)(regex->groupCount * 2));
+
+        bool held = false;
+        for (int from = sp; from >= 0 && !held; from--) {
+          int ended = from;
+          if (!matchFrom(regex, subject, length, pc + 1, from, slots, steps,
+                         exhausted, RE_LOOK_END, &ended)) {
+            if (*exhausted) break;
+            memcpy(slots, saved, sizeof(int) * (size_t)(regex->groupCount * 2));
+            continue;
+          }
+          /* Matched, but only counts if it ends where the cursor is. */
+          held = ended == sp;
+          if (!held) {
+            memcpy(slots, saved, sizeof(int) * (size_t)(regex->groupCount * 2));
+          }
+        }
         if (*exhausted) { alive = false; break; }
 
         bool wanted = inst->x == 0;

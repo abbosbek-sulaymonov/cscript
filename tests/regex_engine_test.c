@@ -81,9 +81,63 @@ int main(void) {
   group("(a+)(b+)", "aabbb", 2, "bbb");
   group("^(\\w+)\\s+(\\w+)$", "hello world", 2, "world");
 
+  /* Lookbehind. The engine cannot run a program backwards, so it tries every
+   * start position at or before the cursor and requires the body to end
+   * exactly there — which is why a body of any shape works, not just a fixed
+   * width one. */
+  check("(?<=\\$)\\d+", "price: $30", "30");
+  check("(?<=\\$)\\d+", "cost 40", "-");
+  check("(?<!x)a", "xay", "-");
+  check("(?<!x)a", "yay", "a");
+  check("(?<=a+)b", "aaab", "b");
+  check("(?<=c|z)ab", "cab", "ab");
+  check("(?<=^)a", "abc", "a");
+  check("(?<=ab)c", "abc", "c");
+  check("(?<=ab)c", "axc", "-");
+  /* An empty body holds everywhere, and a negated one therefore never does. */
+  check("(?<=)a", "a", "a");
+  check("(?<!)a", "a", "-");
+
+  /* A named group is an ordinary capturing group that also answers to a name,
+   * so it captures by number exactly as it did before. */
+  group("(?<y>\\d{4})-(?<m>\\d\\d)", "2024-01", 1, "2024");
+  group("(?<y>\\d{4})-(?<m>\\d\\d)", "2024-01", 2, "01");
+  group("(?<a>x)?(?<b>y)", "y", 1, "-");
+
   char error[128];
   Regex *bad = csRegexCompile("(a", 2, false, false, false, error, sizeof error);
   if (bad != NULL) { printf("FAIL: unterminated group compiled\n"); failures++; }
+
+  Regex *unterminated =
+      csRegexCompile("(?<name", 7, false, false, false, error, sizeof error);
+  if (unterminated != NULL) {
+    printf("FAIL: unterminated group name compiled\n");
+    failures++;
+  }
+
+  Regex *duplicate = csRegexCompile("(?<n>a)(?<n>b)", 14, false, false, false,
+                                    error, sizeof error);
+  if (duplicate != NULL) { printf("FAIL: duplicate group name compiled\n"); failures++; }
+
+  Regex *named = csRegexCompile("(?<y>\\d+)", 10, false, false, false, error,
+                                sizeof error);
+  if (named == NULL) {
+    printf("FAIL: named group did not compile: %s\n", error);
+    failures++;
+  } else {
+    int group = -1;
+    if (csRegexNameCount(named) != 1 ||
+        strcmp(csRegexNameAt(named, 0, &group), "y") != 0 || group != 1) {
+      printf("FAIL: named group not recorded\n");
+      failures++;
+    }
+    if (csRegexGroupNamed(named, "y", 1) != 1 ||
+        csRegexGroupNamed(named, "z", 1) != -1) {
+      printf("FAIL: lookup by name is wrong\n");
+      failures++;
+    }
+    csRegexFree(named);
+  }
 
   printf(failures ? "\n%d failures\n" : "\nall regex engine tests passed\n", failures);
   return failures != 0;
