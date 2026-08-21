@@ -1,0 +1,44 @@
+// `new.target` asks how the current call was reached: it is whatever `new` was
+// applied to, and undefined for a plain call. That is per call rather than per
+// function, because the same function answers differently depending on how it
+// was reached.
+function F() {
+  return new.target !== undefined;
+}
+console.log(F(), new F() instanceof F);
+
+// The reason it exists: a constructor function that refuses to be called
+// without `new`, which is otherwise impossible to detect.
+function Guarded() {
+  if (new.target === undefined) return "called without new";
+  this.ok = true;
+}
+console.log(Guarded());
+console.log(new Guarded().ok);
+
+// It names the exact function, so a subclass is distinguishable.
+class Base {
+  constructor() {
+    this.builtBy = new.target === Base ? "base" : "something else";
+  }
+}
+class Derived extends Base {}
+console.log(new Base().builtBy, new Derived().builtBy);
+
+// A call made *by* a constructor is a plain call, so it answers undefined —
+// the value does not travel down the stack.
+function Outer() {
+  function inner() {
+    return new.target;
+  }
+  this.inner = inner();
+}
+console.log(new Outer().inner);
+
+// A method is never a construction.
+const holder = {
+  m() {
+    return new.target;
+  },
+};
+console.log(holder.m());

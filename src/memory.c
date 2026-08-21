@@ -95,6 +95,7 @@ static void markRoots(void) {
    * literal at any point, so all of them are live for the length of the call. */
   for (int i = 0; i < vm.frameCount; i++) {
     csMarkObject((Obj *)vm.frames[i].closure);
+    csMarkValue(vm.frames[i].newTarget);
   }
 
   /* Upvalues still pointing into the stack. Their `closed` field is empty while
@@ -107,6 +108,8 @@ static void markRoots(void) {
   /* An exception travelling out of a nested interpreter loop is referenced by
    * nothing else while it is in flight. */
   if (vm.hasPendingException) csMarkValue(vm.pendingException);
+  /* In flight between OP_NEW and the frame that takes it. */
+  csMarkValue(vm.pendingNewTarget);
 
   csMarkObject((Obj *)vm.emptyShape);
   csMarkObject((Obj *)vm.accessorMarker);

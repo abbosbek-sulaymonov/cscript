@@ -1119,6 +1119,24 @@ void compileNode(const AstNode *node) {
       compileThisLoad(line);
       break;
 
+    case AST_NEW_TARGET:
+      /* Rejected in an arrow rather than answered with undefined. An arrow
+       * borrows `this` from what encloses it and JavaScript has `new.target`
+       * do the same, but an arrow here pushes a frame of its own and the
+       * answer lives on the frame — so the honest thing is to name the gap
+       * rather than quietly give the wrong answer. */
+      if (current->kind == FUNCTION_ARROW) {
+        errorAt(line, "'new.target' is not available inside an arrow function; "
+                      "read it in the enclosing function and capture it");
+        break;
+      }
+      if (current->kind == FUNCTION_SCRIPT) {
+        errorAt(line, "'new.target' is only valid inside a function");
+        break;
+      }
+      emitByte(OP_NEW_TARGET, line);
+      break;
+
     case AST_SUPER:
       if (node->as.super.name == NULL) {
         errorAt(line, "'super' can only be called or used with a property");

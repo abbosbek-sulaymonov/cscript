@@ -1,0 +1,51 @@
+// A setter takes the instant apart, replaces what it was given and puts it
+// back together — the same arithmetic the constructor does, which is why an
+// out-of-range component rolls over rather than being rejected.
+const d = new Date(Date.UTC(2024, 2, 15, 10, 30, 0));
+console.log(d.toISOString());
+
+d.setUTCFullYear(2030);
+console.log(d.toISOString());
+
+// One call may write several components: `setUTCMonth(m, d)` writes both.
+d.setUTCMonth(11, 25);
+console.log(d.toISOString());
+d.setUTCHours(1, 2, 3, 4);
+console.log(d.toISOString());
+
+// Rolling over. A 32nd of December is the 1st of January.
+d.setUTCDate(32);
+console.log(d.toISOString());
+d.setUTCMonth(12);
+console.log(d.toISOString());
+d.setUTCMinutes(-1);
+console.log(d.toISOString());
+
+// A setter answers the new time, as JavaScript's do.
+const answered = new Date(0);
+console.log(answered.setUTCFullYear(1971));
+console.log(answered.setTime(86400000), answered.toISOString());
+
+// NaN anywhere makes the whole date invalid, and it stays that way.
+const broken = new Date(0);
+console.log(broken.setUTCFullYear(NaN), broken.getTime());
+broken.setUTCMonth(3);
+console.log(broken.getTime());
+
+// Date.UTC names an instant by its calendar without the answer depending on
+// where the program runs; the components default the way the constructor's do.
+console.log(Date.UTC(2024, 0, 1));
+console.log(Date.UTC(2024, 0));
+console.log(new Date(Date.UTC(2000, 1, 29)).toISOString());
+
+// Date.parse reads what the constructor reads.
+console.log(Date.parse("2024-03-15T10:30:00.000Z"));
+console.log(Date.parse("not a date"));
+
+// The local setters agree with the local getters, whatever zone this runs in.
+const local = new Date(Date.UTC(2024, 5, 1, 12, 0, 0));
+local.setFullYear(2025);
+console.log(local.getFullYear(), local.getMonth(), local.getDate());
+local.setHours(7, 8, 9, 10);
+console.log(local.getHours(), local.getMinutes(), local.getSeconds(),
+            local.getMilliseconds());

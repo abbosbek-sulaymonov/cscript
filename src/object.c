@@ -1078,6 +1078,7 @@ void csObjectBlacken(Obj *object) {
       }
       for (int i = 0; i < fiber->frameCount; i++) {
         csMarkObject((Obj *)fiber->frames[i].closure);
+        csMarkValue(fiber->frames[i].newTarget);
       }
       for (ObjUpvalue *upvalue = fiber->openUpvalues; upvalue != NULL;
            upvalue = upvalue->next) {

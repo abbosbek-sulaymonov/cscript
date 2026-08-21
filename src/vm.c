@@ -73,6 +73,7 @@ void csVMInit(void) {
   csTableInit(&vm.symbolMethods);
   csTableInit(&vm.bigintMethods);
   vm.accessorMarker = NULL;
+  vm.pendingNewTarget = UNDEFINED_VAL;
   csTableInit(&vm.symbolRegistry);
   csTableInit(&vm.symbolsByKey);
   vm.iteratorSymbol = NULL;
@@ -592,6 +593,11 @@ bool csVMCallClosureWith(ObjClosure *closure, int argCount, bool hasReceiver) {
   frame->closure = closure;
   frame->ip = function->chunk.code;
   frame->slots = vm.stackTop - argCount - 1;
+  /* Taken rather than read: the next call is a plain one unless OP_NEW sets it
+   * again, which is what makes a constructor's own calls answer undefined the
+   * way JavaScript's do. */
+  frame->newTarget = vm.pendingNewTarget;
+  vm.pendingNewTarget = UNDEFINED_VAL;
   return true;
 }
 
@@ -2770,6 +2776,10 @@ InterpretResult run(int baseFrame) {
         VM_NEXT();
       }
 
+      VM_CASE(OP_NEW_TARGET)
+        csVMPush(frame->newTarget);
+        VM_NEXT();
+
       VM_CASE(OP_SET_PROTOTYPE) {
         /* `{ __proto__: base }`. The object being built is beneath the value. */
         Value value = peekStack(0);
@@ -3155,8 +3165,10 @@ InterpretResult run(int baseFrame) {
            * return a different object, and discards anything that is not one.
            * That choice cannot be made by leaving the frame to unwind. */
           Value returned;
+          vm.pendingNewTarget = target;
           bool ok = csVMCallCallbackWithReceiver(OBJ_VAL(constructor), argCount,
                                                  &returned);
+          vm.pendingNewTarget = UNDEFINED_VAL;
           csPopTempRoot();
           if (!ok) {
             HANDLE_FAILED_CALL();
@@ -3214,6 +3226,7 @@ InterpretResult run(int baseFrame) {
         if (!pendingFields) {
           /* The common shape. A constructor returns `this`, so the frame it
            * leaves behind is the instance — no opcode needed to recover it. */
+          vm.pendingNewTarget = target;
           if (!callMethod(owner->initializer, argCount)) {
             HANDLE_FAILED_CALL();
             VM_NEXT();
@@ -3226,6 +3239,7 @@ InterpretResult run(int baseFrame) {
          * it runs in a loop of its own and the fields follow it. */
         csPushTempRoot((Obj *)instance);
         Value ignored;
+        vm.pendingNewTarget = target;
         bool ok = csVMCallCallback(OBJ_VAL(owner->initializer), argCount, &ignored) &&
                   runFieldInitializers(klass, owner, OBJ_VAL(instance));
         csPopTempRoot();

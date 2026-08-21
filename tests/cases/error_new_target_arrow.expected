@@ -1,0 +1,1 @@
+error_new_target_arrow.cx:6: error: 'new.target' is not available inside an arrow function; read it in the enclosing function and capture it

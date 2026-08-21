@@ -100,6 +100,12 @@ typedef struct CallFrame {
   struct ObjClosure *closure;
   const uint8_t *ip;
   Value *slots;
+
+  /* What `new` was applied to, when this call came from one, and undefined
+   * otherwise. That is the whole of what `new.target` reports, and it is per
+   * call rather than per function because the same function answers
+   * differently depending on how it was reached. */
+  Value newTarget;
 } CallFrame;
 
 /* An active `try`. Unwinding restores the machine to exactly this state, which
@@ -202,6 +208,12 @@ typedef struct {
    * object nothing hands to a program, so no value a script can produce is
    * ever mistaken for it. */
   ObjObject *accessorMarker;
+
+  /* Set by OP_NEW just before the constructor is called, and taken by the
+   * frame that call pushes. A one-slot handoff rather than a parameter on
+   * every call path, because every path that could carry it would have to pass
+   * undefined and only one ever sets it. */
+  Value pendingNewTarget;
   /* `Symbol.for`'s registry, keyed by description. Strong: a registered
    * symbol is meant to be findable again by name. */
   Table symbolRegistry;

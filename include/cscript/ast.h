@@ -35,6 +35,8 @@ typedef enum {
   AST_SPREAD,
   AST_CONDITIONAL,
   AST_THIS,
+  /* `new.target` — what `new` was applied to, or undefined for a plain call. */
+  AST_NEW_TARGET,
   AST_SUPER,
   AST_AWAIT,
   AST_YIELD,
@@ -523,6 +525,7 @@ AstNode *csAstUpdate(AstArena *arena, int line, AstNode *target, bool isIncremen
 AstNode *csAstCall(AstArena *arena, int line, AstNode *callee);
 AstNode *csAstNew(AstArena *arena, int line, AstNode *callee);
 AstNode *csAstThis(AstArena *arena, int line);
+AstNode *csAstNewTarget(AstArena *arena, int line);
 AstNode *csAstRegex(AstArena *arena, int line, const char *source, int sourceLength,
                     const char *flags, int flagsLength);
 AstNode *csAstAwait(AstArena *arena, int line, AstNode *operand);

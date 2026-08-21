@@ -871,6 +871,7 @@ static TypeKind checkNode(Checker *checker, AstNode *node) {
       break;
 
     case AST_THIS:
+    case AST_NEW_TARGET:
     case AST_SUPER:
       result = TYPE_ANY;
       break;

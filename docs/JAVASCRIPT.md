@@ -243,6 +243,30 @@ any shape, which a fixed-width calculation would not be.
 `$<` as text, and one that has names treats an unknown name as an empty
 capture.
 
+### `new.target`
+
+`new.target` is whatever `new` was applied to, and undefined for a plain call —
+which is what makes a constructor function able to refuse being called without
+`new`. It is per call rather than per function, so a call *made by* a
+constructor answers undefined: the value does not travel down the stack.
+
+Inside an arrow it is a compile error. JavaScript has an arrow borrow it from
+what encloses it, the way an arrow borrows `this`; here the answer lives on the
+frame and an arrow pushes one of its own, so naming the gap beats quietly
+giving the wrong value.
+
+### Date
+
+Every setter — `setFullYear`, `setMonth`, `setDate`, `setHours`, `setMinutes`,
+`setSeconds`, `setMilliseconds`, `setTime` and the seven `setUTC…` forms — plus
+`Date.UTC` and `Date.parse`.
+
+A setter may write several components at once, as JavaScript's do:
+`setFullYear(y, m, d)` is one call that writes three. Out-of-range components
+roll over rather than being rejected, because putting a date back together is
+the same arithmetic as taking one apart — a 32nd of December is the 1st of
+January. A NaN anywhere makes the whole date invalid and it stays that way.
+
 ### Property descriptors
 
 `Object.defineProperty`, `defineProperties`, `getOwnPropertyDescriptor`,
@@ -428,9 +452,9 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Missing | Note |
 | --- | --- |
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
-| `Date` parsing beyond ISO, and its locale formats | `toLocaleString`, `Date.parse` of anything else, `setFullYear` and the other setters |
-| `arguments` | A rest parameter does the same job and says what it collects |
-| `new.target`, subclassing built-ins | |
+| `Date`'s locale formats | `toLocaleString` and `toLocaleDateString`. Every non-ISO input form is implementation-defined in JavaScript too, so `Date.parse` of one is NaN |
+| `arguments` | Deliberate, and now for a stronger reason than taste: arity is checked, so a call may not pass more arguments than the function declares. There are never extra arguments for `arguments` to collect, and it could only ever repeat the parameters. A rest parameter is how you accept a variable number, and it says so in the signature |
+| Subclassing built-ins — `class MyArray extends Array` | |
 | Dynamic `import()` | Static `import` and `export` are resolved before the program runs |
 | Bare import specifiers — `import x from "lodash"` | No package system to resolve against |
 | Sparse arrays and holes | Deliberate: they are why engines need a second array representation |

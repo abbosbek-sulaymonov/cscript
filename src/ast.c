@@ -367,6 +367,10 @@ AstNode *csAstThis(AstArena *arena, int line) {
   return newNode(arena, AST_THIS, line);
 }
 
+AstNode *csAstNewTarget(AstArena *arena, int line) {
+  return newNode(arena, AST_NEW_TARGET, line);
+}
+
 AstNode *csAstAwait(AstArena *arena, int line, AstNode *operand) {
   AstNode *node = newNode(arena, AST_AWAIT, line);
   if (node == NULL) return NULL;

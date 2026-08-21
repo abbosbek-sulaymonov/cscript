@@ -265,6 +265,80 @@ static bool getPart(Value receiver, const char *method, DateField field, bool ut
   return true;
 }
 
+/* Puts a broken-down date back together. The inverse of breakDown, and the
+ * same arithmetic the `new Date(y, m, d, …)` constructor does — which is why
+ * out-of-range components roll over rather than being rejected: `setMonth(12)`
+ * means January of the next year, in JavaScript and here. */
+static double buildMs(const Parts *parts, bool utc) {
+  double result = (double)daysFromCivil(parts->year, parts->month, parts->day) *
+                      86400000.0 +
+                  parts->hour * 3600000.0 + parts->minute * 60000.0 +
+                  parts->second * 1000.0 + parts->millisecond;
+  /* Local components name an instant only once the offset at that instant is
+   * known, which is the same order the constructor works in. */
+  return utc ? result : result - localOffsetMs(result);
+}
+
+/* A setter writes `count` fields starting at `first` — `setFullYear(y, m, d)`
+ * is one call that writes three — and answers the new time, as JavaScript's
+ * setters do. Arguments beyond what was supplied are left alone.
+ *
+ * Rolling over falls out of buildMs: a day of 32 or a month of 12 is carried
+ * by the same arithmetic that turns any date into a day count. */
+static bool setParts(Value receiver, const char *method, DateField first,
+                     int count, bool utc, int argCount, Value *args,
+                     Value *result) {
+  if (!requireDate(receiver, method)) return false;
+  if (argCount < 1) {
+    csVMRuntimeError("%s expects at least one number", method);
+    return false;
+  }
+
+  ObjDate *date = AS_DATE(receiver);
+  Parts parts;
+  if (!breakDown(date->ms, utc, &parts)) {
+    /* An invalid date stays invalid, whatever is written to it. */
+    *result = NUMBER_VAL(NAN);
+    return true;
+  }
+
+  for (int i = 0; i < count && i < argCount; i++) {
+    if (!IS_NUMBER(args[i])) {
+      csVMRuntimeError("%s expects numbers", method);
+      return false;
+    }
+    double given = AS_NUMBER(args[i]);
+    if (given != given) {
+      /* NaN anywhere makes the whole date invalid, as it does in JavaScript. */
+      date->ms = NAN;
+      *result = NUMBER_VAL(NAN);
+      return true;
+    }
+
+    int value = (int)given;
+    switch ((DateField)(first + i)) {
+      case FIELD_YEAR:        parts.year = value; break;
+      case FIELD_MONTH:       parts.month = value; break;
+      case FIELD_DAY:         parts.day = value; break;
+      case FIELD_HOUR:        parts.hour = value; break;
+      case FIELD_MINUTE:      parts.minute = value; break;
+      case FIELD_SECOND:      parts.second = value; break;
+      case FIELD_MILLISECOND: parts.millisecond = value; break;
+      case FIELD_WEEKDAY:     break; /* not settable; there is no such setter */
+    }
+  }
+
+  date->ms = buildMs(&parts, utc);
+  *result = NUMBER_VAL(date->ms);
+  return true;
+}
+
+#define DATE_SETTER(fn, method, first, count, utc)                             \
+  static bool fn(Value receiver, int argCount, Value *args, Value *result) {   \
+    return setParts(receiver, method, first, count, utc, argCount, args,       \
+                    result);                                                   \
+  }
+
 #define DATE_GETTER(fn, method, field, utc)                                    \
   static bool fn(Value receiver, int argCount, Value *args, Value *result) {   \
     (void)argCount;                                                            \
@@ -288,6 +362,35 @@ DATE_GETTER(dateUTCHours, "getUTCHours", FIELD_HOUR, true)
 DATE_GETTER(dateUTCMinutes, "getUTCMinutes", FIELD_MINUTE, true)
 DATE_GETTER(dateUTCSeconds, "getUTCSeconds", FIELD_SECOND, true)
 DATE_GETTER(dateUTCMilliseconds, "getUTCMilliseconds", FIELD_MILLISECOND, true)
+
+DATE_SETTER(dateSetFullYear, "setFullYear", FIELD_YEAR, 3, false)
+DATE_SETTER(dateSetMonth, "setMonth", FIELD_MONTH, 2, false)
+DATE_SETTER(dateSetDate, "setDate", FIELD_DAY, 1, false)
+DATE_SETTER(dateSetHours, "setHours", FIELD_HOUR, 4, false)
+DATE_SETTER(dateSetMinutes, "setMinutes", FIELD_MINUTE, 3, false)
+DATE_SETTER(dateSetSeconds, "setSeconds", FIELD_SECOND, 2, false)
+DATE_SETTER(dateSetMilliseconds, "setMilliseconds", FIELD_MILLISECOND, 1, false)
+
+DATE_SETTER(dateSetUTCFullYear, "setUTCFullYear", FIELD_YEAR, 3, true)
+DATE_SETTER(dateSetUTCMonth, "setUTCMonth", FIELD_MONTH, 2, true)
+DATE_SETTER(dateSetUTCDate, "setUTCDate", FIELD_DAY, 1, true)
+DATE_SETTER(dateSetUTCHours, "setUTCHours", FIELD_HOUR, 4, true)
+DATE_SETTER(dateSetUTCMinutes, "setUTCMinutes", FIELD_MINUTE, 3, true)
+DATE_SETTER(dateSetUTCSeconds, "setUTCSeconds", FIELD_SECOND, 2, true)
+DATE_SETTER(dateSetUTCMilliseconds, "setUTCMilliseconds", FIELD_MILLISECOND, 1, true)
+
+/* `setTime` writes the instant itself, which is the one thing that needs no
+ * calendar arithmetic at all. */
+static bool dateSetTime(Value receiver, int argCount, Value *args, Value *result) {
+  if (!requireDate(receiver, "setTime")) return false;
+  if (argCount < 1 || !IS_NUMBER(args[0])) {
+    csVMRuntimeError("setTime expects a number of milliseconds");
+    return false;
+  }
+  AS_DATE(receiver)->ms = AS_NUMBER(args[0]);
+  *result = NUMBER_VAL(AS_DATE(receiver)->ms);
+  return true;
+}
 
 static bool dateGetTime(Value receiver, int argCount, Value *args, Value *result) {
   (void)argCount;
@@ -356,11 +459,55 @@ static void defineDateMethod(const char *name, NativeFn function, int arity) {
 
 NativeFn csDateConstructorFn(void) { return dateConstruct; }
 
-void csDateInstallStatics(ObjObject *statics) {
-  ObjNative *now = csNativeNew(dateNow, "now", 0);
-  csPushTempRoot((Obj *)now);
-  csObjectSetProperty(statics, "now", OBJ_VAL(now));
+/* `Date.UTC(y, m, d, …)` — the same components the `new Date(y, m, …)`
+ * constructor takes, read as UTC rather than as local time, and answering the
+ * number rather than a Date. It is the only way to name an instant by its
+ * calendar without the answer depending on where the program runs. */
+static bool dateUTC(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  double year, month, day, hour, minute, second, milli;
+  if (!numberAt(argCount, args, 0, 1970, &year) ||
+      !numberAt(argCount, args, 1, 0, &month) ||
+      !numberAt(argCount, args, 2, 1, &day) ||
+      !numberAt(argCount, args, 3, 0, &hour) ||
+      !numberAt(argCount, args, 4, 0, &minute) ||
+      !numberAt(argCount, args, 5, 0, &second) ||
+      !numberAt(argCount, args, 6, 0, &milli)) {
+    csVMRuntimeError("Date.UTC expects numbers for its components");
+    return false;
+  }
+
+  *result = NUMBER_VAL(
+      (double)daysFromCivil((int)year, (int)month, (int)day) * 86400000.0 +
+      hour * 3600000.0 + minute * 60000.0 + second * 1000.0 + milli);
+  return true;
+}
+
+/* `Date.parse` reads what the constructor reads: ISO 8601. Anything else is
+ * NaN, which is what JavaScript answers for a form it does not recognise —
+ * and every other form is implementation-defined there anyway. */
+static bool dateParse(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  if (argCount < 1 || !IS_STRING(args[0])) {
+    csVMRuntimeError("Date.parse expects a string");
+    return false;
+  }
+  *result = NUMBER_VAL(parseISO(AS_STRING(args[0])->chars, AS_STRING(args[0])->length));
+  return true;
+}
+
+static void defineStatic(ObjObject *statics, const char *name, NativeFn function,
+                         int arity) {
+  ObjNative *native = csNativeNew(function, name, arity);
+  csPushTempRoot((Obj *)native);
+  csObjectSetProperty(statics, name, OBJ_VAL(native));
   csPopTempRoot();
+}
+
+void csDateInstallStatics(ObjObject *statics) {
+  defineStatic(statics, "now", dateNow, 0);
+  defineStatic(statics, "UTC", dateUTC, -1);
+  defineStatic(statics, "parse", dateParse, 1);
 }
 
 void csDateMethodsInstall(void) {
@@ -388,4 +535,23 @@ void csDateMethodsInstall(void) {
   defineDateMethod("getUTCMinutes", dateUTCMinutes, 0);
   defineDateMethod("getUTCSeconds", dateUTCSeconds, 0);
   defineDateMethod("getUTCMilliseconds", dateUTCMilliseconds, 0);
+
+  /* A setter takes more than one component where JavaScript's does —
+   * `setFullYear(y, m, d)` is one call that writes three — so all of them have
+   * a variable arity. */
+  defineDateMethod("setTime", dateSetTime, 1);
+  defineDateMethod("setFullYear", dateSetFullYear, -1);
+  defineDateMethod("setMonth", dateSetMonth, -1);
+  defineDateMethod("setDate", dateSetDate, -1);
+  defineDateMethod("setHours", dateSetHours, -1);
+  defineDateMethod("setMinutes", dateSetMinutes, -1);
+  defineDateMethod("setSeconds", dateSetSeconds, -1);
+  defineDateMethod("setMilliseconds", dateSetMilliseconds, -1);
+  defineDateMethod("setUTCFullYear", dateSetUTCFullYear, -1);
+  defineDateMethod("setUTCMonth", dateSetUTCMonth, -1);
+  defineDateMethod("setUTCDate", dateSetUTCDate, -1);
+  defineDateMethod("setUTCHours", dateSetUTCHours, -1);
+  defineDateMethod("setUTCMinutes", dateSetUTCMinutes, -1);
+  defineDateMethod("setUTCSeconds", dateSetUTCSeconds, -1);
+  defineDateMethod("setUTCMilliseconds", dateSetUTCMilliseconds, -1);
 }

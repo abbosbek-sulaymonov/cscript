@@ -137,6 +137,7 @@
   X(OP_OBJECT_ACCESSOR)   /* [isGetter] pop a closure and a name             */ \
   X(OP_OBJECT_MERGE)      /*          pop a source, copy its keys in          */ \
   X(OP_SET_PROTOTYPE)     /*          pop a value, link it as the prototype   */ \
+  X(OP_NEW_TARGET)        /*          push what `new` was applied to        */ \
   X(OP_OBJECT_REST)       /* [count]  pop `count` keys and a source, push the \
                            *          rest of it as a new object              */ \
   /* `tag`a${x}b`` — hangs the unescaped pieces off the cooked ones as `raw`,   \

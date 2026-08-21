@@ -211,6 +211,19 @@ AstNode *parsePrimary(Parser *parser) {
      * element of an array, or a parenthesised expression. The one thing it may
      * not swallow is the argument list, which belongs to `new` rather than to
      * the expression naming the class. */
+    /* `new.target` is not a construction at all — it is one token pair that
+     * asks how the current call was reached. */
+    if (check(parser, TOKEN_DOT)) {
+      advanceToken(parser);
+      if (!consumePropertyName(parser, "expected 'target' after 'new.'")) return NULL;
+      if (parser->previous.length != 6 ||
+          memcmp(parser->previous.start, "target", 6) != 0) {
+        errorAtCurrent(parser, "'new.' is only followed by 'target'");
+        return NULL;
+      }
+      return parseCallSuffixes(parser, csAstNewTarget(parser->arena, line));
+    }
+
     AstNode *callee;
     if (matchToken(parser, TOKEN_LEFT_PAREN)) {
       callee = parseExpression(parser);

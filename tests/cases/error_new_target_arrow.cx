@@ -1,0 +1,9 @@
+// An arrow borrows `this` from what encloses it, and JavaScript has
+// `new.target` do the same. An arrow here pushes a frame of its own and the
+// answer lives on the frame, so the gap is named rather than quietly answered
+// with the wrong value.
+function Outer() {
+  const inner = () => new.target;
+  return inner();
+}
+console.log(new Outer());

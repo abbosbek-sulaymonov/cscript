@@ -513,6 +513,7 @@ cscript/
 | **48 ✅** | Inherited and static accessors, `constructor`, a `toString` that is called | — |
 | **49 ✅** | Property descriptors, and own accessors that enumerate | — |
 | **50 ✅** | Regex lookbehind and named groups, with `.groups` and `$<name>` | — |
+| **51 ✅** | `Date` setters, `Date.UTC`, `Date.parse`, and `new.target` | — |
 | next | Calling a CScript function from compiled code, which needs frames and safepoints | — |
 | next | Inlining, so a small function is worth compiling | — |
 | next | Guards and deoptimisation, for code the types do not prove | — |
