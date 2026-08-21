@@ -1,4 +1,4 @@
-<img src="assets/cscript-logo.svg" alt="CScript" height="56">
+<img src="assets/cscript-logo.svg" alt="CScript" height="64">
 
 A **gradually typed** language with **TypeScript's syntax and none of
 JavaScript's footguns**, implemented from scratch in C11 as a bytecode virtual

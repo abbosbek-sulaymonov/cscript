@@ -11,6 +11,13 @@ as submodules.
 | `tree-sitter-cscript/` | tree-sitter grammar, for Neovim, Helix, Zed | Scaffold; parses 99 of 113 valid programs |
 | `linguist/` | What a GitHub Linguist contribution needs | Prepared, **not submitted** |
 
+## The mark
+
+Braces around a C cut from a hexagon. Five images carry it: the icon and the
+wordmark in `assets/`, the two file-icon variants the extension ships, and the
+marketplace raster. They share one geometry, so a change to the shape is a
+change to all five.
+
 ## The identifiers, which are the same everywhere
 
 ```

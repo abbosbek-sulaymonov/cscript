@@ -1,27 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="CScript">
   <title>CScript</title>
-  <!-- A large C with the word set in its opening, the way C++ puts its `++`
-       there. The C is what survives being drawn at sixteen pixels beside a
-       filename; the word is what makes it this language rather than that one,
-       and is legible from about twenty-four pixels up. -->
-  <defs>
-    <linearGradient id="cscript-ground" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2b6cb0"/>
-      <stop offset="1" stop-color="#1a365d"/>
-    </linearGradient>
-  </defs>
-
-  <rect width="64" height="64" rx="14" fill="url(#cscript-ground)"/>
-
-  <!-- Stroked rather than set as text, so it renders identically without
-       depending on a font being installed. 272 degrees of a circle, leaving
-       the mouth open to the right. -->
-  <path d="M47.04 50.48A23 23 0 1 1 47.04 18.52"
-        fill="none" stroke="#f7fafc" stroke-width="8.5" stroke-linecap="round"/>
-
-  <!-- textLength pins the width whatever font the renderer finds, so the word
-       cannot overflow the C or the tile on a machine without this one. -->
-  <text x="33.5" y="39" textLength="26.5" lengthAdjust="spacingAndGlyphs"
-        font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
-        font-size="13" font-weight="700" fill="#f7fafc">script</text>
+  <path d="M32.00 14.50L47.16 23.25L40.14 27.30L32.00 22.60Z" fill="#22d3ee"/>
+  <path d="M16.84 23.25L32.00 14.50L32.00 22.60L23.86 27.30Z" fill="#2dd4bf"/>
+  <path d="M16.84 40.75L16.84 23.25L23.86 27.30L23.86 36.70Z" fill="#3b82f6"/>
+  <path d="M32.00 49.50L16.84 40.75L23.86 36.70L32.00 41.40Z" fill="#2563eb"/>
+  <path d="M47.16 40.75L32.00 49.50L32.00 41.40L40.14 36.70Z" fill="#1e40af"/>
+  <path d="M15.5 8C11 8 11 11 11 15.5C11 21 10 26.5 5.5 32C10 37.5 11 43 11 48.5C11 53 11 56 15.5 56" fill="none" stroke="#cbd5e1" stroke-width="4.2"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M48.5 8C53 8 53 11 53 15.5C53 21 54 26.5 58.5 32C54 37.5 53 43 53 48.5C53 53 53 56 48.5 56" fill="none" stroke="#cbd5e1" stroke-width="4.2"
+        stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

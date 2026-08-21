@@ -1,13 +1,13 @@
 {
   "//": "A file icon theme that gives .cx files the CScript mark and leaves everything else to VS Code's defaults. Shipping a theme is the only way an extension can set a file icon: the icon in the explorer comes from whichever theme is active, and an extension cannot add one to a theme it does not own.",
+  "//braces": "Two variants, because the braces sit on whatever the editor's background happens to be. Dark braces vanish on a dark theme and light ones vanish on a light theme, so each gets the pair drawn for it. The faceted C is the same in both — it carries its own colour.",
   "hidesExplorerArrows": false,
   "iconDefinitions": {
-    "_cscript": { "iconPath": "./cscript-file.svg" }
+    "_cscript_dark": { "iconPath": "./cscript-file.svg" },
+    "_cscript_light": { "iconPath": "./cscript-file-light.svg" }
   },
-  "fileExtensions": {
-    "cx": "_cscript"
-  },
+  "fileExtensions": { "cx": "_cscript_dark" },
   "light": {
-    "fileExtensions": { "cx": "_cscript" }
+    "fileExtensions": { "cx": "_cscript_light" }
   }
 }

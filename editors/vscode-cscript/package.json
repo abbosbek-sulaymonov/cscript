@@ -38,7 +38,7 @@
         ],
         "configuration": "./language-configuration.json",
         "icon": {
-          "light": "./icons/cscript-file.svg",
+          "light": "./icons/cscript-file-light.svg",
           "dark": "./icons/cscript-file.svg"
         }
       }

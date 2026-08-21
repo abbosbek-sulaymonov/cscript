@@ -76,15 +76,26 @@ catches a rule that matches but matches as the wrong thing: it is how
 
 ## The mark
 
-A large C with the word set in its opening, the way C++ puts its `++` there.
-The C is what survives being drawn at sixteen pixels beside a filename; the
-word is what makes it this language rather than another one, and is legible
-from about twenty-four pixels up. That is the trade a wordmark makes, and C++'s
-own icon makes it too.
+Braces around a C cut from a hexagon.
 
-In the SVG the C is a stroked arc rather than a letter, so it renders the same
-without depending on a font being installed, and the word carries `textLength`
-so it cannot overflow the tile on a machine that has a different one.
+The hexagon is pointy-topped, which puts a flat edge on the right; dropping
+that one edge opens the C by exactly sixty degrees. A wider mouth stops it
+reading as a letter and starts it reading as a broken ring, which is why the
+shape is built by removing an edge rather than a vertex.
+
+Two things it deliberately does not depend on. The facets are drawn as separate
+shapes rather than shaded, so nothing relies on gradient support; and the
+braces are stroked curves rather than text, so nothing relies on a font being
+installed. The vector and the raster were plotted from the same coordinates, so
+they are the same picture rather than two drawings that resemble each other.
+
+There are two brace colours, because a brace sits on whatever the editor's
+background happens to be: a dark one vanishes on a dark theme and a light one
+vanishes on a light theme. The faceted C is the same in both — it carries its
+own colour.
+
+Unlike a wordmark, this survives sixteen pixels: at the size a file icon
+actually renders, it still reads as `{C}`.
 
 ## The file icon, and its one catch
 
