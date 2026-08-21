@@ -6,7 +6,7 @@
 #include <string.h>
 
 #include "cscript/parser.h"
-#include "parser_internal.h"
+#include "compiler/parser_internal.h"
 
 
 /* Postfix `.name` and `(args)`, which bind tighter than any unary operator. */

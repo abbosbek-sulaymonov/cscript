@@ -11,7 +11,7 @@
 #include "cscript/native.h"
 #include "cscript/object.h"
 #include "cscript/vm.h"
-#include "vm_internal.h"
+#include "runtime/vm_internal.h"
 
 static bool requireGenerator(Value receiver, const char *method) {
   if (IS_GENERATOR(receiver)) return true;

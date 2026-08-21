@@ -28,13 +28,19 @@ SRC_DIR := src
 INC_DIR := include
 BUILD   := build
 
-SOURCES := $(wildcard $(SRC_DIR)/*.c)
+# Sources are grouped by role — compiler/, runtime/, native/, jit/ — so this
+# is a recursive search rather than one wildcard. The object rule below already
+# creates whatever directory it is asked for, so the tree mirrors itself into
+# each build configuration without further help.
+SOURCES := $(shell find $(SRC_DIR) -name '*.c')
 
 WARNINGS := -Wall -Wextra -Wpedantic -Wshadow -Wstrict-prototypes \
             -Wmissing-prototypes -Wconversion -Wno-sign-conversion \
             -Wpointer-arith -Wcast-qual -Wwrite-strings
 
-BASE_CFLAGS := -std=c11 $(WARNINGS) -I$(INC_DIR) -MMD -MP
+# -I$(SRC_DIR) so that a file in one group can name a header in another —
+# `runtime/vm_internal.h` from native/ — rather than counting dots.
+BASE_CFLAGS := -std=c11 $(WARNINGS) -I$(INC_DIR) -I$(SRC_DIR) -MMD -MP
 LDLIBS      := -lm
 
 # -fno-sanitize-recover makes undefined behaviour abort instead of warn, so a
@@ -96,7 +102,7 @@ test-gc: gcstress
 # which is how it was written, and how a change to it is checked first.
 test-regex:
 	@clang -std=c11 -g $(WARNINGS) -I$(INC_DIR) -o $(BUILD)/regex_engine_test \
-	    tests/regex_engine_test.c $(SRC_DIR)/regex.c
+	    tests/regex_engine_test.c $(SRC_DIR)/runtime/regex.c
 	@$(BUILD)/regex_engine_test
 
 # The lowering is verified by *replacing* the interpreter with it wherever it

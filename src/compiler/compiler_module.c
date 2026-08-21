@@ -12,7 +12,7 @@
 #include "cscript/opcode.h"
 #include "cscript/type.h"
 #include "cscript/vm.h"
-#include "compiler_internal.h"
+#include "compiler/compiler_internal.h"
 
 
 /* Binds one name at module top level. Imports and the classes and functions

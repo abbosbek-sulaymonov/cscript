@@ -13,7 +13,7 @@
 #include "cscript/opcode.h"
 #include "cscript/type.h"
 #include "cscript/vm.h"
-#include "compiler_internal.h"
+#include "compiler/compiler_internal.h"
 
 
 /* Emits a binary operator's two operands, fusing "a local, then a literal" into

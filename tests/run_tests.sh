@@ -37,15 +37,29 @@ fi
 pass=0; fail=0; skipped=0
 failed_names=()
 
-# Single-file cases first, then the directory ones. Collected into one list so
-# the rest of the loop does not have to care which kind it is looking at.
+# Cases are grouped by role — language/, library/, errors/ and so on — and a
+# case may be a single file or a directory with a main.cx in it. A directory
+# holding main.cx *is* a case; anything else is a group to look inside. That
+# rule is what lets the two kinds live in the same tree without a manifest.
 cases=()
-for case_file in "$ROOT"/tests/cases/*.cx; do
-  [[ -e "$case_file" ]] && cases+=("$case_file")
-done
-for case_dir in "$ROOT"/tests/cases/*/; do
-  [[ -f "$case_dir/main.cx" ]] && cases+=("$case_dir/main.cx")
-done
+while IFS= read -r entry; do
+  cases+=("$entry")
+done < <(
+  find "$ROOT/tests/cases" -name 'main.cx' -print
+  # Every other program, minus the ones a directory case owns. That means any
+  # ancestor holding a main.cx, not only the immediate one: a multi-file case
+  # may keep its parts in a lib/ of its own.
+  find "$ROOT/tests/cases" -name '*.cx' ! -name 'main.cx' -print |
+    while IFS= read -r candidate; do
+      owned=0
+      probe="$(dirname "$candidate")"
+      while [[ "$probe" != "$ROOT/tests/cases" && "$probe" != "/" ]]; do
+        if [[ -f "$probe/main.cx" ]]; then owned=1; break; fi
+        probe="$(dirname "$probe")"
+      done
+      [[ $owned -eq 1 ]] || printf '%s\n' "$candidate"
+    done
+)
 
 for case_file in "${cases[@]}"; do
   if [[ "$(basename "$case_file")" == "main.cx" ]]; then
@@ -69,6 +83,10 @@ for case_file in "${cases[@]}"; do
   # when it sits underneath it and absolute when it does not.
   actual="${actual//$ROOT\/tests\/cases\//}"
   actual="${actual//tests\/cases\//}"
+  # And the group the case is filed under, so moving a case between groups does
+  # not rewrite what it is expected to print.
+  case_dir_rel="$(dirname "${case_file#$ROOT/tests/cases/}")"
+  [[ "$case_dir_rel" != "." ]] && actual="${actual//$case_dir_rel\//}"
   actual="${actual//$name\//}"
 
   if [[ "$UPDATE" == "1" ]]; then

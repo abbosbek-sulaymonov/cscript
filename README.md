@@ -409,7 +409,7 @@ make test FILTER=scoping
 UPDATE=1 tests/run_tests.sh    # rewrite .expected from actual output
 ```
 
-Every `tests/cases/NAME.cx` runs and its output is compared against
+Every `tests/cases/<group>/NAME.cx` runs and its output is compared against
 `NAME.expected`; cases named `error_*` assert the failure path.
 
 **`make test-gc` is not decoration.** Collecting on every single allocation

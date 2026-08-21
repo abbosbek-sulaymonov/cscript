@@ -9,7 +9,7 @@
 #include "cscript/opcode.h"
 #include "cscript/type.h"
 #include "cscript/vm.h"
-#include "compiler_internal.h"
+#include "compiler/compiler_internal.h"
 
 /* The compiler's ambient state. Declared in compiler_internal.h; defined here
  * so there is exactly one of each. */

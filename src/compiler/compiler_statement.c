@@ -12,7 +12,7 @@
 #include "cscript/opcode.h"
 #include "cscript/type.h"
 #include "cscript/vm.h"
-#include "compiler_internal.h"
+#include "compiler/compiler_internal.h"
 
 
 /* Emits the pops needed to leave every scope inside `depth` before jumping out

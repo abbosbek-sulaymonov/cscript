@@ -26,8 +26,11 @@ failed=0
 compiled=0
 touched=0
 
-for source in "$ROOT"/tests/cases/*.cx "$ROOT"/tests/cases/*/main.cx \
-              "$ROOT"/examples/*.cx "$ROOT"/bench/*.cx "$ROOT"/bench/jit/*.cx; do
+# The cases are grouped by role and a case may be a directory, so this walks
+# the tree rather than globbing two shapes of path. Every program is run, parts
+# of a multi-file case included — running one on its own is harmless, and the
+# alternative is a second copy of the ownership rule in run_tests.sh.
+while IFS= read -r source; do
   [[ -f "$source" ]] || continue
   name="$(basename "$(dirname "$source")")/$(basename "$source")"
 
@@ -62,7 +65,10 @@ for source in "$ROOT"/tests/cases/*.cx "$ROOT"/tests/cases/*/main.cx \
       sed 's/^/         /' | head -8
     break
   done
-done
+done < <(
+  find "$ROOT/tests/cases" -name '*.cx' -print
+  find "$ROOT/examples" "$ROOT/bench" -name '*.cx' -print
+)
 
 echo "-------------------------------------------"
 echo "checked $checked programs, $failed disagreed"

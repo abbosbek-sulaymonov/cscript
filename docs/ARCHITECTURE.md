@@ -7,30 +7,54 @@ in `include/cscript/`, and a debug flag that dumps what it produced.
   source text
       │
       ▼
-  ┌─────────┐   Token stream        src/lexer.c        CS_DEBUG_PRINT_TOKENS
+  ┌─────────┐   Token stream        src/compiler/lexer.c        CS_DEBUG_PRINT_TOKENS
   │  Lexer  │   borrows the source, copies nothing
   └─────────┘
       │
       ▼
-  ┌─────────┐   AST                 src/parser.c       CS_DEBUG_PRINT_AST
+  ┌─────────┐   AST                 src/compiler/parser.c       CS_DEBUG_PRINT_AST
   │ Parser  │   arena-allocated, freed in one call
   └─────────┘
       │
       ▼
-  ┌─────────┐   AST + types         src/typecheck.c    CS_DEBUG_PRINT_AST
+  ┌─────────┐   AST + types         src/compiler/typecheck.c    CS_DEBUG_PRINT_AST
   │ Checker │   annotates every node in place
   └─────────┘
       │
       ▼
-  ┌─────────┐   Chunk               src/compiler.c     CS_DEBUG_PRINT_CODE
+  ┌─────────┐   Chunk               src/compiler/compiler.c     CS_DEBUG_PRINT_CODE
   │Compiler │   bytecode + constant pool + line table
   └─────────┘
       │
       ▼
-  ┌─────────┐   Values              src/vm.c           CS_DEBUG_TRACE_EXECUTION
+  ┌─────────┐   Values              src/runtime/vm.c           CS_DEBUG_TRACE_EXECUTION
   │   VM    │   stack machine
   └─────────┘
 ```
+
+
+## Where things live
+
+```
+src/compiler/   lexer, parser, checker, bytecode compiler, and the disassembler
+src/runtime/    the VM, objects, values, memory, and the regex engine
+src/native/     the standard library, one file per built-in
+src/jit/        lowering to typed IR, and the arm64 backend
+src/main.c      the entry point
+include/cscript/  every public header, one per module above
+```
+
+The grouping is by role rather than by stage, which is why `native/` is beside
+`runtime/` rather than inside it: a built-in is written against the VM's public
+surface, and keeping the two apart is what stops that surface from quietly
+growing. A file in one group names a header in another through a path from
+`src/` — `runtime/vm_internal.h` — so the direction of a dependency is visible
+at the include rather than in a chain of dots.
+
+Test cases are grouped the same way, under `tests/cases/`: `language`,
+`library`, `types`, `async`, `imports`, `errors` and `jit`. A directory holding
+a `main.cx` is a case that spans files; anything else is a group to look
+inside, which is the whole of what the runner needs to know.
 
 ## Why a bytecode VM and not a tree walker
 
@@ -100,11 +124,11 @@ changes what the VM runs.
 
 ### Two allocators, on purpose
 
-**The AST arena** (`src/ast.c`) bump-allocates from 64 KB blocks and frees
+**The AST arena** (`src/compiler/ast.c`) bump-allocates from 64 KB blocks and frees
 everything at once. AST nodes are small, numerous, and all die at the same
 instant, so per-node bookkeeping would be pure overhead.
 
-**The garbage-collected heap** (`src/memory.c`) owns everything that outlives
+**The garbage-collected heap** (`src/runtime/memory.c`) owns everything that outlives
 compilation — today that is strings, and soon objects, arrays and closures.
 
 Every GC-heap byte passes through `csReallocate`, which is what lets the
@@ -557,7 +581,7 @@ C switches once the exponent leaves `[-4, precision)`, JavaScript once the
 decimal point would fall outside `(-6, 21]` — and printf pads the exponent to
 two digits, writing `1e-07` where JavaScript writes `1e-7`.
 
-`src/value.c` implements the ECMA-262 rule directly: find the shortest digit
+`src/runtime/value.c` implements the ECMA-262 rule directly: find the shortest digit
 string that reads back as the same double, then place the decimal point. It is
 checked against Node over 227 hand-picked forms and 400 random doubles.
 
@@ -597,44 +621,44 @@ table, then reset the stack.
 | --- | --- |
 | `include/cscript/` | One public header per subsystem |
 | **Front end** | |
-| `src/lexer.c` | Source text to tokens |
-| `src/parser.c` | The token plumbing, the precedence table, and `csParse` |
-| `src/parser_expression.c` | Expressions, templates, functions and arrows |
-| `src/parser_declaration.c` | Variables, patterns, classes, imports and exports |
-| `src/parser_statement.c` | Blocks, conditionals, the loop forms, `switch`, `try` |
-| `src/parser_internal.h` | What those four share |
-| `src/ast.c` | Node constructors and the arena they live in |
+| `src/compiler/lexer.c` | Source text to tokens |
+| `src/compiler/parser.c` | The token plumbing, the precedence table, and `csParse` |
+| `src/compiler/parser_expression.c` | Expressions, templates, functions and arrows |
+| `src/compiler/parser_declaration.c` | Variables, patterns, classes, imports and exports |
+| `src/compiler/parser_statement.c` | Blocks, conditionals, the loop forms, `switch`, `try` |
+| `src/compiler/parser_internal.h` | What those four share |
+| `src/compiler/ast.c` | Node constructors and the arena they live in |
 | **Checking** | |
-| `src/typecheck.c` | Static checking; annotates the AST with types |
-| `src/type.c` | The type lattice and assignability |
+| `src/compiler/typecheck.c` | Static checking; annotates the AST with types |
+| `src/compiler/type.c` | The type lattice and assignability |
 | **Back end** | |
-| `src/compiler.c` | Emit helpers, scopes, locals, and the node dispatcher |
-| `src/compiler_expression.c` | Operators, assignment, `this`/`super`, closures |
-| `src/compiler_statement.c` | Control flow and the destructuring a declaration lowers to |
-| `src/compiler_class.c` | Classes: members, accessors, statics, constructors |
-| `src/compiler_module.c` | Imports and exports, resolved at compile time |
-| `src/compiler_internal.h` | The compiler's ambient state and the seams |
-| `src/chunk.c` | Bytecode buffer, constant pool, inline-cache arrays |
+| `src/compiler/compiler.c` | Emit helpers, scopes, locals, and the node dispatcher |
+| `src/compiler/compiler_expression.c` | Operators, assignment, `this`/`super`, closures |
+| `src/compiler/compiler_statement.c` | Control flow and the destructuring a declaration lowers to |
+| `src/compiler/compiler_class.c` | Classes: members, accessors, statics, constructors |
+| `src/compiler/compiler_module.c` | Imports and exports, resolved at compile time |
+| `src/compiler/compiler_internal.h` | The compiler's ambient state and the seams |
+| `src/compiler/chunk.c` | Bytecode buffer, constant pool, inline-cache arrays |
 | **Runtime** | |
-| `src/vm.c` | The interpreter loop and everything on its hot path |
-| `src/vm_fiber.c` | Suspendable calls, for `await` |
-| `src/vm_event.c` | Microtasks, timers, and the loop that drains them |
-| `src/vm_internal.h` | The seams between those three |
-| `src/object.c` | Heap object types, string interning, promises |
-| `src/shape.c` | Hidden classes: the layout an object has |
-| `src/memory.c` | The allocator and the collector |
-| `src/table.c` | Open-addressing hash table |
-| `src/value.c` | Value operations, coercion, number formatting |
-| `src/module.c` | Resolving, loading and ordering source files |
+| `src/runtime/vm.c` | The interpreter loop and everything on its hot path |
+| `src/runtime/vm_fiber.c` | Suspendable calls, for `await` |
+| `src/runtime/vm_event.c` | Microtasks, timers, and the loop that drains them |
+| `src/runtime/vm_internal.h` | The seams between those three |
+| `src/runtime/object.c` | Heap object types, string interning, promises |
+| `src/runtime/shape.c` | Hidden classes: the layout an object has |
+| `src/runtime/memory.c` | The allocator and the collector |
+| `src/runtime/table.c` | Open-addressing hash table |
+| `src/runtime/value.c` | Value operations, coercion, number formatting |
+| `src/runtime/module.c` | Resolving, loading and ordering source files |
 | **Standard library** | |
-| `src/native.c` | The built-in global environment |
-| `src/native_array.c` | Array methods |
-| `src/native_string.c` | String methods |
-| `src/native_json.c` | `JSON.stringify` and `JSON.parse` |
-| `src/native_promise.c` | Promises and timers |
+| `src/native/native.c` | The built-in global environment |
+| `src/native/native_array.c` | Array methods |
+| `src/native/native_string.c` | String methods |
+| `src/native/native_json.c` | `JSON.stringify` and `JSON.parse` |
+| `src/native/native_promise.c` | Promises and timers |
 | **Tools** | |
-| `src/debug.c` | Disassembler and AST printer |
-| `src/diagnostic.c` | Error reporting |
+| `src/compiler/debug.c` | Disassembler and AST printer |
+| `src/compiler/diagnostic.c` | Error reporting |
 | `src/main.c` | CLI, REPL, file runner |
 
 ### How it was split, and what was not
@@ -727,7 +751,7 @@ The number is kept because it is an input to the decision rather than a
 footnote: **a code generator has to beat about 5% on tight loops before it is
 even break-even.**
 
-The refusal list in `src/jit.c` is what a *first* backend would leave to the
+The refusal list in `src/jit/jit.c` is what a *first* backend would leave to the
 interpreter — anything that suspends a frame, unwinds past one, or builds a
 class. Everything else is arithmetic, moves and branches.
 

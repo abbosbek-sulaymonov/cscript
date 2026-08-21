@@ -6,7 +6,7 @@
 #include <string.h>
 
 #include "cscript/parser.h"
-#include "parser_internal.h"
+#include "compiler/parser_internal.h"
 
 
 /* `try { } catch (e) { } finally { }`

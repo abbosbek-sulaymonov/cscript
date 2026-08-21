@@ -10,7 +10,7 @@
 #include "cscript/memory.h"
 #include "cscript/object.h"
 #include "cscript/vm.h"
-#include "vm_internal.h"
+#include "runtime/vm_internal.h"
 
 
 /* Moves the active execution state into `fiber`, and `fiber`'s into the VM.

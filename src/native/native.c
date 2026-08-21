@@ -8,7 +8,7 @@
 #include "cscript/native.h"
 #include "cscript/object.h"
 #include "cscript/vm.h"
-#include "vm_internal.h"
+#include "runtime/vm_internal.h"
 
 /* Writes the arguments separated by spaces, the way console.log does.
  *
