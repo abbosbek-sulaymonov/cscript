@@ -1,0 +1,13 @@
+// A numeric function called in a hot loop: the shape the compiler can answer
+// without the interpreter, and the one it could not touch until a parameter's
+// type could be guessed from the calls that had been made.
+function mix(a, b) {
+  const scaled = a * 3 + b * 7;
+  return scaled % 1000 - a / 2;
+}
+
+let total = 0;
+for (let i = 0; i < 2000000; i++) {
+  total = total + mix(i, i + 1);
+}
+console.log(total);

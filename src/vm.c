@@ -711,6 +711,32 @@ bool callClosure(ObjClosure *closure, int argCount) {
  * receiver, or the object `new` is building. Without it the slot still holds
  * the callee, and a function that says `this` would see itself. JavaScript
  * answers `undefined` there in a module, and so does this. */
+/* Records what this call passed, for a function still being counted towards
+ * the compile threshold.
+ *
+ * Only while it is being counted: once the decision is made the observation
+ * has been used, and going on paying for it on every call would be a tax on
+ * exactly the code the compiler is trying to speed up. A call that arrives
+ * after that with a different type is caught by the entry guard instead. */
+static void observeArguments(ObjFunction *function, int argCount) {
+  if (function->paramCount == 0 || function->paramCount > 8) return;
+
+  if (function->observedParams == NULL) {
+    function->observedParams = (uint8_t *)calloc((size_t)function->paramCount, 1);
+    if (function->observedParams == NULL) return;
+  }
+
+  for (int i = 0; i < function->paramCount; i++) {
+    if (function->observedParams[i] == CS_PARAM_MIXED) continue;
+    /* A call that did not supply this one says nothing about it: the defaults
+     * prologue has not run yet, so the slot holds nothing worth reading. */
+    if (i >= argCount) continue;
+
+    bool isNumber = IS_NUMBER(vm.stackTop[i - argCount]);
+    function->observedParams[i] = isNumber ? CS_PARAM_NUMBER : CS_PARAM_MIXED;
+  }
+}
+
 bool csVMCallClosureWith(ObjClosure *closure, int argCount, bool hasReceiver) {
   ObjFunction *function = closure->function;
 
@@ -732,21 +758,24 @@ bool csVMCallClosureWith(ObjClosure *closure, int argCount, bool hasReceiver) {
   /* A generator's body never runs here: the call builds the handle. */
   if (function->isGenerator) return callGeneratorFunction(closure, argCount);
 
+#ifdef CS_DEBUG_JIT
+  /* Before the tick, so the call that crosses the threshold is counted in what
+   * the compiler is about to look at. */
+  if (function->jitState == JIT_INTERPRETED) observeArguments(function, argCount);
+#endif
   CS_JIT_TICK(function);
 
-#ifdef CS_DEBUG_JIT
-  /* Where the lowered IR covers the whole function, it runs instead of the
-   * bytecode — which is what verifies the lowering against the golden suite. */
-  {
-    Value lowered;
-    if (csJitTryRun(function, vm.stackTop - argCount, argCount, &lowered)) {
-      vm.stackTop -= argCount + 1;
-      csVMPush(lowered);
-      return true;
-    }
-  }
-#endif
-
+  /* Compiled code is *not* entered here, and the reason is this function's
+   * contract: it promises a frame has been pushed, and csVMRunBody,
+   * csVMCallCallback and csVMCallCallbackWithReceiver all start an interpreter
+   * loop immediately afterwards on the strength of that promise. Answering
+   * with a value instead is the native protocol, and callValue is the level
+   * that allows it — which is where the entry lives.
+   *
+   * There used to be one here as well. Nothing caught it because reaching it
+   * needed a function whose parameters were typed *and* which was called back
+   * from a native — a comparator passed to `sort`, say — and no test had one
+   * until parameter types started being guessed rather than declared. */
   CallFrame *frame = &vm.frames[vm.frameCount++];
   frame->closure = closure;
   frame->ip = function->chunk.code;

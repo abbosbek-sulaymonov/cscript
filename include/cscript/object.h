@@ -424,6 +424,19 @@ struct ObjFunction {
    * never say `this` pay nothing for it. */
   bool usesThis;
 
+  /* What calls have actually passed, for parameters the checker could not
+   * prove anything about.
+   *
+   * An annotation is a promise; this is an observation, and the two are not
+   * interchangeable — code compiled on an observation has to check it still
+   * holds every time it runs, which is what the entry guard in csJitTryRun is
+   * for. Recorded only while a function is still being counted towards the
+   * threshold, so it costs nothing once the decision is made.
+   *
+   * CS_PARAM_UNSEEN until the first call, then CS_PARAM_NUMBER while every
+   * call has passed a number, and CS_PARAM_MIXED for good once one has not. */
+  uint8_t *observedParams;
+
   /* What the checker proved about each parameter, kept so it survives into
    * the run time. Without this an annotation stops at the compiler, and a
    * lowered function has to treat every argument as unknown — which is most of
@@ -438,6 +451,9 @@ struct ObjFunction {
   int hotness;
   int jitState;
   void *jitCode; /* NULL until a backend exists */
+  /* Where this function's entry sits in the compiler's table, so answering a
+   * call costs no search. -1 until it is considered. */
+  int jitSlot;
 
   /* Set while compiling: how many operations the declared types let the
    * compiler specialise, against how many it had to leave generic. The ratio
@@ -641,6 +657,10 @@ bool csObjectHasInherited(ObjObject *object, ObjString *key);
 /* False when `prototype` is already in `object`'s chain, which would make the
  * chain a loop and every lookup on it non-terminating. */
 bool csObjectSetPrototype(ObjObject *object, ObjObject *prototype);
+#define CS_PARAM_UNSEEN 0
+#define CS_PARAM_NUMBER 1
+#define CS_PARAM_MIXED 2
+
 ObjFunction *csFunctionNew(void);
 ObjUpvalue *csUpvalueNew(Value *slot);
 ObjClosure *csClosureNew(ObjFunction *function);

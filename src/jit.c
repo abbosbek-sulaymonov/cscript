@@ -31,6 +31,13 @@ typedef struct {
   JitCode *code;            /* machine code, when it compiled */
   const char *codeRefusal;
   Value *scratch;           /* the compiled code's working space */
+
+  /* Decided once, when the IR is lowered. Both were being recomputed on every
+   * call — and csIrIsFullyTyped walks every instruction of every block, so a
+   * function answered by compiled code was paying a walk of its own program
+   * per call. That is what made answering a call no faster than interpreting
+   * one. */
+  bool entryUsable;
 } HotEntry;
 
 static HotEntry hot[CS_JIT_MAX_HOT];
@@ -125,6 +132,41 @@ int csJitThreshold(void) {
  * Checked once on the way in rather than at every access. Nothing inside a
  * compiled region can call anything, so nothing can invalidate either between
  * the check and the end of the run. */
+/* Do the arguments still match what the lowering was told to expect? Only the
+ * parameters it speculated on are checked; an annotated one was already
+ * checked at the call boundary, and an unspeculated one was never assumed. */
+static bool observedTypesHold(const ObjFunction *function, const Value *args,
+                              int argCount) {
+  if (function->observedParams == NULL) return true;
+
+  for (int i = 0; i < function->paramCount; i++) {
+    if (function->observedParams[i] != CS_PARAM_NUMBER) continue;
+    /* A parameter the call left out gets its default, which the compiled
+     * prologue produces; there is no argument to check. */
+    if (i >= argCount) continue;
+    if (!IS_NUMBER(args[i])) return false;
+  }
+  return true;
+}
+
+/* The same question asked of a frame rather than of an argument list, for the
+ * OSR path — where the parameters are already in their slots.
+ *
+ * Both paths need it and only one had it, which is exactly the shape of the
+ * bug that produced: compiled code keeps a slot it believes is a number in a
+ * floating-point register, so entering a loop whose parameter turned out to
+ * hold a pointer read that pointer as a double and wrote the result back. */
+static bool observedTypesHoldInFrame(const ObjFunction *function,
+                                     const Value *slots) {
+  if (function->observedParams == NULL) return true;
+
+  for (int i = 0; i < function->paramCount; i++) {
+    if (function->observedParams[i] != CS_PARAM_NUMBER) continue;
+    if (!IS_NUMBER(slots[i + 1])) return false;
+  }
+  return true;
+}
+
 static bool assumptionsHold(const JitCode *code) {
   if (code->globalCount == 0) return true;
   if (code->globalTable == NULL) return false;
@@ -141,14 +183,16 @@ bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *
    * machine code. Admitting only the first rejected exactly the functions that
    * had got furthest. */
   if (function->jitState != JIT_HOT && function->jitState != JIT_COMPILED) return false;
-  for (int i = 0; i < hotCount; i++) {
-    if (hot[i].function != function) continue;
-    if (hot[i].ir == NULL) return false;
-    /* Only where every value is proved: see csIrIsFullyTyped. */
-    if (!csIrIsFullyTyped(hot[i].ir)) return false;
-    /* A body with an exit in it is entered only through OSR, where a frame
-     * already exists for the interpreter to be handed back. */
-    if (hot[i].ir->hasExits) return false;
+  /* The entry recorded on the function itself, so a call costs no search. */
+  int index = function->jitSlot;
+  if (index >= 0 && index < hotCount && hot[index].function == function) {
+    if (!hot[index].entryUsable) return false;
+    int i = index;
+    /* Only while what was *observed* still holds. A parameter the lowering
+     * took to be a number on the strength of the calls it had seen is checked
+     * here, every time — that is the difference between an observation and the
+     * annotation next to it, and the reason speculating is safe. */
+    if (!observedTypesHold(hot[i].function, args, argCount)) return false;
 
     /* Compiled code, when there is any. The frame it needs is the slots array
      * the interpreter would have used, with the arguments already in place. */
@@ -192,6 +236,9 @@ bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots,
        * above the frame's current top, so the room has to be there. */
       if (slots + hot[i].ir->slotCount >= vm.stack + vm.stackCapacity) return false;
       if (!assumptionsHold(hot[i].code)) return false;
+      /* The parameters this code was lowered on the strength of are still in
+       * their slots, and still have to be what they were guessed to be. */
+      if (!observedTypesHoldInFrame(function, slots)) return false;
 
       int exit = -1;
       uint64_t bits = hot[i].code->osr[o].entry(slots, hot[i].scratch, &exit);
@@ -246,6 +293,13 @@ void csJitConsider(ObjFunction *function) {
   hot[hotCount].code = NULL;
   hot[hotCount].codeRefusal = NULL;
   hot[hotCount].scratch = NULL;
+
+  /* Decided here, once. A body with an exit in it is entered only through OSR,
+   * where a frame already exists for the interpreter to be handed back. */
+  hot[hotCount].entryUsable = hot[hotCount].ir != NULL &&
+                              csIrIsFullyTyped(hot[hotCount].ir) &&
+                              !hot[hotCount].ir->hasExits;
+  function->jitSlot = hotCount;
 
   /* Machine code only where every arithmetic operand is proved a number.
    * Nothing else is attempted, because anything else would need a guard. */

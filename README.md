@@ -515,9 +515,10 @@ cscript/
 | **50 ✅** | Regex lookbehind and named groups, with `.groups` and `$<name>` | — |
 | **51 ✅** | `Date` setters, `Date.UTC`, `Date.parse`, and `new.target` | — |
 | **52 ✅** | Dynamic `import()`, and one namespace object per module | — |
+| **53 ✅** | Guessed parameter types with a guard, so ordinary calls compile | — |
 | next | Calling a CScript function from compiled code, which needs frames and safepoints | — |
 | next | Inlining, so a small function is worth compiling | — |
-| next | Guards and deoptimisation, for code the types do not prove | — |
+| next | Property reads in compiled code, which is what `properties` and `classes` are waiting on | — |
 
 ---
 

@@ -275,11 +275,20 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
 
   /* This is where an annotation stops being advice and starts being usable:
    * a parameter the checker proved is a number becomes a slot the lowering
-   * knows holds one, and every read of it is typed. */
+   * knows holds one, and every read of it is typed.
+   *
+   * An observation counts too, and differently. An annotation is a promise the
+   * checker enforces at every call; an observation is only what has happened
+   * so far, so code built on one is guarded at entry and refused when the
+   * guess stops holding. Without this almost nothing is compilable: an
+   * unannotated parameter makes every arithmetic site that touches it
+   * untyped, and most parameters are unannotated. */
   for (int i = 0; i < function->arity && i + 1 < IR_MAX_STACK; i++) {
-    if (function->paramTypes != NULL && function->paramTypes[i] == TYPE_NUMBER) {
-      low.slotType[i + 1] = IR_TYPE_NUMBER;
-    }
+    bool annotated = function->paramTypes != NULL &&
+                     function->paramTypes[i] == TYPE_NUMBER;
+    bool observed = function->observedParams != NULL &&
+                    function->observedParams[i] == CS_PARAM_NUMBER;
+    if (annotated || observed) low.slotType[i + 1] = IR_TYPE_NUMBER;
   }
 
   /* Set once a region has been skipped. After that the linear stack height is

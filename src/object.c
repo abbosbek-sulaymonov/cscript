@@ -372,9 +372,11 @@ ObjFunction *csFunctionNew(void) {
   function->isGenerator = false;
   function->usesThis = false;
   function->paramTypes = NULL;
+  function->observedParams = NULL;
   function->hotness = 0;
   function->jitState = 0; /* JIT_INTERPRETED */
   function->jitCode = NULL;
+  function->jitSlot = -1;
   function->typedSites = 0;
   function->genericSites = 0;
   csChunkInit(&function->chunk);
@@ -1288,6 +1290,7 @@ void csObjectFree(Obj *object) {
     case OBJ_FUNCTION: {
       ObjFunction *function = (ObjFunction *)object;
       free(function->paramTypes);
+      free(function->observedParams);
       csChunkFree(&function->chunk);
       CS_FREE(ObjFunction, object);
       break;
