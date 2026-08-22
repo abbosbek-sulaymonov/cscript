@@ -120,10 +120,72 @@ icons)*. It gives `.cx` the mark and leaves every other file to the defaults.
 
 ## Publishing
 
-The manifest names the publisher `abbosbek-sulaymonov`. That publisher has to
-exist on the Marketplace before `vsce publish` will work:
+The manifest names the publisher `abbosbek-sulaymonov`. That has to be a real
+Marketplace publisher before anything can be published under it, and creating
+one is the part that is not a command.
+
+**1. An Azure DevOps organisation.** The Marketplace authenticates against Azure
+DevOps, not GitHub. Sign in at <https://dev.azure.com> with a Microsoft account
+and let it create an organisation; the name does not matter.
+
+**2. The publisher.** At <https://marketplace.visualstudio.com/manage>, create a
+publisher whose **ID** is exactly `abbosbek-sulaymonov` — the id, not the
+display name, is what must match `package.json`. Change one and you change the
+other.
+
+**3. A personal access token.** In Azure DevOps: *User settings → Personal
+access tokens → New token*.
+
+| Field | Value |
+| --- | --- |
+| Organization | **All accessible organizations** |
+| Scopes | *Custom defined* → **Marketplace → Manage** |
+| Expiry | up to a year; it will need replacing |
+
+The Organization field is the one that catches people. A token scoped to a
+single organisation authenticates fine and then fails the publish with a bare
+401, which reads like a bad token rather than a wrongly scoped one.
+
+**4. Publish.**
 
 ```bash
-npx @vscode/vsce login abbosbek-sulaymonov    # or create-publisher
-npx @vscode/vsce publish
+cd editors/vscode-cscript
+npx @vscode/vsce login abbosbek-sulaymonov   # paste the token once
+npx @vscode/vsce publish                      # or: publish -p <token>
 ```
+
+Later releases take a version argument instead of an edited manifest —
+`npx @vscode/vsce publish minor` bumps `package.json`, packages and uploads in
+one step.
+
+### Before the first publish
+
+```bash
+npx @vscode/vsce package                       # must end with no warnings
+code --install-extension cscript-language-0.1.0.vsix
+```
+
+Install the `.vsix` and open a `.cx` file. The status bar should read
+**CScript**. That is the whole of what this extension does, and it is worth
+seeing before it is public.
+
+### Two things that are one-way
+
+A published **version** cannot be withdrawn — only the whole extension can be
+unpublished, and its name is then reserved and unusable. So the first publish
+is worth doing from a `.vsix` you have actually installed.
+
+The Marketplace takes a few minutes to show a new extension, and a little
+longer before search finds it. Nothing has gone wrong in the meantime.
+
+### VS Code forks
+
+The Marketplace serves VS Code proper. VSCodium, Cursor, Gitpod and Eclipse
+Theia pull from [Open VSX](https://open-vsx.org) instead, which is a separate
+account and a separate upload:
+
+```bash
+npx ovsx publish cscript-language-0.1.0.vsix -p <open-vsx-token>
+```
+
+The same `.vsix` goes to both.
