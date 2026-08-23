@@ -455,6 +455,16 @@ struct ObjFunction {
    * call costs no search. -1 until it is considered. */
   int jitSlot;
 
+  /* A back-edge offset the compiler has already declined to take over, or -1.
+   *
+   * Which offsets have compiled entries is fixed when the code is generated,
+   * so a refusal at one is permanent — and a hot loop asks from the same
+   * offset every single iteration. One slot is enough because that is exactly
+   * the shape of the question. Without it a compiled function whose loop the
+   * compiler could not take was *slower* than one that never compiled at all:
+   * every back-edge paid a search and a walk to be told no again. */
+  int jitOsrRefusedAt;
+
   /* Set while compiling: how many operations the declared types let the
    * compiler specialise, against how many it had to leave generic. The ratio
    * is what says whether a type-directed compiler is worth building. */

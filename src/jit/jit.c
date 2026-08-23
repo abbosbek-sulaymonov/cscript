@@ -239,9 +239,17 @@ bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args,
 bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots,
               Value *out, int *resumeAt, int *resumeHeight) {
   *resumeAt = -1;
-  for (int i = 0; i < hotCount; i++) {
-    if (hot[i].function != function) continue;
-    if (hot[i].code == NULL) return false;
+  if (function->jitOsrRefusedAt == bytecodeOffset) return false;
+
+  /* The entry recorded on the function itself, so a back-edge costs no search
+   * — the same fix the call path already had. */
+  int index = function->jitSlot;
+  if (index >= 0 && index < hotCount && hot[index].function == function) {
+    int i = index;
+    if (hot[i].code == NULL) {
+      function->jitOsrRefusedAt = bytecodeOffset;
+      return false;
+    }
 
     for (int o = 0; o < hot[i].code->osrCount; o++) {
       if (hot[i].code->osr[o].bytecodeOffset != bytecodeOffset) continue;

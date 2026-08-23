@@ -377,6 +377,7 @@ ObjFunction *csFunctionNew(void) {
   function->jitState = 0; /* JIT_INTERPRETED */
   function->jitCode = NULL;
   function->jitSlot = -1;
+  function->jitOsrRefusedAt = -1;
   function->typedSites = 0;
   function->genericSites = 0;
   csChunkInit(&function->chunk);
