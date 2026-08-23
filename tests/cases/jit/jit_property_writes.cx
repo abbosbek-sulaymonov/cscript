@@ -1,0 +1,46 @@
+// Writing a property off a parameter the function never reassigns — the mirror
+// of the read, and unguarded for the same reason: the shape is checked once at
+// entry, and the property already exists in it, so the write cannot grow the
+// object or move it into dictionary mode.
+function bump(p, by) {
+  p.x = p.x + by;
+  p.y = p.y * 2;
+  return p.x + p.y;
+}
+
+const point = { x: 1, y: 2 };
+let last = 0;
+for (let i = 0; i < 200; i++) {
+  point.x = 1;
+  point.y = 2;
+  last = bump(point, i);
+}
+console.log(last, point.x, point.y);
+
+// The written value is read back through the same assumption, so a property
+// both read and written keeps the stricter of the two requirements.
+function swap(p) {
+  const held = p.x;
+  p.x = p.y;
+  p.y = held;
+  return p.x - p.y;
+}
+const pair = { x: 10, y: 3 };
+for (let i = 0; i < 200; i++) swap(pair);
+console.log(pair.x, pair.y, swap(pair));
+
+// A layout the entry check has to refuse rather than write to the wrong index.
+const flipped = { y: 1, x: 2 };
+console.log(bump(flipped, 5), flipped.x, flipped.y);
+
+// An object grown after the site settled, and one that inherits rather than
+// owning what is being written.
+const grown = { x: 1, y: 1 };
+grown.z = 1;
+console.log(bump(grown, 1), grown.x, grown.y, grown.z);
+
+const base = { x: 100, y: 100 };
+const derived = Object.create(base);
+derived.x = 7;
+derived.y = 8;
+console.log(bump(derived, 1), derived.x, derived.y, base.x, base.y);

@@ -770,6 +770,27 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
 
       switch (inst->op) {
+        case IR_STORE_PROPERTY: {
+          /* The load's address computation, then a store instead of a load.
+           * The property already exists in the shape checked at entry, so this
+           * cannot grow the object, and the collector is not generational so
+           * there is no barrier to emit. */
+          if (slotHome[inst->a] >= 0) {
+            *why = "a property write on a slot held as a number";
+            goto unsupported;
+          }
+
+          int value = readOperand(&encoder, home, inst->b, ALLOC_FIRST_SCRATCH);
+
+          ldrGeneral(&encoder, REG_TEMP, REG_SLOTS, inst->a * 8);
+          movImmediate(&encoder, 10, ~(CS_SIGN_BIT | CS_QNAN));
+          andRegisters(&encoder, REG_TEMP, REG_TEMP, 10);
+          ldrGeneral(&encoder, REG_TEMP, REG_TEMP,
+                     (int)offsetof(ObjObject, as.slots.values));
+          strDouble(&encoder, value, REG_TEMP, inst->c * 8);
+          break;
+        }
+
         case IR_LOAD_PROPERTY: {
           /* `slots[a].<property b>`, with no guard on it.
            *

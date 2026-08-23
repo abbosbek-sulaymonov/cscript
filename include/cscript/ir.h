@@ -67,6 +67,16 @@ typedef enum {
    * function never writes, so what was true at entry is still true here. */
   IR_LOAD_PROPERTY,
 
+  /* `slots[a].<property c> := b`, and unguarded for the same reason as the
+   * load: the shape was checked once at entry and the slot it came from is one
+   * the function never writes, so the storage index is still the right one.
+   *
+   * Nothing else has to happen. The property already exists in that shape — a
+   * cache hit is what proves it — so the write cannot grow the object or move
+   * it into dictionary mode, and the collector needs no barrier because it is
+   * not generational. */
+  IR_STORE_PROPERTY,
+
   IR_JUMP,        /* -> block a                             */
   IR_BRANCH,      /* if a then block b else block c         */
   IR_RETURN,      /* return a                               */
@@ -99,8 +109,12 @@ typedef struct {
 typedef struct {
   int slot;            /* the frame slot holding the object */
   Shape *shape;        /* the layout it must still have */
-  int property;        /* the storage index the reads use */
-  bool expectsNumber;  /* and whether they need it to hold one */
+  int property;        /* the storage index the reads and writes use */
+  /* Whether the property has to *hold* a number at entry. A read needs that —
+   * its result is used as one. A write does not: it only needs the slot to be
+   * where the shape says, and what was there before is about to be replaced.
+   * A property both read and written keeps the stricter of the two. */
+  bool expectsNumber;
 } IrEntryShape;
 
 typedef struct {

@@ -252,14 +252,19 @@ static bool slotIsNeverWritten(const Chunk *chunk, int slot) {
 /* Records what a property read takes for granted, merging with an assumption
  * already made about the same slot and property. Two reads of the same field
  * cost one check. */
-static bool rememberEntryShape(IrFunction *ir, int slot, Shape *shape, int property) {
+static bool rememberEntryShape(IrFunction *ir, int slot, Shape *shape, int property,
+                               bool expectsNumber) {
   for (int i = 0; i < ir->entryShapeCount; i++) {
     IrEntryShape *existing = &ir->entryShapes[i];
     if (existing->slot != slot) continue;
     /* One slot, one layout. A second shape for the same slot would mean the
      * site is not monomorphic after all. */
     if (existing->shape != shape) return false;
-    if (existing->property == property) return true;
+    if (existing->property == property) {
+      /* Read and written both: the read's requirement is the stricter one. */
+      existing->expectsNumber = existing->expectsNumber || expectsNumber;
+      return true;
+    }
   }
 
   if (ir->entryShapeCount == ir->entryShapeCapacity) {
@@ -274,7 +279,7 @@ static bool rememberEntryShape(IrFunction *ir, int slot, Shape *shape, int prope
   ir->entryShapes[ir->entryShapeCount].slot = slot;
   ir->entryShapes[ir->entryShapeCount].shape = shape;
   ir->entryShapes[ir->entryShapeCount].property = property;
-  ir->entryShapes[ir->entryShapeCount].expectsNumber = true;
+  ir->entryShapes[ir->entryShapeCount].expectsNumber = expectsNumber;
   ir->entryShapeCount++;
   return true;
 }
@@ -539,6 +544,64 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
         break;
       }
 
+      /* `object.name = value`, with the same conditions the read needs plus
+       * one of its own: the value stored has to be a number, because that is
+       * the only form the compiled code holds a value in.
+       *
+       * The property already exists in the shape the cache names — that is
+       * what a cache hit means — so the write cannot grow the object or tip it
+       * into dictionary mode, which is what makes an unguarded store sound. */
+      case OP_SET_PROPERTY:
+      case OP_SET_PROPERTY_POP: {
+        int cacheIndex = (chunk->code[offset + 3] << 8) | chunk->code[offset + 4];
+        if (low.stackTop < 2 || cacheIndex >= chunk->propertyCacheCount) {
+          low.reason = csOpcodeName((OpCode)opcode);
+          goto failed;
+        }
+
+        int value = low.stack[low.stackTop - 1];
+        int object = low.stack[low.stackTop - 2];
+        if (ir->registerTypes[value] != IR_TYPE_NUMBER) {
+          low.reason = csOpcodeName((OpCode)opcode);
+          goto failed;
+        }
+
+        int slot = -1;
+        for (int i = block->count - 1; i >= 0; i--) {
+          if (block->instructions[i].result != object) continue;
+          if (block->instructions[i].op == IR_LOAD_LOCAL) slot = block->instructions[i].a;
+          break;
+        }
+
+        const PropertyCache *cache = &chunk->propertyCaches[cacheIndex];
+        if (slot < 0 || cache->shape == NULL || cache->shape == vm.absentShape ||
+            cache->slot < 0 || !slotIsNeverWritten(chunk, slot) ||
+            !rememberEntryShape(ir, slot, cache->shape, cache->slot, false)) {
+          low.reason = csOpcodeName((OpCode)opcode);
+          goto failed;
+        }
+
+        pop(&low, block, line); /* the value */
+        pop(&low, block, line); /* the object */
+
+        IrInst *inst = append(block, IR_STORE_PROPERTY, line);
+        inst->result = -1;
+        inst->a = slot;
+        /* The value goes in `b` because that is where every other store keeps
+         * one, and csIrRegisterOperands answers `b` for those. Putting it in
+         * `c` made it invisible to every pass that asks which fields are
+         * registers — so the value would have looked dead and been eliminated
+         * out from under the store. */
+        inst->b = value;
+        inst->c = cache->slot;
+        if (slot + 1 > ir->slotCount) ir->slotCount = slot + 1;
+
+        /* `obj.x = v` is an expression and leaves the value; the _POP form is
+         * the same store in statement position and leaves nothing. */
+        if (opcode == OP_SET_PROPERTY && !push(&low, block, value, line)) goto failed;
+        break;
+      }
+
       /* `object.name`, where the object came straight off a frame slot.
        *
        * The fused form below names its slot in the instruction; this one does
@@ -568,7 +631,7 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
         const PropertyCache *cache = &chunk->propertyCaches[cacheIndex];
         if (slot < 0 || cache->shape == NULL || cache->shape == vm.absentShape ||
             cache->slot < 0 || !slotIsNeverWritten(chunk, slot) ||
-            !rememberEntryShape(ir, slot, cache->shape, cache->slot)) {
+            !rememberEntryShape(ir, slot, cache->shape, cache->slot, true)) {
           low.reason = csOpcodeName((OpCode)opcode);
           goto failed;
         }
@@ -609,7 +672,7 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
           goto failed;
         }
 
-        if (!rememberEntryShape(ir, slot, cache->shape, cache->slot)) {
+        if (!rememberEntryShape(ir, slot, cache->shape, cache->slot, true)) {
           low.reason = csOpcodeName((OpCode)opcode);
           goto failed;
         }
@@ -1036,6 +1099,9 @@ void csIrRegisterOperands(const IrInst *inst, int *a, int *b) {
 
     case IR_STORE_LOCAL:
     case IR_STORE_GLOBAL:
+    /* `a` is the frame slot and `c` the storage index; the value is in `b`,
+     * the same place the other two stores keep theirs. */
+    case IR_STORE_PROPERTY:
       *b = inst->b; /* `a` is the destination, not a value */
       break;
 
@@ -1331,6 +1397,7 @@ static const char *opName(IrOp op) {
     case IR_BRANCH: return "branch";
     case IR_RETURN: return "return";
     case IR_LOAD_PROPERTY: return "loadprop";
+    case IR_STORE_PROPERTY: return "storeprop";
     case IR_EXIT:   return "exit";
     case IR_LOAD_GLOBAL:  return "loadg";
     case IR_STORE_GLOBAL: return "storeg";
@@ -1377,6 +1444,9 @@ void csIrPrint(const IrFunction *ir) {
         case IR_EXIT: printf("  -> bytecode %d, stack %d", inst->a, inst->b); break;
         case IR_LOAD_GLOBAL: printf(" global%d", inst->a); break;
         case IR_STORE_GLOBAL: printf(" global%d, r%d", inst->a, inst->b); break;
+        case IR_STORE_PROPERTY:
+          printf(" slot%d.%d, r%d", inst->a, inst->c, inst->b);
+          break;
         case IR_NEG: printf(" r%d", inst->a); break;
         default: printf(" r%d, r%d", inst->a, inst->b); break;
       }
@@ -1452,6 +1522,12 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
       switch (inst->op) {
         case IR_CONST: registers[inst->result] = inst->constant; break;
         case IR_LOAD_LOCAL: registers[inst->result] = slots[inst->a]; break;
+
+        case IR_STORE_PROPERTY: {
+          ObjObject *target = AS_OBJECT(slots[inst->a]);
+          target->as.slots.values[inst->c] = registers[inst->b];
+          break;
+        }
 
         case IR_LOAD_PROPERTY: {
           /* Unguarded, because the entry check already proved the layout and
