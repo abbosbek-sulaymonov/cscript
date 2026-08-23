@@ -131,6 +131,63 @@ static void ldrGeneral(Encoder *e, int destination, int base, int byteOffset) {
 /* AND <Xd>, <Xn>, <Xm> — the register form. The immediate form encodes only
  * the bitmask patterns arm64 can describe in thirteen bits, and the NaN-box
  * pointer mask is not one of them, so the mask is materialised first. */
+/* FCVTZS <Xd>, <Dn> — a double truncated toward zero into a 64-bit integer. */
+static void fcvtzs(Encoder *e, int d, int n) {
+  word(e, 0x9E780000u | ((uint32_t)n << 5) | (uint32_t)d);
+}
+
+/* SCVTF <Dd>, <Xn> — and back again. Round-tripping a double through these
+ * two and comparing is how the integer test below decides exactness: it is
+ * true precisely when the value has no fractional part and fits. */
+static void scvtf(Encoder *e, int d, int n) {
+  word(e, 0x9E620000u | ((uint32_t)n << 5) | (uint32_t)d);
+}
+
+/* SDIV <Xd>, <Xn>, <Xm> */
+static void sdiv(Encoder *e, int d, int n, int m) {
+  word(e, 0x9AC00C00u | ((uint32_t)m << 16) | ((uint32_t)n << 5) | (uint32_t)d);
+}
+
+/* MSUB <Xd>, <Xn>, <Xm>, <Xa> — a - n*m, which with a=dividend gives the
+ * remainder once the quotient is in hand. */
+static void msub(Encoder *e, int d, int n, int m, int a) {
+  word(e, 0x9B008000u | ((uint32_t)m << 16) | ((uint32_t)a << 10) |
+              ((uint32_t)n << 5) | (uint32_t)d);
+}
+
+/* CBZ <Xt>, . — the offset is patched by the caller, which knows it. */
+static int cbzHere(Encoder *e, int t) {
+  int at = e->count;
+  word(e, 0xB4000000u | (uint32_t)t);
+  return at;
+}
+
+/* B.<cond> . and B . — likewise placeholders, patched once their target is
+ * known. Local to one instruction's emission, so the distance is never large
+ * enough to overflow the field. */
+static int branchHere(Encoder *e, uint32_t condition) {
+  int at = e->count;
+  word(e, 0x54000000u | condition);
+  return at;
+}
+
+static int jumpHere(Encoder *e) {
+  int at = e->count;
+  word(e, 0x14000000u);
+  return at;
+}
+
+/* Points a placeholder emitted by one of the three above at the current end. */
+static void patchToHere(Encoder *e, int at) {
+  if (at < 0 || at >= e->count) return;
+  uint32_t delta = (uint32_t)(e->count - at);
+  if ((e->words[at] & 0xFC000000u) == 0x14000000u) {
+    e->words[at] |= delta & 0x3ffffffu; /* B: imm26 */
+  } else {
+    e->words[at] |= (delta & 0x7ffffu) << 5; /* B.cond and CBZ: imm19 */
+  }
+}
+
 static void andRegisters(Encoder *e, int d, int n, int m) {
   word(e, 0x8A000000u | ((uint32_t)m << 16) | ((uint32_t)n << 5) | (uint32_t)d);
 }
@@ -855,6 +912,49 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
           int left = readOperand(&encoder, home, inst->a, ALLOC_FIRST_SCRATCH);
           int right = readOperand(&encoder, home, inst->b, ALLOC_SECOND_SCRATCH);
 
+          /* The integer case, inline, before falling back to the call.
+           *
+           * The interpreter has taken this path since long before there was a
+           * compiler — loop counters are whole numbers virtually always, and
+           * integer remainder is about a nanosecond against fmod's twenty. The
+           * compiled code did not, which made it *slower at this operation
+           * than the interpreter it replaced*: bench/loop_arith calls fmod ten
+           * million times and was only a quarter faster compiled for that one
+           * reason.
+           *
+           * Exactness is decided by round-tripping through the integer
+           * registers and comparing, which is true precisely when the value
+           * has no fractional part and fits in 64 bits. Zero on either side
+           * goes to fmod: a zero divisor to get the NaN, and a zero dividend
+           * so that `-0 % n` stays -0 rather than becoming +0. */
+          int slowPath[4];
+          int slowCount = 0;
+
+          fcvtzs(&encoder, REG_TEMP, left);
+          scvtf(&encoder, CALL_SHUFFLE, REG_TEMP);
+          fcmp(&encoder, CALL_SHUFFLE, left);
+          slowPath[slowCount++] = branchHere(&encoder, 0x1u); /* b.ne */
+
+          fcvtzs(&encoder, 10, right);
+          scvtf(&encoder, CALL_SHUFFLE, 10);
+          fcmp(&encoder, CALL_SHUFFLE, right);
+          slowPath[slowCount++] = branchHere(&encoder, 0x1u);
+
+          slowPath[slowCount++] = cbzHere(&encoder, 10);        /* divisor 0 */
+          slowPath[slowCount++] = cbzHere(&encoder, REG_TEMP);  /* dividend 0 */
+
+          {
+            int destination = home[inst->result] >= 0 ? home[inst->result] : 0;
+            sdiv(&encoder, 11, REG_TEMP, 10);
+            msub(&encoder, 11, 11, 10, REG_TEMP);
+            scvtf(&encoder, destination, 11);
+            if (home[inst->result] < 0) {
+              strDouble(&encoder, destination, REG_SCRATCH, inst->result * 8);
+            }
+          }
+          int afterFast = jumpHere(&encoder);
+          for (int s = 0; s < slowCount; s++) patchToHere(&encoder, slowPath[s]);
+
           /* Into d0 and d1 without one move landing on the other's source. */
           if (right != 0) {
             if (left != 0) fmovDouble(&encoder, 0, left);
@@ -875,6 +975,7 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
           if (home[inst->result] < 0) {
             strDouble(&encoder, destination, REG_SCRATCH, inst->result * 8);
           }
+          patchToHere(&encoder, afterFast);
           break;
         }
 
