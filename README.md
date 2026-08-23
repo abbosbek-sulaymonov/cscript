@@ -519,7 +519,8 @@ cscript/
 | next | Calling a CScript function from compiled code, which needs frames and safepoints | — |
 | next | Inlining, so a small function is worth compiling | — |
 | **54 ✅** | Property reads lowered against a shape, checked once at entry | — |
-| next | Emitting a property read in machine code, which the IR now describes | — |
+| **55 ✅** | Property reads emitted in machine code, both bytecode forms lowered | — |
+| next | Entering compiled code from a method call, which needs a receiver at entry | — |
 
 ---
 

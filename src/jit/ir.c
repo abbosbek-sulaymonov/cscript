@@ -539,6 +539,52 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
         break;
       }
 
+      /* `object.name`, where the object came straight off a frame slot.
+       *
+       * The fused form below names its slot in the instruction; this one does
+       * not, so the slot is recovered from whatever pushed the value — and the
+       * only producer this accepts is a plain load. Anything else and the
+       * object is a computed value whose layout at entry says nothing about
+       * its layout here.
+       *
+       * Worth the second case because a method's `this.x` compiles to this
+       * form rather than the fused one, and a method is where property reads
+       * mostly live. */
+      case OP_GET_PROPERTY: {
+        int cacheIndex = (chunk->code[offset + 3] << 8) | chunk->code[offset + 4];
+        if (low.stackTop < 1 || cacheIndex >= chunk->propertyCacheCount) {
+          low.reason = csOpcodeName((OpCode)opcode);
+          goto failed;
+        }
+
+        int object = low.stack[low.stackTop - 1];
+        int slot = -1;
+        for (int i = block->count - 1; i >= 0; i--) {
+          if (block->instructions[i].result != object) continue;
+          if (block->instructions[i].op == IR_LOAD_LOCAL) slot = block->instructions[i].a;
+          break;
+        }
+
+        const PropertyCache *cache = &chunk->propertyCaches[cacheIndex];
+        if (slot < 0 || cache->shape == NULL || cache->shape == vm.absentShape ||
+            cache->slot < 0 || !slotIsNeverWritten(chunk, slot) ||
+            !rememberEntryShape(ir, slot, cache->shape, cache->slot)) {
+          low.reason = csOpcodeName((OpCode)opcode);
+          goto failed;
+        }
+
+        pop(&low, block, line);
+        int result = newRegister(ir, IR_TYPE_NUMBER);
+        IrInst *inst = append(block, IR_LOAD_PROPERTY, line);
+        inst->result = result;
+        inst->a = slot;
+        inst->b = cache->slot;
+        inst->type = IR_TYPE_NUMBER;
+        if (slot + 1 > ir->slotCount) ir->slotCount = slot + 1;
+        if (!push(&low, block, result, line)) goto failed;
+        break;
+      }
+
       /* `local.name`, where the site has settled on one layout.
        *
        * Three things have to hold, and all three are checkable here. The site

@@ -25,6 +25,7 @@ checked=0
 failed=0
 compiled=0
 touched=0
+generated=0
 
 # The cases are grouped by role and a case may be a directory, so this walks
 # the tree rather than globbing two shapes of path. Every program is run, parts
@@ -46,15 +47,30 @@ while IFS= read -r source; do
 
   # How much the compiler actually took, so a run of agreements cannot be
   # mistaken for coverage.
+  # Two tallies, because "answered without the interpreter" counts the IR
+  # interpreter and the machine code together — so a backend that stopped
+  # emitting anything would leave that number untouched. Which tier answered is
+  # the thing a code generator's coverage actually rests on.
   taken=0
+  machine=0
   for threshold in 1 40; do
     part="$(CS_JIT_REPORT=1 CS_JIT_THRESHOLD=$threshold "$BIN" "$source" 2>&1 |
             grep -E 'answered without|taken over|handed back' |
             grep -oE '^  [0-9]+' | tr -d ' ' | paste -sd+ - | bc)"
     taken=$((taken + ${part:-0}))
+    # Both streams, and captured before it is searched. Splitting them is not
+    # worth getting wrong — the program's own output is harmless noise here —
+    # and piping into `grep -q` would be worse: under `pipefail` an
+    # early-exiting grep makes the producer take a SIGPIPE, and the pipeline
+    # then reports failure however well the match went.
+    report="$(CS_JIT_REPORT=1 CS_JIT_THRESHOLD=$threshold "$BIN" "$source" 2>&1)"
+    if [[ "$report" =~ [1-9][0-9]*" of "[0-9]+" compiled to machine code" ]]; then
+      machine=1
+    fi
   done
   compiled=$((compiled + taken))
   [[ $taken -gt 0 ]] && touched=$((touched + 1))
+  [[ $machine -eq 1 ]] && generated=$((generated + 1))
 
   for variant in hot warm; do
     other="${!variant}"
@@ -73,6 +89,7 @@ done < <(
 echo "-------------------------------------------"
 echo "checked $checked programs, $failed disagreed"
 echo "the compiler took part in $touched of them, answering $compiled calls,"
-echo "loops and exits — a drop in the first number is a coverage regression"
-echo "even when nothing disagrees, which is how one went unnoticed once"
+echo "loops and exits, and reached machine code in $generated — a drop in any of"
+echo "those is a coverage regression even when nothing disagrees, which is how"
+echo "one went unnoticed once"
 [[ $failed -eq 0 ]]

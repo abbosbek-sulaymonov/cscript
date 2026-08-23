@@ -128,6 +128,13 @@ static void ldrGeneral(Encoder *e, int destination, int base, int byteOffset) {
               (uint32_t)destination);
 }
 
+/* AND <Xd>, <Xn>, <Xm> — the register form. The immediate form encodes only
+ * the bitmask patterns arm64 can describe in thirteen bits, and the NaN-box
+ * pointer mask is not one of them, so the mask is materialised first. */
+static void andRegisters(Encoder *e, int d, int n, int m) {
+  word(e, 0x8A000000u | ((uint32_t)m << 16) | ((uint32_t)n << 5) | (uint32_t)d);
+}
+
 static void strGeneral(Encoder *e, int source, int base, int byteOffset) {
   if (byteOffset < 0 || byteOffset % 8 != 0 || byteOffset / 8 > 4095) {
     e->failed = true;
@@ -706,13 +713,40 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
 
       switch (inst->op) {
-        case IR_LOAD_PROPERTY:
-          /* Left to the IR interpreter for now: the load itself is one indexed
-           * read, but the object's storage pointer has to be reached through
-           * two indirections the encoder does not emit yet. The lowering and
-           * the entry checks are what needed proving first. */
-          *why = "reads a property";
-          goto unsupported;
+        case IR_LOAD_PROPERTY: {
+          /* `slots[a].<property b>`, with no guard on it.
+           *
+           * What makes that safe is the entry check, not luck: csIrEntryShapes
+           * proved before the body started that this slot holds an object of
+           * exactly this shape and that the property holds a number, and the
+           * lowering only emits this for a slot the function never writes. So
+           * the layout cannot have moved between there and here.
+           *
+           * Three steps: read the Value, strip the NaN-box tag to get the
+           * object, follow it to its storage, and index. */
+          if (slotHome[inst->a] >= 0) {
+            /* The slot is homed in a floating-point register, which means
+             * something typed it a number — and an object is not one. The
+             * lowering should never produce this pairing; refusing is cheaper
+             * than trusting it. */
+            *why = "a property read on a slot held as a number";
+            goto unsupported;
+          }
+
+          int destination = home[inst->result] >= 0 ? home[inst->result] : 0;
+
+          ldrGeneral(&encoder, REG_TEMP, REG_SLOTS, inst->a * 8);
+          movImmediate(&encoder, 10, ~(CS_SIGN_BIT | CS_QNAN));
+          andRegisters(&encoder, REG_TEMP, REG_TEMP, 10);
+          ldrGeneral(&encoder, REG_TEMP, REG_TEMP,
+                     (int)offsetof(ObjObject, as.slots.values));
+          ldrDouble(&encoder, destination, REG_TEMP, inst->b * 8);
+
+          if (home[inst->result] < 0) {
+            strDouble(&encoder, 0, REG_SCRATCH, inst->result * 8);
+          }
+          break;
+        }
 
         case IR_CONST: {
           /* A number's Value is its double, so the bits go straight across. */
