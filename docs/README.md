@@ -1,14 +1,18 @@
 # CScript documentation
 
-Four documents. They are meant to be read in this order, and each answers a
-different question.
+Each answers a different question, and they are meant to be read roughly in
+this order.
 
 | Document | Answers |
 | --- | --- |
+| [TOUR.md](TOUR.md) | **What does it look like?** Enough of the language to judge it, in one page. |
 | [GRAMMAR.md](GRAMMAR.md) | **What can I write?** The full syntax as EBNF, then the semantics of each construct, and what is not implemented. |
 | [JAVASCRIPT.md](JAVASCRIPT.md) | **How does it compare to JavaScript?** Feature by feature: what is the same, what differs on purpose and why, and what is missing. |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | **How does it work?** The pipeline, the object model, the collector, the optimisations — and the measurements behind each decision, including the ones that did not pay off. |
-| [../README.md](../README.md) | **Why does it exist?** The idea, the status, the roadmap, and the benchmark table. |
+| [PERFORMANCE.md](PERFORMANCE.md) | **Is it fast?** The benchmarks against Node, what the compiler is worth, and what is still slow. |
+| [ROADMAP.md](ROADMAP.md) | **What is next?** What has been built, in order, and what the measurements say to build next. |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | **How do I work on it?** The build modes, the six test suites, and where everything lives. |
+| [../README.md](../README.md) | **Why does it exist?** The idea and the status, briefly. |
 
 ## The shape of the thing
 
@@ -35,7 +39,7 @@ promises nothing about a value until it sees one.
 
 | I want to… | Start at |
 | --- | --- |
-| add a syntax form | `src/parser_*.c`, then `src/compiler_*.c` |
+| add a syntax form | `src/compiler/parser_*.c`, then `src/compiler/compiler_*.c` |
 | add an opcode | `include/cscript/opcode.h` — the X-macro generates the enum *and* the dispatch table, so they cannot drift |
 | add a built-in | `src/native/native.c`, or the `native_*.c` for that type |
 | understand a slowdown | `make profile`, which prints the executed-opcode and opcode-pair tables |

@@ -1,0 +1,140 @@
+# Performance
+
+Where CScript is fast, where it is not, and what was measured to find out.
+Every number here comes from `bench/run.sh` or `bench/jit.sh`; the decisions
+behind them, including the ones that did not pay off, are in
+[ARCHITECTURE.md](ARCHITECTURE.md).
+
+Measured on an Apple M3 Pro, best of seven, via `bench/run.sh`.
+
+```
+startup: cscript 2 ms, node 37 ms — subtracted from the compute column
+
+benchmark          cscript       node     cscript       node    ratio
+                   (total)    (total)   (compute)  (compute)
+---------------------------------------------------------------------
+arrays               69 ms      45 ms       67 ms       8 ms     8.4x
+locals              148 ms      43 ms      146 ms       6 ms    24.3x
+loop_empty          160 ms      42 ms      158 ms       5 ms    31.6x
+globals             195 ms      43 ms      193 ms       6 ms    32.2x
+branches            210 ms      44 ms      208 ms       7 ms    29.7x
+strings             216 ms      39 ms      214 ms       2 ms   107.0x
+classes             231 ms      50 ms      229 ms      13 ms    17.6x
+loop_arith          228 ms      46 ms      226 ms       9 ms    25.1x
+properties          307 ms      46 ms      305 ms       9 ms    33.9x
+
+native reference (loop_arith, total):  Go 8 ms   ·   C -O2 8 ms
+```
+
+**CScript is 8–34× slower than Node on compute, and roughly 35× slower than Go
+or C.** The `strings` figure of 107× is not a real ratio: V8 can see that loop
+produces nothing and removes it.
+
+That is a much worse number than this table used to report, and the correction
+is worth more than the result. The harness called `python3` twice per
+repetition to read the clock, which put that interpreter's own ~19 ms startup
+*inside every measurement*. A constant offset does not merely add noise — it
+flatters whichever program is slower, because it is a smaller share of a bigger
+number. Node's 37 ms of process startup was doing the same thing from the other
+side. Together they turned a 25× gap into a reported 4×.
+
+Both columns are kept because both are true. A CLI that runs for 40 ms really
+does start 18× faster than Node; an interpreter loop really is 25× slower.
+Quoting only the first would be the mistake that was already being made.
+
+Three optimisations account for the 32% improvement, and the measurements are
+worth more than the summary:
+
+- **An integer fast path for `%`** was the largest single win. `OP_MODULO`
+  called `fmod()` unconditionally — ten million `fmod` calls cost 182 ms
+  against 8 ms for integer remainder.
+- **`OP_INC_LOCAL`** collapses `i++` in statement position from seven
+  instructions to one, since the old value nobody reads no longer has to be
+  produced. The canonical loop body went from 16 instructions to 11.
+- **Computed-goto dispatch turned out to be worth nothing.** It wins on four of
+  six benchmarks and loses 19% on the branch-heavy one, netting a 0.5%
+  difference. Expected: 15–25%.
+- **NaN-boxing turned out to be worth nothing for speed either** — but it
+  halves memory, taking a million-element array from 18.9 MB to 11.3 MB. It is
+  filed as a memory optimisation for that reason.
+- **Removing an instruction is worth about a third of an instruction.** The
+  most useful number here, and measured rather than assumed. Fusing the three
+  most frequent opcode pairs cut executed instructions by 8.5% on `classes`,
+  17% on `properties` and 19% on `locals` — and cut *time* by 0.5%, 4.6% and
+  9.8%. Instruction count converts to wall clock at roughly 0.25–0.5×, and on
+  the object-heavy benchmark barely at all.
+
+  The reason is that CScript's instructions already do real work each: an
+  inline-cache probe, a shape compare, a NaN-boxed move. Dispatch is a smaller
+  share of the total here than in the naive interpreters the textbook figures
+  come from. It also prices a register VM, which is the same trade at a larger
+  scale — cutting the 35–45% of instructions that exist only to move values on
+  and off the stack should be worth 10–20%, not the 20–40% the technique is
+  usually credited with.
+- **A superinstruction has to keep its own handler.** The first attempt had the
+  fused opcodes jump into the body of the one they specialise, to avoid
+  duplicating forty lines. That made `classes` *slower* despite executing 8.5%
+  fewer instructions: the dispatch table's indirect branch is predicted per
+  opcode, and sharing one body throws that away.
+- **Hidden classes and inline caches gave 11–13%**, not the 2× the technique is
+  usually credited with. The reason is worth stating: CScript interns every
+  property name and precomputes its hash, so the lookup being replaced was
+  already one masked index and one pointer compare. The cache removes real
+  work, but there was less of it there than the technique assumes. Property
+  reads are also only about a fifth of the instructions in a property-heavy
+  loop, which bounds what any change to them can do.
+
+- **Superinstructions worked**, and were the first optimisation picked from a
+  profile rather than from intuition. Fusing the three hottest opcode pairs cut
+  the canonical loop body from 16 instructions to 7, and total instructions
+  executed by 31%.
+
+Three optimisations aimed at the cost of *executing* an instruction and found it
+already nearly free. The fourth attacked the *number* of instructions and
+landed. The difference was not sophistication — it was measuring first. The
+reasoning is in
+[ARCHITECTURE.md](ARCHITECTURE.md#what-the-measurements-add-up-to).
+
+Closing the gap with Go needs a JIT, not another tweak — the reasoning is in
+[ARCHITECTURE.md](ARCHITECTURE.md#the-interpreter-ceiling). There is one
+now, and on the code it compiles it does close most of it:
+
+| | interpreted | compiled | speedup | Node |
+| --- | ---: | ---: | ---: | ---: |
+| `bench/jit/jit_calls.cx` — 3M calls | 136 ms | 112 ms | 1.2× | 8 ms |
+| `bench/jit/jit_loop.cx` — one call, 20M iterations | 492 ms | **55 ms** | **8.9×** | 35 ms |
+| `bench/locals.cx` — an ordinary script, no annotations | 149 ms | **18 ms** | **8.3×** | 7 ms |
+| `bench/loop_empty.cx` — loop overhead alone, over a global | 170 ms | **20 ms** | **8.6×** | 7 ms |
+| `bench/globals.cx` — reads and writes of module bindings | 211 ms | **41 ms** | **5.2×** | 7 ms |
+
+The last three have no type annotations in them at all. Their types come from
+the checker's inference of `let a = 0`, and their loops reach the compiler
+because everything the compiler cannot express — the `console.log` at the end —
+is handed back to the interpreter rather than refusing the whole function.
+
+`%` calls `fmod`, because arm64 has no floating-point remainder and the inline
+form stops being exact past 2^53. A function that calls anything allocates only
+from the callee-saved registers, so nothing has to be spilled around the call —
+but ten million libm calls still cost what they cost: `bench/loop_arith.cx`
+gains 1.6× and `bench/branches.cx` 1.4×, against 5–9× for everything else.
+
+Both columns are the same binary; only the tiering threshold differs. The
+backend compiles functions whose arithmetic the type checker has already
+proved, so it emits no type tests and has nothing to deoptimise to — which is
+something a JavaScript engine cannot do, because JavaScript promises nothing
+about a value until it sees one.
+
+It took four optimisations that measured at nothing and one diagnosis that the
+loop benchmark had never entered the compiled code at all. That story, which is
+the more useful half, is in
+[ARCHITECTURE.md](ARCHITECTURE.md#stage-4-the-loop-and-what-was-actually-wrong-with-it).
+
+```bash
+bench/run.sh              # everything
+bench/run.sh loop         # only matching names
+REPS=7 bench/run.sh       # more repetitions
+BIN=build/switch/cscript bench/run.sh    # compare dispatch strategies
+make bench-jit            # what the JIT is worth, on what it can compile
+```
+
+---
