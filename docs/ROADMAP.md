@@ -67,6 +67,36 @@ already measured says it is the thing that pays.
 | **57 ✅** | Property writes lowered and emitted, and a back-edge that stops re-asking | — |
 | **58 ✅** | `new` consults the compiler — and why no constructor yet qualifies | — |
 | next | A property store that *adds* one, which is what a constructor does | — |
-| next | Allocating an object in compiled code, which `properties` is waiting on | — |
+| next | Allocating an object in compiled code — attempted, backed out; see below | — |
 
 ---
+
+## Allocation in compiled code: what an attempt found
+
+Tried and withdrawn, because it produced a wrong answer on `bench/properties`
+that was not diagnosed. What it turned up is worth keeping.
+
+**The collector cannot see a compiled frame.** On a call entry the slots are a
+local array in `csJitTryRun`; on the OSR path they are the interpreter's frame,
+but compiled code writes past what the interpreter has opened and `markRoots`
+walks only as far as `stackTop`. Harmless only while compiled code cannot
+allocate — which is exactly the condition being removed. The fix is small,
+though: every value compiled code holds is a number except the objects in frame
+slots, so what is needed is a **root range**, not a stack map.
+
+**There is nowhere to put a temporary.** Compiled code needs a slot to hold a
+freshly allocated object where the collector can see it, and `IrFunction`'s
+`slotCount` is not it — that is the highest slot the *lowering happened to
+touch*, which lands on a local the lowering did not. `ObjFunction` records no
+frame size, so one has to be added, from the compiler's local high-water mark.
+
+**Three passes have to be told that allocation is a store.**
+`csIrReconcileSlotTypes` and `promotableSlots` both walk only `IR_STORE_LOCAL`,
+so a slot written by an allocation looked unwritten, was typed a number, and
+got a floating-point register — after which the property store into it was
+refused. `csIrRemoveDeadStores` counts a slot as read only through
+`IR_LOAD_LOCAL`, so a slot read through a property access looks dead; that one
+is now hardened, and it is the only part of the attempt that was kept.
+
+The wrong answer survived all of the above being fixed, so there is at least
+one more thing wrong, and the honest position is that it is not yet understood.

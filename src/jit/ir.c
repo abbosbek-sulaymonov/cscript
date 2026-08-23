@@ -1175,6 +1175,16 @@ void csIrRemoveDeadStores(IrFunction *ir) {
         isRead[inst->a] = true;
       }
 
+      /* A property access reads the slot holding the object, without a load to
+       * show for it. Nothing depends on this today — a property is only
+       * lowered against a slot the function never writes, so there is no store
+       * to remove — but relying on that coincidence is how the next change
+       * breaks something quietly. */
+      if ((inst->op == IR_LOAD_PROPERTY || inst->op == IR_STORE_PROPERTY) &&
+          inst->a >= 0 && inst->a <= ir->slotCount) {
+        isRead[inst->a] = true;
+      }
+
       /* An exit reads everything. The interpreter picks the frame up from
        * there and its next instruction may be a load of any live slot — a
        * read this pass cannot see, because it is not in the IR at all.
