@@ -71,10 +71,19 @@ typedef enum {
    * load: the shape was checked once at entry and the slot it came from is one
    * the function never writes, so the storage index is still the right one.
    *
-   * Nothing else has to happen. The property already exists in that shape — a
-   * cache hit is what proves it — so the write cannot grow the object or move
-   * it into dictionary mode, and the collector needs no barrier because it is
-   * not generational. */
+   * Nothing else has to happen, because the property already exists at that
+   * index: the entry check proves the object has exactly the recorded shape,
+   * and that the index is inside it. So the write cannot grow the object or
+   * move it into dictionary mode, and the collector needs no barrier because
+   * it is not generational.
+   *
+   * A store that *adds* a property is therefore not this instruction, and is
+   * refused rather than compiled. That is what excludes most constructors:
+   * `this.x = x; this.y = y;` on a fresh object sees a different shape at each
+   * store, because each one transitions it — and one slot may only carry one
+   * recorded layout. A class whose fields are declared is the exception, since
+   * the field initialisers give the instance its final shape before the
+   * constructor body runs. */
   IR_STORE_PROPERTY,
 
   IR_JUMP,        /* -> block a                             */

@@ -65,7 +65,8 @@ already measured says it is the thing that pays.
 | **55 ✅** | Property reads emitted in machine code, both bytecode forms lowered | — |
 | **56 ✅** | Method calls answered from compiled code, with the receiver at entry | — |
 | **57 ✅** | Property writes lowered and emitted, and a back-edge that stops re-asking | — |
-| next | Entering a constructor from `new`, so a compiled one is used | — |
+| **58 ✅** | `new` consults the compiler — and why no constructor yet qualifies | — |
+| next | A property store that *adds* one, which is what a constructor does | — |
 | next | Allocating an object in compiled code, which `properties` is waiting on | — |
 
 ---

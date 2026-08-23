@@ -945,6 +945,31 @@ static Table *methodTableFor(Value receiver) {
  *
  * A plain object's own properties win over anything else, because a user
  * function stored on an object is exactly what it looks like. */
+/* A constructor body answered by compiled code, leaving the stack as the
+ * caller found it. `built` goes to slot 0, which is where the body's `this`
+ * lives; what the body *returns* is handed back, because JavaScript lets a
+ * constructor answer with a different object and the caller decides.
+ *
+ * `new` never reached the compiler at all before this, so a constructor could
+ * compile and then only ever be interpreted — the same gap methods had. */
+static bool constructorAnsweredByCompiler(ObjObject *built, ObjClosure *body,
+                                          int argCount, Value *returned) {
+#ifdef CS_DEBUG_JIT
+  if (!csJitTryRun(body->function, OBJ_VAL(built), vm.stackTop - argCount,
+                   argCount, returned)) {
+    return false;
+  }
+  vm.stackTop -= argCount + 1;
+  return true;
+#else
+  (void)built;
+  (void)body;
+  (void)argCount;
+  (void)returned;
+  return false;
+#endif
+}
+
 /* A method answered by compiled code, or false to go the ordinary way.
  *
  * This is allowed *here* and not in callClosure, and the difference is the
@@ -3434,6 +3459,13 @@ InterpretResult run(int baseFrame) {
            * return a different object, and discards anything that is not one.
            * That choice cannot be made by leaving the frame to unwind. */
           Value returned;
+          if (constructorAnsweredByCompiler(built, constructor, argCount,
+                                            &returned)) {
+            csPopTempRoot();
+            csVMPush(IS_OBJECT(returned) ? returned : OBJ_VAL(built));
+            VM_NEXT();
+          }
+
           vm.pendingNewTarget = target;
           bool ok = csVMCallCallbackWithReceiver(OBJ_VAL(constructor), argCount,
                                                  &returned);
@@ -3494,7 +3526,19 @@ InterpretResult run(int baseFrame) {
 
         if (!pendingFields) {
           /* The common shape. A constructor returns `this`, so the frame it
-           * leaves behind is the instance — no opcode needed to recover it. */
+           * leaves behind is the instance — no opcode needed to recover it.
+           *
+           * Compiled code leaves no frame, so it pushes the instance itself.
+           * What such a body answers with is discarded on purpose: a class
+           * constructor's result is always the instance, which is the rule the
+           * frame version relies on too. */
+          Value ignoredResult;
+          if (constructorAnsweredByCompiler(instance, owner->initializer,
+                                            argCount, &ignoredResult)) {
+            csVMPush(OBJ_VAL(instance));
+            VM_NEXT();
+          }
+
           vm.pendingNewTarget = target;
           if (!callMethod(owner->initializer, argCount)) {
             HANDLE_FAILED_CALL();
