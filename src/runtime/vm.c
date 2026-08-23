@@ -840,7 +840,11 @@ bool callValue(Value callee, int argCount) {
       if (!parameterTypesHold(closure->function, argCount)) return false;
 
       Value lowered;
-      if (csJitTryRun(closure->function, vm.stackTop - argCount, argCount, &lowered)) {
+      /* An ordinary call leaves the callee in slot 0, except where the body
+       * says `this` — which the interpreter blanks, and so does this. */
+      Value slotZero = closure->function->usesThis ? UNDEFINED_VAL : callee;
+      if (csJitTryRun(closure->function, slotZero, vm.stackTop - argCount,
+                      argCount, &lowered)) {
         vm.stackTop -= argCount + 1;
         csVMPush(lowered);
         return true;
@@ -941,6 +945,39 @@ static Table *methodTableFor(Value receiver) {
  *
  * A plain object's own properties win over anything else, because a user
  * function stored on an object is exactly what it looks like. */
+/* A method answered by compiled code, or false to go the ordinary way.
+ *
+ * This is allowed *here* and not in callClosure, and the difference is the
+ * contract. callClosure promises a frame has been pushed and its callers start
+ * an interpreter loop on the strength of it; invokeMethod promises no such
+ * thing — a native method already answers by leaving a value where the
+ * receiver was, and both call sites in the interpreter recompute their frame
+ * pointer afterwards either way.
+ *
+ * The receiver goes to slot 0, which is where a method's `this` lives and
+ * where its property reads are checked. Passing it is the whole of what was
+ * missing: the entry frame used to be built from the arguments alone, so a
+ * method reading `this.x` failed its entry check against an undefined slot and
+ * compiled code was never entered. */
+static bool methodAnsweredByCompiler(Value receiver, ObjClosure *method,
+                                     int argCount) {
+#ifdef CS_DEBUG_JIT
+  Value produced;
+  if (!csJitTryRun(method->function, receiver, vm.stackTop - argCount, argCount,
+                   &produced)) {
+    return false;
+  }
+  vm.stackTop -= argCount + 1;
+  csVMPush(produced);
+  return true;
+#else
+  (void)receiver;
+  (void)method;
+  (void)argCount;
+  return false;
+#endif
+}
+
 static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
   if (IS_OBJECT(receiver)) {
     Value method;
@@ -959,6 +996,9 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
        * because that is what its `this` resolves to. Anything else is just a
        * function that happens to live on an object, and gets no receiver. */
       if (IS_CLOSURE(method) && wantsReceiver(AS_CLOSURE(method))) {
+        if (methodAnsweredByCompiler(receiver, AS_CLOSURE(method), argCount)) {
+          return true;
+        }
         return callMethod(AS_CLOSURE(method), argCount);
       }
 
@@ -974,7 +1014,10 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
     ObjObject *instance = AS_OBJECT(receiver);
     if (instance->klass != NULL) {
       ObjClosure *classMethod = csClassFindMethod(instance->klass, name);
-      if (classMethod != NULL) return callMethod(classMethod, argCount);
+      if (classMethod != NULL) {
+        if (methodAnsweredByCompiler(receiver, classMethod, argCount)) return true;
+        return callMethod(classMethod, argCount);
+      }
     }
 
     csVMRuntimeError("'%s' has no method '%s'", instance->name->chars, name->chars);

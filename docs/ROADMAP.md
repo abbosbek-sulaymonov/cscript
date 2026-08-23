@@ -63,6 +63,7 @@ already measured says it is the thing that pays.
 | next | Inlining, so a small function is worth compiling | — |
 | **54 ✅** | Property reads lowered against a shape, checked once at entry | — |
 | **55 ✅** | Property reads emitted in machine code, both bytecode forms lowered | — |
-| next | Entering compiled code from a method call, which needs a receiver at entry | — |
+| **56 ✅** | Method calls answered from compiled code, with the receiver at entry | — |
+| next | Allocating an object in compiled code, which `properties` is waiting on | — |
 
 ---

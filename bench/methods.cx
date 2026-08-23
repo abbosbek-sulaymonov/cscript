@@ -1,0 +1,22 @@
+// A method called in a hot loop, with the receiver allocated once outside it.
+// bench/classes.cx spends most of its time allocating two objects an iteration,
+// so it cannot show what method dispatch costs; this can.
+class Vec2 {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+
+  dot(other) {
+    return this.x * other.x + this.y * other.y;
+  }
+}
+
+const a = new Vec2(3, 4);
+const b = new Vec2(5, 6);
+
+let total = 0;
+for (let i = 0; i < 3000000; i++) {
+  total = total + a.dot(b);
+}
+console.log(total);

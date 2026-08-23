@@ -178,7 +178,8 @@ static bool assumptionsHold(const JitCode *code) {
   return true;
 }
 
-bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *out) {
+bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args,
+                 int argCount, Value *out) {
   /* Both states are runnable: JIT_HOT has lowered IR, JIT_COMPILED also has
    * machine code. Admitting only the first rejected exactly the functions that
    * had got furthest. */
@@ -194,27 +195,29 @@ bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *
      * annotation next to it, and the reason speculating is safe. */
     if (!observedTypesHold(hot[i].function, args, argCount)) return false;
 
-    /* And the layouts the property reads were lowered against. The arguments
-     * are about to become the frame's slots, so they are what to ask. */
-    if (hot[i].ir->entryShapeCount > 0) {
-      Value entrySlots[256];
-      if (hot[i].ir->slotCount > 256) return false;
-      for (int s = 0; s < hot[i].ir->slotCount; s++) entrySlots[s] = UNDEFINED_VAL;
-      for (int a = 0; a < argCount && a + 1 < hot[i].ir->slotCount; a++) {
-        entrySlots[a + 1] = args[a];
-      }
-      if (!csIrEntryShapesHold(hot[i].ir, entrySlots)) return false;
+    /* The frame, built once.
+     *
+     * It used to be built twice — once to check the layouts against and once
+     * to run on — which cost more per call than interpreting the call did, and
+     * left a method answered three million times by compiled code exactly as
+     * fast as one that was not. */
+    if (hot[i].ir->slotCount > 256) return false;
+    Value slots[256];
+    for (int s = 0; s < hot[i].ir->slotCount; s++) slots[s] = UNDEFINED_VAL;
+    if (hot[i].ir->slotCount > 0) slots[0] = receiver;
+    for (int a = 0; a < argCount && a + 1 < hot[i].ir->slotCount; a++) {
+      slots[a + 1] = args[a];
     }
 
-    /* Compiled code, when there is any. The frame it needs is the slots array
-     * the interpreter would have used, with the arguments already in place. */
+    /* The layouts the property reads were lowered against, asked of the frame
+     * they will actually run on. */
+    if (hot[i].ir->entryShapeCount > 0 &&
+        !csIrEntryShapesHold(hot[i].ir, slots)) {
+      return false;
+    }
+
+    /* Compiled code, when there is any. */
     if (hot[i].code != NULL) {
-      Value slots[256];
-      if (hot[i].ir->slotCount > 256) return false;
-      for (int s = 0; s < hot[i].ir->slotCount; s++) slots[s] = UNDEFINED_VAL;
-      for (int a = 0; a < argCount && a + 1 < hot[i].ir->slotCount; a++) {
-        slots[a + 1] = args[a];
-      }
       /* A call entry cannot take an exit: there is no frame to hand back, and
        * csIrLower only produces one for code the interpreter would resume. */
       if (!assumptionsHold(hot[i].code)) return false;

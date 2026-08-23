@@ -85,7 +85,13 @@ void csJitMarkRoots(void);
  * Abandoning halfway is safe: the IR interpreter touches only its own slots
  * and registers, so a function it cannot finish leaves nothing behind and the
  * bytecode runs as usual. */
-bool csJitTryRun(ObjFunction *function, const Value *args, int argCount, Value *out);
+/* `receiver` is what slot 0 holds: a method's `this`, or whatever an ordinary
+ * call would have left in the callee's own slot. Passing it rather than
+ * assuming undefined is what lets a method be answered from compiled code —
+ * the entry checks read slot 0 like any other, and a method's property reads
+ * are mostly through it. */
+bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args,
+                 int argCount, Value *out);
 
 /* Takes over a loop that is already running, at `bytecodeOffset`.
  *
