@@ -80,6 +80,15 @@ cscript/
 
 ---
 
+## Benchmarks
+
+`bench/run.sh` is CScript against Node, `bench/jit.sh` is the compiler against
+the interpreter in the same binary, and `bench/rust/run.sh` is CScript against
+Rust on the three benchmarks that have a port. The Rust one needs `rustc` and
+skips nothing quietly — it rebuilds the ports every time.
+
+---
+
 ## Editor integrations
 
 `editors/` holds the VS Code extension, the tree-sitter grammar and the

@@ -143,3 +143,62 @@ make bench-jit            # what the JIT is worth, on what it can compile
 ```
 
 ---
+
+---
+
+## Against Rust
+
+A different question from the Node comparison, and worth being clear about
+what it can and cannot mean. Rust is compiled ahead of time to native code,
+with no garbage collector and no dynamic dispatch to speak of; CScript is a
+bytecode VM with a partial compiler and a mark-sweep collector. A large gap is
+the expected result, and there is one.
+
+`bench/rust/run.sh` builds the ports and runs all three. Startup is measured
+and subtracted, because Node's forty milliseconds would otherwise be the only
+thing the table showed.
+
+```
+startup:  rust 1.9 ms   cscript 2.0 ms   node 42.7 ms
+
+compute (ms)            rust   cscript      node
+loop_arith             157.3      20.4       8.3
+calls                   21.2      77.3       0.6
+methods                  3.6     132.2      -0.1
+loop_arith (i64)         4.5
+```
+
+**Rust is between three and thirty-five times faster on compute**, which is
+what a language with no VM between the program and the processor should be.
+`methods` is the worst of it: both Rust and V8 notice that the call in that
+loop does not depend on the loop and stop doing it three million times, and
+CScript has neither inlining nor loop-invariant hoisting to notice with. The
+two negative Node figures are that same elimination arriving at the floor of
+what subtracting a forty-millisecond startup can measure — they mean *under a
+millisecond*, not faster than instant.
+
+**Startup is the one place CScript is level with Rust**, at two milliseconds
+against Node's forty. For anything that runs briefly and exits, that dominates
+everything in the table above.
+
+### The row where CScript beats Rust, and why it does not mean what it looks like
+
+`loop_arith` is 20 ms against Rust's 157. That is real, reproducible, and not a
+point in CScript's favour so much as a demonstration of what the two kinds of
+compiler know.
+
+A CScript number is a double, so the port uses `f64` — and `f64 % 7.0` in Rust
+is a call to `fmod`, ten million times, because the type says these are
+arbitrary reals and the compiler cannot know otherwise. CScript's compiler
+checks at run time whether the operands are exact integers and uses an integer
+remainder when they are, which they always are here.
+
+Written the way anyone would actually write it, with `i64`, Rust does the same
+loop in 4.5 ms — **four times faster than CScript**, and thirty-five times
+faster than its own `f64` version. That is the honest number.
+
+So the row is a fair illustration of a real difference in kind: static types
+make you say what you mean and then hold you to it, while a compiler that
+watches the program run can discover what you meant. It is not evidence that a
+VM beats native code. The same trick is why the CScript figure is 20 ms rather
+than 160 — see the fmod entry in the roadmap.
