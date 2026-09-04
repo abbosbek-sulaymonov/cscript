@@ -11,6 +11,7 @@
 #   make test-switch  same suite, forcing the portable switch dispatch
 #   make test-tagged  same suite, forcing the 16-byte tagged-union Value
 #   make test-jit   compiled and interpreted must print the same thing
+#   make test-jit-gc  the same, with a collection on every allocation
 #   make bench-jit  what the JIT backend is worth, on what it can compile
 #   make run FILE=examples/hello.cx
 #   make clean
@@ -50,7 +51,7 @@ ASAN          := -fsanitize=address
 TRACE_DEFINES := -DCS_DEBUG_PRINT_TOKENS -DCS_DEBUG_PRINT_AST \
                  -DCS_DEBUG_PRINT_CODE -DCS_DEBUG_TRACE_EXECUTION
 
-.PHONY: all release debug asan gcstress switch tagged profile jit trace test test-regex test-ir test-asan test-gc test-node test-switch test-tagged test-jit test-all bench-jit run clean help
+.PHONY: all release debug asan gcstress switch tagged profile jit jitgc trace test test-regex test-ir test-asan test-gc test-node test-switch test-tagged test-jit test-jit-gc test-all bench-jit run clean help
 .DEFAULT_GOAL := release
 
 all: release
@@ -81,6 +82,7 @@ $(eval $(call BUILD_CONFIG,switch,-O2 -DNDEBUG -DCS_NO_COMPUTED_GOTO,))
 $(eval $(call BUILD_CONFIG,tagged,-O2 -DNDEBUG -DCS_NAN_BOXING=0,))
 $(eval $(call BUILD_CONFIG,profile,-O2 -DNDEBUG -DCS_DEBUG_PROFILE_OPCODES,))
 $(eval $(call BUILD_CONFIG,jit,-O2 -DNDEBUG -DCS_DEBUG_JIT,))
+$(eval $(call BUILD_CONFIG,jitgc,-O2 -DNDEBUG -DCS_DEBUG_JIT -DCS_DEBUG_STRESS_GC,))
 $(eval $(call BUILD_CONFIG,trace,-O0 -g3 $(UBSAN) $(TRACE_DEFINES),$(UBSAN)))
 
 # Run against an instrumented build so undefined behaviour fails the suite.
@@ -132,6 +134,20 @@ test-tagged: tagged
 test-jit: jit
 	@tests/jit_differential.sh
 
+# The compiler and the collector at once, which no other target does.
+#
+# Compiled code holds references nothing else does — the shapes its property
+# accesses were lowered against, and the closures whose bodies were spliced
+# into it — so a missing root there is invisible until a collection happens to
+# land between the assumption being recorded and the entry that checks it.
+# Collecting on every allocation makes that certain rather than lucky.
+# Optimised rather than instrumented: the collector is what is being exercised
+# here, and `test-gc` already runs the same programs under UBSan. The
+# benchmarks are left out because a twenty-million-iteration loop with a full
+# collection per allocation does not finish.
+test-jit-gc: jitgc
+	@BIN=$(BUILD)/jitgc/cscript tests/jit_differential.sh tests/cases
+
 # Times the same `jit` binary with the compiler allowed to fire and with its
 # threshold raised out of reach, so the difference is the compiler and not the
 # build configuration.
@@ -157,9 +173,13 @@ help:
 	@echo "make test-node  check the examples against Node.js"
 	@echo "make test-switch same suite with switch dispatch"
 	@echo "make test-tagged same suite with the tagged-union Value"
+	@echo "make test-ir     same suite with the IR replacing the interpreter"
 	@echo "make test-jit    compiled and interpreted must agree"
+	@echo "make test-jit-gc same, collecting on every allocation"
+	@echo "make test-regex  the regex engine on its own"
 	@echo "make bench-jit   what the JIT backend is worth"
-	@echo "make test-all   test + test-gc + test-switch + test-node"
+	@echo "make test-all   test + test-gc + test-switch + test-tagged +"
+	@echo "                test-node + test-ir + test-jit"
 	@echo "make jit           report what a JIT would compile"
 	@echo "make run FILE=examples/hello.cx"
 	@echo "make clean"
