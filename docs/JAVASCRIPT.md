@@ -22,7 +22,7 @@ asserted here.
 
 ### Values and operators
 
-| | |
+| Feature | How it behaves |
 | --- | --- |
 | Numbers | IEEE 754 doubles, including `NaN`, `Infinity` and `-0` |
 | BigInt | `123n`, `0xffn`, arbitrary precision, and refusing to mix with a number |
@@ -32,9 +32,9 @@ asserted here.
 | `typeof` | for every type except `null` — see *Differs* — including `"symbol"` and `"bigint"` |
 | Arithmetic | `+ - * / % **`, with `**` right-associative |
 | Comparison | `< <= > >=`, `=== !==` |
-| Logical | `&& ||` evaluate to an operand, not a boolean |
-| Nullish coalescing | `??`, and mixing it with `&&`/`||` without parentheses is an error, as in JavaScript |
-| Logical assignment | `&&= ||= ??=`, short-circuiting — no store when the operator says not to |
+| Logical | `&&` and `\|\|` evaluate to an operand, not a boolean |
+| Nullish coalescing | `??`, and mixing it with `&&`/`\|\|` without parentheses is an error, as in JavaScript |
+| Logical assignment | `&&=` `\|\|=` `??=`, short-circuiting — no store when the operator says not to |
 | Conditional | `c ? a : b`, right-associative |
 | Truthiness | `0`, `""`, `NaN`, `null`, `undefined`, `false` are falsy |
 | `instanceof` | walks the class chain |
@@ -43,7 +43,7 @@ asserted here.
 
 ### Syntax
 
-| | |
+| Feature | What is supported |
 | --- | --- |
 | Declarations | `let`, `const`, several per statement and per `for` initialiser |
 | Classes as values | `const C = class { … }`, named or not |
@@ -72,7 +72,7 @@ asserted here.
 | Generators | `function*`, `yield`, `yield*`, `next(v)`, `for...of`, spread |
 | Async generators | `async function*`, `next()` answering with a promise, `for await` |
 | Top-level `await` | In any file, including one another file imports |
-| `for await` | Over an async generator, and over any sync iterable, awaiting each element |
+| `for await` | Over an async generator, over any sync iterable awaiting each element, and over any object offering `Symbol.asyncIterator` |
 
 ### The standard library
 
@@ -480,7 +480,7 @@ Each of these produces an error that names it, rather than failing obscurely.
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
 | `Date`'s locale formats | `toLocaleString` and `toLocaleDateString`. Every non-ISO input form is implementation-defined in JavaScript too, so `Date.parse` of one is NaN |
 | `arguments` | Deliberate, and now for a stronger reason than taste: arity is checked, so a call may not pass more arguments than the function declares. There are never extra arguments for `arguments` to collect, and it could only ever repeat the parameters. A rest parameter is how you accept a variable number, and it says so in the signature |
-| Subclassing built-ins — `class MyArray extends Array` | |
+| Subclassing built-ins — `class MyArray extends Array` | `extends` takes a class, and the built-ins are native constructors rather than classes; the error says so |
 | Bare import specifiers — `import x from "lodash"` | No package system to resolve against |
 | Sparse arrays and holes | Deliberate: they are why engines need a second array representation |
 | Unicode-correct string indexing | Strings are indexed by byte, which is correct for ASCII |

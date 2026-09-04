@@ -4,7 +4,7 @@ Syntax highlighting, editing behaviour and snippets for
 [CScript](https://github.com/abbosbek-sulaymonov/cscript) — a gradually typed
 language with JavaScript's syntax, implemented from scratch in C11.
 
-| | |
+| Setting | Value |
 | --- | --- |
 | Language name | CScript |
 | Language id | `cscript` |

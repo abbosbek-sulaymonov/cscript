@@ -15,7 +15,7 @@ which is the failure this grammar exists to avoid.
 
 Honest numbers, reproducible with the command below:
 
-| | |
+| Measure | Result |
 | --- | --- |
 | Valid programs parsed | **99 of 113** |
 | Programs the compiler rejects, and this does too | 5 of 44 |
