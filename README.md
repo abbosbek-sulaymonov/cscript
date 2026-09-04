@@ -71,11 +71,17 @@ The full list, with the reasoning for each, is in
 ---
 ## Status
 
-**v0.19.0.** The language is feature-complete for everyday code: objects and
-arrays, functions and closures, classes and inheritance, modules, promises and
-`async`/`await`, gradual typing with inference, control flow, `switch`,
-template literals and the conditional operator. The pipeline is lexer → parser → type checker → bytecode
-compiler → stack VM, with a mark-sweep collector underneath.
+**v0.38.0.** The language is feature-complete for everyday code and well past
+it: objects and arrays, functions and closures, classes with private members
+and static blocks, modules, promises and `async`/`await`, generators and async
+generators, regular expressions, `Map`/`Set`, `Symbol`, `BigInt`, `Date`,
+prototypes, gradual typing with inference, and the whole of the control flow.
+
+The pipeline is lexer → parser → type checker → bytecode compiler → stack VM,
+with a mark-sweep collector underneath. Above it sits a second tier: hot
+functions are lowered to a typed IR and compiled to arm64 machine code, entered
+either at a call or part-way through a running loop. On the loops it takes,
+that is **8–9× the interpreter** — see [Performance](docs/PERFORMANCE.md).
 
 ```ts
 class Person {
@@ -99,9 +105,9 @@ try {
 }
 ```
 
-Functions, closures, objects, arrays, classes, a standard library, gradual
-typing, exceptions, destructuring and spread. What remains is modules and
-async — see the [roadmap](#roadmap).
+What remains is mostly compiler work rather than language work — calls and
+allocation inside compiled code — and a short list of deliberate omissions.
+Both are in the [roadmap](docs/ROADMAP.md).
 
 ---
 ## Build and run
@@ -125,11 +131,9 @@ make
 
 ---
 
----
-
 ## Documentation
 
-| | |
+| Document | What is in it |
 | --- | --- |
 | [A tour of the language](docs/TOUR.md) | Enough to judge it, in one page |
 | [Grammar and semantics](docs/GRAMMAR.md) | The full syntax as EBNF, and what each construct means |

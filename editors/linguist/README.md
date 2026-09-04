@@ -6,7 +6,7 @@ matter of following the process rather than starting one.
 
 ## What is and is not true today
 
-| | Status |
+| Claim | Status |
 | --- | --- |
 | `.cx` highlights on GitHub | **Yes** — `.gitattributes` maps it to JavaScript |
 | The repository counts as a language | **Yes**, as JavaScript |

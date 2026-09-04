@@ -1001,6 +1001,30 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
         }
 
         case IR_LT: case IR_LE: case IR_GT: case IR_GE: case IR_EQ: case IR_NE: {
+          /* Every comparison here is a floating-point one, so every operand of
+           * one has to be a number.
+           *
+           * For the ordered comparisons that is already settled: csIrIsFullyTyped
+           * refuses a function whose `<` has an operand nothing proved numeric,
+           * so one never reaches this far. Equality is deliberately *not* in
+           * that check — `===` is defined for every type and the IR
+           * interpreter answers it with csValuesStrictEqual, which is right
+           * for every type. `fcmp` is not. A non-number Value is NaN-boxed,
+           * which is to say it is a quiet NaN, so comparing two of them is
+           * unordered and every `===` on anything but a number came out
+           * false — `s === s` on a string among them.
+           *
+           * Refusing here rather than in the lowering is what keeps the IR
+           * interpreter's coverage: it can run these correctly, and only the
+           * encoder cannot. */
+          if (inst->op == IR_EQ || inst->op == IR_NE) {
+            if (ir->registerTypes[inst->a] != IR_TYPE_NUMBER ||
+                ir->registerTypes[inst->b] != IR_TYPE_NUMBER) {
+              *why = "an equality whose operands are not both numbers";
+              goto unsupported;
+            }
+          }
+
           /* The result is materialised as a boolean Value rather than left in
            * the flags.
            *

@@ -104,24 +104,34 @@ Closing the gap with Go needs a JIT, not another tweak — the reasoning is in
 [ARCHITECTURE.md](ARCHITECTURE.md#the-interpreter-ceiling). There is one
 now, and on the code it compiles it does close most of it:
 
-| | interpreted | compiled | speedup | Node |
+| Benchmark | Interpreted | Compiled | Speedup | Node |
 | --- | ---: | ---: | ---: | ---: |
-| `bench/jit/jit_calls.cx` — 3M calls | 136 ms | 112 ms | 1.2× | 8 ms |
-| `bench/jit/jit_loop.cx` — one call, 20M iterations | 492 ms | **55 ms** | **8.9×** | 35 ms |
-| `bench/locals.cx` — an ordinary script, no annotations | 149 ms | **18 ms** | **8.3×** | 7 ms |
-| `bench/loop_empty.cx` — loop overhead alone, over a global | 170 ms | **20 ms** | **8.6×** | 7 ms |
-| `bench/globals.cx` — reads and writes of module bindings | 211 ms | **41 ms** | **5.2×** | 7 ms |
+| `bench/jit/jit_calls.cx` — 3M calls | 134 ms | 98 ms | 1.4× | 6 ms |
+| `bench/jit/jit_inline.cx` — a call inside a 20M-iteration loop | 817 ms | **49 ms** | **16.7×** | 34 ms |
+| `bench/jit/jit_loop.cx` — one call, 20M iterations | 434 ms | **49 ms** | **8.9×** | 35 ms |
+| `bench/locals.cx` — an ordinary script, no annotations | 139 ms | **15 ms** | **9.0×** | 6 ms |
+| `bench/loop_empty.cx` — loop overhead alone, over a global | 127 ms | **17 ms** | **7.3×** | 6 ms |
+| `bench/globals.cx` — reads and writes of module bindings | 194 ms | **32 ms** | **6.1×** | 6 ms |
+| `bench/loop_arith.cx` — 10M remainders | 205 ms | **19 ms** | **10.9×** | 9 ms |
+| `bench/branches.cx` — a five-way chain, 5M times | 185 ms | **11 ms** | **16.6×** | 7 ms |
 
-The last three have no type annotations in them at all. Their types come from
+The last five have no type annotations in them at all. Their types come from
 the checker's inference of `let a = 0`, and their loops reach the compiler
 because everything the compiler cannot express — the `console.log` at the end —
 is handed back to the interpreter rather than refusing the whole function.
 
-`%` calls `fmod`, because arm64 has no floating-point remainder and the inline
-form stops being exact past 2^53. A function that calls anything allocates only
-from the callee-saved registers, so nothing has to be spilled around the call —
-but ten million libm calls still cost what they cost: `bench/loop_arith.cx`
-gains 1.6× and `bench/branches.cx` 1.4×, against 5–9× for everything else.
+**`jit_inline` and `jit_loop` are the same loop, one of them with a call in
+it.** Interpreted, the call costs 1.9× the loop it sits in. Compiled they are
+within a millisecond of each other, because the callee's body is spliced in
+where the call was and there is no call left — see
+[inlining](#inlining-a-call-that-is-not-there). Without it the loop did not
+compile at all: one call was enough to hand the whole thing back.
+
+`%` compiles to an integer remainder where both operands are whole and to a
+call to `fmod` where they are not, which is why `loop_arith` and `branches` —
+ten million and five million remainders respectively — are no longer the two
+slowest things here. Exactness decides which path runs, by round-tripping the
+value through the integer registers and comparing.
 
 Both columns are the same binary; only the tiering threshold differs. The
 backend compiles functions whose arithmetic the type checker has already
@@ -134,6 +144,32 @@ loop benchmark had never entered the compiled code at all. That story, which is
 the more useful half, is in
 [ARCHITECTURE.md](ARCHITECTURE.md#stage-4-the-loop-and-what-was-actually-wrong-with-it).
 
+### Inlining: a call that is not there
+
+A call is the one thing this backend cannot emit. Compiled code has no frame of
+its own and no safepoint at which the collector could walk one, so calling out
+means building both — and until they exist, a single call in a loop body is
+enough to refuse the loop.
+
+Splicing the callee's body in where the call was needs neither. The bodies that
+qualify are straight-line arithmetic over their own parameters: no branches, no
+calls of their own, nothing that can throw past the caller. For those the
+callee's frame is unobservable, so it never has to exist — its slots become a
+compile-time map onto registers the caller already holds, and what is left is
+arithmetic indistinguishable from code that was written inline.
+
+What it costs is one check per entry. The callee was read out of a module
+binding, and a binding is not a constant: `step = somethingElse` between the
+compile and the run would leave a body inlined for a function nobody is
+calling. So the binding is checked to still hold the same closure before the
+compiled code is entered, exactly as the property shapes are — and the closure
+is kept alive by that check, because otherwise rebinding the name could free it
+and let a different object land at the same address.
+
+The bound is 32 bytecode instructions per callee and 128 per caller. Both are
+arbitrary and both are the point: inlining trades code size for calls removed,
+and without a limit a chain of small functions is one large one.
+
 ```bash
 bench/run.sh              # everything
 bench/run.sh loop         # only matching names
@@ -141,8 +177,6 @@ REPS=7 bench/run.sh       # more repetitions
 BIN=build/switch/cscript bench/run.sh    # compare dispatch strategies
 make bench-jit            # what the JIT is worth, on what it can compile
 ```
-
----
 
 ---
 

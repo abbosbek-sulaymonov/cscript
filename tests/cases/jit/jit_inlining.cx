@@ -1,0 +1,96 @@
+// Calls whose callee's body goes where the call was.
+//
+// A loop with a call in it could not be compiled at all: compiled code has no
+// frame of its own and no safepoint to walk one at, so one call was enough to
+// hand the whole loop back. Splicing a small body in needs neither — what is
+// checked here is that the spliced answer is the interpreted one, including
+// where the assumptions stop holding.
+function square(x: number): number {
+  return x * x;
+}
+
+function sumSquares(n: number): number {
+  let total: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    total = total + square(i);
+  }
+  return total;
+}
+console.log(sumSquares(200));
+
+// A callee with a local of its own, a remainder, and a division — the local is
+// a frame position the spliced body never opens.
+function mix(a: number, b: number): number {
+  const scaled: number = a * 3 + b * 7;
+  return scaled % 1000 - a / 2;
+}
+
+function driveMix(n: number): number {
+  let total: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    total = total + mix(i, i + 1);
+  }
+  return total;
+}
+console.log(driveMix(200));
+
+// Two calls to two callees in one body, and one of them called twice.
+function twice(x: number): number {
+  return x + x;
+}
+
+function both(n: number): number {
+  let total: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    total = total + square(i) + twice(i) + twice(i + 1);
+  }
+  return total;
+}
+console.log(both(200));
+
+// Rebinding the name the body was spliced for. The compiled code assumed the
+// binding still means that function, so it must not answer this.
+let chosen = square;
+function useChosen(n: number): number {
+  let total: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    total = total + chosen(i);
+  }
+  return total;
+}
+console.log(useChosen(200));
+chosen = twice;
+console.log(useChosen(200));
+
+// Callees nothing may splice: one that branches, one that calls, and one whose
+// argument is not a number. Each has to fall back rather than be got wrong.
+function branchy(x: number): number {
+  if (x > 100) {
+    return x;
+  }
+  return -x;
+}
+
+function calls(x: number): number {
+  return square(x) + 1;
+}
+
+function label(x: string): string {
+  return x + "!";
+}
+
+function fallbacks(n: number): number {
+  let total: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    total = total + branchy(i) + calls(i) + label("a").length;
+  }
+  return total;
+}
+console.log(fallbacks(200));
+
+// The arity a call must supply is still checked: a body is only spliced where
+// the call would have been accepted.
+function needsTwo(a: number, b: number): number {
+  return a - b;
+}
+console.log(needsTwo(9, 4));

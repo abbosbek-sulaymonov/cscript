@@ -233,10 +233,10 @@ let loose: any = 1;               // opted out of static checking
 | --- | --- |
 | `number` | all numeric values |
 | `bigint` | whole numbers of any size — deliberately not a `number` |
-| `string` | |
-| `boolean` | |
-| `null` | |
-| `undefined` | |
+| `string` | string values, of any length |
+| `boolean` | `true` and `false` |
+| `null` | the `null` literal, and nothing else |
+| `undefined` | the `undefined` literal, and a missing value |
 | `object` | `console`, `Math` |
 | `any` | anything — the escape hatch |
 
@@ -782,33 +782,29 @@ an `await`, which the event loop resumes, and a `yield`, which whoever called
 `next` resumes. Their `next()` answers with a promise, because the body may
 await any number of times before it reaches the yield that has the value.
 
-**`for await`** drives an async generator, and awaits each element of any sync
-iterable. Which of the two shapes runs is decided per iteration by looking at
-the iterable, so the sync path is unchanged. There is no way for an ordinary
-object to make itself async-iterable: that needs `Symbol.asyncIterator`.
+**`for await`** drives an async generator, awaits each element of any sync
+iterable, and pulls from any object that offers `Symbol.asyncIterator`. Which
+of the shapes runs is decided per iteration by looking at the iterable, so the
+sync path is unchanged.
 
 ## Not implemented yet
 
-Each of these produces an error that names it:
+Each of these produces an error that names it, except where noted:
 
-- `BigInt`
-- `Date`'s setters, `Date.parse` of anything but ISO, and its locale formats
-- The async iterator protocol on arbitrary objects, which needs
-  `Symbol.asyncIterator`; `for await` drives async generators and sync
-  iterables
-- `yield*` inside a larger expression (it works as a statement of its own)
-- Regex lookbehind — `(?<=…)` — and named groups; lookahead and
-  backreferences work
-- Prototypes, `__proto__`, `Object.create` — classes are the whole object model
-- `arguments` (a rest parameter does the same job), `new.target`,
-  subclassing built-ins
-- Dynamic `import()`, and bare specifiers like `import x from "lodash"`
+- `yield*` inside a larger expression (it works as a statement of its own, and
+  a delegate's return value is not available)
+- `Date`'s locale formats — `toLocaleString`, `toLocaleDateString` — and
+  `Date.parse` of anything but ISO, which is implementation-defined in
+  JavaScript too
+- `arguments` (a rest parameter does the same job) and subclassing built-ins
+- Bare import specifiers like `import x from "lodash"`: there is no package
+  system to resolve one against
 - Sparse arrays and holes, which are why engines need a second array
   representation
 - Unicode-correct string indexing: strings are indexed by byte, which is
   correct for ASCII
 - Property order puts integer-like keys in insertion order, where JavaScript
-  puts them first and in ascending order
+  puts them first and in ascending order — no error, a different order
 - `with` and `eval`, which have no plans
 
 [JAVASCRIPT.md](JAVASCRIPT.md) carries the same list beside what *is* supported

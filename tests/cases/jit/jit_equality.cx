@@ -1,0 +1,64 @@
+// `===` on something that is not a number, in a loop hot enough to compile.
+//
+// Every comparison the backend emits is a floating-point one, and a Value that
+// is not a number is NaN-boxed — which is to say it is a quiet NaN. Comparing
+// two of those is unordered, so `s === s` came out false for every value the
+// compiled code was given. The ordered comparisons were already refused for an
+// operand nothing proved numeric; equality was not, because equality is
+// defined for every type.
+function sameCount(n: number, value: any): number {
+  let same: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    if (value === value) {
+      same = same + 1;
+    }
+  }
+  return same;
+}
+
+console.log(sameCount(300, "x"));
+console.log(sameCount(300, true));
+console.log(sameCount(300, null));
+console.log(sameCount(300, undefined));
+console.log(sameCount(300, 7));
+
+// And the negation, on a pair that really does differ.
+function differCount(n: number, a: any, b: any): number {
+  let differ: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    if (a !== b) {
+      differ = differ + 1;
+    }
+  }
+  return differ;
+}
+
+console.log(differCount(300, "x", "y"));
+console.log(differCount(300, "x", "x"));
+console.log(differCount(300, 1, 2));
+
+// NaN is the case a bitwise compare would get wrong in the other direction:
+// it is the one value not equal to itself, and both operands *are* numbers.
+function nanCount(n: number): number {
+  const value: number = 0 / 0;
+  let equal: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    if (value === value) {
+      equal = equal + 1;
+    }
+  }
+  return equal;
+}
+console.log(nanCount(300));
+
+// And -0 === 0, which a bitwise compare would also get wrong.
+function zeroCount(n: number): number {
+  let equal: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    if (-0 === 0) {
+      equal = equal + 1;
+    }
+  }
+  return equal;
+}
+console.log(zeroCount(300));

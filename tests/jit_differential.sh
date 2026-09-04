@@ -14,11 +14,25 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BIN="$ROOT/build/jit/cscript"
+# Overridable so the same differential can be run against another build —
+# `make test-jit-gc` points it at one that also collects on every allocation.
+BIN="${BIN:-$ROOT/build/jit/cscript}"
 
 if [[ ! -x "$BIN" ]]; then
   echo "differential: '$BIN' not built — run 'make jit' first" >&2
   exit 1
+fi
+
+# Which trees to walk, and the benchmarks are in by default because they are
+# the programs the compiler most wants to take. A build too slow to finish them
+# passes its own list — `make test-jit-gc` collects on every allocation, and a
+# twenty-million-iteration benchmark under that never ends.
+roots=()
+for tree in "$@"; do
+  [[ "$tree" == /* ]] && roots+=("$tree") || roots+=("$ROOT/$tree")
+done
+if (( ${#roots[@]} == 0 )); then
+  roots=("$ROOT/tests/cases" "$ROOT/examples" "$ROOT/bench")
 fi
 
 checked=0
@@ -81,10 +95,7 @@ while IFS= read -r source; do
       sed 's/^/         /' | head -8
     break
   done
-done < <(
-  find "$ROOT/tests/cases" -name '*.cx' -print
-  find "$ROOT/examples" "$ROOT/bench" -name '*.cx' -print
-)
+done < <(find "${roots[@]}" -name '*.cx' -print)
 
 echo "-------------------------------------------"
 echo "checked $checked programs, $failed disagreed"

@@ -456,7 +456,7 @@ OP_INC_LOCAL        i
 OP_LOOP
 ```
 
-| | before | after |
+| Measure | Before | After |
 | --- | ---: | ---: |
 | instructions executed | 130,000,015 | 90,000,013 |
 | `loop_arith` | 335 ms | 265 ms |
@@ -650,12 +650,26 @@ table, then reset the stack.
 | `src/runtime/table.c` | Open-addressing hash table |
 | `src/runtime/value.c` | Value operations, coercion, number formatting |
 | `src/runtime/module.c` | Resolving, loading and ordering source files |
+| `src/runtime/bigint.c` | Arbitrary-precision integers |
+| `src/runtime/regex.c` | The regex engine, testable on its own |
+| **Compiler (second tier)** | |
+| `src/jit/jit.c` | Tiering: what gets hot, and what happens when it does |
+| `src/jit/ir.c` | Lowering bytecode to the typed IR, and inlining into it |
+| `src/jit/jitcode.c` | The arm64 encoder and the executable memory it fills |
 | **Standard library** | |
 | `src/native/native.c` | The built-in global environment |
 | `src/native/native_array.c` | Array methods |
 | `src/native/native_string.c` | String methods |
+| `src/native/native_number.c` | `Number`, and the numeric conversions |
 | `src/native/native_json.c` | `JSON.stringify` and `JSON.parse` |
 | `src/native/native_promise.c` | Promises and timers |
+| `src/native/native_function.c` | `call`, `apply`, `bind` |
+| `src/native/native_generator.c` | Driving a paused call |
+| `src/native/native_map.c` | `Map`, `Set`, `WeakMap`, `WeakSet` |
+| `src/native/native_date.c` | `Date`, its accessors and its setters |
+| `src/native/native_regex.c` | `RegExp`, and the string methods that take one |
+| `src/native/native_symbol.c` | `Symbol` and the well-known ones |
+| `src/native/native_bigint.c` | The `BigInt` surface |
 | **Tools** | |
 | `src/compiler/debug.c` | Disassembler and AST printer |
 | `src/compiler/diagnostic.c` | Error reporting |
@@ -847,7 +861,7 @@ be unchanged.
 
 ### The measurement, at the end of stage 3
 
-| | interpreted | compiled | Node |
+| Benchmark | Interpreted | Compiled | Node |
 | --- | ---: | ---: | ---: |
 | 3M calls to a two-multiply function | 138 ms | **131 ms** (−5%) | 6 ms |
 | one call, 20M-iteration loop | 473 ms | 484 ms (+2%) | 34 ms |
@@ -882,7 +896,7 @@ it survived three rounds of optimisation aimed squarely at it.
 
 ## Stage 4: the loop, and what was actually wrong with it
 
-| | interpreted | compiled | speedup | Node |
+| Benchmark | Interpreted | Compiled | Speedup | Node |
 | --- | ---: | ---: | ---: | ---: |
 | `bench/jit_calls.cx` — 3M calls | 136 ms | 112 ms | 1.2× | 8 ms |
 | `bench/jit_loop.cx` — one call, 20M iterations | 492 ms | **55 ms** | **8.9×** | 35 ms |
@@ -993,7 +1007,7 @@ answer to that one, and it is not written.
 
 ## Stage 5: taking part of a function
 
-| | interpreted | compiled | speedup | Node |
+| Benchmark | Interpreted | Compiled | Speedup | Node |
 | --- | ---: | ---: | ---: | ---: |
 | `bench/locals.cx` | 149 ms | **18 ms** | **8.3×** | 7 ms |
 | `bench/loop_empty.cx` | 170 ms | **20 ms** | **8.6×** | 7 ms |
@@ -1072,7 +1086,7 @@ that fits in eight is most of them.
 The three arguments and the baked global addresses moved to x19–x27 for the
 same reason, which is what the prologue is for.
 
-| | interpreted | compiled | speedup |
+| Benchmark | Interpreted | Compiled | Speedup |
 | --- | ---: | ---: | ---: |
 | `bench/loop_arith.cx` — `sum += i % 7` | 296 ms | 186 ms | 1.6× |
 | `bench/branches.cx` — two `%` per iteration | 232 ms | 161 ms | 1.4× |
@@ -1082,9 +1096,18 @@ rather than anything around it: hoisting the `fmod` address out of the loop —
 four instructions an iteration — moved 1.5× to 1.6×. Ten million libm calls
 cost what ten million libm calls cost.
 
-### Three soundness bugs, and the harness that found them
+Which is what made the next change obvious. **A loop counter's remainder is an
+integer remainder**, and the interpreter had taken that path since long before
+there was a compiler — so compiled code was slower at `%` than the code it
+replaced. It now emits `sdiv`/`msub` inline where both operands round-trip
+through the integer registers unchanged, and calls `fmod` only where they do
+not. Exactness decides, not a guess: zero on either side goes to `fmod` too, so
+that `0 % n` keeps its sign and `n % 0` still gets its NaN. Both benchmarks
+moved past 10×, and they are no longer the two slowest things in the table.
 
-All three were older than side exits. Side exits made them reachable.
+### Four soundness bugs, and the harness that found them
+
+The first three were older than side exits. Side exits made them reachable.
 
 **Slot types were tracked in linear order.** A slot read where it happened to
 hold a number was typed `number` even when another store put something else
@@ -1118,6 +1141,23 @@ forwarding renamed an exit's *bytecode offset* into a register number; the
 self-containment check read a stack height as a value. `csIrRegisterOperands`
 answers it in one place now and all three ask it.
 
+**`===` on anything but a number was false.** The fourth, found by reading
+rather than by running, and the only one the differential harness had never had
+a case for. Every comparison the encoder emits is `fcmp`, which is right for
+the ordered ones because `csIrIsFullyTyped` refuses a function whose `<` has an
+operand nothing proved numeric. Equality is deliberately outside that check —
+`===` is defined for every type, and the IR interpreter answers it with
+`csValuesStrictEqual`, which is right for every type. `fcmp` is not: a Value
+that is not a number is NaN-boxed, which is to say it *is* a quiet NaN, so
+comparing two of them is unordered and the equal branch is never taken. `s ===
+s` on a string returned false, once the loop around it got hot.
+
+The encoder refuses it now rather than the lowering, which keeps the IR
+interpreter's coverage: it can run these correctly and only the machine code
+cannot. A bitwise compare would not have been the fix either — it gets `NaN ===
+NaN` and `-0 === 0` wrong in the other direction, which is what
+`tests/cases/jit/jit_equality.cx` pins alongside the original case.
+
 None of this was caught by the golden files, and it could not have been. A
 `.expected` file pins what a program prints; it says nothing about whether the
 compiled path and the interpreted path agree, and that is precisely where a
@@ -1137,6 +1177,91 @@ the compiler answered 3000549 calls, loops and exits across them
 That counter exists because of the lesson in *Stage 4*: a benchmark that
 agreed with Node, ran the right binary and measured nothing at all. A gate that
 never opens proves nothing, so everything here counts how often it opened.
+
+## Stage 6: inlining, a call that is not there
+
+| Benchmark | Interpreted | Compiled | Speedup | Node |
+| --- | ---: | ---: | ---: | ---: |
+| `bench/jit/jit_inline.cx` — a call inside a 20M-iteration loop | 817 ms | **49 ms** | **16.7×** | 34 ms |
+| `bench/jit/jit_loop.cx` — the same loop, without the call | 434 ms | **49 ms** | **8.9×** | 35 ms |
+
+Those two programs are the same loop. One of them calls a three-operation
+function to compute what the other writes inline, and interpreted that costs
+1.9× — which is the ordinary price of a call. Compiled, they finish within a
+millisecond of each other, because after lowering there is no call in either.
+
+### Why a call was the wall
+
+A call is the one thing this backend cannot emit, and not for want of an
+instruction. Compiled code keeps its locals in the frame the interpreter gave
+it and holds everything else in registers; it opens no frame of its own, and
+there is no point in it at which the collector could walk one. Calling out
+means building both — a frame the callee can return into, and a safepoint where
+the values live in registers can be found.
+
+So a call in a loop body was not slow. It was a hand-over: the lowering reached
+`OP_CALL`, could not express it, and gave the frame back at the last point the
+operand stack was at the block floor. The loop above it went with it.
+
+### What a spliced body needs instead
+
+Nothing, which is the point. A callee qualifies when its body is straight-line
+arithmetic over its own parameters — no branches, no calls of its own, nothing
+that can throw past the caller, no `this`, no captured local, no default or
+rest parameter. For a body like that the frame the VM would have built is
+*unobservable*: nothing can read it, nothing can unwind through it, and nothing
+outside can see it exist.
+
+An unobservable frame does not have to exist. The callee's slots become a
+compile-time map onto registers the caller already holds — position k + 1 is
+the register holding argument k, and a local the body declares is whatever
+register the expression that declared it produced. `const scaled = a * 3 + b *
+7` opens no slot at all; it names a register. What comes out the other side is
+arithmetic the register allocator cannot tell from code that was written
+inline.
+
+### Finding the callee, and holding on to it
+
+The callee is read out of a module binding, so it is known at lowering time —
+the function only reached the compiler by being hot, which is after its module
+ran. But a binding is not a constant. `step = somethingElse` between the
+compile and the run would leave a body inlined for a function nobody is
+calling, so the binding is checked to still hold the same closure before either
+entry runs, exactly as the property shapes are. That check is also what keeps
+the closure alive: rebind the name and the check would be the only reference
+left, and a freed closure whose memory came back as a different one would make
+it pass exactly when it must fail.
+
+### The placeholder, and why it is safe
+
+Splicing happens at `OP_CALL`, but the callee is pushed several instructions
+earlier by an `OP_GET_GLOBAL`, and the arguments go on top of it. The lowering
+mirrors the operand stack into frame slots, so pushing the closure as an
+ordinary value would store an object into a slot the loop also uses for
+numbers — and one slot may hold one type, so the loop would stop compiling for
+the sake of a value the compiled code never reads.
+
+Instead the position holds nothing at all: no register, no store, no load.
+Which is only sound because the call that takes it off is found *first* — the
+lowering walks forward from the callee load, modelling the stack depth of the
+argument expressions, and refuses unless it reaches an `OP_CALL` with exactly
+that many values on top, in the same straight run, with no jump landing in
+between. A position holding no value has to be taken off by something, and the
+walk is the proof that the something exists. Where it does not, the callee load
+hands the frame back, which is what it did before inlining existed.
+
+### What it does not take
+
+Anything with a branch in it, which is most real functions; anything that calls
+something else; anything reading a property or a global, because those carry
+indices into the *callee's* constant pool and inline caches rather than the
+caller's. The bound is 32 bytecode instructions per callee and 128 per caller,
+both arbitrary, because inlining trades code size for calls removed and without
+a limit a chain of small functions is one large one.
+
+The rest still wants the frames and safepoints. Inlining does not replace that
+work — it takes the callees for which the work is unnecessary, which turns out
+to be the ones a hot loop is full of.
 
 ## Build configurations
 
@@ -1159,8 +1284,10 @@ exactly the kind of failure that wastes an afternoon.
 
 UBSan is in the default debug build because it is portable and cheap, and
 `-fno-sanitize-recover` makes undefined behaviour abort rather than warn.
-AddressSanitizer is a separate target because it fails to start under some
-sandboxed environments, and that should not be able to wedge `make test`.
+AddressSanitizer is a separate target because it does not always start: on some
+macOS builds its runtime deadlocks inside `AsanInitInternal`, spinning on its
+own mutex before `main` is reached, and under some sandboxes it fails outright.
+Neither should be able to wedge `make test`.
 
 ## What comes next
 
@@ -1172,8 +1299,10 @@ genuinely new stage, which only runs on code that has earned it.
 
 | Next | What it needs | Why it is next |
 | --- | --- | --- |
-| Calling out of compiled code | A frame, and spilling the live registers around it | `%` and every `Math.*` are waiting on it, and so is anything with a call in its loop |
-| Inlining | The above, plus a size heuristic | `jit_calls` gains 1.2× because entry overhead is most of the work for a small function |
+| A property store that *adds* one | A shape transition in compiled code, which allocates | It is what a constructor does, and what excludes almost all of them |
+| Allocation in compiled code | A root range the collector walks, and a recorded frame size | Attempted and backed out; what the attempt found is in [ROADMAP.md](ROADMAP.md) |
+| Calling a CScript function | A frame, and a safepoint the collector can walk it at | Inlining takes the small straight-line callees; this is for everything else |
+| Recovering a height across a hand-over | A stack-effect model of the skipped bytecode | A script that declares a function before its hot loop hands back at the declaration and loses the loop with it |
 | Guards and deoptimisation | A side exit that can also *undo* — the exits here only leave from points where nothing needs undoing | It is what would let the compiler take code the checker has not proved |
 | Cross-block liveness | Real dataflow, rather than the block-local approximation the allocator uses | Values crossing a block boundary keep a memory home today |
 | An x86-64 backend | A second encoder behind the same IR | The IR and everything above it are already architecture-neutral |

@@ -126,6 +126,23 @@ typedef struct {
   bool expectsNumber;
 } IrEntryShape;
 
+/* A call whose body was spliced in where the call was.
+ *
+ * The callee was read out of a module binding, so what makes the splice sound
+ * is that the binding still holds the same function when the code runs — a
+ * global is not a constant, and `dist = somethingElse` between the compile and
+ * the run would leave a body inlined for a function nobody is calling. Checked
+ * at both entries, alongside the shapes, and the code is simply not run when
+ * it no longer holds.
+ *
+ * The closure is held rather than the name alone because two different
+ * closures can be bound to one name in turn, and identity is the question. */
+typedef struct {
+  Table *globals;     /* the module table the binding lives in */
+  ObjString *name;    /* the binding the callee was read from */
+  ObjClosure *callee; /* the exact closure whose body was spliced in */
+} IrInlinedCall;
+
 typedef struct {
   IrInst *instructions;
   int count;
@@ -168,6 +185,17 @@ typedef struct {
   IrEntryShape *entryShapes;
   int entryShapeCount;
   int entryShapeCapacity;
+
+  /* The callees whose bodies were spliced into this one, and the bindings they
+   * were read from. Empty for a function that inlined nothing. */
+  IrInlinedCall *inlined;
+  int inlinedCount;
+  int inlinedCapacity;
+
+  /* How many IR instructions came from a splice rather than from this
+   * function's own bytecode, so the tiering report can say what inlining is
+   * doing rather than only that it happened. */
+  int inlinedInstructions;
 } IrFunction;
 
 /* Lowers a function's bytecode.
@@ -210,11 +238,22 @@ bool csIrFirstUntyped(const IrFunction *ir, const char **producer,
  * entries ask this, and neither may skip it. */
 bool csIrEntryShapesHold(const IrFunction *ir, const Value *slots);
 
-/* Keeps the shapes an entry assumption names alive. They are ordinary
- * collectable objects and a shape's transition edges are weak, so nothing else
- * would — and a freed shape whose memory came back as a different one would
- * make the check pass when it must fail. */
-void csIrMarkShapes(const IrFunction *ir);
+/* Do the bindings the inlined callees came from still hold those callees?
+ *
+ * The mirror of csIrEntryShapesHold for calls: an inlined body is only the
+ * right answer while the name it was read from still means the same function.
+ * Both entries ask this, and neither may skip it. */
+bool csIrInlinedCalleesHold(const IrFunction *ir);
+
+/* Keeps what the compiled body assumes alive: the shapes an entry assumption
+ * names, and the closures whose bodies were spliced into it.
+ *
+ * They are ordinary collectable objects and a shape's transition edges are
+ * weak, so nothing else would — and a freed shape whose memory came back as a
+ * different one would make the check pass when it must fail. An inlined callee
+ * is the same hazard with a different object: rebind the global and the only
+ * reference left to the closure is the one this check compares against. */
+void csIrMarkReferences(const IrFunction *ir);
 
 /* Prints the IR, for `make jit`. */
 void csIrPrint(const IrFunction *ir);
