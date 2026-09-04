@@ -216,6 +216,12 @@ bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args,
       return false;
     }
 
+    /* And the bindings the inlined bodies came from, which have to still mean
+     * the functions whose bodies those are. */
+    if (hot[i].ir->inlinedCount > 0 && !csIrInlinedCalleesHold(hot[i].ir)) {
+      return false;
+    }
+
     /* Compiled code, when there is any. */
     if (hot[i].code != NULL) {
       /* A call entry cannot take an exit: there is no frame to hand back, and
@@ -263,6 +269,7 @@ bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots,
        * their slots, and still have to be what they were guessed to be. */
       if (!observedTypesHoldInFrame(function, slots)) return false;
       if (!csIrEntryShapesHold(hot[i].ir, slots)) return false;
+      if (!csIrInlinedCalleesHold(hot[i].ir)) return false;
 
       int exit = -1;
       uint64_t bits = hot[i].code->osr[o].entry(slots, hot[i].scratch, &exit);
@@ -285,14 +292,16 @@ bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots,
   return false;
 }
 
-/* The shapes every compiled body is holding on to. They are ordinary
- * collectable objects, and a shape's transition edges are weak — so without
- * this a shape nothing else referred to could be freed and its memory come
- * back as a different shape, which would make an entry check pass exactly when
- * it must fail. */
+/* What every compiled body is holding on to: the shapes its property accesses
+ * were lowered against, and the closures whose bodies were spliced into it.
+ * They are ordinary collectable objects, and a shape's transition edges are
+ * weak — so without this a shape nothing else referred to could be freed and
+ * its memory come back as a different shape, which would make an entry check
+ * pass exactly when it must fail. An inlined callee is the same hazard: rebind
+ * the global it came from and the entry check is the only reference left. */
 void csJitMarkRoots(void) {
   for (int i = 0; i < hotCount; i++) {
-    if (hot[i].ir != NULL) csIrMarkShapes(hot[i].ir);
+    if (hot[i].ir != NULL) csIrMarkReferences(hot[i].ir);
   }
 }
 
@@ -488,6 +497,18 @@ void csJitDumpProfile(void) {
              hot[i].function->name != NULL ? hot[i].function->name->chars : "<top level>",
              hot[i].codeRefusal);
     }
+  }
+  int inlinedCalls = 0;
+  int inlinedInstructions = 0;
+  for (int i = 0; i < hotCount; i++) {
+    if (hot[i].ir == NULL) continue;
+    inlinedCalls += hot[i].ir->inlinedCount;
+    inlinedInstructions += hot[i].ir->inlinedInstructions;
+  }
+  if (inlinedCalls > 0) {
+    printf("  %d callee%s spliced in, %d instruction%s of body\n", inlinedCalls,
+           inlinedCalls == 1 ? "" : "s", inlinedInstructions,
+           inlinedInstructions == 1 ? "" : "s");
   }
   printf("  %ld call%s answered without the interpreter\n", substituted,
          substituted == 1 ? "" : "s");

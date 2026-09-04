@@ -1,0 +1,21 @@
+// A call inside a hot loop: the shape a compiler with no frames cannot take.
+//
+// `step` is small, annotated and called nowhere else, but until its body could
+// go where the call is, that one call was enough to hand the whole loop back
+// to the interpreter — compiled code has no frame of its own and no safepoint
+// at which the collector could walk one. Splicing the body in needs neither.
+//
+// The loop is inside a function for the same reason jit_loop's is: it becomes
+// hot at a back-edge, so it is entered through on-stack replacement.
+function step(total: number, i: number): number {
+  return total + i * 2 - 1;
+}
+
+function work(n: number): number {
+  let total: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    total = step(total, i);
+  }
+  return total;
+}
+console.log(work(20000000));
