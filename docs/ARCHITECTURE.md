@@ -714,7 +714,7 @@ its interpreter loop is about 25× slower.
 The same rule applies to correctness harnesses. `make test-jit` reports how
 many calls, loops and exits the compiler actually took, because a sweep that
 agrees on 121 programs the compiler declined to touch is not evidence of
-anything — see [Stage 5](#four-soundness-bugs-and-the-harness-that-found-them).
+anything — see [Stage 5](#five-soundness-bugs-and-the-harness-that-found-them).
 
 ## Tiering: what a JIT would compile
 
@@ -1105,7 +1105,7 @@ not. Exactness decides, not a guess: zero on either side goes to `fmod` too, so
 that `0 % n` keeps its sign and `n % 0` still gets its NaN. Both benchmarks
 moved past 10×, and they are no longer the two slowest things in the table.
 
-### Four soundness bugs, and the harness that found them
+### Five soundness bugs, and the harness that found them
 
 The first three were older than side exits. Side exits made them reachable.
 
@@ -1157,6 +1157,30 @@ interpreter's coverage: it can run these correctly and only the machine code
 cannot. A bitwise compare would not have been the fix either — it gets `NaN ===
 NaN` and `-0 === 0` wrong in the other direction, which is what
 `tests/cases/jit/jit_equality.cx` pins alongside the original case.
+
+**A branch read its condition out of memory the value was never in.** The
+fifth, and the only one of them that was giving a wrong answer to ordinary
+code. A comparison's result is deliberately kept in memory — the allocator
+refuses it a register, because the branch that reads it reads the scratch
+array — and every branch there was came from a comparison, so the encoder
+loaded from scratch unconditionally. `while (true)` branches on a *constant*,
+and a constant does get a register, so nothing ever wrote the slot the branch
+was reading:
+
+```js
+function countUp(n: number): number {
+  let total: number = 0;
+  while (true) { total = total + 1; if (total > n) break; }
+  return total;
+}
+countUp(200000);   // 200001 interpreted, 99 once the loop got hot
+```
+
+The branch now reads the register when the value is in one. The differential
+harness had no case with a hot `while (true)` in a fully typed function, which
+is why two years of runs never asked the question — `tests/cases/jit/`
+`jit_conditions.cx` asks it now, in all four shapes that produce a constant
+condition.
 
 None of this was caught by the golden files, and it could not have been. A
 `.expected` file pins what a program prints; it says nothing about whether the
@@ -1357,6 +1381,79 @@ already has — no SSA and no dominance, only the predecessors the jumps already
 name. It is the next milestone rather than a fix folded into this one, because
 it is a dataflow pass with its own measurement.
 
+## Stage 8: one type per slot was one too few
+
+The IR is deliberately not SSA — locals stay in numbered slots and only
+expression temporaries become virtual registers — and the price of that was a
+single type per slot for the whole function. `csIrReconcileSlotTypes` took the
+meet of everything stored into a slot anywhere, which is sound and is also
+wrong in a way that costs, because in this VM the operand stack and the locals
+are the same array:
+
+```js
+function twoLoops(n: number): number {
+  let total: number = 0;
+  for (let i: number = 0; i < n; i++) total = total + i;   // i in position 3
+  while (true) {                                           // `true` in position 3
+    total = total + 1;
+    if (total > n) break;
+  }
+  return total;
+}
+```
+
+`i` and the `while`'s condition occupy the same frame position, one after the
+other. The meet of a number and a boolean is nothing at all, so the comparison
+at the top of the first loop had an operand nothing could prove numeric — and
+`csIrIsFullyTyped` is a whole-function verdict, so the *entire* function was
+refused for it.
+
+### The dataflow, and the one edge the jumps do not name
+
+The precise answer is a meet over each block's predecessors: a block's entry
+types are the meet of its predecessors' exit types, iterated to a fixed point.
+That needs no SSA and no dominance, only the predecessors — which the jumps
+already name, plus the fall-through into the next block, which the code
+generator relies on when it lays them out in order.
+
+And one more the jumps do not name: **the lowering's own walk in bytecode
+order.** That is a real path into a block — the one the interpreter takes to
+get there — and it is the only one on the way into a loop the compiler takes
+over part-way through, where no lowered jump reaches the header at all. So the
+lowering records what it believed each slot held on the way into each block,
+and the dataflow meets that in as one more incoming edge.
+
+The lattice is two deep, so a handful of sweeps settles it. The whole-function
+meet is still computed, because the register allocator's question — can this
+slot live in a register for the whole run? — is a whole-function question
+however precisely the loads are typed.
+
+### When the walk cannot be believed
+
+Where the lowering skipped a run it could not replay, its linear state
+describes a path that did not happen, and from that point nothing recorded can
+be trusted. The whole function falls back to the coarse meet, which is what
+this pass did before there was a finer one — so the precision is an addition
+rather than a replacement.
+
+A conditional jump inside a skipped run is what triggers that, and not because
+its fall-through is hard to model. It is where the *taken* arm goes: the target
+acquires a predecessor the IR does not know about, and every entry type derived
+for it comes from the wrong set of paths. `tests/cases/language/`
+`loops_control.cx` has exactly one, and is the only program in the tree the
+compiler no longer takes part in. Merging the replay's state at the jump into
+the target's entry state is the fix, and it needs the *height* to agree as well
+as the types — a `break` pops the locals of the scope it leaves, so the two
+arms of one jump do not always arrive at the same depth.
+
+### What it found
+
+Making `while (true)` compilable is what turned up the fifth soundness bug
+above. That is the pattern this project keeps running into and the reason the
+differential harness counts coverage rather than only agreements: a check that
+never runs on a shape proves nothing about that shape, and the way to find out
+is to make the shape reachable.
+
 ## Build configurations
 
 Each configuration compiles into its own directory under `build/`. Sharing one
@@ -1393,7 +1490,7 @@ genuinely new stage, which only runs on code that has earned it.
 
 | Next | What it needs | Why it is next |
 | --- | --- | --- |
-| Slot types per block | A meet over the block graph, iterated to a fixed point | One `while (true)` de-types every loop counter that shares its frame position |
+| Replaying a conditional jump | The taken arm's state merged into its target, height included | It is the one thing still refusing `loops_control.cx` |
 | A property store that *adds* one | A shape transition in compiled code, which allocates | It is what a constructor does, and what excludes almost all of them |
 | Allocation in compiled code | A root range the collector walks, and a recorded frame size | Attempted and backed out; what the attempt found is in [ROADMAP.md](ROADMAP.md) |
 | Calling a CScript function | A frame, and a safepoint the collector can walk it at | Inlining takes the small straight-line callees; this is for everything else |

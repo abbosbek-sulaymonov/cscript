@@ -67,33 +67,36 @@ already measured says it is the thing that pays.
 | **59 ✅** | Inlining — a small callee's body goes where the call was, **16.7×** |
 | **60 ✅** | `===` on anything but a number, which compiled code got wrong |
 | **61 ✅** | Replaying a hand-over, so a loop below a declaration still compiles — `jit_calls` **23.7×**, `calls` **24.0×** |
-| next | Slot types per block rather than per function — see below |
+| **62 ✅** | A branch that read its condition from memory the value was never in |
+| **63 ✅** | Slot types per block rather than per function |
+| next | Replaying a conditional jump, which is what still refuses `loops_control` |
 | next | A property store that *adds* one, which is what a constructor does |
 | next | Allocating an object in compiled code — attempted, backed out; see below |
 | next | Calling a CScript function from compiled code, for the callees inlining will not take: it needs frames and safepoints |
 
 ---
 
-## Slot types are one per function, which replaying a hand-over made visible
+## What a conditional jump in a skipped run still costs
 
-The IR is deliberately not SSA: locals stay in numbered slots and only
-expression temporaries become virtual registers. The cost of that is a single
-type per slot for the whole function — `csIrReconcileSlotTypes` takes the meet
-of everything stored into it — and the operand stack and the locals are the
-same array, so *different loops in the same file reuse the same positions*.
+Replaying a hand-over recovers the height and the slot types across a run the
+lowering is leaving to the interpreter, but only for runs made of instructions
+whose effect on the frame is fixed. A conditional jump is not one of them, and
+not because its fall-through is hard to model — it is a pop and a fall-through
+— but because of where the *taken* arm goes. Its target then has a predecessor
+the IR does not know about, and every entry type derived for that block is
+derived from the wrong set of paths.
 
-Nothing had noticed, because the lowering used to stop at the first hand-over
-and rarely saw two loops. Now it sees them. In
-`tests/cases/language/loops_control.cx`, three `for` loops count in frame
-position 1 and a later `while (true)` puts a boolean there; the meet is
-therefore nothing at all, and every one of those counters is refused. The file
-went from partly compiled to not compiled.
+So the replay gives up on one, and with it goes the per-block typing for the
+whole function: from that point the lowering's linear state describes a path
+that did not happen. `tests/cases/language/loops_control.cx` has exactly one
+such jump — `if (w > 3) break;` inside a run handed over for a `console.log` —
+and it is the only program in the tree the compiler no longer takes part in.
 
-The fix is a per-block meet rather than a per-function one: a block's entry
-types are the meet of its predecessors' exit types, iterated to a fixed point,
-which is ordinary dataflow over the block graph the IR already has. It does not
-need SSA and it does not need dominance — only the predecessors, which the
-jumps already name.
+The fix is to merge the replay's state at the jump into the target block's
+entry state, as one more incoming path, rather than distrusting the function.
+That needs the height to agree as well as the types, which is the part worth
+doing carefully: a `break` pops the locals of the scope it leaves, so the two
+arms of one jump do not always arrive at the same depth.
 
 ---
 

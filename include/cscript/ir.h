@@ -27,6 +27,14 @@
 #include "cscript/object.h"
 #include "cscript/value.h"
 
+/* How many frame positions the lowering models.
+ *
+ * The operand stack and the locals are the same array in this VM, so this
+ * bounds both. The bytecode names a local in a single byte, which reaches 255,
+ * so a function with more locals than this is handed back rather than read past
+ * the end of the model — which is what an unchecked operand did. */
+#define IR_MAX_SLOTS 64
+
 typedef enum {
   IR_TYPE_UNKNOWN, /* a boxed Value; nothing is known about it */
   IR_TYPE_NUMBER,  /* proved: can live unboxed in a floating-point register */
@@ -196,6 +204,20 @@ typedef struct {
    * function's own bytecode, so the tiering report can say what inlining is
    * doing rather than only that it happened. */
   int inlinedInstructions;
+
+  /* What the lowering believed each slot held on the way into each block,
+   * `IR_MAX_SLOTS` entries per block. Recorded while walking the bytecode in
+   * order, which is the path the interpreter also takes to get there — so it
+   * is a real predecessor of the block, and the only one on the way into a
+   * loop the compiler takes over part-way through.
+   *
+   * `blockEntryTrusted` is false once the lowering has skipped a run it could
+   * not replay: from that point the linear state describes a path that did not
+   * happen, and the whole-function meet is the only thing left that is sound.
+   * See csIrReconcileSlotTypes. */
+  IrType *blockEntryTypes;
+  bool *blockEntrySeeded;
+  bool blockEntryTrusted;
 } IrFunction;
 
 /* Lowers a function's bytecode.
@@ -219,9 +241,17 @@ void csIrFree(IrFunction *ir);
  * Writes -1 for a field that is not a register. */
 void csIrRegisterOperands(const IrInst *inst, int *a, int *b);
 
-/* Makes every slot's type the meet of what is stored into it, and downgrades
- * loads that claimed more. Must run before the IR is trusted: the lowering's
- * own tracking is linear, and a loop makes linear order the wrong order. */
+/* Types every load of a slot by what can actually reach it, and downgrades the
+ * ones that claimed more. Must run before the IR is trusted: the lowering's own
+ * tracking is linear, and a loop makes linear order the wrong order.
+ *
+ * Per block where it can be, and per function where it cannot. One type per
+ * slot for the whole function is the coarse answer, and it is wrong in a way
+ * that costs: the operand stack and the locals are the same array here, so two
+ * loops in one file share their counter's position — and a `while (true)`
+ * putting a boolean there gives every other loop's counter no type at all.
+ * Meeting each block's predecessors instead, iterated to a fixed point, keeps
+ * them apart. */
 void csIrReconcileSlotTypes(IrFunction *ir);
 
 /* The name of an IR opcode, for diagnostics. */

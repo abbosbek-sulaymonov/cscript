@@ -1082,7 +1082,22 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
           uint64_t trueBits;
           Value yes = BOOL_VAL(true);
           memcpy(&trueBits, &yes, sizeof trueBits);
-          ldrGeneral(&encoder, REG_TEMP, REG_SCRATCH, inst->a * 8);
+
+          /* Wherever the value actually is.
+           *
+           * A comparison's result is kept in memory on purpose — see the
+           * allocator — so reading the scratch array was right for every
+           * branch there was, until one came along whose condition was not a
+           * comparison. `while (true)` branches on a constant, and a constant
+           * does get a register, so the load found whatever the scratch slot
+           * held before: the loop was taken or skipped on uninitialised
+           * memory. Nothing compiled it until slot types became precise enough
+           * for a function containing one to be fully typed. */
+          if (home[inst->a] >= 0) {
+            fmovToGeneral(&encoder, REG_TEMP, home[inst->a]);
+          } else {
+            ldrGeneral(&encoder, REG_TEMP, REG_SCRATCH, inst->a * 8);
+          }
           movImmediate(&encoder, 10, trueBits);
           cmpGeneral(&encoder, REG_TEMP, 10);
 

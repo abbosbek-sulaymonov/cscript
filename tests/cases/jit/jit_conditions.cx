@@ -1,0 +1,72 @@
+// Branching on something that is not a comparison.
+//
+// A comparison's result is deliberately kept in memory — the register
+// allocator refuses it a register, because the branch that reads it reads the
+// scratch array. Every branch there was came from a comparison, so nothing
+// noticed that a branch on anything else read a slot nothing had written:
+// `while (true)` branches on a constant, and a constant does get a register.
+// The loop was then taken or skipped on whatever the scratch array happened to
+// hold.
+function countUp(n: number): number {
+  let total: number = 0;
+  while (true) {
+    total = total + 1;
+    if (total > n) {
+      break;
+    }
+  }
+  return total;
+}
+console.log(countUp(400));
+
+// The same condition in the two other shapes that produce a constant one.
+function countFor(n: number): number {
+  let total: number = 0;
+  for (;;) {
+    total = total + 2;
+    if (total > n) {
+      break;
+    }
+  }
+  return total;
+}
+console.log(countFor(400));
+
+function countDo(n: number): number {
+  let total: number = 0;
+  do {
+    total = total + 3;
+  } while (total <= n);
+  return total;
+}
+console.log(countDo(400));
+
+// A branch on a boolean held in a local rather than tested where it is made.
+function countFlag(n: number): number {
+  let total: number = 0;
+  let running: boolean = true;
+  while (running) {
+    total = total + 1;
+    running = total <= n;
+  }
+  return total;
+}
+console.log(countFlag(400));
+
+// And two loops in one function whose counters share a frame position, one of
+// them a `while (true)`. One type per slot for the whole function gives that
+// position no type at all, and refuses every comparison that reads it.
+function twoLoops(n: number): number {
+  let total: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    total = total + i;
+  }
+  while (true) {
+    total = total + 1;
+    if (total > n) {
+      break;
+    }
+  }
+  return total;
+}
+console.log(twoLoops(400));

@@ -187,13 +187,37 @@ between is the interpreter's business: every assumption the compiled code holds
 is checked on the way in, and the way in comes after all of this has run.
 Anything not modelled still gives up exactly as before.
 
-**What it cost.** Lowering more of a file exposes more of it to a limitation
-the IR has always had: slot types are one per function, not one per block. A
-file whose first loop counts in frame position 1 and whose later `while (true)`
-puts a boolean there gives that position no type at all, and every comparison
-that reads it is refused — so `tests/cases/language/loops_control.cx` stopped
-being compiled at all. That is the next thing to fix, and it is now a concrete
-work item rather than a vague one.
+**What it cost, and what that turned up.** Lowering more of a file exposed a
+limitation the IR had always had: slot types were one per function, not one per
+block, so a file whose first loop counts in frame position 1 and whose later
+`while (true)` puts a boolean there gave that position no type at all. That is
+[fixed](#slot-types-per-block); making `while (true)` compilable is then what
+turned up a branch reading its condition out of memory the value was never in,
+which had been giving wrong answers to ordinary code.
+
+One program is still lost: `tests/cases/language/loops_control.cx` has a
+conditional jump inside a run the replay gives up on, which is the one shape
+that cannot be modelled without knowing where the *taken* arm goes.
+
+### Slot types per block
+
+The operand stack and the locals are the same array here, so two loops in one
+function count in the same frame position one after the other — and a
+`while (true)` that puts a boolean there used to give that position no type at
+all, because the type of a slot was the meet of everything stored into it
+*anywhere in the function*. `csIrIsFullyTyped` is a whole-function verdict, so
+one such position refused the entire function.
+
+A block's entry types are now the meet of its predecessors' exit types,
+iterated to a fixed point — ordinary dataflow over the block graph the IR
+already has, needing neither SSA nor dominance. The predecessors are the ones
+the jumps name, the fall-through into the next block, and one more: the
+lowering's own walk in bytecode order, which is a real path into a block and
+the only one on the way into a loop the compiler takes over part-way through.
+
+Where the lowering skipped a run it could not replay, its linear state
+describes a path that did not happen and the whole function falls back to the
+coarse meet — so the precision is an addition rather than a replacement.
 
 ### Inlining: a call that is not there
 
