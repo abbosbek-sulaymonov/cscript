@@ -337,6 +337,193 @@ static void clearPendingCallees(Lowering *low) {
   low->pendingCount = 0;
 }
 
+/* The IR's view of what a constant holds. */
+static IrType typeOfConstant(Value constant) {
+  return IS_NUMBER(constant) ? IR_TYPE_NUMBER
+         : IS_BOOL(constant) ? IR_TYPE_BOOL
+                             : IR_TYPE_UNKNOWN;
+}
+
+/* ---- replaying a hand-over ----------------------------------------------
+ *
+ * A hand-over used to end the lowering for good. Everything after an exit runs
+ * in the interpreter, so the operand-stack height there was unknown — and in
+ * this VM a local *is* a stack slot, so a block whose entry height is unknown
+ * cannot be lowered at all: the wrong height means the wrong slot, silently.
+ *
+ * That cost more than it sounds. A script that declares a function before its
+ * hot loop hands the frame back on the declaration, at offset zero, and lost
+ * the loop with it — which is every script of the shape
+ *
+ *     function f(x) { ... }
+ *     for (let i = 0; i < n; i++) total = total + f(i);
+ *
+ * But the height is only unknown because nothing worked it out. Where every
+ * instruction in the skipped run is one whose effect on the frame is fixed,
+ * both the height and what each slot ends up holding follow from the bytecode
+ * — and it is the same bytecode the interpreter is about to run, so the two
+ * cannot disagree. It is a proof rather than a guess, which is what separates
+ * this from speculating on the height and checking it later.
+ *
+ * Anything the model does not cover still gives up, exactly as before.
+ */
+
+static bool replayPush(IrType *slotType, int *height, IrType type) {
+  if (*height < 0 || *height >= IR_MAX_STACK) return false;
+  slotType[*height] = type;
+  (*height)++;
+  return true;
+}
+
+static bool replayPop(int *height, int count) {
+  if (count < 0 || *height < count) return false;
+  *height -= count;
+  return true;
+}
+
+/* Returns the operand-stack height at `to`, or -1 when the run holds something
+ * this does not model. `slotType` is written only on success, so a run given
+ * up on halfway leaves the lowering's view of the frame untouched. */
+static int replayHandedOver(const Chunk *chunk, IrType *slotType, int from, int to,
+                            int height) {
+  IrType replayed[IR_MAX_STACK];
+  memcpy(replayed, slotType, sizeof replayed);
+
+  for (int offset = from; offset < to;) {
+    uint8_t opcode = chunk->code[offset];
+    bool ok = true;
+
+    switch (opcode) {
+      /* Values made out of nothing. */
+      case OP_CONSTANT: {
+        int index = (chunk->code[offset + 1] << 8) | chunk->code[offset + 2];
+        if (index < 0 || index >= chunk->constants.count) return -1;
+        ok = replayPush(replayed, &height, typeOfConstant(chunk->constants.values[index]));
+        break;
+      }
+      case OP_TRUE:
+      case OP_FALSE:
+        ok = replayPush(replayed, &height, IR_TYPE_BOOL);
+        break;
+      case OP_NULL:
+      case OP_UNDEFINED:
+      /* A closure, and a global whose value at this moment says nothing about
+       * its value when the interpreter gets here. */
+      case OP_CLOSURE:
+      case OP_GET_GLOBAL:
+        ok = replayPush(replayed, &height, IR_TYPE_UNKNOWN);
+        break;
+
+      /* Values moved from somewhere the model already knows about. */
+      case OP_GET_LOCAL:
+      case OP_GET_LOCAL_LOCAL:
+      case OP_GET_LOCAL_CONST: {
+        int wanted = opcode == OP_GET_LOCAL_LOCAL ? 2 : 1;
+        for (int which = 1; which <= wanted && ok; which++) {
+          int slot = chunk->code[offset + which];
+          if (slot < 0 || slot >= IR_MAX_STACK) return -1;
+          ok = replayPush(replayed, &height, replayed[slot]);
+        }
+        if (ok && opcode == OP_GET_LOCAL_CONST) {
+          int index = (chunk->code[offset + 2] << 8) | chunk->code[offset + 3];
+          if (index < 0 || index >= chunk->constants.count) return -1;
+          ok = replayPush(replayed, &height,
+                          typeOfConstant(chunk->constants.values[index]));
+        }
+        break;
+      }
+      case OP_DUP:
+        if (height < 1) return -1;
+        ok = replayPush(replayed, &height, replayed[height - 1]);
+        break;
+
+      /* Values discarded. */
+      case OP_POP:
+      case OP_DEFINE_GLOBAL:
+      case OP_DEFINE_CONST:
+      case OP_SET_GLOBAL_POP:
+        ok = replayPop(&height, 1);
+        break;
+      case OP_POP_N:
+        ok = replayPop(&height, chunk->code[offset + 1]);
+        break;
+      /* Leaves what it stored, so the height is unchanged. */
+      case OP_SET_GLOBAL:
+        if (height < 1) return -1;
+        break;
+
+      /* Values put into a slot, which is the part that matters as much as the
+       * height: a loop counter is established by one of these. */
+      case OP_SET_LOCAL:
+      case OP_SET_LOCAL_POP: {
+        int slot = chunk->code[offset + 1];
+        if (slot < 0 || slot >= IR_MAX_STACK || height < 1) return -1;
+        replayed[slot] = replayed[height - 1];
+        if (opcode == OP_SET_LOCAL_POP) ok = replayPop(&height, 1);
+        break;
+      }
+      /* Both refuse a slot that is not a number, so reaching the next
+       * instruction at all proves one is there. */
+      case OP_INC_LOCAL:
+      case OP_DEC_LOCAL: {
+        int slot = chunk->code[offset + 1];
+        if (slot < 0 || slot >= IR_MAX_STACK) return -1;
+        replayed[slot] = IR_TYPE_NUMBER;
+        break;
+      }
+
+      /* Arithmetic, which throws rather than coerce — so a result exists only
+       * where it is the type the operator produces. `+` is the exception: it
+       * concatenates, so nothing is known about what it leaves. */
+      case OP_ADD_NUM:
+      case OP_SUBTRACT:
+      case OP_MULTIPLY:
+      case OP_DIVIDE:
+      case OP_MODULO:
+        ok = replayPop(&height, 2) && replayPush(replayed, &height, IR_TYPE_NUMBER);
+        break;
+      case OP_NEGATE:
+        ok = replayPop(&height, 1) && replayPush(replayed, &height, IR_TYPE_NUMBER);
+        break;
+      case OP_ADD:
+        ok = replayPop(&height, 2) && replayPush(replayed, &height, IR_TYPE_UNKNOWN);
+        break;
+      case OP_LESS: case OP_LESS_EQUAL: case OP_GREATER: case OP_GREATER_EQUAL:
+      case OP_EQUAL: case OP_NOT_EQUAL:
+        ok = replayPop(&height, 2) && replayPush(replayed, &height, IR_TYPE_BOOL);
+        break;
+      case OP_NOT:
+        ok = replayPop(&height, 1) && replayPush(replayed, &height, IR_TYPE_BOOL);
+        break;
+
+      /* A completed call leaves one value where the callee and its arguments
+       * were, whatever it did in between. What it did in between is the
+       * interpreter's business: every assumption the compiled code holds —
+       * the global table's version, the shapes, the inlined callees — is
+       * checked on the way in, which is after all of this has run. */
+      case OP_CALL:
+        ok = replayPop(&height, chunk->code[offset + 1] + 1) &&
+             replayPush(replayed, &height, IR_TYPE_UNKNOWN);
+        break;
+      case OP_INVOKE:
+        ok = replayPop(&height, chunk->code[offset + 3] + 1) &&
+             replayPush(replayed, &height, IR_TYPE_UNKNOWN);
+        break;
+
+      default:
+        return -1;
+    }
+    if (!ok) return -1;
+
+    int next = csInstructionLength(chunk, offset);
+    if (next <= offset) return -1;
+    offset = next;
+  }
+
+  memcpy(slotType, replayed, sizeof replayed);
+  return height;
+}
+
 /* Notes that `target` is entered with `height` on the stack. */
 static bool reachBlock(Lowering *low, int target, int height) {
   if (target < 0 || target >= IR_MAX_BLOCKS) return true;
@@ -911,7 +1098,10 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
         low.reason = "operand stack underflow while lowering";
         goto failed;
       }
-      if (ir->registerTypes[low.stack[low.stackTop - 1 - k]] != IR_TYPE_NUMBER) {
+      /* A position the interpreter filled holds no register of ours — see
+       * the replay in handOver — so there is nothing here to prove numeric. */
+      int operand = low.stack[low.stackTop - 1 - k];
+      if (operand < 0 || ir->registerTypes[operand] != IR_TYPE_NUMBER) {
         goto handOver;
       }
     }
@@ -994,7 +1184,8 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
           low.reason = "operand stack underflow while lowering";
           goto failed;
         }
-        if (ir->registerTypes[low.stack[low.stackTop - 1]] != IR_TYPE_NUMBER) {
+        if (low.stack[low.stackTop - 1] < 0 ||
+            ir->registerTypes[low.stack[low.stackTop - 1]] != IR_TYPE_NUMBER) {
           goto handOver;
         }
 
@@ -1038,7 +1229,8 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
 
         int value = low.stack[low.stackTop - 1];
         int object = low.stack[low.stackTop - 2];
-        if (ir->registerTypes[value] != IR_TYPE_NUMBER) {
+        if (value < 0 || object < 0 ||
+            ir->registerTypes[value] != IR_TYPE_NUMBER) {
           low.reason = csOpcodeName((OpCode)opcode);
           goto failed;
         }
@@ -1098,6 +1290,7 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
         }
 
         int object = low.stack[low.stackTop - 1];
+        if (object < 0) goto handOver;
         int slot = -1;
         for (int i = block->count - 1; i >= 0; i--) {
           if (block->instructions[i].result != object) continue;
@@ -1517,13 +1710,30 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
       /* Everything up to the next jump target is the interpreter's now.
        * Blocks past it are still lowered: a loop whose body this compiler
        * understands is usually followed by code it does not. */
-      skipped = true;
       int skip = next;
       while (skip < chunk->count && !leader[skip]) {
         int step = csInstructionLength(chunk, skip);
         if (step <= skip) { low.reason = "could not be decoded"; goto failed; }
         skip = step;
       }
+
+      /* Where that leaves the frame is not always a mystery. The interpreter
+       * picks it up at the exit's offset, not at the instruction that forced
+       * one, so the run to replay starts at the floor — and when every
+       * instruction in it has a fixed effect, the height and the slot types at
+       * the other end follow from the bytecode rather than being unknown. That
+       * is what lets a loop below a function declaration still compile. */
+      int resumed = replayHandedOver(chunk, low.slotType, floorOffset, skip, blockFloor);
+      if (resumed >= 0) {
+        low.stackTop = resumed;
+        /* Nothing this function computed is in those positions any more: the
+         * interpreter put the values there. Marking them as holding no
+         * register is what stops a later instruction reading a stale one. */
+        for (int s = 0; s < IR_MAX_STACK; s++) low.stack[s] = -1;
+      } else {
+        skipped = true;
+      }
+
       offset = skip;
       continue;
     }

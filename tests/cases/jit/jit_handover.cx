@@ -1,0 +1,54 @@
+// A hot loop below something the compiler cannot express.
+//
+// The lowering hands the frame back at the first thing it has no IR for, and
+// used to stop there for good: everything after an exit runs in the
+// interpreter, so the operand-stack height was unknown — and in this VM a
+// local *is* a stack slot, so a block whose entry height is unknown cannot be
+// lowered at all. A script that declares a function before its loop hands back
+// on the declaration, at offset zero, and lost the loop with it.
+//
+// Replaying the skipped run recovers both the height and what each slot holds,
+// from the same bytecode the interpreter is about to run. What is checked here
+// is that the answer is the same either way.
+function dist(x: number, y: number): number {
+  return x * x + y * y;
+}
+
+let total: number = 0;
+for (let i: number = 0; i < 400; i++) {
+  total = total + dist(i, 2);
+}
+console.log(total);
+
+// The same, with statements before the loop whose effect the replay has to
+// model: a call, a discarded expression, and a local established by each.
+console.log("before");
+const scale: number = 3;
+let sum: number = 0;
+let seen: number = 0;
+for (let i: number = 0; i < 400; i++) {
+  sum = sum + i * scale;
+  seen = seen + 1;
+}
+console.log(sum, seen);
+
+// A hand-over in the middle rather than at the top: the loop below it still
+// has to lower, and the string work above it still has to run.
+let label: string = "n";
+label = label + "=";
+let counted: number = 0;
+for (let i: number = 0; i < 400; i++) {
+  counted = counted + 1;
+}
+console.log(label + counted);
+
+// And a slot the replay must *not* claim is a number: the same frame position
+// carries a boolean here and a counter above.
+let guard: number = 0;
+while (true) {
+  guard = guard + 1;
+  if (guard > 400) {
+    break;
+  }
+}
+console.log(guard);

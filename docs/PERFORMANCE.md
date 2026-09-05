@@ -106,19 +106,27 @@ now, and on the code it compiles it does close most of it:
 
 | Benchmark | Interpreted | Compiled | Speedup | Node |
 | --- | ---: | ---: | ---: | ---: |
-| `bench/jit/jit_calls.cx` — 3M calls | 134 ms | 98 ms | 1.4× | 6 ms |
-| `bench/jit/jit_inline.cx` — a call inside a 20M-iteration loop | 817 ms | **49 ms** | **16.7×** | 34 ms |
-| `bench/jit/jit_loop.cx` — one call, 20M iterations | 434 ms | **49 ms** | **8.9×** | 35 ms |
-| `bench/locals.cx` — an ordinary script, no annotations | 139 ms | **15 ms** | **9.0×** | 6 ms |
-| `bench/loop_empty.cx` — loop overhead alone, over a global | 127 ms | **17 ms** | **7.3×** | 6 ms |
-| `bench/globals.cx` — reads and writes of module bindings | 194 ms | **32 ms** | **6.1×** | 6 ms |
-| `bench/loop_arith.cx` — 10M remainders | 205 ms | **19 ms** | **10.9×** | 9 ms |
-| `bench/branches.cx` — a five-way chain, 5M times | 185 ms | **11 ms** | **16.6×** | 7 ms |
+| `bench/jit/jit_calls.cx` — 3M calls below a function declaration | 132 ms | **6 ms** | **23.7×** | 6 ms |
+| `bench/jit/jit_inline.cx` — a call inside a 20M-iteration loop | 806 ms | **49 ms** | **16.5×** | 31 ms |
+| `bench/jit/jit_loop.cx` — the same loop, without the call | 431 ms | **49 ms** | **8.7×** | 29 ms |
+| `bench/calls.cx` — an unannotated helper in a 2M-iteration loop | 115 ms | **5 ms** | **24.0×** | 3 ms |
+| `bench/locals.cx` — an ordinary script, no annotations | 130 ms | **16 ms** | **8.2×** | 5 ms |
+| `bench/loop_empty.cx` — loop overhead alone, over a global | 127 ms | **17 ms** | **7.3×** | 5 ms |
+| `bench/globals.cx` — reads and writes of module bindings | 186 ms | **34 ms** | **5.5×** | 5 ms |
+| `bench/loop_arith.cx` — 10M remainders | 205 ms | **19 ms** | **11.0×** | 8 ms |
+| `bench/branches.cx` — a five-way chain, 5M times | 185 ms | **12 ms** | **15.9×** | 6 ms |
 
-The last five have no type annotations in them at all. Their types come from
+The last six have no type annotations in them at all. Their types come from
 the checker's inference of `let a = 0`, and their loops reach the compiler
 because everything the compiler cannot express — the `console.log` at the end —
 is handed back to the interpreter rather than refusing the whole function.
+
+**`jit_calls` and `calls` moved from 1.4× to over 20× without the compiler
+changing at all.** Both are a function declaration followed by a hot loop that
+calls it, and the declaration is the first thing the lowering cannot express —
+so it handed the frame back at offset zero and, until the height on the far
+side could be worked out, lost the loop with it. See
+[recovering from a hand-over](#recovering-from-a-hand-over).
 
 **`jit_inline` and `jit_loop` are the same loop, one of them with a call in
 it.** Interpreted, the call costs 1.9× the loop it sits in. Compiled they are
@@ -143,6 +151,49 @@ It took four optimisations that measured at nothing and one diagnosis that the
 loop benchmark had never entered the compiled code at all. That story, which is
 the more useful half, is in
 [ARCHITECTURE.md](ARCHITECTURE.md#stage-4-the-loop-and-what-was-actually-wrong-with-it).
+
+### Recovering from a hand-over
+
+The lowering gives the frame back at the first thing it has no IR for. It used
+to stop there for good, and the reason is worth stating plainly: everything
+after an exit runs in the interpreter, so the operand-stack height on the far
+side was unknown — and in this VM a local *is* a stack slot, so a block whose
+entry height is unknown cannot be lowered at all. The wrong height means the
+wrong slot, silently.
+
+That is a bigger loss than it sounds, because the *first* thing most scripts do
+is declare a function:
+
+```js
+function dist(x, y) { return x * x + y * y; }   // OP_CLOSURE — handed back here
+let total = 0;
+for (let i = 0; i < 3000000; i++) total = total + dist(i, 2);
+```
+
+The hand-over is at offset zero. Everything below it was lost with it,
+including the only loop in the program.
+
+But the height was never unknown — nothing had worked it out. Where every
+instruction in the skipped run is one whose effect on the frame is fixed, both
+the height and what each slot ends up holding follow from the bytecode, and it
+is the same bytecode the interpreter is about to run, so the two cannot
+disagree. That is a proof rather than a guess, which is what separates it from
+speculating on the height and checking it at entry.
+
+The model covers constants, closures, locals, globals, the arithmetic that
+throws rather than coerce, and a completed call — which leaves one value where
+the callee and its arguments were, whatever it did in between. What it did in
+between is the interpreter's business: every assumption the compiled code holds
+is checked on the way in, and the way in comes after all of this has run.
+Anything not modelled still gives up exactly as before.
+
+**What it cost.** Lowering more of a file exposes more of it to a limitation
+the IR has always had: slot types are one per function, not one per block. A
+file whose first loop counts in frame position 1 and whose later `while (true)`
+puts a boolean there gives that position no type at all, and every comparison
+that reads it is refused — so `tests/cases/language/loops_control.cx` stopped
+being compiled at all. That is the next thing to fix, and it is now a concrete
+work item rather than a vague one.
 
 ### Inlining: a call that is not there
 
