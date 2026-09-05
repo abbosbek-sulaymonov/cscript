@@ -22,7 +22,7 @@
 #include "cscript/type.h"
 #include "cscript/opcode.h"
 
-#define IR_MAX_STACK 64
+#define IR_MAX_STACK IR_MAX_SLOTS
 #define IR_MAX_BLOCKS 256
 
 /* ---- building ---------------------------------------------------------- */
@@ -968,6 +968,11 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
     ir->blockCount++;
   }
 
+  ir->blockEntryTypes =
+      (IrType *)calloc((size_t)ir->blockCount * IR_MAX_SLOTS + 1, sizeof(IrType));
+  ir->blockEntrySeeded = (bool *)calloc((size_t)ir->blockCount + 1, sizeof(bool));
+  ir->blockEntryTrusted = true;
+
   Lowering low;
   memset(&low, 0, sizeof low);
   low.ir = ir;
@@ -1033,6 +1038,7 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
       } else if (skipped) {
         /* Nothing reaches this block from the part being compiled, and its
          * height is unknown, so the whole of it is left to the interpreter —
+         * see blockEntryTrusted for why nothing recorded past here counts.
          * up to the next block, which may have a height a jump recorded. */
         int skip = csInstructionLength(chunk, offset);
         if (skip <= offset) { low.reason = "could not be decoded"; goto failed; }
@@ -1052,6 +1058,16 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
        * there is nothing here to clear. Clearing anyway is what keeps that
        * true if the search ever widens. */
       clearPendingCallees(&low);
+
+      /* What the lowering walked into this block believing. That is a real
+       * path — the one the interpreter also takes to get here — and it is the
+       * only one on the way into a loop the compiler takes over part-way
+       * through, where no lowered jump reaches the header at all. */
+      if (blockIndex >= 0 && blockIndex < ir->blockCount) {
+        memcpy(&ir->blockEntryTypes[(size_t)blockIndex * IR_MAX_SLOTS], low.slotType,
+               sizeof low.slotType);
+        ir->blockEntrySeeded[blockIndex] = true;
+      }
     }
 
     /* The abstract stack is *not* reset at a block boundary.
@@ -1083,6 +1099,25 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
      *
      * Equality is not here: it is defined for every type and needs no proof
      * about its operands. */
+    /* Every slot the lowering models has to fit the arrays that model it. The
+     * operand is one byte, so it reaches 255, and the model is IR_MAX_SLOTS
+     * wide — an unchecked one read past the end of a stack array, which is
+     * undefined behaviour that happened to return a plausible type. */
+    switch (opcode) {
+      case OP_GET_LOCAL: case OP_SET_LOCAL: case OP_SET_LOCAL_POP:
+      case OP_INC_LOCAL: case OP_DEC_LOCAL: case OP_GET_LOCAL_CONST:
+      case OP_GET_LOCAL_PROPERTY:
+        if (chunk->code[offset + 1] >= IR_MAX_SLOTS) goto handOver;
+        break;
+      case OP_GET_LOCAL_LOCAL:
+        if (chunk->code[offset + 1] >= IR_MAX_SLOTS ||
+            chunk->code[offset + 2] >= IR_MAX_SLOTS) {
+          goto handOver;
+        }
+        break;
+      default: break;
+    }
+
     int wantsNumbers = 0;
     switch (opcode) {
       case OP_NEGATE: wantsNumbers = 1; break;
@@ -1731,7 +1766,11 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
          * register is what stops a later instruction reading a stale one. */
         for (int s = 0; s < IR_MAX_STACK; s++) low.stack[s] = -1;
       } else {
+        /* From here the linear state describes a path that did not happen, so
+         * nothing recorded after this point can be believed — and the seeds
+         * already taken are only sound while every one of them is. */
         skipped = true;
+        ir->blockEntryTrusted = false;
       }
 
       offset = skip;
@@ -1969,62 +2008,230 @@ void csIrRemoveDeadStores(IrFunction *ir) {
  * Iterated because downgrading a load downgrades what is computed from it,
  * which can downgrade the slot the result is stored to in turn. It settles
  * quickly: every round can only remove information. */
+/* ---- typing the slots ---------------------------------------------------
+ *
+ * One type per slot for the whole function is the coarse answer, and it is
+ * wrong in a way that costs. The operand stack and the locals are the same
+ * array here, so two loops in one file count in the same frame position — and
+ * a `while (true)` that puts a boolean there leaves every other loop's counter
+ * with no type at all, which refuses every comparison that reads it.
+ *
+ * The precise answer is a meet over each block's predecessors, iterated to a
+ * fixed point. That needs no SSA and no dominance, only the predecessors the
+ * jumps already name — plus one edge they do not: the lowering's own walk in
+ * bytecode order, which is a real path into a block and the only one on the
+ * way into a loop the compiler takes over part-way through.
+ *
+ * Where that walk cannot be believed — the lowering skipped a run it could not
+ * replay, so the linear state describes a path that did not happen — the
+ * whole-function meet is what is left, and is what this falls back to.
+ */
+
+/* A slot with no constraint on it yet, which is not the same as a slot nothing
+ * is known about: the first contribution replaces it, where meeting with
+ * IR_TYPE_UNKNOWN would swallow everything. */
+#define SLOT_TOP (-1)
+
+static int meetSlot(int a, int b) {
+  if (a == SLOT_TOP) return b;
+  if (b == SLOT_TOP) return a;
+  return a == b ? a : (int)IR_TYPE_UNKNOWN;
+}
+
+/* The lowering cuts a block at its first terminator, and a block that has none
+ * runs into the next one — which the code generator relies on, laying the
+ * blocks out in order. So linear succession is a real edge. */
+static bool blockFallsThrough(const IrBlock *block) {
+  if (block->count == 0) return true;
+  IrOp last = block->instructions[block->count - 1].op;
+  return last != IR_JUMP && last != IR_BRANCH && last != IR_RETURN && last != IR_EXIT;
+}
+
+/* Applies a block to a slot state, and where asked retypes the loads it makes
+ * on the way through. Returns whether retyping changed anything. */
+static bool walkBlockSlots(IrFunction *ir, int b, int *state, int slots, bool retype) {
+  IrBlock *block = &ir->blocks[b];
+  bool changed = false;
+
+  for (int i = 0; i < block->count; i++) {
+    IrInst *inst = &block->instructions[i];
+
+    if (inst->op == IR_LOAD_LOCAL && inst->a >= 0 && inst->a < slots) {
+      if (!retype) continue;
+      int known = state[inst->a];
+      IrType type = known == SLOT_TOP ? IR_TYPE_UNKNOWN : (IrType)known;
+      if (inst->type == type) continue;
+      inst->type = type;
+      if (inst->result >= 0 && inst->result <= ir->registerCount) {
+        ir->registerTypes[inst->result] = type;
+      }
+      changed = true;
+      continue;
+    }
+
+    if (inst->op == IR_STORE_LOCAL && inst->a >= 0 && inst->a < slots &&
+        inst->b >= 0 && inst->b <= ir->registerCount) {
+      state[inst->a] = (int)ir->registerTypes[inst->b];
+    }
+  }
+  return changed;
+}
+
+/* The meet of everything stored into each slot, anywhere in the function. The
+ * coarse answer, still needed twice: as the fallback when the per-block one
+ * cannot be trusted, and as what the register allocator asks when it decides
+ * whether a slot can live in a register for the whole run. */
+static void wholeFunctionMeet(const IrFunction *ir, IrType *meet, int slots) {
+  bool written[IR_MAX_SLOTS];
+  for (int s = 0; s < slots; s++) {
+    meet[s] = IR_TYPE_UNKNOWN;
+    written[s] = false;
+  }
+
+  for (int b = 0; b < ir->blockCount; b++) {
+    for (int i = 0; i < ir->blocks[b].count; i++) {
+      const IrInst *inst = &ir->blocks[b].instructions[i];
+      if (inst->op != IR_STORE_LOCAL) continue;
+      if (inst->a < 0 || inst->a >= slots) continue;
+      if (inst->b < 0 || inst->b > ir->registerCount) continue;
+
+      IrType stored = ir->registerTypes[inst->b];
+      if (!written[inst->a]) {
+        meet[inst->a] = stored;
+        written[inst->a] = true;
+      } else if (meet[inst->a] != stored) {
+        meet[inst->a] = IR_TYPE_UNKNOWN;
+      }
+    }
+  }
+
+  /* A slot nothing stores to holds whatever the caller or the interpreter left
+   * there, which is only known for an annotated parameter. */
+  for (int s = 0; s < slots; s++) {
+    if (!written[s]) meet[s] = ir->slotTypes[s];
+  }
+}
+
 void csIrReconcileSlotTypes(IrFunction *ir) {
   int slots = ir->slotCount + 1;
+  if (slots > IR_MAX_SLOTS) slots = IR_MAX_SLOTS;
+  if (slots < 1) slots = 1;
+  int blocks = ir->blockCount;
+
   IrType *meet = (IrType *)malloc(sizeof(IrType) * (size_t)slots);
-  bool *written = (bool *)malloc(sizeof(bool) * (size_t)slots);
 
+  /* Every edge the block graph has, built once. Two per block at most — a
+   * branch's two arms — plus the fall-through into the next. */
+  int edgeCapacity = blocks * 3 + 1;
+  int *edgeFrom = (int *)malloc(sizeof(int) * (size_t)edgeCapacity);
+  int *edgeTo = (int *)malloc(sizeof(int) * (size_t)edgeCapacity);
+  int edgeCount = 0;
+  for (int b = 0; b < blocks; b++) {
+    int targets[3] = {-1, -1, -1};
+    for (int i = 0; i < ir->blocks[b].count; i++) {
+      const IrInst *inst = &ir->blocks[b].instructions[i];
+      if (inst->op == IR_JUMP) targets[0] = inst->a;
+      if (inst->op == IR_BRANCH) { targets[0] = inst->b; targets[1] = inst->c; }
+    }
+    if (blockFallsThrough(&ir->blocks[b])) targets[2] = b + 1;
+
+    for (int k = 0; k < 3; k++) {
+      if (targets[k] < 0 || targets[k] >= blocks) continue;
+      if (edgeCount >= edgeCapacity) break;
+      edgeFrom[edgeCount] = b;
+      edgeTo[edgeCount] = targets[k];
+      edgeCount++;
+    }
+  }
+
+  int *entry = (int *)malloc(sizeof(int) * (size_t)blocks * (size_t)slots);
+  int *exit = (int *)malloc(sizeof(int) * (size_t)blocks * (size_t)slots);
+  int *state = (int *)malloc(sizeof(int) * (size_t)slots);
+  bool *have = (bool *)malloc(sizeof(bool) * (size_t)blocks);
+
+  bool perBlock = ir->blockEntryTrusted && ir->blockEntryTypes != NULL &&
+                  ir->blockEntrySeeded != NULL && blocks > 0;
+
+  /* Iterated because retyping a load retypes what is computed from it, which
+   * can retype the slot the result is stored to in turn. It settles quickly:
+   * every round can only remove information. */
   for (int round = 0; round < 8; round++) {
-    for (int s = 0; s < slots; s++) {
-      meet[s] = IR_TYPE_UNKNOWN;
-      written[s] = false;
-    }
-
-    for (int b = 0; b < ir->blockCount; b++) {
-      for (int i = 0; i < ir->blocks[b].count; i++) {
-        const IrInst *inst = &ir->blocks[b].instructions[i];
-        if (inst->op != IR_STORE_LOCAL) continue;
-        if (inst->a < 0 || inst->a >= slots) continue;
-        if (inst->b < 0 || inst->b > ir->registerCount) continue;
-
-        IrType stored = ir->registerTypes[inst->b];
-        if (!written[inst->a]) {
-          meet[inst->a] = stored;
-          written[inst->a] = true;
-        } else if (meet[inst->a] != stored) {
-          meet[inst->a] = IR_TYPE_UNKNOWN;
-        }
-      }
-    }
-
-    /* A slot nothing stores to holds whatever the caller or the interpreter
-     * left there, which is only known for an annotated parameter. */
-    for (int s = 0; s < slots; s++) {
-      if (!written[s]) meet[s] = ir->slotTypes[s];
-    }
+    wholeFunctionMeet(ir, meet, slots);
 
     bool changed = false;
-    for (int b = 0; b < ir->blockCount; b++) {
-      for (int i = 0; i < ir->blocks[b].count; i++) {
-        IrInst *inst = &ir->blocks[b].instructions[i];
-        if (inst->op != IR_LOAD_LOCAL) continue;
-        if (inst->a < 0 || inst->a >= slots) continue;
-        if (inst->type == meet[inst->a]) continue;
+    if (!perBlock) {
+      /* The coarse answer applied everywhere, which is what this pass did
+       * before there was a finer one. */
+      for (int b = 0; b < blocks; b++) {
+        for (int s = 0; s < slots; s++) state[s] = (int)meet[s];
+        if (walkBlockSlots(ir, b, state, slots, true)) changed = true;
+      }
+    } else {
+      for (int i = 0; i < blocks * slots; i++) exit[i] = SLOT_TOP;
 
-        inst->type = meet[inst->a];
-        if (inst->result >= 0 && inst->result <= ir->registerCount) {
-          ir->registerTypes[inst->result] = meet[inst->a];
+      /* Chaotic iteration to a fixed point. The lattice is two deep, so a
+       * handful of sweeps settles it; the bound is there to terminate rather
+       * than to be reached. */
+      for (int sweep = 0; sweep < blocks + 4; sweep++) {
+        bool grew = false;
+
+        for (int b = 0; b < blocks; b++) {
+          have[b] = ir->blockEntrySeeded[b];
+          for (int s = 0; s < slots; s++) {
+            entry[b * slots + s] =
+                have[b] ? (int)ir->blockEntryTypes[(size_t)b * IR_MAX_SLOTS + s]
+                        : SLOT_TOP;
+          }
         }
-        changed = true;
+        for (int e = 0; e < edgeCount; e++) {
+          int from = edgeFrom[e], to = edgeTo[e];
+          for (int s = 0; s < slots; s++) {
+            entry[to * slots + s] =
+                meetSlot(entry[to * slots + s], exit[from * slots + s]);
+          }
+          have[to] = true;
+        }
+
+        for (int b = 0; b < blocks; b++) {
+          for (int s = 0; s < slots; s++) state[s] = entry[b * slots + s];
+          walkBlockSlots(ir, b, state, slots, false);
+          for (int s = 0; s < slots; s++) {
+            if (exit[b * slots + s] == state[s]) continue;
+            exit[b * slots + s] = state[s];
+            grew = true;
+          }
+        }
+        if (!grew) break;
+      }
+
+      /* And now the loads, from the state at their own position rather than
+       * from a verdict about the whole function. A block nothing reaches and
+       * nothing recorded a state for keeps the coarse answer: it is one the
+       * lowering stopped short of, so it holds no loads that matter, and
+       * guessing would be the one thing that is not safe. */
+      for (int b = 0; b < blocks; b++) {
+        for (int s = 0; s < slots; s++) {
+          state[s] = have[b] ? entry[b * slots + s] : (int)meet[s];
+        }
+        if (walkBlockSlots(ir, b, state, slots, true)) changed = true;
       }
     }
 
+    /* The register allocator asks whether a slot can live in a register for
+     * the whole run, which is a whole-function question however precisely the
+     * loads are typed. */
+    wholeFunctionMeet(ir, meet, slots);
     for (int s = 0; s < slots; s++) ir->slotTypes[s] = meet[s];
     if (!changed) break;
   }
 
   free(meet);
-  free(written);
+  free(edgeFrom);
+  free(edgeTo);
+  free(entry);
+  free(exit);
+  free(state);
+  free(have);
 }
 
 bool csIrIsFullyTyped(const IrFunction *ir) {
@@ -2070,6 +2277,8 @@ void csIrFree(IrFunction *ir) {
   free(ir->slotTypes);
   free(ir->entryShapes);
   free(ir->inlined);
+  free(ir->blockEntryTypes);
+  free(ir->blockEntrySeeded);
   free(ir);
 }
 
@@ -2221,13 +2430,13 @@ void csIrPrint(const IrFunction *ir) {
  * find a mistranslation than finding it in machine code, where the symptom is
  * a wrong number and the cause is three layers down.
  */
-#define IR_MAX_SLOTS 256
+#define IR_INTERPRET_MAX_SLOTS 256
 #define IR_MAX_STEPS 200000000
 
 bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value *out) {
-  if (ir->slotCount > IR_MAX_SLOTS) return false;
+  if (ir->slotCount > IR_INTERPRET_MAX_SLOTS) return false;
 
-  Value slots[IR_MAX_SLOTS];
+  Value slots[IR_INTERPRET_MAX_SLOTS];
   for (int i = 0; i < ir->slotCount; i++) slots[i] = UNDEFINED_VAL;
   /* Slot 0 is the callee, as in a real frame; the arguments follow it. */
   for (int i = 0; i < argCount && i + 1 < ir->slotCount; i++) slots[i + 1] = args[i];
