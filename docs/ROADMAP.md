@@ -66,10 +66,34 @@ already measured says it is the thing that pays.
 | **58 ✅** | `new` consults the compiler — and why no constructor yet qualifies |
 | **59 ✅** | Inlining — a small callee's body goes where the call was, **16.7×** |
 | **60 ✅** | `===` on anything but a number, which compiled code got wrong |
+| **61 ✅** | Replaying a hand-over, so a loop below a declaration still compiles — `jit_calls` **23.7×**, `calls` **24.0×** |
+| next | Slot types per block rather than per function — see below |
 | next | A property store that *adds* one, which is what a constructor does |
 | next | Allocating an object in compiled code — attempted, backed out; see below |
 | next | Calling a CScript function from compiled code, for the callees inlining will not take: it needs frames and safepoints |
-| next | Recovering the operand-stack height across a hand-over, so a script that declares a function before its hot loop can still compile the loop |
+
+---
+
+## Slot types are one per function, which replaying a hand-over made visible
+
+The IR is deliberately not SSA: locals stay in numbered slots and only
+expression temporaries become virtual registers. The cost of that is a single
+type per slot for the whole function — `csIrReconcileSlotTypes` takes the meet
+of everything stored into it — and the operand stack and the locals are the
+same array, so *different loops in the same file reuse the same positions*.
+
+Nothing had noticed, because the lowering used to stop at the first hand-over
+and rarely saw two loops. Now it sees them. In
+`tests/cases/language/loops_control.cx`, three `for` loops count in frame
+position 1 and a later `while (true)` puts a boolean there; the meet is
+therefore nothing at all, and every one of those counters is refused. The file
+went from partly compiled to not compiled.
+
+The fix is a per-block meet rather than a per-function one: a block's entry
+types are the meet of its predecessors' exit types, iterated to a fixed point,
+which is ordinary dataflow over the block graph the IR already has. It does not
+need SSA and it does not need dominance — only the predecessors, which the
+jumps already name.
 
 ---
 

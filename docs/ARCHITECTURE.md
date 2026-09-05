@@ -714,7 +714,7 @@ its interpreter loop is about 25× slower.
 The same rule applies to correctness harnesses. `make test-jit` reports how
 many calls, loops and exits the compiler actually took, because a sweep that
 agrees on 121 programs the compiler declined to touch is not evidence of
-anything — see [Stage 5](#three-soundness-bugs-and-the-harness-that-found-them).
+anything — see [Stage 5](#four-soundness-bugs-and-the-harness-that-found-them).
 
 ## Tiering: what a JIT would compile
 
@@ -1263,6 +1263,100 @@ The rest still wants the frames and safepoints. Inlining does not replace that
 work — it takes the callees for which the work is unnecessary, which turns out
 to be the ones a hot loop is full of.
 
+## Stage 7: what the interpreter does in between
+
+| Benchmark | Interpreted | Compiled | Speedup | Node |
+| --- | ---: | ---: | ---: | ---: |
+| `bench/jit/jit_calls.cx` — 3M calls below a function declaration | 132 ms | **6 ms** | **23.7×** | 6 ms |
+| `bench/calls.cx` — an unannotated helper in a 2M-iteration loop | 115 ms | **5 ms** | **24.0×** | 3 ms |
+
+Both were 1.4× before, and the compiler did not change. What changed is that
+the lowering stopped throwing away everything below its first hand-over.
+
+### Why a hand-over ended the lowering
+
+Side exits let the compiler take part of a function: it gives the frame back at
+the last point the operand stack was at the block floor, and the interpreter
+carries on from there. What it could not do was *resume*. Everything after an
+exit runs in the interpreter, so the operand-stack height on the far side was
+unknown — and in this VM a local is a stack slot, so a block whose entry height
+is unknown cannot be lowered at all. The wrong height means the wrong slot,
+with no symptom until the answer is wrong.
+
+The lowering therefore set `skipped` and, from then on, would only lower a
+block whose height some already-lowered jump had recorded. After a hand-over at
+offset zero there are none, so nothing was lowered at all.
+
+Offset zero is not a corner case. It is where a script declares a function:
+
+```js
+function dist(x, y) { return x * x + y * y; }   // OP_CLOSURE — handed back here
+let total = 0;
+for (let i = 0; i < 3000000; i++) total = total + dist(i, 2);
+```
+
+`OP_CLOSURE` is the first instruction, the lowering has no IR for it, and the
+loop below it went with it. Both call benchmarks are that shape, which is why
+both sat at 1.4× while everything else reached 5–9×: they were measuring the
+cost of entering compiled code for `dist`, not a compiled loop.
+
+### The height was never unknown
+
+Nothing had worked it out. Where every instruction in the skipped run is one
+whose effect on the frame is fixed, the height at the far end follows from the
+bytecode — and so does what each slot holds, which matters just as much: the
+loop counter in that example is established by an `OP_CONSTANT` inside the
+skipped run, and without its type the comparison at the loop header is refused.
+
+It is the same bytecode the interpreter is about to run, so the two cannot
+disagree. That is what makes it a proof rather than a speculation, and why it
+needs no entry check to go with it.
+
+The replay starts at the *exit's* offset, not at the instruction that forced
+one — the hand-over rewinds to the block floor and the interpreter resumes
+there, so that is where the run being modelled begins. It covers constants,
+closures, locals and globals, the arithmetic that throws rather than coerce
+(`-` leaves a number or does not return; `+` may leave a string, so nothing is
+claimed), `++` and `--` on a local (which refuse a slot that is not a number,
+so reaching the next instruction proves one is there), and a completed call —
+which leaves one value where the callee and its arguments were, whatever it did
+in between.
+
+What it did in between is the interpreter's business. Every assumption the
+compiled code holds — the global table's version, the object shapes, the
+inlined callees — is checked on the way in, and the way in comes after all of
+this has run. Anything the model does not cover gives up exactly as before, and
+the slot types are written back only when the whole run is modelled, so a run
+abandoned halfway leaves the lowering's view of the frame untouched.
+
+One consequence needed guarding. A position the interpreter filled holds no
+register this function produced, so the lowering's abstract stack is reset to
+"no register here" across the replayed run, and the places that read a register
+straight off that stack — the numeric-operand check, the property paths — now
+refuse a position that has none instead of indexing the register table with
+`-1`.
+
+### What it cost, which is the interesting part
+
+Lowering more of a file exposes more of it to a limitation the IR has always
+had. Slot types are one per function: `csIrReconcileSlotTypes` takes the meet
+of everything stored into a slot, because the IR is deliberately not SSA. The
+operand stack and the locals are the same array, so different loops in the same
+file reuse the same positions.
+
+`tests/cases/language/loops_control.cx` has three `for` loops counting in frame
+position 1 and a later `while (true)` that puts a boolean there. The meet is
+therefore nothing at all, every comparison reading that position is refused,
+and the file went from partly compiled to not compiled — the one program in the
+tree the differential harness reports as lost.
+
+Nothing had noticed because the lowering used to stop at the first hand-over
+and rarely saw two loops in one function. The fix is a per-block meet rather
+than a per-function one, iterated to a fixed point over the block graph the IR
+already has — no SSA and no dominance, only the predecessors the jumps already
+name. It is the next milestone rather than a fix folded into this one, because
+it is a dataflow pass with its own measurement.
+
 ## Build configurations
 
 Each configuration compiles into its own directory under `build/`. Sharing one
@@ -1299,10 +1393,10 @@ genuinely new stage, which only runs on code that has earned it.
 
 | Next | What it needs | Why it is next |
 | --- | --- | --- |
+| Slot types per block | A meet over the block graph, iterated to a fixed point | One `while (true)` de-types every loop counter that shares its frame position |
 | A property store that *adds* one | A shape transition in compiled code, which allocates | It is what a constructor does, and what excludes almost all of them |
 | Allocation in compiled code | A root range the collector walks, and a recorded frame size | Attempted and backed out; what the attempt found is in [ROADMAP.md](ROADMAP.md) |
 | Calling a CScript function | A frame, and a safepoint the collector can walk it at | Inlining takes the small straight-line callees; this is for everything else |
-| Recovering a height across a hand-over | A stack-effect model of the skipped bytecode | A script that declares a function before its hot loop hands back at the declaration and loses the loop with it |
 | Guards and deoptimisation | A side exit that can also *undo* — the exits here only leave from points where nothing needs undoing | It is what would let the compiler take code the checker has not proved |
 | Cross-block liveness | Real dataflow, rather than the block-local approximation the allocator uses | Values crossing a block boundary keep a memory home today |
 | An x86-64 backend | A second encoder behind the same IR | The IR and everything above it are already architecture-neutral |

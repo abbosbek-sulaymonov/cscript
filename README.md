@@ -71,7 +71,7 @@ The full list, with the reasoning for each, is in
 ---
 ## Status
 
-**v0.38.0.** The language is feature-complete for everyday code and well past
+**v0.41.0.** The language is feature-complete for everyday code and well past
 it: objects and arrays, functions and closures, classes with private members
 and static blocks, modules, promises and `async`/`await`, generators and async
 generators, regular expressions, `Map`/`Set`, `Symbol`, `BigInt`, `Date`,
@@ -80,8 +80,9 @@ prototypes, gradual typing with inference, and the whole of the control flow.
 The pipeline is lexer → parser → type checker → bytecode compiler → stack VM,
 with a mark-sweep collector underneath. Above it sits a second tier: hot
 functions are lowered to a typed IR and compiled to arm64 machine code, entered
-either at a call or part-way through a running loop. On the loops it takes,
-that is **8–9× the interpreter** — see [Performance](docs/PERFORMANCE.md).
+either at a call or part-way through a running loop, with small callees spliced
+into it. On the loops it takes, that is **8–24× the interpreter** — see
+[Performance](docs/PERFORMANCE.md).
 
 ```ts
 class Person {
