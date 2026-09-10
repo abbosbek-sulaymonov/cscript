@@ -1,3 +1,10 @@
+/* native.c — the global environment, and what is installed into it.
+ *
+ * `console`, the error constructors, `Array`'s statics, and the one function
+ * that builds all of it. Each namespace with a file of its own installs and
+ * seals itself from there; what is left here is the wiring, and the two shapes
+ * a built-in can have — a namespace, or something callable carrying statics.
+ */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,11 +17,8 @@
 #include "cscript/vm.h"
 #include "runtime/vm_internal.h"
 
-/* Writes the arguments separated by spaces, the way console.log does.
- *
- * This is the inspect path rather than the string-conversion one, so a bare
- * -0 keeps its sign and strings nested in a container are quoted — matching
- * what Node prints, which is not the same as what String() returns. */
+#include "native/native_internal.h"
+
 static void writeArgs(FILE *out, int argCount, Value *args) {
   for (int i = 0; i < argCount; i++) {
     if (i > 0) fputc(' ', out);
@@ -46,628 +50,6 @@ static bool consoleError(Value receiver, int argCount, Value *args, Value *resul
   (void)receiver;
   writeArgs(stderr, argCount, args);
   *result = UNDEFINED_VAL;
-  return true;
-}
-
-static bool mathFloor(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount != 1 || !IS_NUMBER(args[0])) {
-    csVMRuntimeError("Math.floor expects one number");
-    return false;
-  }
-  *result = NUMBER_VAL(floor(AS_NUMBER(args[0])));
-  return true;
-}
-
-static bool mathAbs(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount != 1 || !IS_NUMBER(args[0])) {
-    csVMRuntimeError("Math.abs expects one number");
-    return false;
-  }
-  *result = NUMBER_VAL(fabs(AS_NUMBER(args[0])));
-  return true;
-}
-
-static bool mathMax(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount == 0) {
-    *result = NUMBER_VAL(-INFINITY);
-    return true;
-  }
-  double best = -INFINITY;
-  for (int i = 0; i < argCount; i++) {
-    if (!IS_NUMBER(args[i])) {
-      csVMRuntimeError("Math.max expects numbers");
-      return false;
-    }
-    if (AS_NUMBER(args[i]) > best) best = AS_NUMBER(args[i]);
-  }
-  *result = NUMBER_VAL(best);
-  return true;
-}
-
-static bool mathMin(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount == 0) {
-    *result = NUMBER_VAL(INFINITY);
-    return true;
-  }
-  double best = INFINITY;
-  for (int i = 0; i < argCount; i++) {
-    if (!IS_NUMBER(args[i])) {
-      csVMRuntimeError("Math.min expects numbers");
-      return false;
-    }
-    if (AS_NUMBER(args[i]) < best) best = AS_NUMBER(args[i]);
-  }
-  *result = NUMBER_VAL(best);
-  return true;
-}
-
-/* Number(x) — the explicit conversion that replaces JavaScript's unary '+'. */
-static bool numberConvert(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount != 1) {
-    csVMRuntimeError("Number expects exactly one argument");
-    return false;
-  }
-  *result = NUMBER_VAL(csValueToNumber(args[0]));
-  return true;
-}
-
-/* String(x) — the explicit conversion that replaces `"" + x`. */
-static bool stringConvert(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount != 1) {
-    csVMRuntimeError("String expects exactly one argument");
-    return false;
-  }
-  size_t length = 0;
-  char *text = csVMValueToText(args[0], &length);
-  if (text == NULL) {
-    /* A failing user `toString` has already reported why. */
-    if (!vm.hasPendingException) {
-      csVMRuntimeError("out of memory converting to string");
-    }
-    return false;
-  }
-  ObjString *string = csStringCopy(text, (int)length);
-  free(text);
-  *result = OBJ_VAL(string);
-  return true;
-}
-
-static bool booleanConvert(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount != 1) {
-    csVMRuntimeError("Boolean expects exactly one argument");
-    return false;
-  }
-  *result = BOOL_VAL(csValueIsTruthy(args[0]));
-  return true;
-}
-
-/* ---------------- Object ---------------- */
-
-/* Walks an object's keys in insertion order, which is exactly why ObjObject
- * keeps that list alongside its hash table. */
-static bool objectEnumerate(int argCount, Value *args, Value *result, int mode,
-                            const char *method) {
-  if (argCount < 1 || !IS_OBJECT(args[0])) {
-    csVMRuntimeError("Object.%s expects an object, got %s", method,
-                     argCount >= 1 ? csValueTypeName(args[0]) : "no argument");
-    return false;
-  }
-  ObjObject *object = AS_OBJECT(args[0]);
-
-  ObjArray *out = csArrayNew();
-  csPushTempRoot((Obj *)out);
-
-  for (int i = 0; i < csObjectCount(object); i++) {
-    ObjString *key = csObjectKeyAt(object, i);
-    if (!csObjectIsEnumerable(object, key)) continue;
-    /* An accessor's value is what its getter answers, which is a call. */
-    Value value;
-    if (!csVMReadOwnProperty(object, key, &value)) {
-      csPopTempRoot();
-      return false;
-    }
-
-    if (mode == 0) {
-      csValueArrayWrite(&out->elements, OBJ_VAL(key));
-    } else if (mode == 1) {
-      if (IS_OBJ(value)) csPushTempRoot(AS_OBJ(value));
-      csValueArrayWrite(&out->elements, value);
-      if (IS_OBJ(value)) csPopTempRoot();
-    } else {
-      /* entries: a two-element array per property. */
-      ObjArray *pair = csArrayNew();
-      csPushTempRoot((Obj *)pair);
-      csValueArrayWrite(&pair->elements, OBJ_VAL(key));
-      csValueArrayWrite(&pair->elements, value);
-      csValueArrayWrite(&out->elements, OBJ_VAL(pair));
-      csPopTempRoot();
-    }
-  }
-
-  csPopTempRoot();
-  *result = OBJ_VAL(out);
-  return true;
-}
-
-static bool objectKeys(Value r, int c, Value *a, Value *out) {
-  (void)r;
-  return objectEnumerate(c, a, out, 0, "keys");
-}
-static bool objectValues(Value r, int c, Value *a, Value *out) {
-  (void)r;
-  return objectEnumerate(c, a, out, 1, "values");
-}
-static bool objectEntries(Value r, int c, Value *a, Value *out) {
-  (void)r;
-  return objectEnumerate(c, a, out, 2, "entries");
-}
-
-/* `Object.fromEntries` — the inverse of `Object.entries`, and the reason a
- * Map and an object can be converted into one another at all. */
-static bool objectFromEntries(Value receiver, int argCount, Value *args,
-                              Value *result) {
-  (void)receiver;
-  Value source = argCount > 0 ? args[0] : UNDEFINED_VAL;
-  if (IS_MAP(source)) source = OBJ_VAL(csMapToArray(AS_MAP(source)));
-  if (!IS_ARRAY(source)) {
-    csVMRuntimeError("Object.fromEntries expects an array of pairs or a Map");
-    return false;
-  }
-
-  ObjArray *pairs = AS_ARRAY(source);
-  csPushTempRoot((Obj *)pairs);
-  ObjObject *built = csObjectNew("Object");
-  csPushTempRoot((Obj *)built);
-
-  for (int i = 0; i < pairs->elements.count; i++) {
-    Value pair = pairs->elements.values[i];
-    if (!IS_ARRAY(pair) || AS_ARRAY(pair)->elements.count < 2) {
-      csPopTempRoot();
-      csPopTempRoot();
-      csVMRuntimeError("Object.fromEntries expects each entry to be a pair");
-      return false;
-    }
-    Value key = AS_ARRAY(pair)->elements.values[0];
-    if (!IS_STRING(key)) {
-      size_t length = 0;
-      char *text = csValueToCString(key, &length);
-      if (text == NULL) {
-        csPopTempRoot();
-        csPopTempRoot();
-        csVMRuntimeError("out of memory building an object key");
-        return false;
-      }
-      ObjString *converted = csStringCopy(text, (int)length);
-      free(text);
-      csPushTempRoot((Obj *)converted);
-      csObjectPut(built, converted, AS_ARRAY(pair)->elements.values[1]);
-      csPopTempRoot();
-      continue;
-    }
-    csObjectPut(built, AS_STRING(key), AS_ARRAY(pair)->elements.values[1]);
-  }
-
-  csPopTempRoot();
-  csPopTempRoot();
-  *result = OBJ_VAL(built);
-  return true;
-}
-
-/* `Object.freeze` is what the standard library already does to itself: a
- * frozen object refuses every write, rather than ignoring it silently the way
- * non-strict JavaScript does. */
-static bool objectFreeze(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount < 1) {
-    csVMRuntimeError("Object.freeze expects an object");
-    return false;
-  }
-  if (IS_OBJECT(args[0])) AS_OBJECT(args[0])->frozen = true;
-  *result = args[0];
-  return true;
-}
-
-static bool objectIsFrozen(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  *result = BOOL_VAL(argCount > 0 && IS_OBJECT(args[0]) && AS_OBJECT(args[0])->frozen);
-  return true;
-}
-
-/* The symbol keys an object carries. They live beside the shape, so they are
- * not among what `Object.keys` reports — this is the one way to ask for
- * them, which is also true in JavaScript. */
-static bool objectGetOwnPropertySymbols(Value receiver, int argCount, Value *args,
-                                        Value *result) {
-  (void)receiver;
-  ObjArray *found = csArrayNew();
-  csPushTempRoot((Obj *)found);
-
-  if (argCount > 0 && IS_OBJECT(args[0])) {
-    csVMCollectSymbolKeys(AS_OBJECT(args[0]), found);
-  }
-
-  csPopTempRoot();
-  *result = OBJ_VAL(found);
-  return true;
-}
-
-static bool objectAssign(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount < 1 || !IS_OBJECT(args[0])) {
-    csVMRuntimeError("Object.assign expects a target object");
-    return false;
-  }
-  ObjObject *target = AS_OBJECT(args[0]);
-
-  for (int i = 1; i < argCount; i++) {
-    if (!IS_OBJECT(args[i])) continue;
-    ObjObject *source = AS_OBJECT(args[i]);
-    for (int j = 0; j < csObjectCount(source); j++) {
-      ObjString *key = csObjectKeyAt(source, j);
-      if (!csObjectIsEnumerable(source, key)) continue;
-      Value value;
-      if (!csVMReadOwnProperty(source, key, &value)) return false;
-      csObjectPut(target, key, value);
-    }
-  }
-
-  *result = args[0];
-  return true;
-}
-
-static bool objectHasOwn(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount < 2 || !IS_OBJECT(args[0]) || !IS_STRING(args[1])) {
-    csVMRuntimeError("Object.hasOwn expects an object and a string");
-    return false;
-  }
-  *result = BOOL_VAL(csObjectGet(AS_OBJECT(args[0]), AS_STRING(args[1]), NULL));
-  return true;
-}
-
-/* `Object.create(proto)` — a new object that inherits from `proto` and owns
- * nothing. This is the prototype model without a constructor function: the
- * shared behaviour is an ordinary object, and what inherits from it is made
- * here rather than by `new`. */
-/* Defined below, with the rest of the descriptor machinery. */
-static bool defineFromMap(ObjObject *object, Value describedBy);
-
-static bool objectCreate(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount < 1 || (!IS_OBJECT(args[0]) && !IS_NULL(args[0]))) {
-    csVMRuntimeError("Object.create expects an object or null");
-    return false;
-  }
-  ObjObject *created = csObjectNew("Object");
-  if (IS_OBJECT(args[0])) created->prototype = AS_OBJECT(args[0]);
-
-  if (argCount > 1 && !IS_UNDEFINED(args[1]) && !IS_NULL(args[1])) {
-    csPushTempRoot((Obj *)created);
-    bool ok = defineFromMap(created, args[1]);
-    csPopTempRoot();
-    if (!ok) return false;
-  }
-
-  *result = OBJ_VAL(created);
-  return true;
-}
-
-static bool objectGetPrototypeOf(Value receiver, int argCount, Value *args,
-                                 Value *result) {
-  (void)receiver;
-  if (argCount < 1 || !IS_OBJECT(args[0])) {
-    csVMRuntimeError("Object.getPrototypeOf expects an object");
-    return false;
-  }
-  ObjObject *prototype = AS_OBJECT(args[0])->prototype;
-  *result = prototype != NULL ? OBJ_VAL(prototype) : NULL_VAL;
-  return true;
-}
-
-static bool objectSetPrototypeOf(Value receiver, int argCount, Value *args,
-                                 Value *result) {
-  (void)receiver;
-  if (argCount < 2 || !IS_OBJECT(args[0])) {
-    csVMRuntimeError("Object.setPrototypeOf expects an object and a prototype");
-    return false;
-  }
-  ObjObject *object = AS_OBJECT(args[0]);
-
-  if (IS_NULL(args[1]) || IS_UNDEFINED(args[1])) {
-    object->prototype = NULL;
-    *result = args[0];
-    return true;
-  }
-  if (!IS_OBJECT(args[1])) {
-    csVMRuntimeError("a prototype must be an object or null, got %s",
-                     csValueTypeName(args[1]));
-    return false;
-  }
-  if (!csObjectSetPrototype(object, AS_OBJECT(args[1]))) {
-    csVMRuntimeError("that prototype is already in this object\'s chain, which "
-                     "would make every lookup on it loop");
-    return false;
-  }
-  *result = args[0];
-  return true;
-}
-
-/* ---------------- property descriptors ---------------- */
-
-/* A descriptor says what a property is allowed to have done to it. Nothing
- * else in CScript needs the distinction — a property written the ordinary way
- * has all three attributes — so the machinery is entirely here and in the side
- * table an object grows only once one of these is used on it.
- *
- * `get`/`set` in a descriptor make an accessor, which is stored where the
- * accessors of an object literal's `get x()` already live: a class made for
- * that object alone. That is why an accessor never enters a shape and the
- * inline caches never see one. */
-static bool readFlag(ObjObject *descriptor, const char *name, int length,
-                     bool *out) {
-  Value flag;
-  if (!csObjectGet(descriptor, csStringCopy(name, length), &flag)) return false;
-  *out = csValueIsTruthy(flag);
-  return true;
-}
-
-static bool readMember(ObjObject *descriptor, const char *name, int length,
-                       Value *out) {
-  return csObjectGet(descriptor, csStringCopy(name, length), out);
-}
-
-/* True when `value` can be called — the only thing a `get` or `set` may be. */
-static bool isCallable(Value value) {
-  return IS_CLOSURE(value) || IS_NATIVE(value) || IS_BOUND_METHOD(value);
-}
-
-static bool defineOne(ObjObject *object, ObjString *key, Value describedBy) {
-  if (!IS_OBJECT(describedBy)) {
-    csVMRuntimeError("a property descriptor must be an object, got %s",
-                     csValueTypeName(describedBy));
-    return false;
-  }
-  ObjObject *descriptor = AS_OBJECT(describedBy);
-
-  if (object->frozen) {
-    csVMRuntimeError("'%s' is frozen, so its properties cannot be redefined",
-                     object->name->chars);
-    return false;
-  }
-
-  /* Redefining is refused when the existing property said it could not be.
-   * A property that has never been described is configurable, so this only
-   * ever stops what an earlier defineProperty asked to be stopped. */
-  Value existing;
-  bool present = csObjectGet(object, key, &existing);
-  if (present && (csObjectAttributes(object, key) & CS_PROP_CONFIGURABLE) == 0) {
-    csVMRuntimeError("'%s' is not configurable and cannot be redefined",
-                     key->chars);
-    return false;
-  }
-
-  Value getter;
-  Value setter;
-  bool hasGetter = readMember(descriptor, "get", 3, &getter);
-  bool hasSetter = readMember(descriptor, "set", 3, &setter);
-
-  Value described;
-  bool hasValue = readMember(descriptor, "value", 5, &described);
-  if ((hasGetter || hasSetter) && hasValue) {
-    csVMRuntimeError("a property descriptor cannot have both a value and an "
-                     "accessor");
-    return false;
-  }
-
-  /* An attribute a descriptor leaves out is false, not inherited: that is what
-   * makes `Object.defineProperty(o, "x", { value: 1 })` produce a property
-   * that is read-only and hidden, which surprises people and is nonetheless
-   * exactly what JavaScript specifies. */
-  bool writable = false;
-  bool enumerable = false;
-  bool configurable = false;
-  readFlag(descriptor, "writable", 8, &writable);
-  readFlag(descriptor, "enumerable", 10, &enumerable);
-  readFlag(descriptor, "configurable", 12, &configurable);
-
-  if (hasGetter || hasSetter) {
-    if (hasGetter && !IS_UNDEFINED(getter) && !isCallable(getter)) {
-      csVMRuntimeError("a descriptor's 'get' must be a function");
-      return false;
-    }
-    if (hasSetter && !IS_UNDEFINED(setter) && !isCallable(setter)) {
-      csVMRuntimeError("a descriptor's 'set' must be a function");
-      return false;
-    }
-    if ((hasGetter && !IS_UNDEFINED(getter) && !IS_CLOSURE(getter)) ||
-        (hasSetter && !IS_UNDEFINED(setter) && !IS_CLOSURE(setter))) {
-      /* The accessor tables hold closures, because that is what a class body
-       * puts there and what the property paths call. */
-      csVMRuntimeError("a descriptor's accessor must be a function written in "
-                       "CScript");
-      return false;
-    }
-
-    /* An accessor replaces any stored property of the same name: a name is
-     * one or the other, never both. */
-    if (present) csObjectDelete(object, key);
-
-    if (object->klass == NULL) {
-      object->klass = csClassNew(object->name);
-      object->klass->isAccessorHolder = true;
-    }
-    if (hasGetter && !IS_UNDEFINED(getter)) {
-      csTableSet(&object->klass->getters, key, getter);
-    }
-    if (hasSetter && !IS_UNDEFINED(setter)) {
-      csTableSet(&object->klass->setters, key, setter);
-    }
-    /* The name takes a slot holding the stand-in, so that it is enumerated in
-     * the order it was defined — the same thing a literal's `get x()` does. */
-    csObjectLeaveShapeMode(object);
-    csObjectPut(object, key, OBJ_VAL(vm.accessorMarker));
-    /* An accessor is never writable in its own right — whether it can be
-     * assigned to is decided by having a setter. */
-    csObjectSetAttributes(object, key,
-                          (enumerable ? CS_PROP_ENUMERABLE : 0u) |
-                              (configurable ? CS_PROP_CONFIGURABLE : 0u));
-    return true;
-  }
-
-  /* A data property. Leaving `value` out of a descriptor for a property that
-   * already exists keeps the value it had. */
-  if (!hasValue) described = present ? existing : UNDEFINED_VAL;
-
-  /* Off the fast path first: the write path recognises a shape and stores
-   * straight into the slot, so a read-only property must not be in one. */
-  if (!writable) csObjectLeaveShapeMode(object);
-
-  csObjectPut(object, key, described);
-  csObjectSetAttributes(object, key,
-                        (writable ? CS_PROP_WRITABLE : 0u) |
-                            (enumerable ? CS_PROP_ENUMERABLE : 0u) |
-                            (configurable ? CS_PROP_CONFIGURABLE : 0u));
-  return true;
-}
-
-static bool objectDefineProperty(Value receiver, int argCount, Value *args,
-                                 Value *result) {
-  (void)receiver;
-  if (argCount < 3 || !IS_OBJECT(args[0])) {
-    csVMRuntimeError("Object.defineProperty expects an object, a key and a "
-                     "descriptor");
-    return false;
-  }
-  if (!IS_STRING(args[1])) {
-    csVMRuntimeError("Object.defineProperty expects a string key, got %s",
-                     csValueTypeName(args[1]));
-    return false;
-  }
-  if (!defineOne(AS_OBJECT(args[0]), AS_STRING(args[1]), args[2])) return false;
-  *result = args[0];
-  return true;
-}
-
-/* Each own key of the second argument names a property to define. */
-static bool defineFromMap(ObjObject *object, Value describedBy) {
-  if (!IS_OBJECT(describedBy)) {
-    csVMRuntimeError("expected an object of property descriptors, got %s",
-                     csValueTypeName(describedBy));
-    return false;
-  }
-  ObjObject *map = AS_OBJECT(describedBy);
-
-  for (int i = 0; i < csObjectCount(map); i++) {
-    ObjString *key = csObjectKeyAt(map, i);
-    if (!csObjectIsEnumerable(map, key)) continue;
-    csPushTempRoot((Obj *)key);
-    bool ok = defineOne(object, key, csObjectValueAt(map, i));
-    csPopTempRoot();
-    if (!ok) return false;
-  }
-  return true;
-}
-
-static bool objectDefineProperties(Value receiver, int argCount, Value *args,
-                                   Value *result) {
-  (void)receiver;
-  if (argCount < 2 || !IS_OBJECT(args[0])) {
-    csVMRuntimeError("Object.defineProperties expects an object and a map of "
-                     "descriptors");
-    return false;
-  }
-  if (!defineFromMap(AS_OBJECT(args[0]), args[1])) return false;
-  *result = args[0];
-  return true;
-}
-
-/* The descriptor for one own property, or undefined when there is none.
- * Accessors report `get`/`set`; everything else reports `value`/`writable`. */
-static bool describeOne(ObjObject *object, ObjString *key, Value *out) {
-  unsigned attributes = csObjectAttributes(object, key);
-
-  Value stored;
-  bool present = csObjectGet(object, key, &stored);
-  /* An own accessor holds the stand-in in its slot rather than a value. */
-  bool isData = present && !csVMIsAccessorSlot(stored);
-
-  Value getter = UNDEFINED_VAL;
-  Value setter = UNDEFINED_VAL;
-  if (!isData && object->klass != NULL) {
-    ObjClosure *found = csClassFindGetter(object->klass, key);
-    if (found != NULL) getter = OBJ_VAL(found);
-    found = csClassFindSetter(object->klass, key);
-    if (found != NULL) setter = OBJ_VAL(found);
-  }
-  if (!isData && IS_UNDEFINED(getter) && IS_UNDEFINED(setter)) {
-    *out = UNDEFINED_VAL;
-    return true;
-  }
-
-  ObjObject *descriptor = csObjectNew("Object");
-  csPushTempRoot((Obj *)descriptor);
-  if (isData) {
-    csObjectSetProperty(descriptor, "value", stored);
-    csObjectSetProperty(descriptor, "writable",
-                        BOOL_VAL((attributes & CS_PROP_WRITABLE) != 0));
-  } else {
-    csObjectSetProperty(descriptor, "get", getter);
-    csObjectSetProperty(descriptor, "set", setter);
-  }
-  csObjectSetProperty(descriptor, "enumerable",
-                      BOOL_VAL((attributes & CS_PROP_ENUMERABLE) != 0));
-  csObjectSetProperty(descriptor, "configurable",
-                      BOOL_VAL((attributes & CS_PROP_CONFIGURABLE) != 0));
-  csPopTempRoot();
-
-  *out = OBJ_VAL(descriptor);
-  return true;
-}
-
-static bool objectGetOwnPropertyDescriptor(Value receiver, int argCount,
-                                           Value *args, Value *result) {
-  (void)receiver;
-  if (argCount < 2 || !IS_OBJECT(args[0]) || !IS_STRING(args[1])) {
-    csVMRuntimeError("Object.getOwnPropertyDescriptor expects an object and a "
-                     "string");
-    return false;
-  }
-  return describeOne(AS_OBJECT(args[0]), AS_STRING(args[1]), result);
-}
-
-static bool objectGetOwnPropertyDescriptors(Value receiver, int argCount,
-                                            Value *args, Value *result) {
-  (void)receiver;
-  if (argCount < 1 || !IS_OBJECT(args[0])) {
-    csVMRuntimeError("Object.getOwnPropertyDescriptors expects an object");
-    return false;
-  }
-  ObjObject *object = AS_OBJECT(args[0]);
-
-  ObjObject *out = csObjectNew("Object");
-  csPushTempRoot((Obj *)out);
-  for (int i = 0; i < csObjectCount(object); i++) {
-    ObjString *key = csObjectKeyAt(object, i);
-    csPushTempRoot((Obj *)key);
-    Value descriptor;
-    bool ok = describeOne(object, key, &descriptor);
-    if (ok) csObjectPut(out, key, descriptor);
-    csPopTempRoot();
-    if (!ok) {
-      csPopTempRoot();
-      return false;
-    }
-  }
-  csPopTempRoot();
-
-  *result = OBJ_VAL(out);
   return true;
 }
 
@@ -800,176 +182,6 @@ static bool arrayFrom(Value receiver, int argCount, Value *args, Value *result) 
   return true;
 }
 
-/* ---------------- numeric parsing ---------------- */
-
-/* parseInt stops at the first character that is not a digit, unlike Number(),
- * which requires the whole string. */
-static bool globalParseInt(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount < 1 || !IS_STRING(args[0])) {
-    *result = NUMBER_VAL(argCount >= 1 && IS_NUMBER(args[0])
-                             ? trunc(AS_NUMBER(args[0]))
-                             : NAN);
-    return true;
-  }
-
-  int base = 10;
-  if (argCount >= 2 && IS_NUMBER(args[1]) && AS_NUMBER(args[1]) != 0) {
-    base = (int)AS_NUMBER(args[1]);
-  }
-
-  char *end = NULL;
-  const char *text = AS_CSTRING(args[0]);
-  long long parsed = strtoll(text, &end, base);
-  *result = NUMBER_VAL(end == text ? NAN : (double)parsed);
-  return true;
-}
-
-static bool globalParseFloat(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount < 1 || !IS_STRING(args[0])) {
-    *result = NUMBER_VAL(argCount >= 1 && IS_NUMBER(args[0]) ? AS_NUMBER(args[0]) : NAN);
-    return true;
-  }
-  char *end = NULL;
-  const char *text = AS_CSTRING(args[0]);
-  double parsed = strtod(text, &end);
-  *result = NUMBER_VAL(end == text ? NAN : parsed);
-  return true;
-}
-
-static bool globalIsNaN(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  double value = argCount >= 1 ? csValueToNumber(args[0]) : NAN;
-  *result = BOOL_VAL(isnan(value));
-  return true;
-}
-
-static bool globalIsFinite(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  double value = argCount >= 1 ? csValueToNumber(args[0]) : NAN;
-  *result = BOOL_VAL(!isnan(value) && !isinf(value));
-  return true;
-}
-
-static bool numberIsInteger(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  bool ok = argCount >= 1 && IS_NUMBER(args[0]);
-  double value = ok ? AS_NUMBER(args[0]) : NAN;
-  *result = BOOL_VAL(ok && !isnan(value) && !isinf(value) && value == trunc(value));
-  return true;
-}
-
-/* Number.isNaN and Number.isFinite differ from the globals by not coercing. */
-static bool numberIsNaN(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  *result = BOOL_VAL(argCount >= 1 && IS_NUMBER(args[0]) && isnan(AS_NUMBER(args[0])));
-  return true;
-}
-
-static bool numberIsFinite(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  bool ok = argCount >= 1 && IS_NUMBER(args[0]);
-  *result = BOOL_VAL(ok && !isnan(AS_NUMBER(args[0])) && !isinf(AS_NUMBER(args[0])));
-  return true;
-}
-
-/* ---------------- Math ---------------- */
-
-/* One wrapper for every single-argument libm function. */
-#define MATH_UNARY(name, expression)                                       \
-  static bool math##name(Value receiver, int argCount, Value *args,        \
-                         Value *result) {                                  \
-    (void)receiver;                                                        \
-    if (argCount != 1 || !IS_NUMBER(args[0])) {                            \
-      csVMRuntimeError("Math." #name " expects one number");               \
-      return false;                                                        \
-    }                                                                      \
-    double x = AS_NUMBER(args[0]);                                         \
-    (void)x;                                                               \
-    *result = NUMBER_VAL(expression);                                      \
-    return true;                                                           \
-  }
-
-MATH_UNARY(Sqrt, sqrt(x))
-MATH_UNARY(Cbrt, cbrt(x))
-MATH_UNARY(Ceil, ceil(x))
-MATH_UNARY(Trunc, trunc(x))
-MATH_UNARY(Sign, x > 0 ? 1 : (x < 0 ? -1 : x))
-MATH_UNARY(Log, log(x))
-MATH_UNARY(Log2, log2(x))
-MATH_UNARY(Log10, log10(x))
-MATH_UNARY(Exp, exp(x))
-MATH_UNARY(Sin, sin(x))
-MATH_UNARY(Cos, cos(x))
-MATH_UNARY(Tan, tan(x))
-MATH_UNARY(Atan, atan(x))
-MATH_UNARY(Asin, asin(x))
-MATH_UNARY(Acos, acos(x))
-
-#undef MATH_UNARY
-
-/* JavaScript rounds half away from zero for positives but half up overall, so
- * Math.round(-0.5) is -0 rather than -1. floor(x + 0.5) gives exactly that. */
-static bool mathRound(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount != 1 || !IS_NUMBER(args[0])) {
-    csVMRuntimeError("Math.round expects one number");
-    return false;
-  }
-  double x = AS_NUMBER(args[0]);
-  *result = NUMBER_VAL(isnan(x) || isinf(x) ? x : floor(x + 0.5));
-  return true;
-}
-
-static bool mathPow(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount != 2 || !IS_NUMBER(args[0]) || !IS_NUMBER(args[1])) {
-    csVMRuntimeError("Math.pow expects two numbers");
-    return false;
-  }
-  *result = NUMBER_VAL(pow(AS_NUMBER(args[0]), AS_NUMBER(args[1])));
-  return true;
-}
-
-static bool mathAtan2(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  if (argCount != 2 || !IS_NUMBER(args[0]) || !IS_NUMBER(args[1])) {
-    csVMRuntimeError("Math.atan2 expects two numbers");
-    return false;
-  }
-  *result = NUMBER_VAL(atan2(AS_NUMBER(args[0]), AS_NUMBER(args[1])));
-  return true;
-}
-
-static bool mathHypot(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  double sum = 0;
-  for (int i = 0; i < argCount; i++) {
-    if (!IS_NUMBER(args[i])) {
-      csVMRuntimeError("Math.hypot expects numbers");
-      return false;
-    }
-    sum += AS_NUMBER(args[i]) * AS_NUMBER(args[i]);
-  }
-  *result = NUMBER_VAL(sqrt(sum));
-  return true;
-}
-
-/* Not cryptographic. Seeded once from the clock at startup. */
-static bool mathRandom(Value receiver, int argCount, Value *args, Value *result) {
-  (void)receiver;
-  (void)argCount;
-  (void)args;
-  *result = NUMBER_VAL((double)rand() / ((double)RAND_MAX + 1.0));
-  return true;
-}
-
-/* Error(message) — a plain object with `name` and `message`.
- *
- * `new` and classes do not exist yet, so this is a function rather than a
- * constructor, and `throw` accepts any value regardless. Having a conventional
- * shape matters mainly so `e.message` works on a caught value. */
 static bool errorConstruct(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   ObjObject *error = csObjectNew("Error");
@@ -1035,7 +247,7 @@ static bool aggregateErrorConstruct(Value receiver, int argCount, Value *args,
 }
 
 /* Defines a global, keeping the value rooted across the table insert. */
-static void defineGlobal(const char *name, Value value) {
+void csNativeDefineGlobal(const char *name, Value value) {
   if (IS_OBJ(value)) csPushTempRoot(AS_OBJ(value));
   ObjString *key = csStringCopy(name, (int)strlen(name));
   csPushTempRoot((Obj *)key);
@@ -1050,15 +262,15 @@ static void defineGlobal(const char *name, Value value) {
 /* Builds a namespace object and installs it as a global. */
 /* Namespaces are frozen at the end of csNativesInstall rather than here,
  * because they have no members yet. */
-static ObjObject *defineNamespace(const char *name) {
+ObjObject *csNativeDefineNamespace(const char *name) {
   ObjObject *object = csObjectNew(name);
   csPushTempRoot((Obj *)object);
-  defineGlobal(name, OBJ_VAL(object));
+  csNativeDefineGlobal(name, OBJ_VAL(object));
   csPopTempRoot();
   return object;
 }
 
-static void defineMethod(ObjObject *object, const char *name, NativeFn function,
+void csNativeDefineMethod(ObjObject *object, const char *name, NativeFn function,
                          int arity) {
   ObjNative *native = csNativeNew(function, name, arity);
   csPushTempRoot((Obj *)native);
@@ -1066,10 +278,43 @@ static void defineMethod(ObjObject *object, const char *name, NativeFn function,
   csPopTempRoot();
 }
 
-static void defineFunction(const char *name, NativeFn function, int arity) {
+void csNativeDefineFunction(const char *name, NativeFn function, int arity) {
   ObjNative *native = csNativeNew(function, name, arity);
   csPushTempRoot((Obj *)native);
-  defineGlobal(name, OBJ_VAL(native));
+  csNativeDefineGlobal(name, OBJ_VAL(native));
+  csPopTempRoot();
+}
+
+/* A built-in that is both callable and a namespace: `Symbol(x)` and
+ * `Symbol.iterator`, `new Date()` and `Date.now()`. The function carries the
+ * statics rather than the two being separate globals, which is how JavaScript
+ * has it and therefore how a program written against it expects it. */
+static void installCallableNamespace(const char *name, NativeFn constructor,
+                                     void (*installStatics)(ObjObject *)) {
+  ObjNative *callable = csNativeNew(constructor, name, -1);
+  csPushTempRoot((Obj *)callable);
+  ObjObject *statics = csObjectNew(name);
+  csPushTempRoot((Obj *)statics);
+  callable->statics = statics;
+  installStatics(statics);
+  csObjectFreeze(statics);
+  csNativeDefineGlobal(name, OBJ_VAL(callable));
+  csPopTempRoot();
+  csPopTempRoot();
+}
+
+/* The same shape, but the constructor comes ready-made rather than as a
+ * plain NativeFn, because a promise's needs a closure over the VM's queue. */
+static void installPromise(void) {
+  ObjNative *promiseFn = csPromiseConstructor();
+  csPushTempRoot((Obj *)promiseFn);
+  ObjObject *statics = csObjectNew("Promise");
+  csPushTempRoot((Obj *)statics);
+  promiseFn->statics = statics;
+  csPromiseInstallStatics(statics);
+  csObjectFreeze(statics);
+  csNativeDefineGlobal("Promise", OBJ_VAL(promiseFn));
+  csPopTempRoot();
   csPopTempRoot();
 }
 
@@ -1077,106 +322,32 @@ void csNativesInstall(void) {
   /* Math.random is not cryptographic; one seed per process is enough. */
   srand((unsigned)time(NULL));
 
-  ObjObject *console = defineNamespace("console");
-  defineMethod(console, "log", consoleLog, -1);
-  defineMethod(console, "error", consoleError, -1);
-  defineMethod(console, "warn", consoleError, -1);
+  ObjObject *console = csNativeDefineNamespace("console");
+  csNativeDefineMethod(console, "log", consoleLog, -1);
+  csNativeDefineMethod(console, "error", consoleError, -1);
+  csNativeDefineMethod(console, "warn", consoleError, -1);
+  csObjectFreeze(console);
 
-  ObjObject *mathObject = defineNamespace("Math");
-  defineMethod(mathObject, "floor", mathFloor, 1);
-  defineMethod(mathObject, "abs", mathAbs, 1);
-  defineMethod(mathObject, "max", mathMax, -1);
-  defineMethod(mathObject, "min", mathMin, -1);
-  defineMethod(mathObject, "sqrt", mathSqrt, 1);
-  defineMethod(mathObject, "cbrt", mathCbrt, 1);
-  defineMethod(mathObject, "ceil", mathCeil, 1);
-  defineMethod(mathObject, "trunc", mathTrunc, 1);
-  defineMethod(mathObject, "sign", mathSign, 1);
-  defineMethod(mathObject, "round", mathRound, 1);
-  defineMethod(mathObject, "pow", mathPow, 2);
-  defineMethod(mathObject, "log", mathLog, 1);
-  defineMethod(mathObject, "log2", mathLog2, 1);
-  defineMethod(mathObject, "log10", mathLog10, 1);
-  defineMethod(mathObject, "exp", mathExp, 1);
-  defineMethod(mathObject, "sin", mathSin, 1);
-  defineMethod(mathObject, "cos", mathCos, 1);
-  defineMethod(mathObject, "tan", mathTan, 1);
-  defineMethod(mathObject, "asin", mathAsin, 1);
-  defineMethod(mathObject, "acos", mathAcos, 1);
-  defineMethod(mathObject, "atan", mathAtan, 1);
-  defineMethod(mathObject, "atan2", mathAtan2, 2);
-  defineMethod(mathObject, "hypot", mathHypot, -1);
-  defineMethod(mathObject, "random", mathRandom, 0);
-  csObjectSetProperty(mathObject, "PI", NUMBER_VAL(3.14159265358979323846));
-  csObjectSetProperty(mathObject, "E", NUMBER_VAL(2.71828182845904523536));
-  csObjectSetProperty(mathObject, "LN2", NUMBER_VAL(0.693147180559945309417));
-  csObjectSetProperty(mathObject, "LN10", NUMBER_VAL(2.30258509299404568402));
-  csObjectSetProperty(mathObject, "SQRT2", NUMBER_VAL(1.41421356237309504880));
+  /* Each of these makes its namespace, fills it and seals it — see
+   * native_internal.h for why the file that places the members is also the
+   * file that freezes them. */
+  csNativeInstallMath();
+  csNativeInstallObject();
+  csNativeInstallConversions();
 
-  ObjObject *objectNamespace = defineNamespace("Object");
-  defineMethod(objectNamespace, "keys", objectKeys, 1);
-  defineMethod(objectNamespace, "values", objectValues, 1);
-  defineMethod(objectNamespace, "entries", objectEntries, 1);
-  defineMethod(objectNamespace, "assign", objectAssign, -1);
-  defineMethod(objectNamespace, "hasOwn", objectHasOwn, 2);
-  defineMethod(objectNamespace, "create", objectCreate, -1);
-  defineMethod(objectNamespace, "getPrototypeOf", objectGetPrototypeOf, 1);
-  defineMethod(objectNamespace, "setPrototypeOf", objectSetPrototypeOf, 2);
-  defineMethod(objectNamespace, "defineProperty", objectDefineProperty, 3);
-  defineMethod(objectNamespace, "defineProperties", objectDefineProperties, 2);
-  defineMethod(objectNamespace, "getOwnPropertyDescriptor",
-               objectGetOwnPropertyDescriptor, 2);
-  defineMethod(objectNamespace, "getOwnPropertyDescriptors",
-               objectGetOwnPropertyDescriptors, 1);
-  defineMethod(objectNamespace, "fromEntries", objectFromEntries, 1);
-  defineMethod(objectNamespace, "freeze", objectFreeze, 1);
-  defineMethod(objectNamespace, "isFrozen", objectIsFrozen, 1);
-  /* Every own key, which for an object with no non-enumerable ones is the
-   * same list `keys` gives — and here there are none. */
-  defineMethod(objectNamespace, "getOwnPropertyNames", objectKeys, 1);
-  defineMethod(objectNamespace, "getOwnPropertySymbols", objectGetOwnPropertySymbols, 1);
+  ObjObject *arrayNamespace = csNativeDefineNamespace("Array");
+  csNativeDefineMethod(arrayNamespace, "isArray", arrayIsArray, 1);
+  csNativeDefineMethod(arrayNamespace, "of", arrayOf, -1);
+  csNativeDefineMethod(arrayNamespace, "from", arrayFrom, -1);
+  csObjectFreeze(arrayNamespace);
 
-  ObjObject *arrayNamespace = defineNamespace("Array");
-  defineMethod(arrayNamespace, "isArray", arrayIsArray, 1);
-  defineMethod(arrayNamespace, "of", arrayOf, -1);
-  defineMethod(arrayNamespace, "from", arrayFrom, -1);
-
-  /* Number is callable *and* a namespace, so it is defined as a function whose
-   * statics carry the rest. */
-  ObjNative *numberFn = csNativeNew(numberConvert, "Number", 1);
-  csPushTempRoot((Obj *)numberFn);
-  ObjObject *numberNamespace = csObjectNew("Number");
-  csPushTempRoot((Obj *)numberNamespace);
-  numberFn->statics = numberNamespace;
-  defineGlobal("Number", OBJ_VAL(numberFn));
-  defineMethod(numberNamespace, "isInteger", numberIsInteger, 1);
-  defineMethod(numberNamespace, "isNaN", numberIsNaN, 1);
-  defineMethod(numberNamespace, "isFinite", numberIsFinite, 1);
-  defineMethod(numberNamespace, "parseInt", globalParseInt, -1);
-  defineMethod(numberNamespace, "parseFloat", globalParseFloat, -1);
-  csObjectSetProperty(numberNamespace, "MAX_SAFE_INTEGER", NUMBER_VAL(9007199254740991.0));
-  csObjectSetProperty(numberNamespace, "MIN_SAFE_INTEGER", NUMBER_VAL(-9007199254740991.0));
-  csObjectSetProperty(numberNamespace, "EPSILON", NUMBER_VAL(2.220446049250313e-16));
-  csObjectSetProperty(numberNamespace, "MAX_VALUE", NUMBER_VAL(1.7976931348623157e308));
-  csObjectSetProperty(numberNamespace, "MIN_VALUE", NUMBER_VAL(5e-324));
-
-  ObjObject *jsonNamespace = defineNamespace("JSON");
+  ObjObject *jsonNamespace = csNativeDefineNamespace("JSON");
   csJsonInstall(jsonNamespace);
+  csObjectFreeze(jsonNamespace);
 
-  defineFunction("parseInt", globalParseInt, -1);
-  defineFunction("parseFloat", globalParseFloat, -1);
-  defineFunction("isNaN", globalIsNaN, -1);
-  defineFunction("isFinite", globalIsFinite, -1);
-  defineFunction("Error", errorConstruct, -1);
-  defineFunction("AggregateError", aggregateErrorConstruct, -1);
-
-  /* Explicit conversions, so nothing has to rely on implicit coercion. */
-  csPopTempRoot();
-  csPopTempRoot();
-
-  defineFunction("String", stringConvert, 1);
-  defineFunction("BigInt", csBigIntConstructorFn(), 1);
-  defineFunction("Boolean", booleanConvert, 1);
+  csNativeDefineFunction("Error", errorConstruct, -1);
+  csNativeDefineFunction("AggregateError", aggregateErrorConstruct, -1);
+  csNativeDefineFunction("BigInt", csBigIntConstructorFn(), 1);
 
   csArrayMethodsInstall();
   csStringMethodsInstall();
@@ -1190,78 +361,36 @@ void csNativesInstall(void) {
   csWeakMethodsInstall();
   csSymbolMethodsInstall();
   csBigIntMethodsInstall();
-  defineFunction("Map", csMapConstructorFn(), -1);
-  defineFunction("Set", csSetConstructorFn(), -1);
-  defineFunction("WeakMap", csWeakMapConstructorFn(), -1);
-  defineFunction("WeakSet", csWeakSetConstructorFn(), -1);
+  csNativeDefineFunction("Map", csMapConstructorFn(), -1);
+  csNativeDefineFunction("Set", csSetConstructorFn(), -1);
+  csNativeDefineFunction("WeakMap", csWeakMapConstructorFn(), -1);
+  csNativeDefineFunction("WeakSet", csWeakSetConstructorFn(), -1);
 
-  /* `Symbol` is callable and carries the registry and the well-known ones. */
-  ObjNative *symbolFn = csNativeNew(csSymbolConstructorFn(), "Symbol", -1);
-  csPushTempRoot((Obj *)symbolFn);
-  ObjObject *symbolStatics = csObjectNew("Symbol");
-  csPushTempRoot((Obj *)symbolStatics);
-  symbolFn->statics = symbolStatics;
-  csSymbolInstallStatics(symbolStatics);
-  csObjectFreeze(symbolStatics);
-  defineGlobal("Symbol", OBJ_VAL(symbolFn));
-  csPopTempRoot();
-  csPopTempRoot();
+  /* Three of the same shape: callable, and carrying statics beside it. `new
+   * Date()` builds one and `Date.now()` sits next to it. */
+  installCallableNamespace("Symbol", csSymbolConstructorFn(), csSymbolInstallStatics);
+  installCallableNamespace("Date", csDateConstructorFn(), csDateInstallStatics);
+  installPromise();
 
-  /* `Date` is the same shape: `new Date()` builds one and `Date.now()` sits
-   * beside it. */
-  ObjNative *dateFn = csNativeNew(csDateConstructorFn(), "Date", -1);
-  csPushTempRoot((Obj *)dateFn);
-  ObjObject *dateStatics = csObjectNew("Date");
-  csPushTempRoot((Obj *)dateStatics);
-  dateFn->statics = dateStatics;
-  csDateInstallStatics(dateStatics);
-  csObjectFreeze(dateStatics);
-  defineGlobal("Date", OBJ_VAL(dateFn));
-  csPopTempRoot();
-  csPopTempRoot();
-
-  /* `Promise` is callable and also carries statics, the same shape `Number`
-   * has: `new Promise(executor)` and `Promise.all([...])` both work. */
-  ObjNative *promiseFn = csPromiseConstructor();
-  csPushTempRoot((Obj *)promiseFn);
-  ObjObject *promiseStatics = csObjectNew("Promise");
-  csPushTempRoot((Obj *)promiseStatics);
-  promiseFn->statics = promiseStatics;
-  csPromiseInstallStatics(promiseStatics);
-  csObjectFreeze(promiseStatics);
-  defineGlobal("Promise", OBJ_VAL(promiseFn));
-  csPopTempRoot();
-  csPopTempRoot();
-
-  defineFunction("setTimeout", csSetTimeoutFn(), -1);
-  defineFunction("clearTimeout", csClearTimeoutFn(), -1);
+  csNativeDefineFunction("setTimeout", csSetTimeoutFn(), -1);
+  csNativeDefineFunction("clearTimeout", csClearTimeoutFn(), -1);
   /* An interval is cancelled the same way a timeout is — the two share one
    * queue and one kind of handle, so one canceller is enough. */
-  defineFunction("setInterval", csSetIntervalFn(), -1);
-  defineFunction("clearInterval", csClearTimeoutFn(), -1);
-  defineFunction("queueMicrotask", csQueueMicrotaskFn(), -1);
+  csNativeDefineFunction("setInterval", csSetIntervalFn(), -1);
+  csNativeDefineFunction("clearInterval", csClearTimeoutFn(), -1);
+  csNativeDefineFunction("queueMicrotask", csQueueMicrotaskFn(), -1);
 
   /* `process`, with the one member a command line needs. Deliberately not the
    * beginning of a Node-compatible surface: `argv` is here because a script
    * given arguments has to be able to read them, and it is spelled this way
    * because a program that reads it runs under Node too — which is the claim
    * the whole test suite is built to keep. */
-  ObjObject *processObject = defineNamespace("process");
+  ObjObject *processObject = csNativeDefineNamespace("process");
   ObjArray *emptyArgs = csArrayNew();
   csPushTempRoot((Obj *)emptyArgs);
   csObjectSetProperty(processObject, "argv", OBJ_VAL(emptyArgs));
   csPopTempRoot();
 
-  defineGlobal("NaN", NUMBER_VAL(NAN));
-  defineGlobal("Infinity", NUMBER_VAL(INFINITY));
-
-  /* Sealed only now that every member is in place. From here the standard
-   * library is read-only: `Math.PI = 3` and `console.log = f` are errors at
-   * the line that writes them rather than mysteries somewhere later. */
-  csObjectFreeze(console);
-  csObjectFreeze(mathObject);
-  csObjectFreeze(objectNamespace);
-  csObjectFreeze(arrayNamespace);
-  csObjectFreeze(numberNamespace);
-  csObjectFreeze(jsonNamespace);
+  csNativeDefineGlobal("NaN", NUMBER_VAL(NAN));
+  csNativeDefineGlobal("Infinity", NUMBER_VAL(INFINITY));
 }

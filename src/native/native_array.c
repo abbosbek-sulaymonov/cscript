@@ -1,12 +1,10 @@
-/* native_array.c — the built-in array methods.
+/* native_array.c — an array's methods that stay inside the runtime.
  *
- * Every method here receives the array as `receiver`, because OP_INVOKE leaves
- * it on the stack below the arguments rather than binding a method object.
- *
- * The higher-order ones call back into user code through csVMCallCallback,
- * which runs a nested interpreter loop. Two consequences follow and are handled
- * throughout: a callback can allocate, so any array being built has to be
- * rooted across the loop; and a callback can fail, so every call site checks.
+ * Everything here rearranges elements or reads them; nothing calls back into
+ * CScript, which is what makes them all safe to write as straight loops. The
+ * ones that do take a callback are in native_array_callback.c, because a call
+ * can collect, throw, or reenter — and every one of them has to be written as
+ * though it will.
  */
 #include <stdlib.h>
 #include <string.h>
@@ -16,15 +14,10 @@
 #include "cscript/object.h"
 #include "cscript/vm.h"
 
-#define ARRAY_OF(receiver) (AS_ARRAY(receiver))
+#include "native/native_internal.h"
 
-/* Appends with the value protected.
- *
- * Growing the element array allocates, which can collect. A value that only
- * exists in a C local at that moment — a callback's return value, say — is
- * reachable from nothing the collector scans, so it has to be rooted across
- * the write. `make test-gc` found this the hard way. */
-static void appendRooted(ObjArray *array, Value value) {
+
+void csNativeAppendRooted(ObjArray *array, Value value) {
   if (IS_OBJ(value)) csPushTempRoot(AS_OBJ(value));
   csValueArrayWrite(&array->elements, value);
   if (IS_OBJ(value)) csPopTempRoot();
@@ -57,7 +50,7 @@ static bool argIndex(int argCount, Value *args, int position, int length,
 
 static bool arrayPush(Value receiver, int argCount, Value *args, Value *result) {
   ObjArray *array = ARRAY_OF(receiver);
-  for (int i = 0; i < argCount; i++) appendRooted(array, args[i]);
+  for (int i = 0; i < argCount; i++) csNativeAppendRooted(array, args[i]);
   *result = NUMBER_VAL(array->elements.count);
   return true;
 }
@@ -111,7 +104,7 @@ static bool arraySlice(Value receiver, int argCount, Value *args, Value *result)
   ObjArray *copy = csArrayNew();
   csPushTempRoot((Obj *)copy);
   for (int i = start; i < end; i++) {
-    appendRooted(copy, array->elements.values[i]);
+    csNativeAppendRooted(copy, array->elements.values[i]);
   }
   csPopTempRoot();
 
@@ -125,17 +118,17 @@ static bool arrayConcat(Value receiver, int argCount, Value *args, Value *result
   ObjArray *joined = csArrayNew();
   csPushTempRoot((Obj *)joined);
   for (int i = 0; i < array->elements.count; i++) {
-    appendRooted(joined, array->elements.values[i]);
+    csNativeAppendRooted(joined, array->elements.values[i]);
   }
   for (int i = 0; i < argCount; i++) {
     /* An array argument is flattened one level; anything else is appended. */
     if (IS_ARRAY(args[i])) {
       ObjArray *other = AS_ARRAY(args[i]);
       for (int j = 0; j < other->elements.count; j++) {
-        appendRooted(joined, other->elements.values[j]);
+        csNativeAppendRooted(joined, other->elements.values[j]);
       }
     } else {
-      appendRooted(joined, args[i]);
+      csNativeAppendRooted(joined, args[i]);
     }
   }
   csPopTempRoot();
@@ -261,7 +254,7 @@ static void flattenInto(ObjArray *out, ObjArray *from, int depth) {
     if (depth > 0 && IS_ARRAY(element)) {
       flattenInto(out, AS_ARRAY(element), depth - 1);
     } else {
-      appendRooted(out, element);
+      csNativeAppendRooted(out, element);
     }
   }
 }
@@ -305,10 +298,10 @@ static bool arrayFlatMap(Value receiver, int argCount, Value *args, Value *resul
     if (IS_ARRAY(produced)) {
       ObjArray *pieces = AS_ARRAY(produced);
       for (int j = 0; j < pieces->elements.count; j++) {
-        appendRooted(out, pieces->elements.values[j]);
+        csNativeAppendRooted(out, pieces->elements.values[j]);
       }
     } else {
-      appendRooted(out, produced);
+      csNativeAppendRooted(out, produced);
     }
     if (IS_OBJ(produced)) csPopTempRoot();
   }
@@ -353,286 +346,9 @@ static bool arrayFill(Value receiver, int argCount, Value *args, Value *result) 
   return true;
 }
 
-
-/* ---------------- methods that call back into user code ---------------- */
-
-/* Invokes `callback(element, index, array)` and writes the result.
- *
- * The callee and its arguments are pushed here and consumed by
- * csVMCallCallback, which runs a nested interpreter loop. The array itself is
- * passed as the third argument, matching JavaScript, and is what keeps it
- * reachable from the stack while the callback runs. */
-static bool callWithElement(Value callback, Value element, int index, Value array,
-                            Value *out) {
-  Value args[3] = {element, NUMBER_VAL(index), array};
-  return csVMCallAdapted(callback, args, 3, out);
-}
-
-static bool requireCallback(int argCount, Value *args, const char *method) {
-  if (argCount < 1) {
-    csVMRuntimeError("%s expects a callback", method);
-    return false;
-  }
-  (void)args;
-  return true;
-}
-
-static bool arrayForEach(Value receiver, int argCount, Value *args, Value *result) {
-  if (!requireCallback(argCount, args, "forEach")) return false;
-  ObjArray *array = ARRAY_OF(receiver);
-
-  for (int i = 0; i < array->elements.count; i++) {
-    Value ignored;
-    if (!callWithElement(args[0], array->elements.values[i], i, receiver, &ignored)) {
-      return false;
-    }
-  }
-  *result = UNDEFINED_VAL;
-  return true;
-}
-
-static bool arrayMap(Value receiver, int argCount, Value *args, Value *result) {
-  if (!requireCallback(argCount, args, "map")) return false;
-  ObjArray *array = ARRAY_OF(receiver);
-
-  ObjArray *mapped = csArrayNew();
-  /* The callback allocates, and the new array is reachable from nothing else
-   * until it is returned — so it has to stay rooted for the whole loop. */
-  csPushTempRoot((Obj *)mapped);
-
-  for (int i = 0; i < array->elements.count; i++) {
-    Value produced;
-    if (!callWithElement(args[0], array->elements.values[i], i, receiver, &produced)) {
-      csPopTempRoot();
-      return false;
-    }
-    appendRooted(mapped, produced);
-  }
-
-  csPopTempRoot();
-  *result = OBJ_VAL(mapped);
-  return true;
-}
-
-static bool arrayFilter(Value receiver, int argCount, Value *args, Value *result) {
-  if (!requireCallback(argCount, args, "filter")) return false;
-  ObjArray *array = ARRAY_OF(receiver);
-
-  ObjArray *kept = csArrayNew();
-  csPushTempRoot((Obj *)kept);
-
-  for (int i = 0; i < array->elements.count; i++) {
-    Value verdict;
-    Value element = array->elements.values[i];
-    if (!callWithElement(args[0], element, i, receiver, &verdict)) {
-      csPopTempRoot();
-      return false;
-    }
-    if (csValueIsTruthy(verdict)) appendRooted(kept, element);
-  }
-
-  csPopTempRoot();
-  *result = OBJ_VAL(kept);
-  return true;
-}
-
-static bool arrayReduce(Value receiver, int argCount, Value *args, Value *result) {
-  if (!requireCallback(argCount, args, "reduce")) return false;
-  ObjArray *array = ARRAY_OF(receiver);
-
-  int index = 0;
-  Value accumulator;
-  if (argCount >= 2) {
-    accumulator = args[1];
-  } else {
-    if (array->elements.count == 0) {
-      csVMRuntimeError("reduce of an empty array with no initial value");
-      return false;
-    }
-    accumulator = array->elements.values[index++];
-  }
-
-  for (; index < array->elements.count; index++) {
-    /* The accumulator is a plain C local, so it is invisible to the collector
-     * while the callback runs — push it onto the stack for the duration. */
-    csVMPush(accumulator);
-    Value callArgs[4] = {accumulator, array->elements.values[index],
-                         NUMBER_VAL(index), receiver};
-
-    Value produced;
-    if (!csVMCallAdapted(args[0], callArgs, 4, &produced)) return false;
-    csVMPop(); /* the rooted accumulator */
-    accumulator = produced;
-  }
-
-  *result = accumulator;
-  return true;
-}
-
-/* The same fold, from the end. Written out rather than sharing a direction
- * flag with reduce: the two loops differ in three places, and a flag threaded
- * through all of them reads worse than the second loop does. */
-static bool arrayReduceRight(Value receiver, int argCount, Value *args,
-                             Value *result) {
-  if (!requireCallback(argCount, args, "reduceRight")) return false;
-  ObjArray *array = ARRAY_OF(receiver);
-
-  int index = array->elements.count - 1;
-  Value accumulator;
-  if (argCount >= 2) {
-    accumulator = args[1];
-  } else {
-    if (array->elements.count == 0) {
-      csVMRuntimeError("reduceRight of an empty array with no initial value");
-      return false;
-    }
-    accumulator = array->elements.values[index--];
-  }
-
-  for (; index >= 0; index--) {
-    csVMPush(accumulator);
-    Value callArgs[4] = {accumulator, array->elements.values[index],
-                         NUMBER_VAL(index), receiver};
-
-    Value produced;
-    if (!csVMCallAdapted(args[0], callArgs, 4, &produced)) return false;
-    csVMPop();
-    accumulator = produced;
-  }
-
-  *result = accumulator;
-  return true;
-}
-
-/* find/findIndex/some/every share one walk; `mode` selects what to return. */
-typedef enum {
-  SEARCH_FIND,
-  SEARCH_FIND_INDEX,
-  SEARCH_SOME,
-  SEARCH_EVERY,
-} SearchMode;
-
-static bool arraySearch(Value receiver, int argCount, Value *args, Value *result,
-                        SearchMode mode, const char *method) {
-  if (!requireCallback(argCount, args, method)) return false;
-  ObjArray *array = ARRAY_OF(receiver);
-
-  for (int i = 0; i < array->elements.count; i++) {
-    Value verdict;
-    Value element = array->elements.values[i];
-    if (!callWithElement(args[0], element, i, receiver, &verdict)) return false;
-
-    bool matched = csValueIsTruthy(verdict);
-    if (mode == SEARCH_EVERY) {
-      if (!matched) {
-        *result = BOOL_VAL(false);
-        return true;
-      }
-      continue;
-    }
-    if (!matched) continue;
-
-    switch (mode) {
-      case SEARCH_FIND:       *result = element; return true;
-      case SEARCH_FIND_INDEX: *result = NUMBER_VAL(i); return true;
-      case SEARCH_SOME:       *result = BOOL_VAL(true); return true;
-      case SEARCH_EVERY:      break;
-    }
-  }
-
-  switch (mode) {
-    case SEARCH_FIND:       *result = UNDEFINED_VAL; break;
-    case SEARCH_FIND_INDEX: *result = NUMBER_VAL(-1); break;
-    case SEARCH_SOME:       *result = BOOL_VAL(false); break;
-    case SEARCH_EVERY:      *result = BOOL_VAL(true); break;
-  }
-  return true;
-}
-
-static bool arrayFind(Value r, int c, Value *a, Value *out) {
-  return arraySearch(r, c, a, out, SEARCH_FIND, "find");
-}
-static bool arrayFindIndex(Value r, int c, Value *a, Value *out) {
-  return arraySearch(r, c, a, out, SEARCH_FIND_INDEX, "findIndex");
-}
-static bool arraySome(Value r, int c, Value *a, Value *out) {
-  return arraySearch(r, c, a, out, SEARCH_SOME, "some");
-}
-static bool arrayEvery(Value r, int c, Value *a, Value *out) {
-  return arraySearch(r, c, a, out, SEARCH_EVERY, "every");
-}
-
-/* Compares two elements the way Array.prototype.sort does by default: by their
- * string form, which is why [10, 9] sorts to [10, 9]. Surprising, but it is the
- * specified behaviour and code depends on it. */
-static int compareAsStrings(Value a, Value b, bool *failed) {
-  size_t leftLength = 0;
-  size_t rightLength = 0;
-  char *left = csValueToCString(a, &leftLength);
-  char *right = csValueToCString(b, &rightLength);
-  if (left == NULL || right == NULL) {
-    free(left);
-    free(right);
-    *failed = true;
-    return 0;
-  }
-  int order = strcmp(left, right);
-  free(left);
-  free(right);
-  return order;
-}
-
-/* Insertion sort: stable, and the comparator may run arbitrary user code, so a
- * simple predictable number of comparisons is worth more than asymptotics on
- * the array sizes this language is used for. */
-static bool arraySort(Value receiver, int argCount, Value *args, Value *result) {
-  ObjArray *array = ARRAY_OF(receiver);
-  bool hasComparator = argCount >= 1 && !IS_UNDEFINED(args[0]);
-
-  for (int i = 1; i < array->elements.count; i++) {
-    Value key = array->elements.values[i];
-    int j = i - 1;
-
-    while (j >= 0) {
-      int order;
-      if (hasComparator) {
-        /* `key` lives only in a C local, so root it across the call. */
-        csVMPush(key);
-        Value callArgs[2] = {array->elements.values[j], key};
-
-        Value verdict;
-        if (!csVMCallAdapted(args[0], callArgs, 2, &verdict)) return false;
-        key = csVMPop();
-
-        if (!IS_NUMBER(verdict)) {
-          csVMRuntimeError("sort comparator must return a number, got %s",
-                           csValueTypeName(verdict));
-          return false;
-        }
-        order = AS_NUMBER(verdict) > 0 ? 1 : (AS_NUMBER(verdict) < 0 ? -1 : 0);
-      } else {
-        bool failed = false;
-        order = compareAsStrings(array->elements.values[j], key, &failed);
-        if (failed) {
-          csVMRuntimeError("out of memory while sorting");
-          return false;
-        }
-      }
-
-      if (order <= 0) break;
-      array->elements.values[j + 1] = array->elements.values[j];
-      j--;
-    }
-    array->elements.values[j + 1] = key;
-  }
-
-  *result = receiver;
-  return true;
-}
-
 /* ---------------- installation ---------------- */
 
-static void defineArrayMethod(const char *name, NativeFn function, int arity) {
+void csNativeDefineArrayMethod(const char *name, NativeFn function, int arity) {
   ObjNative *native = csNativeNew(function, name, arity);
   csPushTempRoot((Obj *)native);
   ObjString *key = csStringCopy(name, (int)strlen(name));
@@ -643,30 +359,21 @@ static void defineArrayMethod(const char *name, NativeFn function, int arity) {
 }
 
 void csArrayMethodsInstall(void) {
-  defineArrayMethod("push", arrayPush, -1);
-  defineArrayMethod("pop", arrayPop, 0);
-  defineArrayMethod("shift", arrayShift, 0);
-  defineArrayMethod("unshift", arrayUnshift, -1);
-  defineArrayMethod("slice", arraySlice, -1);
-  defineArrayMethod("concat", arrayConcat, -1);
-  defineArrayMethod("join", arrayJoin, -1);
-  defineArrayMethod("indexOf", arrayIndexOf, -1);
-  defineArrayMethod("lastIndexOf", arrayLastIndexOf, -1);
-  defineArrayMethod("includes", arrayIncludes, -1);
-  defineArrayMethod("reverse", arrayReverse, 0);
-  defineArrayMethod("fill", arrayFill, -1);
-  defineArrayMethod("sort", arraySort, -1);
+  csNativeDefineArrayMethod("push", arrayPush, -1);
+  csNativeDefineArrayMethod("pop", arrayPop, 0);
+  csNativeDefineArrayMethod("shift", arrayShift, 0);
+  csNativeDefineArrayMethod("unshift", arrayUnshift, -1);
+  csNativeDefineArrayMethod("slice", arraySlice, -1);
+  csNativeDefineArrayMethod("concat", arrayConcat, -1);
+  csNativeDefineArrayMethod("join", arrayJoin, -1);
+  csNativeDefineArrayMethod("indexOf", arrayIndexOf, -1);
+  csNativeDefineArrayMethod("lastIndexOf", arrayLastIndexOf, -1);
+  csNativeDefineArrayMethod("includes", arrayIncludes, -1);
+  csNativeDefineArrayMethod("reverse", arrayReverse, 0);
+  csNativeDefineArrayMethod("fill", arrayFill, -1);
+  csNativeDefineArrayMethod("at", arrayAt, -1);
+  csNativeDefineArrayMethod("flat", arrayFlat, -1);
+  csNativeDefineArrayMethod("flatMap", arrayFlatMap, -1);
 
-  defineArrayMethod("forEach", arrayForEach, -1);
-  defineArrayMethod("map", arrayMap, -1);
-  defineArrayMethod("filter", arrayFilter, -1);
-  defineArrayMethod("reduce", arrayReduce, -1);
-  defineArrayMethod("reduceRight", arrayReduceRight, -1);
-  defineArrayMethod("find", arrayFind, -1);
-  defineArrayMethod("findIndex", arrayFindIndex, -1);
-  defineArrayMethod("some", arraySome, -1);
-  defineArrayMethod("every", arrayEvery, -1);
-  defineArrayMethod("at", arrayAt, -1);
-  defineArrayMethod("flat", arrayFlat, -1);
-  defineArrayMethod("flatMap", arrayFlatMap, -1);
+  csNativeInstallArrayCallbacks();
 }

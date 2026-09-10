@@ -673,9 +673,16 @@ table, then reset the stack.
 | `src/jit/ir_interpret.c` | Running the lowered form, to check it against the bytecode |
 | `src/jit/jitcode.c` | The arm64 encoder and the executable memory it fills |
 | **Standard library** | |
-| `src/native/native.c` | The built-in global environment |
-| `src/native/native_array.c` | Array methods |
-| `src/native/native_string.c` | String methods |
+| `src/native/native.c` | The global environment, and what is installed into it |
+| `src/native/native_internal.h` | The seam between the library's files |
+| `src/native/native_object.c` | The `Object` namespace |
+| `src/native/native_descriptor.c` | Property descriptors, both directions |
+| `src/native/native_math.c` | `Math`, and the numeric functions |
+| `src/native/native_convert.c` | Converting to a number, string or boolean, and parsing |
+| `src/native/native_array.c` | Array methods that stay inside the runtime |
+| `src/native/native_array_callback.c` | Array methods that call back into user code |
+| `src/native/native_string.c` | String methods that read or reshape |
+| `src/native/native_string_search.c` | String methods that take a pattern |
 | `src/native/native_number.c` | `Number`, and the numeric conversions |
 | `src/native/native_json.c` | `JSON.stringify` and `JSON.parse` |
 | `src/native/native_promise.c` | Promises and timers |
