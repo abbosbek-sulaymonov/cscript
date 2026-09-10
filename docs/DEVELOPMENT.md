@@ -97,6 +97,8 @@ cscript/
 ├── src/
 │   ├── compiler/        lexer, parser, type checker, bytecode compiler
 │   ├── runtime/         the VM, the object model, the collector, modules
+│   │                    (vm.c is one translation unit across many .inc
+│   │                     files — see ARCHITECTURE.md for why)
 │   ├── native/          the standard library, one file per type
 │   ├── jit/             tiering, the typed IR, the arm64 encoder
 │   └── main.c           CLI, REPL, file runner

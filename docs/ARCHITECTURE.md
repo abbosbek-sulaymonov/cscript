@@ -657,7 +657,17 @@ table, then reset the stack.
 | `src/compiler/compiler_internal.h` | The compiler's ambient state and the seams |
 | `src/compiler/chunk.c` | Bytecode buffer, constant pool, inline-cache arrays |
 | **Runtime** | |
-| `src/runtime/vm.c` | The interpreter loop and everything on its hot path |
+| `src/runtime/vm.c` | The interpreter: the dispatch, and the unit everything below is compiled into |
+| `src/runtime/vm_state.inc` | The one VM, and the stack it runs on |
+| `src/runtime/vm_number.inc` | Errors, and the arithmetic that has to be exact |
+| `src/runtime/vm_property.inc` | Accessors, and asking an object for what it may not have |
+| `src/runtime/vm_call.inc` | Calling, and the arity a call has to satisfy |
+| `src/runtime/vm_invoke.inc` | A callee that is not a plain closure |
+| `src/runtime/vm_iterate.inc` | Object keys, and what `for...of` pulls from |
+| `src/runtime/vm_upvalue.inc` | Captured locals, and the opcode profile |
+| `src/runtime/vm_throw.inc` | Where a throw goes |
+| `src/runtime/vm_cache_miss.inc` | What an inline cache misses |
+| `src/runtime/vm_ops_*.inc` | The opcode bodies, by role — six files |
 | `src/runtime/vm_fiber.c` | Suspendable calls, for `await` |
 | `src/runtime/vm_event.c` | Microtasks, timers, and the loop that drains them |
 | `src/runtime/vm_internal.h` | The seams between those three |
@@ -670,10 +680,14 @@ table, then reset the stack.
 | `src/runtime/shape.c` | Hidden classes: the layout an object has |
 | `src/runtime/memory.c` | The allocator and the collector |
 | `src/runtime/table.c` | Open-addressing hash table |
-| `src/runtime/value.c` | Value operations, coercion, number formatting |
+| `src/runtime/value.c` | What a Value is, and what it converts to |
+| `src/runtime/value_render.c` | Turning a Value into text, in the two ways that differ |
+| `src/runtime/value_internal.h` | The seam between those two |
 | `src/runtime/module.c` | Resolving, loading and ordering source files |
 | `src/runtime/bigint.c` | Arbitrary-precision integers |
-| `src/runtime/regex.c` | The regex engine, testable on its own |
+| `src/runtime/regex.c` | Compiling a pattern to a program |
+| `src/runtime/regex_match.c` | Running one against a subject |
+| `src/runtime/regex_internal.h` | The compiled program both halves see |
 | **Compiler (second tier)** | |
 | `src/jit/jit.c` | Tiering: what gets hot, and what happens when it does |
 | `src/jit/ir.c` | The walk that lowers a function's bytecode |
@@ -727,6 +741,23 @@ were split by **what they handle**, not by phase — the pieces of a
 recursive-descent parser are mutually recursive because the grammar is, so
 layering them would have been a fiction. Each group shares an internal header
 that nothing outside it includes.
+
+**`vm.c` could not be split that way at all**, and finding out why is worth
+recording. Its opcode bodies each end in `VM_NEXT()`, which under
+computed-goto dispatch is a jump to a label in `run()` — so a case cannot
+become a function without giving up the dispatch strategy
+[measured above](#what-did-not-help-computed-goto). And its helpers *could*
+become separate translation units, but doing so cost **13-49%** on the
+interpreter benchmarks — 49% on `bench/branches.cx` — because the compiler had
+been inlining and specialising them into the loop, and a cross-unit call
+cannot be inlined.
+
+So the file is split and the translation unit is not: `vm.c` is a list of
+`#include`s of `.inc` fragments, and the object code is byte-for-byte what it
+was. An interleaved A/B of the two binaries puts the difference between -1.9%
+and +2.7%, which is the machine's noise. `vm_fiber.c` and `vm_event.c` stay
+separate units because `await` and the microtask queue are not on the hot
+path.
 
 `ir.c` was split the same way later, and needed one thing the others did not.
 Its cases said `goto handOver` and `goto failed`, which a function cannot do to
