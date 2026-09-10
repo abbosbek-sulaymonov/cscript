@@ -671,7 +671,11 @@ table, then reset the stack.
 | `src/jit/ir_types.c` | What each value holds, and whether it is proved enough to run |
 | `src/jit/ir_print.c` | The IR in readable form, and where its typing stops |
 | `src/jit/ir_interpret.c` | Running the lowered form, to check it against the bytecode |
-| `src/jit/jitcode.c` | The arm64 encoder and the executable memory it fills |
+| `src/jit/jitcode.c` | Compiling a lowered function, and the memory it runs from |
+| `src/jit/jitcode_internal.h` | The seam between the backend's files |
+| `src/jit/jitcode_arm64.c` | The arm64 instructions this backend can emit |
+| `src/jit/jitcode_alloc.c` | Deciding where every value lives |
+| `src/jit/jitcode_emit.c` | One IR instruction to machine code |
 | **Standard library** | |
 | `src/native/native.c` | The global environment, and what is installed into it |
 | `src/native/native_internal.h` | The seam between the library's files |
