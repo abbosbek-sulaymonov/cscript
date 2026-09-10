@@ -23,8 +23,9 @@
  * It is called with a pointer to the frame slots and a pointer to scratch
  * space for the IR's values, and returns the result's bits. Both arrays belong
  * to the caller, which is what keeps the compiled code free of any allocation
- * or stack management of its own. */
-/* `exitTarget` is set to a bytecode offset when the code handed the frame back
+ * or stack management of its own.
+ *
+ * `exitTarget` is set to a bytecode offset when the code handed the frame back
  * to the interpreter rather than returning, and left alone otherwise — the
  * caller seeds it with -1 and reads it to tell the two apart. */
 typedef uint64_t (*CompiledFn)(Value *slots, Value *scratch, int *exitTarget);

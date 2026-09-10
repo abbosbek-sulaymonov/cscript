@@ -1,3 +1,14 @@
+/* memory.c — allocation, and the mark-sweep collector behind it.
+ *
+ * Every allocation is a chance to collect, so anything reachable only from a C
+ * local has to be pushed as a temporary root first — which is what the
+ * csPushTempRoot calls all over the runtime are for.
+ *
+ * Marking is not one pass. The roots come first, then everything reachable
+ * from them, and only then the ephemerons: a weak map's value is reachable
+ * exactly when its key turned out to be, so it cannot be decided until the
+ * keys have been. Weak references are resolved last, once marking is final.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 

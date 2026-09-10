@@ -1,3 +1,11 @@
+/* table.c — the hash table the globals, the shapes and the property bags share.
+ *
+ * Open addressing with linear probing, grown before it reaches 75% full
+ * because linear probing degrades badly past that. Every key is an interned
+ * string, so a comparison is a pointer comparison and the hash was computed
+ * once at creation. Deleting leaves a tombstone rather than a hole, which is
+ * what keeps the probe chains that ran through it walkable.
+ */
 #include <string.h>
 
 #include "cscript/memory.h"

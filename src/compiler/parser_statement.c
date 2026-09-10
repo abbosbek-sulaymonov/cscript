@@ -1,6 +1,8 @@
 /* parser_statement.c — statements and control flow.
  *
- * The statement dispatcher and every construct it recognises: blocks,\n * conditionals, the four loop forms, switch and try. Declarations are next\n * door in parser_declaration.c; this file is what surrounds them.
+ * The statement dispatcher and every construct it recognises: blocks,
+ * conditionals, the four loop forms, switch and try. Declarations are next
+ * door in parser_declaration.c; this file is what surrounds them.
  */
 #include <stdio.h>
 #include <string.h>

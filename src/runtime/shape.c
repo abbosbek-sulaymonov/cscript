@@ -1,3 +1,13 @@
+/* shape.c — hidden classes: the layout objects built the same way share.
+ *
+ * Adding a property moves an object from one shape to the next, and two
+ * objects built by the same code reach the same shape — so a property read at
+ * a site that keeps seeing one shape is a slot index rather than a lookup.
+ *
+ * A shape is a heap object so that a layout a program stopped using is
+ * reclaimed, and the transitions out of one are weak for the same reason.
+ * Neither is ever visible from CScript.
+ */
 #include <string.h>
 
 #include "cscript/memory.h"

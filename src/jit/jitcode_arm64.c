@@ -111,9 +111,6 @@ void csJitLdrGeneral(Encoder *e, int destination, int base, int byteOffset) {
               (uint32_t)destination);
 }
 
-/* AND <Xd>, <Xn>, <Xm> — the register form. The immediate form encodes only
- * the bitmask patterns arm64 can describe in thirteen bits, and the NaN-box
- * pointer mask is not one of them, so the mask is materialised first. */
 /* FCVTZS <Xd>, <Dn> — a double truncated toward zero into a 64-bit integer. */
 void csJitFcvtzs(Encoder *e, int d, int n) {
   csJitWord(e, 0x9E780000u | ((uint32_t)n << 5) | (uint32_t)d);
@@ -171,6 +168,9 @@ void csJitPatchToHere(Encoder *e, int at) {
   }
 }
 
+/* AND <Xd>, <Xn>, <Xm> — the register form. The immediate form encodes only
+ * the bitmask patterns arm64 can describe in thirteen bits, and the NaN-box
+ * pointer mask is not one of them, so the mask is materialised first. */
 void csJitAndRegisters(Encoder *e, int d, int n, int m) {
   csJitWord(e, 0x8A000000u | ((uint32_t)m << 16) | ((uint32_t)n << 5) | (uint32_t)d);
 }

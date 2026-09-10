@@ -1,3 +1,12 @@
+/* diagnostic.c — how an error reaches the user.
+ *
+ * One message per error, with the source line quoted under it and the
+ * offending span underlined — which is why the tree keeps pointers into the
+ * source text rather than copies of it. Panic mode stays quiet until the
+ * parser resynchronises, so one mistake produces one message instead of the
+ * aftershocks; `quiet` counts without printing, which is how the REPL asks
+ * whether an entry parses yet without reporting on a half-typed line.
+ */
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>

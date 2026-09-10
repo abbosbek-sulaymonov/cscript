@@ -1,3 +1,11 @@
+/* module.c — finding a file, compiling it, and the entry point.
+ *
+ * A specifier is resolved against the importing file, and imports are loaded
+ * depth-first: by the time a module is compiled, every module it imports
+ * already exists, which is what makes a missing export a compile error rather
+ * than a runtime one. A module is cached under its resolved path, so a diamond
+ * of imports runs the shared file once.
+ */
 #include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>

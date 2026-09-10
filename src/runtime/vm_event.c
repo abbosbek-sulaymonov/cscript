@@ -1,6 +1,9 @@
 /* vm_event.c — the microtask queue, timers, and the loop that drains them.
  *
- * Settling a promise queues its reactions rather than calling them, which is\n * the one rule that makes ordering predictable — and the reason a handler never\n * runs in the middle of the code that settled the promise. Everything here\n * runs after the program's own code has finished, so none of it is hot.
+ * Settling a promise queues its reactions rather than calling them, which is
+ * the one rule that makes ordering predictable — and the reason a handler never
+ * runs in the middle of the code that settled the promise. Everything here
+ * runs after the program's own code has finished, so none of it is hot.
  */
 #include <stdio.h>
 #include <stdlib.h>

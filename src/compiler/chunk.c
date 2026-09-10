@@ -1,3 +1,10 @@
+/* chunk.c — a compiled function's code, its constants and its inline caches.
+ *
+ * The bytecode array with a line table beside it, and one cache slot per site
+ * the compiler emits. A cached shape is a weak reference: caching a layout
+ * must not be what keeps it alive, so the caches are pruned against what a
+ * collection marked rather than marked themselves.
+ */
 #include "cscript/chunk.h"
 #include "cscript/memory.h"
 #include "cscript/object.h"
@@ -49,8 +56,9 @@ int csChunkAddConstant(Chunk *chunk, Value value) {
 
 /* Sized exactly, one slot at a time, because the compiler asks for one per
  * site and never for more. The reallocation cost is paid at compile time and
- * the array is then read once per execution of the site. */
-/* The count is published last. Growing allocates, and a collection triggered
+ * the array is then read once per execution of the site.
+ *
+ * The count is published last. Growing allocates, and a collection triggered
  * in the middle walks this array to prune dead shapes — so the count must
  * never describe more entries than the array actually holds. */
 int csChunkAddPropertyCache(Chunk *chunk) {

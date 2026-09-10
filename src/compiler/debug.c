@@ -15,15 +15,6 @@
 #include "cscript/type.h"
 #include "cscript/value.h"
 
-#include <stdarg.h>
-#include <stdio.h>
-
-#include "cscript/debug.h"
-#include "cscript/object.h"
-#include "cscript/opcode.h"
-#include "cscript/type.h"
-#include "cscript/value.h"
-
 /* The trace build asks for every stage, which is what it always did. Anything
  * else starts with none and the command line adds them. */
 unsigned csDumpStages =

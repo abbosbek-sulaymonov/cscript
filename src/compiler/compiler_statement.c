@@ -1,6 +1,9 @@
 /* compiler_statement.c — control flow and declarations.
  *
- * The four loop forms, `if`, `try`, and the destructuring that a declaration\n * lowers to. Everything here is about *where control goes* and *what is in\n * scope*, which is why the local-discarding and try-unwinding helpers live\n * here rather than in the core.
+ * The four loop forms, `if`, `try`, and the destructuring that a declaration
+ * lowers to. Everything here is about *where control goes* and *what is in
+ * scope*, which is why the local-discarding and try-unwinding helpers live
+ * here rather than in the core.
  */
 #include <stdio.h>
 #include <string.h>

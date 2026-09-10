@@ -73,13 +73,13 @@ ObjNative *csNativeNew(NativeFn function, const char *name, int arity);
 
 ObjObject *csObjectNew(const char *name);
 
-/* The attributes of one own property. CS_PROP_DEFAULT when nothing has said
- * otherwise, which is the answer for almost every property of almost every
- * object. */
 /* Drops an object out of shape mode, so the write fast path stops recognising
  * it. Needed once any of its properties is not writable. */
 void csObjectLeaveShapeMode(ObjObject *object);
 
+/* The attributes of one own property. CS_PROP_DEFAULT when nothing has said
+ * otherwise, which is the answer for almost every property of almost every
+ * object. */
 unsigned csObjectAttributes(ObjObject *object, ObjString *key);
 void csObjectSetAttributes(ObjObject *object, ObjString *key, unsigned attributes);
 

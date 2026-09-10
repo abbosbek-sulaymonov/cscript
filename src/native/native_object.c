@@ -202,13 +202,13 @@ static bool objectHasOwn(Value receiver, int argCount, Value *args, Value *resul
   return true;
 }
 
+/* Defined below, with the rest of the descriptor machinery. */
+bool csNativeDefineFromMap(ObjObject *object, Value describedBy);
+
 /* `Object.create(proto)` — a new object that inherits from `proto` and owns
  * nothing. This is the prototype model without a constructor function: the
  * shared behaviour is an ordinary object, and what inherits from it is made
  * here rather than by `new`. */
-/* Defined below, with the rest of the descriptor machinery. */
-bool csNativeDefineFromMap(ObjObject *object, Value describedBy);
-
 static bool objectCreate(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   if (argCount < 1 || (!IS_OBJECT(args[0]) && !IS_NULL(args[0]))) {

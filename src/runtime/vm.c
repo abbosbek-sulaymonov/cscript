@@ -46,6 +46,13 @@ VM vm;
 #include "runtime/vm_throw.inc"
 #include "runtime/vm_cache_miss.inc"
 
+/* Executes until the frame stack unwinds back to `baseFrame`.
+ *
+ * The top level passes 0, so the loop ends when the script returns. A native
+ * calling back into user code passes the depth it started at, which turns this
+ * into a nested interpreter that returns control as soon as that one call is
+ * finished — without which `map`, `filter` and a `sort` comparator could not
+ * run user code at all. */
 InterpretResult run(int baseFrame) {
   CallFrame *frame = &vm.frames[vm.frameCount - 1];
 

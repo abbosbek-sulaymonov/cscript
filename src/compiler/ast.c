@@ -13,11 +13,6 @@
 
 #include "compiler/ast_internal.h"
 
-#include <stdlib.h>
-#include <string.h>
-
-#include "cscript/ast.h"
-
 /* The arena hands out bump-allocated slices of large blocks. Nodes are small
  * and numerous, and they all die at the same moment, so per-node free() would
  * be pure overhead. */

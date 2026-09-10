@@ -1,3 +1,11 @@
+/* type.c — the type names, and what may be assigned to what.
+ *
+ * TypeKind is a flat enum, and this is the whole of the relation over it: a
+ * type already in error absorbs further complaints, `any` flows in both
+ * directions without a check, and everything else has to match exactly. That
+ * middle rule is the gradual boundary — the one place the checker deliberately
+ * stops being sound.
+ */
 #include <string.h>
 
 #include "cscript/type.h"

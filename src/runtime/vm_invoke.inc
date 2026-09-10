@@ -82,10 +82,6 @@ bool callValue(Value callee, int argCount) {
   return false;
 }
 
-/* Calls a class method, leaving the receiver in slot 0 so `this` resolves to
- * it. Every other call path overwrites that slot with the callee, which is
- * harmless because nothing else names it — a method is the one case where the
- * body reads it. */
 /* `super.name` in a static method means the superclass's static of that name,
  * and in an instance method its instance method. Nothing in the bytecode says
  * which, but the receiver does: a static is called with the class itself. */
@@ -101,6 +97,10 @@ static ObjClosure *findSuperMember(ObjClass *superclass, ObjString *name,
   return NULL;
 }
 
+/* Calls a class method, leaving the receiver in slot 0 so `this` resolves to
+ * it. Every other call path overwrites that slot with the callee, which is
+ * harmless because nothing else names it — a method is the one case where the
+ * body reads it. */
 static bool callMethod(ObjClosure *method, int argCount) {
   /* An async method is still an async call: it needs its own fiber, and the
    * receiver already sits where that fiber's slot 0 will be. */
@@ -142,11 +142,6 @@ static Table *methodTableFor(Value receiver) {
   return NULL;
 }
 
-/* Looks `name` up on `receiver` and calls it, leaving the result where the
- * receiver was. Returns false with an error already reported.
- *
- * A plain object's own properties win over anything else, because a user
- * function stored on an object is exactly what it looks like. */
 /* A constructor body answered by compiled code, leaving the stack as the
  * caller found it. `built` goes to slot 0, which is where the body's `this`
  * lives; what the body *returns* is handed back, because JavaScript lets a
@@ -205,6 +200,11 @@ static bool methodAnsweredByCompiler(Value receiver, ObjClosure *method,
 #endif
 }
 
+/* Looks `name` up on `receiver` and calls it, leaving the result where the
+ * receiver was. Returns false with an error already reported.
+ *
+ * A plain object's own properties win over anything else, because a user
+ * function stored on an object is exactly what it looks like. */
 static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
   if (IS_OBJECT(receiver)) {
     Value method;

@@ -1,6 +1,10 @@
 /* vm_fiber.c — suspendable calls.
  *
- * `await` stops a running function and starts it again later. Copying its\n * slots off the value stack would be cheaper, but upvalues hold raw pointers\n * *into* that stack — so a suspendable call gets a stack of its own and\n * nothing ever moves. The active fiber's state lives inline in the VM, which\n * keeps the interpreter loop unchanged; switching swaps it out and back.
+ * `await` stops a running function and starts it again later. Copying its
+ * slots off the value stack would be cheaper, but upvalues hold raw pointers
+ * *into* that stack — so a suspendable call gets a stack of its own and
+ * nothing ever moves. The active fiber's state lives inline in the VM, which
+ * keeps the interpreter loop unchanged; switching swaps it out and back.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -207,8 +211,9 @@ void csVMResumeFiber(ObjFiber *fiber, Value value, bool isRejection) {
  *
  * The same swap-run-swap as an async resume: what differs is only where the
  * value goes. `pushValue` is false the first time, because there is no
- * suspended `yield` waiting to receive one. */
-/* Runs a generator's body until it next stops, and says how it stopped.
+ * suspended `yield` waiting to receive one.
+ *
+ * Runs a generator's body until it next stops, and says how it stopped.
  *
  * `*yielded` distinguishes the two: a `yield` has a value for whoever pulled,
  * while an `await` in an async generator means the body is not finished and

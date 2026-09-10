@@ -1,24 +1,23 @@
 /* jit.h — tiering: deciding what is worth compiling, and holding what was.
  *
- * This is the plumbing a just-in-time compiler needs before it has a code
- * generator. It answers two questions and nothing else yet:
+ * Two questions, in that order:
  *
  *   Which functions are hot?          — counted at calls and loop back-edges
- *   Which of those could be compiled  — and, crucially, *how much guarding*
- *   without guarding everything?        each would need
+ *   How much guarding would each need — which decides how far it gets
  *
- * The second question is the one worth asking here. CScript has optional
+ * The second is the one that matters here. CScript has optional
  * TypeScript-style annotations, and a checker that proves them before the
  * program runs. Where a function is fully annotated, a compiler can emit
  * unboxed arithmetic with no type guards and no deoptimisation points at all —
  * something a JavaScript engine can never do, because JavaScript promises
  * nothing about a value until it sees one.
  *
- * So the profile records, per function, how many operations the compiler could
- * already specialise from a declared type against how many it had to leave
- * generic. That ratio decides whether a type-directed compiler is worth
- * building, and it is measured rather than assumed — which is how every other
- * optimisation in this project was decided.
+ * So a considered function has three possible fates, and the profile records
+ * which one it got: refused outright, lowered to the typed IR — which the IR
+ * interpreter can run in place of the bytecode, and does under `make test-ir`
+ * — or compiled to arm64. The distance between the last two is measured
+ * rather than assumed, which is how every other optimisation in this project
+ * was decided.
  */
 #ifndef CSCRIPT_JIT_H
 #define CSCRIPT_JIT_H
@@ -28,8 +27,9 @@
 
 /* How much work a function has to do before it is worth compiling. Calls and
  * loop back-edges both count, because a function called a million times and a
- * function called once around a million-iteration loop are equally hot. */
-/* How much work before a function is worth compiling. Overridable so the test
+ * function called once around a million-iteration loop are equally hot.
+ *
+ * How much work before a function is worth compiling. Overridable so the test
  * suite can exercise the lowering: real programs cross it in a loop, but a
  * test case runs once. */
 #define CS_JIT_THRESHOLD (csJitThreshold())
@@ -79,9 +79,9 @@ typedef enum {
 #define CS_JIT_TICK(fn) ((void)0)
 #endif
 
-/* Called when a function crosses the threshold. With no code generator behind
- * it this only records the decision, which is the point of the stage: the
- * decision is what has to be shown to be right before the generator exists. */
+/* Called when a function crosses the threshold. Scans, lowers and compiles as
+ * far as the function allows, and records what happened either way — a refusal
+ * is as much of a result as a compile, and `--jit-report` prints both. */
 void csJitConsider(ObjFunction *function);
 
 /* Marks what compiled code assumes about object layouts. jit.c is in every
@@ -100,8 +100,9 @@ void csJitMarkRoots(void);
  *
  * Abandoning halfway is safe: the IR interpreter touches only its own slots
  * and registers, so a function it cannot finish leaves nothing behind and the
- * bytecode runs as usual. */
-/* `receiver` is what slot 0 holds: a method's `this`, or whatever an ordinary
+ * bytecode runs as usual.
+ *
+ * `receiver` is what slot 0 holds: a method's `this`, or whatever an ordinary
  * call would have left in the callee's own slot. Passing it rather than
  * assuming undefined is what lets a method be answered from compiled code —
  * the entry checks read slot 0 like any other, and a method's property reads

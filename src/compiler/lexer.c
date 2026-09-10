@@ -13,11 +13,6 @@
 
 #include "compiler/lexer_internal.h"
 
-#include <stdio.h>
-#include <string.h>
-
-#include "cscript/lexer.h"
-
 void csLexerInit(Lexer *lexer, const char *source, Diagnostics *diag) {
   lexer->start = source;
   lexer->current = source;

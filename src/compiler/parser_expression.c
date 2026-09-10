@@ -13,7 +13,6 @@
 #include "compiler/parser_internal.h"
 
 
-/* Postfix `.name` and `(args)`, which bind tighter than any unary operator. */
 /* The argument list of a call, after its '(' has been consumed. Shared by the
  * plain and optional forms so the two cannot drift apart. */
 static bool parseCallArguments(Parser *parser, AstNode *call, int line) {
@@ -49,6 +48,7 @@ static bool rejectMixedNullish(Parser *parser, const AstNode *left,
   return true;
 }
 
+/* Postfix `.name` and `(args)`, which bind tighter than any unary operator. */
 AstNode *parseCallSuffixes(Parser *parser, AstNode *expression) {
   /* Set by the first `?.`. See csAstOptionalChain: the links short-circuit
    * the whole chain, so the chain has to exist as a node. */

@@ -5,10 +5,11 @@
  * what makes it impossible for the table to drift out of step with the enum —
  * a mismatch there would jump to the wrong handler rather than fail to build.
  *
- * Operands are inline bytes following the opcode, except constant-pool indices
- * and inline-cache indices, which are two bytes. One byte capped a function at 256 literals — reachable
- * by an ordinary file — and the extra byte costs one more read on instructions
- * that were already touching memory for the constant itself.
+ * Operands are inline bytes following the opcode, except constant-pool and
+ * inline-cache indices, which are two. One byte capped a function at 256
+ * literals — reachable by an ordinary file — and the extra byte costs one more
+ * read on instructions that were already touching memory for the constant
+ * itself.
  *
  * Adding an opcode still means adding a case to the disassembler in debug.c,
  * which the compiler will not catch for you.

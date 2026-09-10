@@ -1,6 +1,9 @@
 /* compiler_class.c — classes.
  *
- * A class is built once, where it is declared: the class object, its methods\n * and accessors, its static members, and the field initialisers that run per\n * instance. The constructor is compiled here rather than with other functions\n * because field initialisers have to land after its `super(...)` call.
+ * A class is built once, where it is declared: the class object, its methods
+ * and accessors, its static members, and the field initialisers that run per
+ * instance. The constructor is compiled here rather than with other functions
+ * because field initialisers have to land after its `super(...)` call.
  */
 #include <stdio.h>
 #include <string.h>
