@@ -622,18 +622,35 @@ table, then reset the stack.
 | `include/cscript/` | One public header per subsystem |
 | **Front end** | |
 | `src/compiler/lexer.c` | Source text to tokens |
+| `src/compiler/lexer_keyword.c` | Which identifiers are keywords, and every token's name |
+| `src/compiler/lexer_internal.h` | The seam between those two |
 | `src/compiler/parser.c` | The token plumbing, the precedence table, and `csParse` |
-| `src/compiler/parser_expression.c` | Expressions, templates, functions and arrows |
-| `src/compiler/parser_declaration.c` | Variables, patterns, classes, imports and exports |
+| `src/compiler/parser_expression.c` | Precedence climbing, and the primary dispatcher |
+| `src/compiler/parser_primary.c` | The operands an expression can start with |
+| `src/compiler/parser_prefix.c` | The operators an expression can start with |
+| `src/compiler/parser_arrow.c` | Templates, arrows, and the function forms |
+| `src/compiler/parser_declaration.c` | Variable declarations and the patterns they bind |
+| `src/compiler/parser_class.c` | The class body, in source order |
+| `src/compiler/parser_module.c` | `import` and `export`, in every form |
 | `src/compiler/parser_statement.c` | Blocks, conditionals, the loop forms, `switch`, `try` |
-| `src/compiler/parser_internal.h` | What those four share |
-| `src/compiler/ast.c` | Node constructors and the arena they live in |
+| `src/compiler/parser_internal.h` | What all of those share |
+| `src/compiler/ast.c` | The arena, and the expression nodes |
+| `src/compiler/ast_statement.c` | The statement and declaration nodes |
+| `src/compiler/ast_name.c` | An operator's name, for diagnostics and the dump |
+| `src/compiler/ast_internal.h` | How a node and a list are made |
 | **Checking** | |
-| `src/compiler/typecheck.c` | Static checking; annotates the AST with types |
+| `src/compiler/typecheck.c` | The scope, the builtins, and the node dispatcher |
+| `src/compiler/typecheck_value.c` | The type of an expression |
+| `src/compiler/typecheck_statement.c` | The checking a statement needs |
+| `src/compiler/typecheck_internal.h` | The checker's state |
 | `src/compiler/type.c` | The type lattice and assignability |
 | **Back end** | |
 | `src/compiler/compiler.c` | Emit helpers, scopes, locals, and the node dispatcher |
-| `src/compiler/compiler_expression.c` | Operators, assignment, `this`/`super`, closures |
+| `src/compiler/compiler_node_value.c` | What each expression node becomes |
+| `src/compiler/compiler_node_statement.c` | What each statement node becomes |
+| `src/compiler/compiler_expression.c` | Operators, and the conditions that feed a jump |
+| `src/compiler/compiler_assign.c` | Assignment, in all the forms it takes |
+| `src/compiler/compiler_function.c` | Functions, and what `this` means inside one |
 | `src/compiler/compiler_statement.c` | Control flow and the destructuring a declaration lowers to |
 | `src/compiler/compiler_class.c` | Classes: members, accessors, statics, constructors |
 | `src/compiler/compiler_module.c` | Imports and exports, resolved at compile time |
@@ -698,7 +715,8 @@ table, then reset the stack.
 | `src/native/native_symbol.c` | `Symbol` and the well-known ones |
 | `src/native/native_bigint.c` | The `BigInt` surface |
 | **Tools** | |
-| `src/compiler/debug.c` | Disassembler and AST printer |
+| `src/compiler/debug.c` | The disassembler, and the flags that ask for a dump |
+| `src/compiler/debug_ast.c` | The parse tree, printed |
 | `src/compiler/diagnostic.c` | Error reporting |
 | `src/main.c` | The command line, the REPL, and the file runner |
 

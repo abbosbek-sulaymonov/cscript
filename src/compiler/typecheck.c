@@ -1,56 +1,23 @@
+/* typecheck.c — static checking, between the parser and the compiler.
+ *
+ * It needs the whole tree, and the compiler benefits from the types it
+ * resolves: every node is annotated on the way out, and `resolvedType` is what
+ * lets the compiler emit OP_ADD_NUM where it would otherwise emit OP_ADD. So
+ * an annotation is consumed rather than erased.
+ *
+ * The scope, the builtins and the signatures are here; what each node means is
+ * in typecheck_value.c and typecheck_statement.c.
+ */
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "cscript/typecheck.h"
 
-#define MAX_SCOPED_VARIABLES 512
+#include "compiler/typecheck_internal.h"
 
-/* A variable the checker knows about. The scope stack mirrors the compiler's,
- * deliberately: keeping the two passes independent means the compiler can be
- * changed without silently altering what is or is not an error. */
-/* A function's declared shape. Parameter and return types are kept here rather
- * than in TypeKind, which stays a flat enum: a full type tree is only worth
- * building once object shapes and generics need one. */
-typedef struct {
-  TypeKind returnType;
-  bool hasReturnAnnotation;
-  int paramCount;
-  /* How many a call must supply. A parameter with a default is optional, so
-   * this stops at the first one that has one. */
-  int requiredCount;
-  bool hasRest; /* no upper bound on the arguments */
-  TypeKind paramTypes[UINT8_MAX];
-} Signature;
 
-typedef struct {
-  const char *name;
-  int length;
-  TypeKind type;
-  int depth;
-  const Signature *signature; /* NULL unless the variable is a function */
-} Variable;
-
-#define MAX_FUNCTIONS 128
-
-typedef struct {
-  Diagnostics *diag;
-  Variable variables[MAX_SCOPED_VARIABLES];
-  int count;
-  int scopeDepth;
-
-  /* Signatures are owned here so they outlive the scope that declared them. */
-  Signature signatures[MAX_FUNCTIONS];
-  int signatureCount;
-
-  /* The return type expected by the function currently being checked, so a
-   * `return` can be validated against its own declaration. */
-  TypeKind currentReturn;
-  bool currentReturnAnnotated;
-  int functionDepth;
-} Checker;
-
-static void typeError(Checker *checker, int line, const char *format, ...) {
+void csTypeError(Checker *checker, int line, const char *format, ...) {
   char message[256];
   va_list args;
   va_start(args, format);
@@ -63,9 +30,9 @@ static void typeError(Checker *checker, int line, const char *format, ...) {
   csDiagnosticError(checker->diag, line, NULL, 0, "%s", message);
 }
 
-static void beginScope(Checker *checker) { checker->scopeDepth++; }
+void csTypeBeginScope(Checker *checker) { checker->scopeDepth++; }
 
-static void endScope(Checker *checker) {
+void csTypeEndScope(Checker *checker) {
   checker->scopeDepth--;
   while (checker->count > 0 &&
          checker->variables[checker->count - 1].depth > checker->scopeDepth) {
@@ -74,7 +41,7 @@ static void endScope(Checker *checker) {
 }
 
 /* Searches innermost-first so a shadowing declaration wins. */
-static Variable *findVariable(Checker *checker, const char *name, int length) {
+Variable *csTypeFindVariable(Checker *checker, const char *name, int length) {
   for (int i = checker->count - 1; i >= 0; i--) {
     Variable *variable = &checker->variables[i];
     if (variable->length == length &&
@@ -85,7 +52,7 @@ static Variable *findVariable(Checker *checker, const char *name, int length) {
   return NULL;
 }
 
-static void declareVariable(Checker *checker, const char *name, int length,
+void csTypeDeclareVariable(Checker *checker, const char *name, int length,
                             TypeKind type) {
   if (checker->count >= MAX_SCOPED_VARIABLES) return; /* compiler reports the limit */
   Variable *variable = &checker->variables[checker->count++];
@@ -107,7 +74,7 @@ static void declareBuiltins(Checker *checker) {
       {"Infinity", TYPE_NUMBER}, {"Error", TYPE_FUNCTION},
   };
   for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
-    declareVariable(checker, builtins[i].name, (int)strlen(builtins[i].name),
+    csTypeDeclareVariable(checker, builtins[i].name, (int)strlen(builtins[i].name),
                     builtins[i].type);
   }
 }
@@ -118,12 +85,6 @@ static void declareBuiltins(Checker *checker) {
  *
  * TYPE_ANY here means "known method, unknown result" — an array method whose
  * element type the checker cannot see. */
-typedef struct {
-  TypeKind receiver;
-  const char *name;
-  TypeKind returns;
-} MethodSignature;
-
 static const MethodSignature BUILTIN_METHODS[] = {
     /* strings */
     {TYPE_STRING, "toUpperCase", TYPE_STRING},
@@ -186,7 +147,7 @@ static const MethodSignature BUILTIN_METHODS[] = {
 };
 
 /* Returns the signature for `name` on `receiver`, or NULL. */
-static const MethodSignature *findMethod(TypeKind receiver, const char *name,
+const MethodSignature *csTypeFindMethod(TypeKind receiver, const char *name,
                                          int length) {
   for (size_t i = 0; i < sizeof(BUILTIN_METHODS) / sizeof(BUILTIN_METHODS[0]); i++) {
     const MethodSignature *entry = &BUILTIN_METHODS[i];
@@ -199,11 +160,10 @@ static const MethodSignature *findMethod(TypeKind receiver, const char *name,
   return NULL;
 }
 
-static TypeKind checkNode(Checker *checker, AstNode *node);
 
 /* Records a function's shape and binds its name, before the body is walked so
  * that recursive calls resolve. */
-static const Signature *declareFunction(Checker *checker, AstNode *node) {
+const Signature *csTypeDeclareFunction(Checker *checker, AstNode *node) {
   if (checker->signatureCount >= MAX_FUNCTIONS) return NULL;
 
   Signature *signature = &checker->signatures[checker->signatureCount++];
@@ -226,14 +186,14 @@ static const Signature *declareFunction(Checker *checker, AstNode *node) {
   }
 
   if (node->as.function.isDeclaration) {
-    declareVariable(checker, node->as.function.name, node->as.function.nameLength,
+    csTypeDeclareVariable(checker, node->as.function.name, node->as.function.nameLength,
                     TYPE_FUNCTION);
     checker->variables[checker->count - 1].signature = signature;
   }
   return signature;
 }
 
-static void checkFunctionBody(Checker *checker, AstNode *node,
+void csTypeCheckFunctionBody(Checker *checker, AstNode *node,
                               const Signature *signature) {
   TypeKind savedReturn = checker->currentReturn;
   bool savedAnnotated = checker->currentReturnAnnotated;
@@ -242,10 +202,10 @@ static void checkFunctionBody(Checker *checker, AstNode *node,
       signature != NULL && signature->hasReturnAnnotation;
   checker->functionDepth++;
 
-  beginScope(checker);
+  csTypeBeginScope(checker);
   for (int i = 0; i < node->as.function.paramCount; i++) {
     const AstParam *param = &node->as.function.params[i];
-    declareVariable(checker, param->name, param->length,
+    csTypeDeclareVariable(checker, param->name, param->length,
                     param->hasAnnotation ? param->type : TYPE_ANY);
   }
   /* The body is an AST_BLOCK, but its statements are checked in the scope that
@@ -253,7 +213,7 @@ static void checkFunctionBody(Checker *checker, AstNode *node,
   for (int i = 0; i < node->as.function.body->as.block.count; i++) {
     checkNode(checker, node->as.function.body->as.block.statements[i]);
   }
-  endScope(checker);
+  csTypeEndScope(checker);
 
   checker->functionDepth--;
   checker->currentReturn = savedReturn;
@@ -281,22 +241,22 @@ static bool arithmeticOnBigInts(Checker *checker, TypeKind left, TypeKind right,
     return true;
   }
 
-  typeError(checker, line, "cannot mix BigInt and %s in '%s'",
+  csTypeError(checker, line, "cannot mix BigInt and %s in '%s'",
             csTypeName(left == TYPE_BIGINT ? right : left), name);
   *result = TYPE_ERROR;
   return true;
 }
 
 /* Requires a number, reporting against the operator that wanted one. */
-static TypeKind requireNumber(Checker *checker, TypeKind type, int line,
+TypeKind csTypeRequireNumber(Checker *checker, TypeKind type, int line,
                               const char *operatorName) {
   if (csTypeAssignable(type, TYPE_NUMBER)) return TYPE_NUMBER;
-  typeError(checker, line, "operand of '%s' must be a number, got %s", operatorName,
+  csTypeError(checker, line, "operand of '%s' must be a number, got %s", operatorName,
             csTypeName(type));
   return TYPE_ERROR;
 }
 
-static TypeKind checkBinary(Checker *checker, AstNode *node) {
+TypeKind csTypeCheckBinary(Checker *checker, AstNode *node) {
   TypeKind left = checkNode(checker, node->as.binary.left);
   TypeKind right = checkNode(checker, node->as.binary.right);
   int line = node->line;
@@ -315,7 +275,7 @@ static TypeKind checkBinary(Checker *checker, AstNode *node) {
       }
       if (left == TYPE_ANY || right == TYPE_ANY) return TYPE_ANY;
       if (left == TYPE_NUMBER && right == TYPE_NUMBER) return TYPE_NUMBER;
-      typeError(checker, line, "cannot add %s and %s", csTypeName(left),
+      csTypeError(checker, line, "cannot add %s and %s", csTypeName(left),
                 csTypeName(right));
       return TYPE_ERROR;
 
@@ -339,8 +299,8 @@ static TypeKind checkBinary(Checker *checker, AstNode *node) {
       if (arithmeticOnBigInts(checker, left, right, line, name, &onBigInts)) {
         return onBigInts;
       }
-      TypeKind a = requireNumber(checker, left, line, name);
-      TypeKind b = requireNumber(checker, right, line, name);
+      TypeKind a = csTypeRequireNumber(checker, left, line, name);
+      TypeKind b = csTypeRequireNumber(checker, right, line, name);
       return (a == TYPE_ERROR || b == TYPE_ERROR) ? TYPE_ERROR : TYPE_NUMBER;
     }
 
@@ -351,8 +311,8 @@ static TypeKind checkBinary(Checker *checker, AstNode *node) {
       /* Ordering is the one place a BigInt and a number mix freely: there is
        * always an answer, and the VM compares them exactly rather than by
        * rounding the BigInt to a double. */
-      if (left != TYPE_BIGINT) requireNumber(checker, left, line, name);
-      if (right != TYPE_BIGINT) requireNumber(checker, right, line, name);
+      if (left != TYPE_BIGINT) csTypeRequireNumber(checker, left, line, name);
+      if (right != TYPE_BIGINT) csTypeRequireNumber(checker, right, line, name);
       return TYPE_BOOLEAN;
 
     case BINARY_EQUAL:
@@ -369,7 +329,7 @@ static TypeKind checkBinary(Checker *checker, AstNode *node) {
 
       if (!involvesNullish && csTypeIsKnown(left) && csTypeIsKnown(right) &&
           left != right) {
-        typeError(checker, line,
+        csTypeError(checker, line,
                   "'%s' between %s and %s is always %s — the types can never match",
                   name, csTypeName(left), csTypeName(right),
                   node->as.binary.op == BINARY_EQUAL ? "false" : "true");
@@ -381,579 +341,21 @@ static TypeKind checkBinary(Checker *checker, AstNode *node) {
   return TYPE_ANY;
 }
 
-static TypeKind checkNode(Checker *checker, AstNode *node) {
+/* The type of a node, and the annotation left on it.
+ *
+ * Two halves rather than one switch, split the way the language already
+ * splits: an expression has a type and a statement does not. Asked in that
+ * order because expressions are the common case, and a node neither claims
+ * keeps the `any` this has always fallen back to.
+ *
+ * The annotation is written here rather than in the halves, so that no case
+ * can forget it. */
+TypeKind checkNode(Checker *checker, AstNode *node) {
   if (node == NULL) return TYPE_ANY;
 
   TypeKind result = TYPE_ANY;
-
-  switch (node->type) {
-    case AST_NUMBER_LITERAL:    result = TYPE_NUMBER; break;
-    case AST_STRING_LITERAL:    result = TYPE_STRING; break;
-    case AST_BIGINT_LITERAL:    result = TYPE_BIGINT; break;
-    case AST_BOOL_LITERAL:      result = TYPE_BOOLEAN; break;
-    case AST_NULL_LITERAL:      result = TYPE_NULL; break;
-    case AST_UNDEFINED_LITERAL: result = TYPE_UNDEFINED; break;
-
-    case AST_IDENTIFIER: {
-      Variable *variable = findVariable(checker, node->as.identifier.name,
-                                        node->as.identifier.length);
-      /* An unknown name is a runtime error the VM reports with better context,
-       * so the checker stays quiet and treats it as dynamic. */
-      result = variable != NULL ? variable->type : TYPE_ANY;
-      break;
-    }
-
-    case AST_ASSIGN: {
-      AstNode *target = node->as.assign.target;
-      TypeKind valueType = checkNode(checker, node->as.assign.value);
-
-      /* Property and index targets have no declared type to check against. */
-      if (target->type != AST_IDENTIFIER) {
-        checkNode(checker, target);
-        result = valueType;
-        break;
-      }
-
-      Variable *variable =
-          findVariable(checker, target->as.identifier.name, target->as.identifier.length);
-
-      if (variable != NULL) {
-        target->resolvedType = variable->type;
-        if (!csTypeAssignable(valueType, variable->type)) {
-          typeError(checker, node->line, "cannot assign %s to '%.*s', which is %s",
-                    csTypeName(valueType), target->as.identifier.length,
-                    target->as.identifier.name, csTypeName(variable->type));
-          result = TYPE_ERROR;
-          break;
-        }
-        result = variable->type;
-      } else {
-        result = valueType;
-      }
-      break;
-    }
-
-    case AST_UPDATE: {
-      TypeKind targetType = checkNode(checker, node->as.update.target);
-      result = requireNumber(checker, targetType, node->line,
-                             node->as.update.isIncrement ? "++" : "--");
-      break;
-    }
-
-    case AST_UNARY: {
-      TypeKind operand = checkNode(checker, node->as.unary.operand);
-      switch (node->as.unary.op) {
-        case UNARY_NEGATE:
-          /* `-1n` is a BigInt; every other operand has to be a number. */
-          result = operand == TYPE_BIGINT
-                       ? TYPE_BIGINT
-                       : requireNumber(checker, operand, node->line, "-");
-          break;
-        case UNARY_NOT:
-          result = TYPE_BOOLEAN; /* every type has a truthiness */
-          break;
-        case UNARY_TYPEOF:
-          result = TYPE_STRING;
-          break;
-        case UNARY_VOID:
-          result = TYPE_UNDEFINED;
-          break;
-      }
-      break;
-    }
-
-    case AST_BINARY:
-      result = checkBinary(checker, node);
-      break;
-
-    case AST_LOGICAL: {
-      /* `a && b` evaluates to one operand or the other, so the result is only
-       * known when both agree. */
-      TypeKind left = checkNode(checker, node->as.logical.left);
-      TypeKind right = checkNode(checker, node->as.logical.right);
-      result = (left == right) ? left : TYPE_ANY;
-      break;
-    }
-
-    case AST_GROUPING:
-      result = checkNode(checker, node->as.grouping);
-      break;
-
-    /* A chain can short-circuit to undefined whatever its links say, so the
-     * type it produces is not the type of the last one. */
-    case AST_LABELED_STMT:
-      /* A label is a jump target; it declares nothing and types nothing. */
-      checkNode(checker, node->as.labeled.body);
-      result = TYPE_UNDEFINED;
-      break;
-
-    case AST_TEMPLATE_STRINGS:
-      checkNode(checker, node->as.templateStrings.cooked);
-      checkNode(checker, node->as.templateStrings.raw);
-      result = TYPE_OBJECT;
-      break;
-
-    case AST_SEQUENCE:
-      checkNode(checker, node->as.sequence.first);
-      result = checkNode(checker, node->as.sequence.second);
-      break;
-
-    case AST_YIELD:
-      /* What `next(x)` sends back in is whatever the caller chose. */
-      checkNode(checker, node->as.yield.value);
-      result = TYPE_ANY;
-      break;
-
-    case AST_DELETE:
-      /* Whether the property was there is not a question about types. */
-      checkNode(checker, node->as.deleteTarget);
-      result = TYPE_BOOLEAN;
-      break;
-
-    case AST_OPTIONAL_CHAIN:
-      checkNode(checker, node->as.expression);
-      result = TYPE_ANY;
-      break;
-
-    case AST_PROPERTY: {
-      TypeKind object = checkNode(checker, node->as.property.object);
-      bool isLength = node->as.property.length == 6 &&
-                      memcmp(node->as.property.name, "length", 6) == 0;
-
-      /* `length` is a number on every container; a known method name resolves
-       * to a function, and its result type is applied at the call site. */
-      if (object == TYPE_STRING) {
-        if (isLength) {
-          result = TYPE_NUMBER;
-          break;
-        }
-        if (findMethod(TYPE_STRING, node->as.property.name,
-                       node->as.property.length) != NULL) {
-          result = TYPE_FUNCTION;
-          break;
-        }
-        typeError(checker, node->line, "strings have no property '%.*s'",
-                  node->as.property.length, node->as.property.name);
-        result = TYPE_ERROR;
-        break;
-      }
-
-      /* Any other primitive with methods of its own — a number, so far. The
-       * table is asked before the type is rejected, which is what keeps the
-       * rule "a primitive has no properties" from being wrong the moment one
-       * gains a method. */
-      if (findMethod(object, node->as.property.name,
-                     node->as.property.length) != NULL) {
-        result = TYPE_FUNCTION;
-        break;
-      }
-
-      /* A callable may carry statics — `Number.isInteger` sits on the same
-       * value `Number(x)` calls — so a property read on a function is allowed
-       * and simply dynamic. */
-      /* `?.` says the receiver may be absent, so a null or undefined one is
-       * the case being handled rather than a mistake. */
-      if (node->as.property.optional &&
-          (object == TYPE_NULL || object == TYPE_UNDEFINED)) {
-        result = TYPE_ANY;
-        break;
-      }
-
-      if (csTypeIsKnown(object) && object != TYPE_OBJECT && object != TYPE_FUNCTION) {
-        typeError(checker, node->line, "cannot read property '%.*s' of %s",
-                  node->as.property.length, node->as.property.name, csTypeName(object));
-        result = TYPE_ERROR;
-        break;
-      }
-
-      /* Object shapes are not modelled yet, so a property is dynamic. That
-       * includes `length`: arrays and plain objects share TYPE_OBJECT here, so
-       * assuming a number would reject `class Queue { length() { ... } }` —
-       * and being wrong about a type is worse than not knowing it. A string's
-       * `length` is handled above, where it really is guaranteed. */
-      (void)isLength;
-      result = TYPE_ANY;
-      break;
-    }
-
-    case AST_CALL: {
-      /* `o.m?.()` is written precisely because `m` might not be there, so the
-       * callee is not checked as a property read at all — only the thing it
-       * is read from. Otherwise `"ab".nope?.()`, whose whole point is that
-       * `nope` is absent, would be a type error. */
-      TypeKind callee;
-      if (node->as.call.optional && node->as.call.callee->type == AST_PROPERTY) {
-        checkNode(checker, node->as.call.callee->as.property.object);
-        callee = TYPE_ANY;
-      } else {
-        callee = checkNode(checker, node->as.call.callee);
-      }
-
-      TypeKind argTypes[UINT8_MAX];
-      for (int i = 0; i < node->as.call.argCount; i++) {
-        TypeKind argType = checkNode(checker, node->as.call.arguments[i]);
-        if (i < UINT8_MAX) argTypes[i] = argType;
-      }
-
-      if (node->as.call.optional &&
-          (callee == TYPE_NULL || callee == TYPE_UNDEFINED)) {
-        result = TYPE_ANY;
-        break;
-      }
-
-      if (csTypeIsKnown(callee) && callee != TYPE_FUNCTION) {
-        typeError(checker, node->line, "%s is not a function", csTypeName(callee));
-        result = TYPE_ERROR;
-        break;
-      }
-
-      /* A built-in method's result is known even though its receiver's element
-       * types are not. */
-      if (node->as.call.callee->type == AST_PROPERTY && !node->as.call.optional) {
-        AstNode *property = node->as.call.callee;
-        const MethodSignature *builtin =
-            findMethod(property->as.property.object->resolvedType,
-                       property->as.property.name, property->as.property.length);
-        result = builtin != NULL ? builtin->returns : TYPE_ANY;
-        break;
-      }
-
-      /* Only a directly-named callee has a signature the checker can see; a
-       * function reached through a property or a parameter stays dynamic. */
-      const Signature *signature = NULL;
-      if (node->as.call.callee->type == AST_IDENTIFIER) {
-        Variable *variable = findVariable(checker, node->as.call.callee->as.identifier.name,
-                                          node->as.call.callee->as.identifier.length);
-        if (variable != NULL) signature = variable->signature;
-      }
-
-      if (signature == NULL) {
-        result = TYPE_ANY;
-        break;
-      }
-
-      /* A spread hides how many arguments there really are, so the arity check
-       * has to be left to the runtime. */
-      bool hasSpread = false;
-      for (int i = 0; i < node->as.call.argCount; i++) {
-        if (node->as.call.arguments[i]->type == AST_SPREAD) hasSpread = true;
-      }
-
-      bool tooMany = !signature->hasRest &&
-                     node->as.call.argCount > signature->paramCount;
-      if (!hasSpread &&
-          (node->as.call.argCount < signature->requiredCount || tooMany)) {
-        if (signature->requiredCount == signature->paramCount) {
-          typeError(checker, node->line, "expected %d argument%s but got %d",
-                    signature->paramCount, signature->paramCount == 1 ? "" : "s",
-                    node->as.call.argCount);
-        } else {
-          typeError(checker, node->line,
-                    "expected between %d and %d arguments but got %d",
-                    signature->requiredCount, signature->paramCount,
-                    node->as.call.argCount);
-        }
-        result = TYPE_ERROR;
-        break;
-      }
-
-      for (int i = 0; i < node->as.call.argCount && i < UINT8_MAX; i++) {
-        if (!csTypeAssignable(argTypes[i], signature->paramTypes[i])) {
-          typeError(checker, node->line,
-                    "argument %d is %s but the parameter is %s", i + 1,
-                    csTypeName(argTypes[i]), csTypeName(signature->paramTypes[i]));
-        }
-      }
-
-      result = signature->returnType;
-      break;
-    }
-
-    case AST_INDEX: {
-      TypeKind target = checkNode(checker, node->as.index.target);
-      checkNode(checker, node->as.index.index);
-      /* `?.[` says the target may be absent; that is the case being handled. */
-      if (node->as.index.optional &&
-          (target == TYPE_NULL || target == TYPE_UNDEFINED)) {
-        result = TYPE_ANY;
-        break;
-      }
-      if (csTypeIsKnown(target) && target != TYPE_OBJECT && target != TYPE_STRING) {
-        typeError(checker, node->line, "cannot index %s", csTypeName(target));
-        result = TYPE_ERROR;
-        break;
-      }
-      /* Element types are not modelled, so an index is dynamic. */
-      result = TYPE_ANY;
-      break;
-    }
-
-    case AST_OBJECT_LITERAL:
-      for (int i = 0; i < node->as.objectLiteral.count; i++) {
-        checkNode(checker, node->as.objectLiteral.values[i]);
-      }
-      result = TYPE_OBJECT;
-      break;
-
-    case AST_ARRAY_LITERAL:
-      for (int i = 0; i < node->as.arrayLiteral.count; i++) {
-        checkNode(checker, node->as.arrayLiteral.elements[i]);
-      }
-      /* Arrays are objects for typing purposes until element types exist. */
-      result = TYPE_OBJECT;
-      break;
-
-    case AST_CONDITIONAL: {
-      checkNode(checker, node->as.conditional.condition);
-      TypeKind thenType = checkNode(checker, node->as.conditional.thenValue);
-      TypeKind elseType = checkNode(checker, node->as.conditional.elseValue);
-      /* Without union types the result is only known when both arms agree. */
-      result = thenType == elseType ? thenType : TYPE_ANY;
-      break;
-    }
-
-    case AST_BREAK_STMT:
-    case AST_CONTINUE_STMT:
-      /* The compiler reports these when they are out of place, where it knows
-       * the enclosing loop. */
-      result = TYPE_UNDEFINED;
-      break;
-
-    case AST_SWITCH_STMT: {
-      TypeKind subject = checkNode(checker, node->as.switchStmt.subject);
-      for (int i = 0; i < node->as.switchStmt.caseCount; i++) {
-        TypeKind test = checkNode(checker, node->as.switchStmt.cases[i].test);
-        /* Arms are matched with ===, so an arm that can never match is the
-         * same mistake as writing that comparison out by hand. */
-        if (csTypeIsKnown(subject) && csTypeIsKnown(test) && subject != test) {
-          typeError(checker, node->as.switchStmt.cases[i].test->line,
-                    "this case is %s but the switch subject is %s, so it can never match",
-                    csTypeName(test), csTypeName(subject));
-        }
-        checkNode(checker, node->as.switchStmt.cases[i].body);
-      }
-      checkNode(checker, node->as.switchStmt.defaultBody);
-      result = TYPE_UNDEFINED;
-      break;
-    }
-
-    case AST_FUNCTION: {
-      const Signature *signature = declareFunction(checker, node);
-      checkFunctionBody(checker, node, signature);
-      result = TYPE_FUNCTION;
-      break;
-    }
-
-    case AST_RETURN_STMT: {
-      TypeKind returned = node->as.returnValue != NULL
-                              ? checkNode(checker, node->as.returnValue)
-                              : TYPE_UNDEFINED;
-      if (checker->functionDepth == 0) {
-        /* The compiler reports this with better placement. */
-        result = TYPE_UNDEFINED;
-        break;
-      }
-      if (checker->currentReturnAnnotated &&
-          !csTypeAssignable(returned, checker->currentReturn)) {
-        typeError(checker, node->line, "cannot return %s from a function declared %s",
-                  csTypeName(returned), csTypeName(checker->currentReturn));
-      }
-      result = TYPE_UNDEFINED;
-      break;
-    }
-
-    case AST_VAR_DECL: {
-      TypeKind initializer = node->as.varDecl.initializer != NULL
-                                 ? checkNode(checker, node->as.varDecl.initializer)
-                                 : TYPE_UNDEFINED;
-
-      TypeKind declared;
-      if (node->as.varDecl.hasAnnotation) {
-        declared = node->as.varDecl.declaredType;
-        if (!csTypeAssignable(initializer, declared)) {
-          typeError(checker, node->line, "cannot assign %s to '%.*s', declared as %s",
-                    csTypeName(initializer), node->as.varDecl.length,
-                    node->as.varDecl.name, csTypeName(declared));
-        }
-      } else if (node->as.varDecl.initializer != NULL) {
-        /* Inference: an unannotated declaration takes its initialiser's type,
-         * which is what lets unannotated code still be checked.
-         *
-         * Except `null` and `undefined`, which say "nothing yet" rather than
-         * name a type. `let x;` is already `any` and `let x = undefined;` is
-         * the same declaration written out, so inferring from either would
-         * make them disagree — and would make `x ??= 1` an error, which is
-         * the case `??=` exists for. */
-        declared = initializer == TYPE_NULL || initializer == TYPE_UNDEFINED
-                       ? TYPE_ANY
-                       : initializer;
-      } else {
-        declared = TYPE_ANY;
-      }
-
-      declareVariable(checker, node->as.varDecl.name, node->as.varDecl.length, declared);
-      result = declared;
-      break;
-    }
-
-    case AST_EXPRESSION_STMT:
-      checkNode(checker, node->as.expression);
-      result = TYPE_UNDEFINED;
-      break;
-
-    case AST_BLOCK:
-      beginScope(checker);
-      for (int i = 0; i < node->as.block.count; i++) {
-        checkNode(checker, node->as.block.statements[i]);
-      }
-      endScope(checker);
-      result = TYPE_UNDEFINED;
-      break;
-
-    case AST_IF_STMT:
-      checkNode(checker, node->as.ifStmt.condition);
-      checkNode(checker, node->as.ifStmt.thenBranch);
-      checkNode(checker, node->as.ifStmt.elseBranch);
-      result = TYPE_UNDEFINED;
-      break;
-
-    case AST_WHILE_STMT:
-      checkNode(checker, node->as.whileStmt.condition);
-      checkNode(checker, node->as.whileStmt.body);
-      result = TYPE_UNDEFINED;
-      break;
-
-    case AST_SPREAD:
-      checkNode(checker, node->as.spread);
-      result = TYPE_ANY;
-      break;
-
-    case AST_DESTRUCTURE:
-      checkNode(checker, node->as.destructure.initializer);
-      for (int i = 0; i < node->as.destructure.count; i++) {
-        checkNode(checker, node->as.destructure.bindings[i].defaultValue);
-        /* Element and property types are not modelled, so each binding is
-         * dynamic. */
-        declareVariable(checker, node->as.destructure.bindings[i].name,
-                        node->as.destructure.bindings[i].nameLength, TYPE_ANY);
-      }
-      result = TYPE_UNDEFINED;
-      break;
-
-    case AST_TRY_STMT:
-      checkNode(checker, node->as.tryStmt.body);
-      if (node->as.tryStmt.catchBody != NULL) {
-        beginScope(checker);
-        if (node->as.tryStmt.catchName != NULL) {
-          /* Anything can be thrown, so the binding is dynamic. */
-          declareVariable(checker, node->as.tryStmt.catchName,
-                          node->as.tryStmt.catchNameLength, TYPE_ANY);
-        }
-        checkNode(checker, node->as.tryStmt.catchBody);
-        endScope(checker);
-      }
-      checkNode(checker, node->as.tryStmt.finallyBody);
-      result = TYPE_UNDEFINED;
-      break;
-
-    case AST_THROW_STMT:
-      checkNode(checker, node->as.thrown);
-      result = TYPE_UNDEFINED;
-      break;
-
-    /* Class types are not modelled. The lattice here is a fixed set of
-     * primitives, and adding nominal types with members and subtyping is a
-     * milestone of its own — so an instance is `object`, a class is dynamic,
-     * and `this` is dynamic. Nothing about a class is checked statically
-     * beyond what its method bodies say on their own. */
-    case AST_REGEX_LITERAL:
-      result = TYPE_OBJECT;
-      break;
-
-    case AST_DYNAMIC_IMPORT:
-      checkNode(checker, node->as.unary.operand);
-      result = TYPE_ANY; /* a promise, which the lattice does not model */
-      break;
-
-    case AST_THIS:
-    case AST_NEW_TARGET:
-    case AST_SUPER:
-      result = TYPE_ANY;
-      break;
-
-    /* What a promise resolves to is not modelled, so awaiting one is dynamic.
-     * An async function's declared return type describes what it resolves to
-     * rather than what calling it produces, so it is not checked either. */
-    case AST_AWAIT:
-      checkNode(checker, node->as.unary.operand);
-      result = TYPE_ANY;
-      break;
-
-    /* Types do not cross a module boundary yet: the checker runs per file and
-     * has no record of what another file resolved. An imported binding is
-     * dynamic, which is honest rather than merely permissive. */
-    case AST_IMPORT:
-      if (node->as.import.namespaceName != NULL) {
-        declareVariable(checker, node->as.import.namespaceName,
-                        node->as.import.namespaceLength, TYPE_OBJECT);
-      }
-      for (int i = 0; i < node->as.import.nameCount; i++) {
-        const AstModuleName *entry = &node->as.import.names[i];
-        declareVariable(checker, entry->alias, entry->aliasLength, TYPE_ANY);
-      }
-      result = TYPE_UNDEFINED;
-      break;
-
-    case AST_EXPORT:
-      checkNode(checker, node->as.export.declaration);
-      result = TYPE_UNDEFINED;
-      break;
-
-    case AST_CLASS_DECL: {
-      declareVariable(checker, node->as.classDecl.name, node->as.classDecl.nameLength,
-                      TYPE_ANY);
-
-      for (int i = 0; i < node->as.classDecl.fieldCount; i++) {
-        checkNode(checker, node->as.classDecl.fields[i].initializer);
-      }
-      if (node->as.classDecl.constructor != NULL) {
-        checkNode(checker, node->as.classDecl.constructor);
-      }
-      for (int i = 0; i < node->as.classDecl.memberCount; i++) {
-        checkNode(checker, node->as.classDecl.members[i].function);
-      }
-      result = TYPE_UNDEFINED;
-      break;
-    }
-
-    case AST_FOR_OF_STMT:
-      beginScope(checker);
-      checkNode(checker, node->as.forOf.iterable);
-      /* Element types are not modelled, so the binding is dynamic. */
-      declareVariable(checker, node->as.forOf.name, node->as.forOf.nameLength,
-                      TYPE_ANY);
-      checkNode(checker, node->as.forOf.body);
-      endScope(checker);
-      result = TYPE_UNDEFINED;
-      break;
-
-    case AST_FOR_STMT:
-      /* The initialiser is scoped to the loop, matching the compiler. */
-      beginScope(checker);
-      checkNode(checker, node->as.forStmt.initializer);
-      checkNode(checker, node->as.forStmt.condition);
-      checkNode(checker, node->as.forStmt.increment);
-      checkNode(checker, node->as.forStmt.body);
-      endScope(checker);
-      result = TYPE_UNDEFINED;
-      break;
-
-    case AST_PROGRAM:
-      for (int i = 0; i < node->as.program.count; i++) {
-        checkNode(checker, node->as.program.statements[i]);
-      }
-      result = TYPE_UNDEFINED;
-      break;
+  if (!checkValueNode(checker, node, &result)) {
+    checkStatementNode(checker, node, &result);
   }
 
   node->resolvedType = result;

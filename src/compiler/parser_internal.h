@@ -63,6 +63,11 @@ bool matchContextual(Parser *parser, const char *word);
 /* src/parser_expression.c */
 AstNode *parseCallSuffixes(Parser *parser, AstNode *expression);
 AstNode *parsePrimary(Parser *parser);
+
+/* The two groups it asks, in order. Each answers NULL for a token that is not
+ * one of its own — see parser_primary.c for why that is not ambiguous. */
+AstNode *parseOperandPrimary(Parser *parser, int line);
+AstNode *parsePrefixPrimary(Parser *parser, int line);
 AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence);
 AstNode *parseExpression(Parser *parser);
 AstNode *parseTemplate(Parser *parser, const char *start, int length, int line);
