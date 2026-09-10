@@ -102,10 +102,12 @@ test-gc: gcstress
 # CScript's syntax is a subset of JavaScript's, so the examples must also run
 # under Node. This is the check that keeps that claim honest.
 # The regex engine is testable on its own, without the language around it —
-# which is how it was written, and how a change to it is checked first.
+# which is how it was written, and how a change to it is checked first. Both
+# halves are needed now: regex.c compiles a pattern and regex_match.c runs it.
 test-regex:
-	@clang -std=c11 -g $(WARNINGS) -I$(INC_DIR) -o $(BUILD)/regex_engine_test \
-	    tests/regex_engine_test.c $(SRC_DIR)/runtime/regex.c
+	@clang -std=c11 -g $(WARNINGS) -I$(INC_DIR) -I$(SRC_DIR) \
+	    -o $(BUILD)/regex_engine_test tests/regex_engine_test.c \
+	    $(SRC_DIR)/runtime/regex.c $(SRC_DIR)/runtime/regex_match.c
 	@$(BUILD)/regex_engine_test
 
 # The lowering is verified by *replacing* the interpreter with it wherever it
