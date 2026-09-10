@@ -1,3 +1,11 @@
+/* parser.c — the token plumbing the rest of the parser sits on.
+ *
+ * Advancing, matching, consuming, and the resynchronisation an error needs;
+ * the precedence and operator tables; the literal decoding; and the handful of
+ * questions the grammar cannot settle from a single token — whether a name is
+ * a contextual keyword, whether what follows opens a function or an arrow's
+ * parameter list. What each construct parses is in the parser_*.c beside this.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -180,8 +188,6 @@ double parseNumberLiteral(const char *start, int length) {
 
 /* `==` and `!=` exist in the grammar so the error can name them, but they never
  * produce a node: CScript has no coercing equality. See docs/GRAMMAR.md. */
-/* `x in o`. The `in` keyword exists for `for...in`; used as an operator it
- * would need a form of property lookup CScript does not have. */
 bool rejectLooseEquality(Parser *parser) {
   if (check(parser, TOKEN_EQUAL_EQUAL)) {
     errorAtCurrent(parser,
@@ -249,7 +255,6 @@ bool nextStartsArrowParams(Parser *parser) {
 
 
 
-/* Maps a compound assignment token to the operation it expands to. */
 /* `&&= ||= ??=`. Not compound assignment: these short-circuit, so the right
  * side is not evaluated and no store happens when the left side already
  * decides the answer. */
@@ -262,6 +267,7 @@ bool logicalAssignKind(TokenType type, AssignKind *out) {
   }
 }
 
+/* Maps a compound assignment token to the operation it expands to. */
 bool compoundAssignOp(TokenType type, BinaryOp *out) {
   switch (type) {
     case TOKEN_PLUS_EQUAL:    *out = BINARY_ADD; return true;

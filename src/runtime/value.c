@@ -122,8 +122,6 @@ const char *csValueTypeName(Value value) {
   return "object";
 }
 
-/* printf writes an exponent with at least two digits — "1e-07" — while
- * JavaScript writes the minimum — "1e-7". Rewrites the buffer in place. */
 /* Number-to-string, following ECMA-262's Number::toString rather than C's %g.
  *
  * The two disagree about when to use exponent notation. C switches once the

@@ -1,9 +1,15 @@
-/* jit.c — tiering, with no code generator behind it yet.
+/* jit.c — tiering: what gets compiled, and what holds what was.
  *
- * See jit.h for why this exists before the backend does. In short: the
- * decision of *what* to compile has to be shown to be right before the
- * machinery to compile it is worth writing, and the interesting part of that
- * decision here is how much of a hot function's work is already typed.
+ * A function that crosses the threshold is considered once, and everything
+ * that can happen to it happens here: its bytecode is scanned for anything a
+ * backend would refuse, it is lowered to the typed IR, the IR's passes run,
+ * and — where every arithmetic operand is proved a number — it is compiled to
+ * machine code.
+ *
+ * The refusals are kept beside the successes deliberately. Lowering is
+ * attempted even for a function the scan would decline, because the two
+ * refusals answer different questions, and the gap between them is the work
+ * still to do. `--jit-report` prints it.
  */
 #include <limits.h>
 #include <stdio.h>
@@ -134,18 +140,6 @@ void csJitDisable(void) { jitThreshold = INT_MAX; }
 
 void csJitRequestReport(void) { jitReportRequested = true; }
 
-/* Whether the assumptions the compiled code was built on still hold.
- *
- * Two of them. The addresses it holds for globals point into a hash table, and
- * are only meaningful while that table has not rehashed — the version says.
- * And every one of those globals was a number when the code was built, which
- * is what let the arithmetic be compiled with no guard around it; the language
- * will not let a declared binding change type, but an undeclared one reached
- * through a namespace could, so it is checked rather than assumed.
- *
- * Checked once on the way in rather than at every access. Nothing inside a
- * compiled region can call anything, so nothing can invalidate either between
- * the check and the end of the run. */
 /* Do the arguments still match what the lowering was told to expect? Only the
  * parameters it speculated on are checked; an annotated one was already
  * checked at the call boundary, and an unspeculated one was never assumed. */
@@ -181,6 +175,18 @@ static bool observedTypesHoldInFrame(const ObjFunction *function,
   return true;
 }
 
+/* Whether the assumptions the compiled code was built on still hold.
+ *
+ * Two of them. The addresses it holds for globals point into a hash table, and
+ * are only meaningful while that table has not rehashed — the version says.
+ * And every one of those globals was a number when the code was built, which
+ * is what let the arithmetic be compiled with no guard around it; the language
+ * will not let a declared binding change type, but an undeclared one reached
+ * through a namespace could, so it is checked rather than assumed.
+ *
+ * Checked once on the way in rather than at every access. Nothing inside a
+ * compiled region can call anything, so nothing can invalidate either between
+ * the check and the end of the run. */
 static bool assumptionsHold(const JitCode *code) {
   if (code->globalCount == 0) return true;
   if (code->globalTable == NULL) return false;

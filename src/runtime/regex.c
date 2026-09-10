@@ -209,7 +209,6 @@ static void parseClass(ReParser *parser) {
   emit(parser->regex, RE_CLASS, addClass(parser->regex, &set), 0);
 }
 
-/* Parses one atom, returning where its code starts so a quantifier can wrap it. */
 /* Records `name` as another way to ask for group `group`. */
 static void addGroupName(ReParser *parser, const char *name, int length,
                          int group) {
@@ -246,6 +245,7 @@ static void addGroupName(ReParser *parser, const char *name, int length,
   regex->nameCount++;
 }
 
+/* Parses one atom, returning where its code starts so a quantifier can wrap it. */
 static int parseAtom(ReParser *parser) {
   Regex *regex = parser->regex;
   int start = regex->count;

@@ -249,12 +249,6 @@ void compileUpdate(const AstNode *node) {
   if (!node->as.update.isPrefix) emitByte(OP_POP, line);
 }
 
-/* Compiles an expression whose value is thrown away.
- *
- * `i++` as a statement is the common case worth special-casing: the general
- * form has to produce the old value, which costs a duplicate and two pops that
- * nothing ever reads. In effect position none of that is observable, so a local
- * update collapses to a single in-place instruction. */
 /* `yield* xs` — yield everything `xs` produces, one at a time.
  *
  * A loop rather than an opcode, because delegating means suspending once per
@@ -289,6 +283,12 @@ static void compileYieldDelegate(const AstNode *node) {
   endScope(line);
 }
 
+/* Compiles an expression whose value is thrown away.
+ *
+ * `i++` as a statement is the common case worth special-casing: the general
+ * form has to produce the old value, which costs a duplicate and two pops that
+ * nothing ever reads. In effect position none of that is observable, so a local
+ * update collapses to a single in-place instruction. */
 void compileForEffect(const AstNode *node) {
   if (node != NULL && node->type == AST_YIELD && node->as.yield.isDelegate) {
     compileYieldDelegate(node);

@@ -167,8 +167,6 @@ void compileOptionalChain(const AstNode *node) {
   patchJump(over, line);
 }
 
-/* && and || evaluate to an operand, not to a boolean, so they compile to a
- * conditional jump that leaves the left value on the stack. */
 /* OP_AWAIT and the note that this body needs a fiber to run on.
  *
  * The two always go together: `await` suspends a fiber, and the top level of a
@@ -179,6 +177,8 @@ void emitAwait(int line) {
   if (current->kind == FUNCTION_SCRIPT) current->function->isAsync = true;
 }
 
+/* && and || evaluate to an operand, not to a boolean, so they compile to a
+ * conditional jump that leaves the left value on the stack. */
 void compileLogical(const AstNode *node) {
   int line = node->line;
   compileNode(node->as.logical.left);

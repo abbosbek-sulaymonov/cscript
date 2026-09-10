@@ -123,8 +123,8 @@ void csVMDumpOpcodeProfile(void) {
  *
  * The switch version is kept for compilers without the labels-as-values
  * extension, and both paths run the same handler bodies.
- */
-/* Define CS_NO_COMPUTED_GOTO to force the portable switch path — `make
+ *
+ * Define CS_NO_COMPUTED_GOTO to force the portable switch path — `make
  * test-switch` builds that way, so the fallback cannot quietly rot. */
 #if (defined(__GNUC__) || defined(__clang__)) && !defined(CS_NO_COMPUTED_GOTO)
 #define CS_COMPUTED_GOTO 1
@@ -141,11 +141,3 @@ void csVMDumpOpcodeProfile(void) {
 #pragma GCC diagnostic ignored "-Wpedantic"
 #endif
 
-/* Executes until the frame stack unwinds back to `baseFrame`.
- *
- * The top level passes 0, so the loop ends when the script returns. A native
- * calling back into user code passes the depth it started at, which turns this
- * into a nested interpreter that returns control as soon as that one call is
- * finished — without which `map`, `filter` and a `sort` comparator could not
- * run user code at all. */
-/* What a throw could do at this level of the interpreter. */

@@ -16,9 +16,6 @@
 
 #define MAX_SCOPED_VARIABLES 512
 
-/* A variable the checker knows about. The scope stack mirrors the compiler's,
- * deliberately: keeping the two passes independent means the compiler can be
- * changed without silently altering what is or is not an error. */
 /* A function's declared shape. Parameter and return types are kept here rather
  * than in TypeKind, which stays a flat enum: a full type tree is only worth
  * building once object shapes and generics need one. */
@@ -33,6 +30,9 @@ typedef struct {
   TypeKind paramTypes[UINT8_MAX];
 } Signature;
 
+/* A variable the checker knows about. The scope stack mirrors the compiler's,
+ * deliberately: keeping the two passes independent means the compiler can be
+ * changed without silently altering what is or is not an error. */
 typedef struct {
   const char *name;
   int length;

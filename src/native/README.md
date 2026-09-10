@@ -1,0 +1,85 @@
+# `src/native/` — the standard library
+
+A namespace per file, written in C against the VM's public surface. Nothing
+here reaches into the interpreter's internals — that separation is why
+`native/` is beside `runtime/` rather than inside it.
+
+## The files
+
+| Namespaces | Holds |
+| --- | --- |
+| [`native.c`](native.c) | The global environment: `console`, the error constructors, `Array`'s statics, the timers, `process`, and the one function that builds all of it |
+| [`native_object.c`](native_object.c) | `Object` — own properties, in the order the object holds them |
+| [`native_descriptor.c`](native_descriptor.c) | `Object.defineProperty` and `getOwnPropertyDescriptor` — the only way from CScript to say what an accessor is |
+| [`native_math.c`](native_math.c) | `Math`, and the numeric functions with nowhere else to be |
+| [`native_json.c`](native_json.c) | `JSON.stringify` and `JSON.parse` |
+| [`native_convert.c`](native_convert.c) | `Number(x)`, `String(x)`, `Boolean(x)`, `parseInt`, `parseFloat` |
+| [`native_promise.c`](native_promise.c) | Promises, and the timers that feed the microtask queue |
+| [`native_symbol.c`](native_symbol.c) | `Symbol` — a name equal to nothing but itself |
+| [`native_date.c`](native_date.c) | `Date` — one instant, and the ways of writing it down |
+| [`native_map.c`](native_map.c) | `Map`, `Set`, `WeakMap`, `WeakSet` — one structure with a flag |
+| [`native_bigint.c`](native_bigint.c) | `BigInt`, a type of its own rather than a wider number |
+
+| Methods on a primitive | Holds |
+| --- | --- |
+| [`native_array.c`](native_array.c) | An array's methods that stay inside the runtime |
+| [`native_array_callback.c`](native_array_callback.c) | An array's methods that call back into user code |
+| [`native_string.c`](native_string.c) | A string's methods that read or reshape it |
+| [`native_string_search.c`](native_string_search.c) | `match`, `search`, `replace`, `split` — the ones that take a pattern |
+| [`native_regex.c`](native_regex.c) | What a regex object can do; the engine itself is in [`../runtime/regex.c`](../runtime/regex.c) |
+| [`native_number.c`](native_number.c) | The methods a number answers to |
+| [`native_function.c`](native_function.c) | `call`, `apply`, `bind` |
+| [`native_generator.c`](native_generator.c) | What a generator hands to whoever is pulling |
+| [`native_internal.h`](native_internal.h) | The seam: the `csNativeDefine*` helpers, and each file's installer |
+
+A primitive has no object to hang a method on, so its methods live in a table
+the VM picks by receiver type — `vm.arrayMethods`, `vm.stringMethods`,
+`vm.numberMethods`, and one for each of the rest. That is why the two halves
+of the table above look alike but are installed differently.
+
+## Adding a namespace
+
+Write the file, and give it its own installer. It makes its namespace object,
+fills it, and **freezes it**:
+
+```c
+void csNativeInstallMine(void) {
+  ObjObject *ns = csNativeDefineNamespace("Mine");
+  csNativeDefineMethod(ns, "thing", mineThing, 1);
+  csObjectFreeze(ns);
+}
+```
+
+Then declare the installer in [`native_internal.h`](native_internal.h) and call
+it from `csNativesInstall` in [`native.c`](native.c).
+
+**Why each file installs itself** rather than `native.c` holding a list of
+every handler: a growing list of `extern` declarations is what a split leaves
+behind, and every handler it names is a warning waiting to happen when the file
+that defines it changes. An installer is one symbol, and the file that places
+the members is also the file that can freeze them.
+
+**Why freezing.** It makes the built-ins constant, so `Math.PI = 3` and
+`console.log = f` are errors at the line that writes them rather than
+mysteries later. It can only happen once every member is in place.
+
+## Two rules every handler follows
+
+**Check, do not coerce.** A handler verifies that what it was given is what it
+needs and reports a named error otherwise. JavaScript would coerce and often
+produce `NaN`; an error at the mistake is far easier to debug than a wrong
+answer that looks like a right one — which is the failure mode this whole
+project is written against.
+
+**A callback can collect.** Anything that calls back into user code —
+[`native_array_callback.c`](native_array_callback.c) is the whole file of them
+— can allocate in the middle of its own loop, so every value it is holding has
+to be rooted and no pointer into the heap may be cached across the call. That
+hazard, and not the work, is why those methods are kept apart from
+[`native_array.c`](native_array.c).
+
+## Related
+
+- [../../docs/JAVASCRIPT.md](../../docs/JAVASCRIPT.md) — feature by feature against JavaScript: what is the same, what differs on purpose, what is missing
+- `make test-node` runs the examples under Node and requires the same output — Node is the oracle for everything in this directory
+- `tests/cases/library/` is where a new built-in's case goes, with its `.expected` generated by Node

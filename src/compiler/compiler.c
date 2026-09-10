@@ -115,7 +115,6 @@ int identifierConstant(const char *name, int length, int line) {
   return makeConstant(OBJ_VAL(string), line);
 }
 
-/* Writes a jump with a placeholder operand and returns the offset to patch. */
 /* The two-byte placeholder alone, for a jump whose opcode and other operands
  * are already written — OP_JUMP_IF_NO_METHOD carries a constant first. */
 int emitJump16(int line) {
@@ -124,6 +123,7 @@ int emitJump16(int line) {
   return currentChunk()->count - 2;
 }
 
+/* Writes a jump with a placeholder operand and returns the offset to patch. */
 int emitJump(uint8_t instruction, int line) {
   emitByte(instruction, line);
   return emitJump16(line);

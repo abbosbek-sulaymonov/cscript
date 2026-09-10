@@ -71,7 +71,6 @@ static bool arrayOf(Value receiver, int argCount, Value *args, Value *result) {
   return true;
 }
 
-/* Copies an array, or explodes a string into its characters. */
 /* `Array.from(source)` and `Array.from(source, fn)`.
  *
  * Anything it cannot convert is named rather than quietly answered with an
@@ -259,8 +258,9 @@ void csNativeDefineGlobal(const char *name, Value value) {
   if (IS_OBJ(value)) csPopTempRoot();
 }
 
-/* Builds a namespace object and installs it as a global. */
-/* Namespaces are frozen at the end of csNativesInstall rather than here,
+/* Builds a namespace object and installs it as a global.
+ *
+ * Namespaces are frozen at the end of csNativesInstall rather than here,
  * because they have no members yet. */
 ObjObject *csNativeDefineNamespace(const char *name) {
   ObjObject *object = csObjectNew(name);

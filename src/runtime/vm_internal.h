@@ -18,6 +18,7 @@
 #include "cscript/vm.h"
 
 
+/* What a throw could do at this level of the interpreter. */
 typedef enum {
   THROW_HANDLED,   /* a handler in this loop took it; keep executing */
   THROW_PROPAGATE, /* the handler belongs to an outer loop */

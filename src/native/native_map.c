@@ -75,8 +75,6 @@ static int findSlot(const ObjMap *map, Value key) {
   }
 }
 
-/* Rebuilds the index, and compacts the entries so tombstones do not accumulate
- * in a map that is repeatedly added to and deleted from. */
 /* Rebuilds the index over the entries already there, allocating nothing.
  *
  * The collector needs this: pruning a weak map clears the entries whose keys
@@ -97,6 +95,8 @@ void csMapReindexInPlace(ObjMap *map) {
   }
 }
 
+/* Rebuilds the index, and compacts the entries so tombstones do not accumulate
+ * in a map that is repeatedly added to and deleted from. */
 static void rehash(ObjMap *map, int indexCapacity) {
   int live = 0;
   for (int i = 0; i < map->count; i++) {

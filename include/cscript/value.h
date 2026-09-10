@@ -48,10 +48,11 @@ typedef uint64_t Value;
 /* A quiet NaN with the "not a signalling NaN" bit set. Any value carrying this
  * pattern is one of ours rather than a real number. */
 #define CS_QNAN ((uint64_t)0x7ffc000000000000)
-#define CS_SIGN_BIT ((uint64_t)0x8000000000000000)
 
 /* The sign bit distinguishes objects from singletons, leaving 48 bits of
  * pointer — enough for every address a userspace program sees. */
+#define CS_SIGN_BIT ((uint64_t)0x8000000000000000)
+
 /* The two boolean tags differ only in the low bit, which is what lets IS_BOOL
  * test both with a single OR. The other two singletons must therefore avoid
  * the pair {4, 5}. */

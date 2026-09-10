@@ -88,17 +88,19 @@ assumption being recorded and the entry that checks it.
 
 Sources are grouped by role rather than by phase, because the pieces of a
 recursive-descent parser are mutually recursive and layering them would have
-been a fiction. [ARCHITECTURE.md](ARCHITECTURE.md#source-layout) lists every
-file; this is the shape.
+been a fiction. This is the shape; each directory under `src/` has a README of
+its own that maps its files and says what to know before changing them, and
+[ARCHITECTURE.md](ARCHITECTURE.md#source-layout) lists every file in one
+table.
 
 ```
 cscript/
 ├── include/cscript/     one public header per subsystem
-├── src/
+├── src/                 README.md — the map, and the conventions
 │   ├── compiler/        lexer, parser, type checker, bytecode compiler
 │   ├── runtime/         the VM, the object model, the collector, modules
 │   │                    (vm.c is one translation unit across many .inc
-│   │                     files — see ARCHITECTURE.md for why)
+│   │                     files — see src/runtime/README.md for why)
 │   ├── native/          the standard library, one file per type
 │   ├── jit/             tiering, the typed IR, the arm64 encoder
 │   └── main.c           CLI, REPL, file runner
@@ -115,8 +117,6 @@ cscript/
 ├── editors/             VS Code, tree-sitter, and the Linguist material
 └── docs/                this directory
 ```
-
----
 
 ---
 

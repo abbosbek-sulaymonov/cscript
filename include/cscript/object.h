@@ -279,22 +279,6 @@ struct ObjFiber {
   struct ObjGenerator *generator;
 };
 
-/* A generator: a call that was never run, and a handle to run it in pieces.
- *
- * The body lives on its own ObjFiber, exactly as an async function's does.
- * What differs is who drives it: an async body is resumed by the event loop
- * when a promise settles, and a generator body is resumed by `next`. */
-/* A moment in time, as the number of milliseconds since 1970 — which is the
- * whole of what a JavaScript Date is. Everything else about it is a way of
- * writing that number down. NaN is a date that could not be parsed, and every
- * getter on one answers NaN in turn. */
-/* A name that is equal to nothing but itself.
- *
- * Two symbols with the same description are still two symbols — identity is
- * the whole of what one is, and the description exists only so that printing
- * one says something. `key` is the unique string a symbol-keyed property is
- * filed under; no source can write it, which is what keeps such a property
- * out of everything that walks an object by name. */
 /* A whole number with no upper bound. The limbs are plain malloc rather than
  * collector memory: they are owned by this object alone and freed with it. */
 typedef struct ObjBigInt {
@@ -302,6 +286,13 @@ typedef struct ObjBigInt {
   BigInt value;
 } ObjBigInt;
 
+/* A name that is equal to nothing but itself.
+ *
+ * Two symbols with the same description are still two symbols — identity is
+ * the whole of what one is, and the description exists only so that printing
+ * one says something. `key` is the unique string a symbol-keyed property is
+ * filed under; no source can write it, which is what keeps such a property
+ * out of everything that walks an object by name. */
 typedef struct ObjSymbol {
   Obj obj;
   ObjString *description; /* may be NULL */
@@ -311,11 +302,20 @@ typedef struct ObjSymbol {
   bool registered;
 } ObjSymbol;
 
+/* A moment in time, as the number of milliseconds since 1970 — which is the
+ * whole of what a JavaScript Date is. Everything else about it is a way of
+ * writing that number down. NaN is a date that could not be parsed, and every
+ * getter on one answers NaN in turn. */
 typedef struct ObjDate {
   Obj obj;
   double ms;
 } ObjDate;
 
+/* A generator: a call that was never run, and a handle to run it in pieces.
+ *
+ * The body lives on its own ObjFiber, exactly as an async function's does.
+ * What differs is who drives it: an async body is resumed by the event loop
+ * when a promise settles, and a generator body is resumed by `next`. */
 typedef struct ObjGenerator {
   Obj obj;
   struct ObjFiber *fiber;
@@ -485,8 +485,6 @@ typedef struct ObjUpvalue {
   struct ObjUpvalue *next; /* the VM's list of still-open upvalues */
 } ObjUpvalue;
 
-/* A function value. Every user function is called through a closure, even when
- * it captures nothing, so the VM needs only one calling path. */
 /* A dense array. Sparse arrays and holes are deliberately not supported: they
  * are the reason JavaScript engines need a second, slower representation. */
 typedef struct ObjArray {
@@ -504,6 +502,8 @@ typedef struct ObjArray {
   Table *extras;
 } ObjArray;
 
+/* A function value. Every user function is called through a closure, even when
+ * it captures nothing, so the VM needs only one calling path. */
 struct ObjClosure {
   Obj obj;
   ObjFunction *function;

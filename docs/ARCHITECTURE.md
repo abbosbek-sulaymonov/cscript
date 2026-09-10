@@ -51,6 +51,10 @@ growing. A file in one group names a header in another through a path from
 `src/` — `runtime/vm_internal.h` — so the direction of a dependency is visible
 at the include rather than in a chain of dots.
 
+Each of those directories has a README mapping its own files —
+[`src/README.md`](../src/README.md) is the way in, and the four beside it go
+into the groups within each. This document is the *why*; those are the *where*.
+
 Test cases are grouped the same way, under `tests/cases/`: `language`,
 `library`, `types`, `async`, `imports`, `errors` and `jit`. A directory holding
 a `main.cx` is a case that spans files; anything else is a group to look
@@ -620,7 +624,7 @@ table, then reset the stack.
 | Path | Holds |
 | --- | --- |
 | `include/cscript/` | One public header per subsystem |
-| **Front end** | |
+| **Front end** | Source text to a tree |
 | `src/compiler/lexer.c` | Source text to tokens |
 | `src/compiler/lexer_keyword.c` | Which identifiers are keywords, and every token's name |
 | `src/compiler/lexer_internal.h` | The seam between those two |
@@ -638,13 +642,13 @@ table, then reset the stack.
 | `src/compiler/ast_statement.c` | The statement and declaration nodes |
 | `src/compiler/ast_name.c` | An operator's name, for diagnostics and the dump |
 | `src/compiler/ast_internal.h` | How a node and a list are made |
-| **Checking** | |
+| **Checking** | The types, before any code is generated |
 | `src/compiler/typecheck.c` | The scope, the builtins, and the node dispatcher |
 | `src/compiler/typecheck_value.c` | The type of an expression |
 | `src/compiler/typecheck_statement.c` | The checking a statement needs |
 | `src/compiler/typecheck_internal.h` | The checker's state |
 | `src/compiler/type.c` | The type lattice and assignability |
-| **Back end** | |
+| **Back end** | The tree to bytecode |
 | `src/compiler/compiler.c` | Emit helpers, scopes, locals, and the node dispatcher |
 | `src/compiler/compiler_node_value.c` | What each expression node becomes |
 | `src/compiler/compiler_node_statement.c` | What each statement node becomes |
@@ -656,7 +660,7 @@ table, then reset the stack.
 | `src/compiler/compiler_module.c` | Imports and exports, resolved at compile time |
 | `src/compiler/compiler_internal.h` | The compiler's ambient state and the seams |
 | `src/compiler/chunk.c` | Bytecode buffer, constant pool, inline-cache arrays |
-| **Runtime** | |
+| **Runtime** | Running the bytecode |
 | `src/runtime/vm.c` | The interpreter: the dispatch, and the unit everything below is compiled into |
 | `src/runtime/vm_state.inc` | The one VM, and the stack it runs on |
 | `src/runtime/vm_number.inc` | Errors, and the arithmetic that has to be exact |
@@ -688,7 +692,7 @@ table, then reset the stack.
 | `src/runtime/regex.c` | Compiling a pattern to a program |
 | `src/runtime/regex_match.c` | Running one against a subject |
 | `src/runtime/regex_internal.h` | The compiled program both halves see |
-| **Compiler (second tier)** | |
+| **Compiler (second tier)** | Bytecode to machine code |
 | `src/jit/jit.c` | Tiering: what gets hot, and what happens when it does |
 | `src/jit/ir.c` | The walk that lowers a function's bytecode |
 | `src/jit/ir_internal.h` | The lowering's own state, and the seams between its files |
@@ -707,7 +711,7 @@ table, then reset the stack.
 | `src/jit/jitcode_arm64.c` | The arm64 instructions this backend can emit |
 | `src/jit/jitcode_alloc.c` | Deciding where every value lives |
 | `src/jit/jitcode_emit.c` | One IR instruction to machine code |
-| **Standard library** | |
+| **Standard library** | One namespace per file |
 | `src/native/native.c` | The global environment, and what is installed into it |
 | `src/native/native_internal.h` | The seam between the library's files |
 | `src/native/native_object.c` | The `Object` namespace |
@@ -728,7 +732,7 @@ table, then reset the stack.
 | `src/native/native_regex.c` | `RegExp`, and the string methods that take one |
 | `src/native/native_symbol.c` | `Symbol` and the well-known ones |
 | `src/native/native_bigint.c` | The `BigInt` surface |
-| **Tools** | |
+| **Tools** | Looking at what happened |
 | `src/compiler/debug.c` | The disassembler, and the flags that ask for a dump |
 | `src/compiler/debug_ast.c` | The parse tree, printed |
 | `src/compiler/diagnostic.c` | Error reporting |
@@ -802,9 +806,10 @@ anything — see [Stage 5](#five-soundness-bugs-and-the-harness-that-found-them)
 
 ## Tiering: what a JIT would compile
 
-There is no code generator. There is the thing that has to come before one: a
-count of what gets hot, and a verdict on how much of it could be compiled
-without guarding every operation.
+At this stage there was no code generator yet — only the thing that has to
+come before one: a count of what gets hot, and a verdict on how much of it
+could be compiled without guarding every operation. The backend that followed
+starts at [The typed IR](#the-typed-ir).
 
 `make jit` builds it; `CS_JIT_REPORT=1` asks for the report, and
 `CS_JIT_DUMP_IR=1` adds the lowered form.

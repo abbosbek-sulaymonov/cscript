@@ -173,13 +173,6 @@ static bool spliceBoundArguments(ObjBoundMethod *bound, int *argCount) {
   return true;
 }
 
-/* Checks the argument count and pads the frame out to the parameter count.
- *
- * A parameter with a default is optional, so a call may supply fewer than
- * there are parameters — but the body still refers to every one of them by
- * slot, so the missing ones are pushed as undefined before the frame starts.
- * That is also what makes an argument written as `undefined` and one left out
- * the same thing, which is what JavaScript says. */
 /* The contract at the gradual boundary.
  *
  * A `number` annotation is not advice: the compiler emits OP_ADD_NUM for
@@ -216,6 +209,13 @@ static bool parameterTypesHold(ObjFunction *function, int argCount) {
   return true;
 }
 
+/* Checks the argument count and pads the frame out to the parameter count.
+ *
+ * A parameter with a default is optional, so a call may supply fewer than
+ * there are parameters — but the body still refers to every one of them by
+ * slot, so the missing ones are pushed as undefined before the frame starts.
+ * That is also what makes an argument written as `undefined` and one left out
+ * the same thing, which is what JavaScript says. */
 bool csVMCheckArity(ObjFunction *function, int *argCount) {
   if (!parameterTypesHold(function, *argCount)) return false;
 
@@ -276,10 +276,6 @@ bool callClosure(ObjClosure *closure, int argCount) {
   return csVMCallClosureWith(closure, argCount, false);
 }
 
-/* `hasReceiver` says slot 0 already holds what `this` should be — a method's
- * receiver, or the object `new` is building. Without it the slot still holds
- * the callee, and a function that says `this` would see itself. JavaScript
- * answers `undefined` there in a module, and so does this. */
 /* Records what this call passed, for a function still being counted towards
  * the compile threshold.
  *
@@ -308,6 +304,10 @@ static void observeArguments(ObjFunction *function, int argCount) {
 }
 #endif
 
+/* `hasReceiver` says slot 0 already holds what `this` should be — a method's
+ * receiver, or the object `new` is building. Without it the slot still holds
+ * the callee, and a function that says `this` would see itself. JavaScript
+ * answers `undefined` there in a module, and so does this. */
 bool csVMCallClosureWith(ObjClosure *closure, int argCount, bool hasReceiver) {
   ObjFunction *function = closure->function;
 

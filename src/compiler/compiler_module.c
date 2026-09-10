@@ -1,6 +1,8 @@
 /* compiler_module.c — imports and exports.
  *
- * Both are resolved at compile time: the loader has already compiled every\n * module this one imports, so a missing export is a compile error and an\n * import is a constant reference to a module that already exists.
+ * Both are resolved at compile time: the loader has already compiled every
+ * module this one imports, so a missing export is a compile error and an
+ * import is a constant reference to a module that already exists.
  */
 #include <stdio.h>
 #include <string.h>

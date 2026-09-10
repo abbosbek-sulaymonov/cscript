@@ -11,17 +11,6 @@
 #include "cscript/parser.h"
 #include "compiler/parser_internal.h"
 
-/* parser_declaration.c — things that introduce a name.
- *
- * Variable declarations and the patterns they may bind, class bodies, and the\n * import and export forms. Grouped because they share one question — what does\n * this bind, and under what name — rather than because they look alike.
- */
-#include <stdio.h>
-#include <string.h>
-
-#include "cscript/parser.h"
-#include "compiler/parser_internal.h"
-
-
 /* `class Name extends Base { field; field = init; constructor() {} m() {} static m() {} }`
  *
  * Members are separated by nothing at all in JavaScript, so the loop reads one

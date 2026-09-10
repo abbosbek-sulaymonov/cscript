@@ -14,6 +14,7 @@ this order.
 | [ROADMAP.md](ROADMAP.md) | **What is next?** What has been built, in order, and what the measurements say to build next. |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | **How do I work on it?** The build modes, the test suites, and where everything lives. |
 | [../README.md](../README.md) | **Why does it exist?** The idea and the status, briefly. |
+| [../src/README.md](../src/README.md) | **Where is the code?** The map of `src/`, the conventions every file follows, and a guide per directory. |
 
 ## The shape of the thing
 
@@ -37,6 +38,11 @@ which is the one thing a JavaScript engine cannot do, because JavaScript
 promises nothing about a value until it sees one.
 
 ## Where to look
+
+Each directory under `src/` has a README of its own —
+[compiler](../src/compiler/README.md), [runtime](../src/runtime/README.md),
+[native](../src/native/README.md), [jit](../src/jit/README.md) — mapping its
+files and the hazards particular to it. The table below is the short version.
 
 | I want to… | Start at |
 | --- | --- |
