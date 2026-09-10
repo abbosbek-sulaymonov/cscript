@@ -195,9 +195,12 @@ block, so a file whose first loop counts in frame position 1 and whose later
 turned up a branch reading its condition out of memory the value was never in,
 which had been giving wrong answers to ordinary code.
 
-One program is still lost: `tests/cases/language/loops_control.cx` has a
-conditional jump inside a run the replay gives up on, which is the one shape
-that cannot be modelled without knowing where the *taken* arm goes.
+A run handed over to the interpreter usually *ends* in a jump, because the scan
+that finds where it stops looks for the next jump target. Modelling the
+fall-through is only half of one: the taken arm gives its target a predecessor
+the IR does not know about, so it is recorded as one more incoming path — its
+height, and what each slot holds when it is taken. That is what lets a loop
+with a `break` or a `continue` inside a handed-over run compile at all.
 
 ### Slot types per block
 

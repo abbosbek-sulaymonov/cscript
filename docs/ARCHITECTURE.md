@@ -1360,26 +1360,64 @@ straight off that stack — the numeric-operand check, the property paths — no
 refuse a position that has none instead of indexing the register table with
 `-1`.
 
+### The jump at the end of the run
+
+A run handed over to the interpreter can end in a jump, and usually does: the
+scan that finds where the run stops looks for the next *leader*, and a jump
+makes the instruction after it one. So there is at most one, it is last, and
+modelling its fall-through is only half the answer.
+
+The other half is where the taken arm goes. That target acquires a predecessor
+the IR does not know about, and every entry type derived for it then comes from
+the wrong set of paths — which is why the replay refused a jump at first, and
+why one `if (w > 3) break;` inside a run handed over for a `console.log` cost
+`loops_control.cx` its whole lowering.
+
+The arm is recorded instead, as one more incoming path: its height, and what
+each slot holds when it is taken. The height is the part a meet cannot fix —
+it decides which slot every emitted instruction names — so a disagreement there
+is reported rather than reconciled, and the function falls back. Both arms of a
+fused compare-and-branch consume their two operands, so in practice they arrive
+at the same depth; a `break` pops the locals of the scope it leaves before it
+goes, which the replay has already modelled by the time it reaches the jump.
+
+An unconditional jump, and a return, are the cases with no second arm to model:
+the end of the run is never reached, so the height there is not a fact about
+anything. The walk says so and picks up again wherever a predecessor recorded a
+state.
+
+**Every lowered jump records its types too, for the same reason.** A block the
+walk resumes at after a skip needs to get its slot types from somewhere, and
+its own carried-forward model is exactly the thing that cannot be believed. So
+`reachBlock` merges the state at the jump into its target alongside the height
+it already recorded — which is what let the loop below a `continue` keep its
+counter's type instead of losing the function to it.
+
 ### What it cost, which is the interesting part
 
-Lowering more of a file exposes more of it to a limitation the IR has always
-had. Slot types are one per function: `csIrReconcileSlotTypes` takes the meet
-of everything stored into a slot, because the IR is deliberately not SSA. The
-operand stack and the locals are the same array, so different loops in the same
-file reuse the same positions.
+Every step of this exposed something older than itself, and none of it was
+reachable while a hand-over ended the lowering.
 
-`tests/cases/language/loops_control.cx` has three `for` loops counting in frame
-position 1 and a later `while (true)` that puts a boolean there. The meet is
-therefore nothing at all, every comparison reading that position is refused,
-and the file went from partly compiled to not compiled — the one program in the
-tree the differential harness reports as lost.
+**Slot types were one per function.** `csIrReconcileSlotTypes` took the meet of
+everything stored into a slot, because the IR is deliberately not SSA — and the
+operand stack and the locals are the same array, so different loops in one file
+reuse the same positions. A `while (true)` putting a boolean where a counter
+had been gave that position no type at all. That is
+[Stage 8](#stage-8-one-type-per-slot-was-one-too-few).
 
-Nothing had noticed because the lowering used to stop at the first hand-over
-and rarely saw two loops in one function. The fix is a per-block meet rather
-than a per-function one, iterated to a fixed point over the block graph the IR
-already has — no SSA and no dominance, only the predecessors the jumps already
-name. It is the next milestone rather than a fix folded into this one, because
-it is a dataflow pass with its own measurement.
+**The reachability walk did not follow fall-through.** A block the lowering
+cuts short of a terminator runs into the next one, and the walk that proves no
+compiled path reaches a block with a *fabricated* entry height only followed
+jumps and branches. So such a block could be declared unreachable and then be
+reached, handing the interpreter a frame at the wrong depth — `labels.cx` did
+it, and the answer was a boolean where a loop counter should be.
+
+**A block resumed after a skip carried a stale belief about its slots.** The
+height came from a jump and was a fact; the types were left over from the path
+the lowering had abandoned. Only advisory — the dataflow retypes every load
+afterwards and refuses a function whose arithmetic loses its proof — but the
+wrong thing to record as a path that happened. Such a block now takes its types
+from a predecessor, or claims nothing.
 
 ## Stage 8: one type per slot was one too few
 

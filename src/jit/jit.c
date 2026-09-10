@@ -505,6 +505,13 @@ void csJitDumpProfile(void) {
     inlinedCalls += hot[i].ir->inlinedCount;
     inlinedInstructions += hot[i].ir->inlinedInstructions;
   }
+  for (int i = 0; i < hotCount; i++) {
+    if (hot[i].ir == NULL || hot[i].ir->firstReplayRefusal == NULL) continue;
+    printf("    %-24.24s lost the blocks past a hand-over: could not replay %s\n",
+           hot[i].function->name != NULL ? hot[i].function->name->chars
+                                         : "<top level>",
+           hot[i].ir->firstReplayRefusal);
+  }
   if (inlinedCalls > 0) {
     printf("  %d callee%s spliced in, %d instruction%s of body\n", inlinedCalls,
            inlinedCalls == 1 ? "" : "s", inlinedInstructions,

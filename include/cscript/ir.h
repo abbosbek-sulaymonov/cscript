@@ -188,6 +188,13 @@ typedef struct {
    * that it stopped. */
   const char *firstExitOn;
 
+  /* And the one the *replay* first gave up on, which is a different question:
+   * an exit is the compiler declining to emit something, while this is it
+   * failing to work out what the interpreter will do next — and losing every
+   * block after that point rather than only the statement. NULL when every
+   * handed-over run was modelled. */
+  const char *firstReplayRefusal;
+
   /* What IR_LOAD_PROPERTY was lowered against. Empty for a function that reads
    * no properties, which is most of them. */
   IrEntryShape *entryShapes;
