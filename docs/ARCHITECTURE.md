@@ -644,7 +644,12 @@ table, then reset the stack.
 | `src/runtime/vm_fiber.c` | Suspendable calls, for `await` |
 | `src/runtime/vm_event.c` | Microtasks, timers, and the loop that drains them |
 | `src/runtime/vm_internal.h` | The seams between those three |
-| `src/runtime/object.c` | Heap object types, string interning, promises |
+| `src/runtime/object.c` | The allocation every heap object goes through, and strings |
+| `src/runtime/object_internal.h` | The one thing the object files share |
+| `src/runtime/object_bag.c` | An object's properties: slots, then a table |
+| `src/runtime/object_new.c` | The constructors for everything that is not a property bag |
+| `src/runtime/object_print.c` | How each object prints, which is not how it converts |
+| `src/runtime/object_gc.c` | What the collector does with each object type |
 | `src/runtime/shape.c` | Hidden classes: the layout an object has |
 | `src/runtime/memory.c` | The allocator and the collector |
 | `src/runtime/table.c` | Open-addressing hash table |
