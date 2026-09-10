@@ -654,7 +654,18 @@ table, then reset the stack.
 | `src/runtime/regex.c` | The regex engine, testable on its own |
 | **Compiler (second tier)** | |
 | `src/jit/jit.c` | Tiering: what gets hot, and what happens when it does |
-| `src/jit/ir.c` | Lowering bytecode to the typed IR, and inlining into it |
+| `src/jit/ir.c` | The walk that lowers a function's bytecode |
+| `src/jit/ir_internal.h` | The lowering's own state, and the seams between its files |
+| `src/jit/ir_build.c` | Registers, instructions, block boundaries, push and pop |
+| `src/jit/ir_lower_data.c` | Constants, globals, locals and the operand stack |
+| `src/jit/ir_lower_arith.c` | Arithmetic and comparison |
+| `src/jit/ir_lower_object.c` | Property reads and writes, and the layouts they assume |
+| `src/jit/ir_lower_flow.c` | Jumps, branches, calls and returns |
+| `src/jit/ir_inline.c` | Splicing a small callee's body in where the call was |
+| `src/jit/ir_replay.c` | What the interpreter does across a hand-over |
+| `src/jit/ir_types.c` | What each value holds, and whether it is proved enough to run |
+| `src/jit/ir_print.c` | The IR in readable form, and where its typing stops |
+| `src/jit/ir_interpret.c` | Running the lowered form, to check it against the bytecode |
 | `src/jit/jitcode.c` | The arm64 encoder and the executable memory it fills |
 | **Standard library** | |
 | `src/native/native.c` | The built-in global environment |
@@ -682,6 +693,14 @@ were split by **what they handle**, not by phase — the pieces of a
 recursive-descent parser are mutually recursive because the grammar is, so
 layering them would have been a fiction. Each group shares an internal header
 that nothing outside it includes.
+
+`ir.c` was split the same way later, and needed one thing the others did not.
+Its cases said `goto handOver` and `goto failed`, which a function cannot do to
+its caller, so the four groups answer a `LowerResult` the walk acts on instead
+— with a fourth value, `LOWER_UNHANDLED`, that is not an outcome at all. It
+means "not mine", so the walk asks each group in turn and what happens to an
+opcode none of them claims is the hand-over the `default` case used to do.
+Every case body moved unchanged.
 
 **The interpreter loop was not split, and that is deliberate.** Computed-goto
 dispatch depends on the labels and the cached `ip` and `frame` living in one
