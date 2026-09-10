@@ -35,6 +35,22 @@
 #define CS_JIT_THRESHOLD (csJitThreshold())
 int csJitThreshold(void);
 
+/* Set from the command line, before anything has had a chance to get hot.
+ *
+ * `CS_JIT_THRESHOLD` in the environment does the same thing and came first,
+ * because the benchmark scripts set it; the flag wins where both are given,
+ * on the grounds that it is the more deliberate of the two. */
+void csJitSetThreshold(int threshold);
+
+/* Puts the threshold out of reach, which is how `--no-jit` is spelled: the
+ * back-edge counter still counts, because it is one compare either way, but
+ * nothing ever crosses. */
+void csJitDisable(void);
+
+/* Ask for the tiering report on exit, as `CS_JIT_REPORT` in the environment
+ * does. */
+void csJitRequestReport(void);
+
 typedef enum {
   JIT_INTERPRETED, /* below the threshold, or not looked at yet */
   JIT_HOT,         /* over the threshold; a backend would compile it here */

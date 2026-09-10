@@ -4219,15 +4219,19 @@ InterpretResult run(int baseFrame) {
 #pragma GCC diagnostic pop
 #endif
 
-InterpretResult csInterpret(const char *source, const char *sourceName) {
+/* Everything up to the bytecode, which is all `--check` wants and the front
+ * half of what a run wants. `script` receives the compiled top level, or NULL
+ * when the caller only asked whether it compiles. */
+static InterpretResult compileSource(const char *source, const char *sourceName,
+                                     ObjFunction **script) {
   Diagnostics diag;
   csDiagnosticsInit(&diag, source, sourceName);
   vm.sourceName = sourceName;
 
-#ifdef CS_DEBUG_PRINT_TOKENS
-  csLexerDumpTokens(source, &diag);
-  csDiagnosticsInit(&diag, source, sourceName); /* reset after the dry run */
-#endif
+  if (csDumping(CS_DUMP_TOKENS)) {
+    csLexerDumpTokens(source, &diag);
+    csDiagnosticsInit(&diag, source, sourceName); /* reset after the dry run */
+  }
 
   AstArena arena;
   csAstArenaInit(&arena);
@@ -4252,18 +4256,61 @@ InterpretResult csInterpret(const char *source, const char *sourceName) {
     return CS_COMPILE_ERROR;
   }
 
-#ifdef CS_DEBUG_PRINT_AST
-  csAstPrint(program);
-#endif
+  if (csDumping(CS_DUMP_AST)) csAstPrint(program);
 
-  ObjFunction *script = csCompile(program, vm.mainModule, &diag);
+  ObjFunction *compiled = csCompile(program, vm.mainModule, &diag);
   /* The AST is only needed to produce bytecode, so it goes as soon as it has. */
   csAstArenaFree(&arena);
-  if (script == NULL) return CS_COMPILE_ERROR;
+  if (compiled == NULL) return CS_COMPILE_ERROR;
 
-#ifdef CS_DEBUG_PRINT_CODE
-  csDisassembleChunk(&script->chunk, sourceName);
-#endif
+  if (csDumping(CS_DUMP_BYTECODE)) csDisassembleChunk(&compiled->chunk, sourceName);
+
+  if (script != NULL) *script = compiled;
+  return CS_OK;
+}
+
+InterpretResult csCheck(const char *source, const char *sourceName) {
+  return compileSource(source, sourceName, NULL);
+}
+
+void csVMSetScriptArgs(const char *executable, const char *script,
+                       const char *const *args, int count) {
+  Value holder;
+  ObjString *name = csStringCopy("process", 7);
+  csPushTempRoot((Obj *)name);
+  bool found = csTableGet(&vm.builtins, name, &holder);
+  csPopTempRoot();
+  if (!found || !IS_OBJECT(holder)) return;
+
+  ObjArray *argv = csArrayNew();
+  csPushTempRoot((Obj *)argv);
+
+  /* Node's shape, because a program that reads this runs under Node too: the
+   * executable, then the script, then what the user passed. A `-e` one-liner
+   * and the REPL have no script, and Node leaves that slot out as well. */
+  const char *leading[2] = {executable, script};
+  for (int i = 0; i < 2; i++) {
+    if (leading[i] == NULL) continue;
+    ObjString *entry = csStringCopy(leading[i], (int)strlen(leading[i]));
+    csPushTempRoot((Obj *)entry);
+    csValueArrayWrite(&argv->elements, OBJ_VAL(entry));
+    csPopTempRoot();
+  }
+  for (int i = 0; i < count; i++) {
+    ObjString *entry = csStringCopy(args[i], (int)strlen(args[i]));
+    csPushTempRoot((Obj *)entry);
+    csValueArrayWrite(&argv->elements, OBJ_VAL(entry));
+    csPopTempRoot();
+  }
+
+  csObjectSetProperty(AS_OBJECT(holder), "argv", OBJ_VAL(argv));
+  csPopTempRoot();
+}
+
+InterpretResult csInterpret(const char *source, const char *sourceName) {
+  ObjFunction *script = NULL;
+  InterpretResult compiled = compileSource(source, sourceName, &script);
+  if (compiled != CS_OK) return compiled;
 
   InterpretResult pending = csVMRunPendingModules();
   if (pending != CS_OK) return pending;

@@ -13,6 +13,14 @@ typedef struct {
   const char *sourceName; /* file name, or "<repl>" */
   int errorCount;
   bool panicMode; /* set while recovering, to suppress cascading errors */
+
+  /* Counts errors without printing them.
+   *
+   * For asking a question of the parser rather than compiling: the REPL parses
+   * each line twice before it runs it — once as typed, once with a semicolon
+   * appended — to find out which of the two the user meant. The failed attempt
+   * is not an error the user made and must not be reported as one. */
+  bool quiet;
 } Diagnostics;
 
 void csDiagnosticsInit(Diagnostics *diag, const char *source,

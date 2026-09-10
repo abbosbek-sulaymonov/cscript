@@ -479,6 +479,7 @@ Each of these produces an error that names it, rather than failing obscurely.
 | --- | --- |
 | `yield*` inside a larger expression | Works as a statement of its own; a delegate's return value is not available |
 | `Date`'s locale formats | `toLocaleString` and `toLocaleDateString`. Every non-ISO input form is implementation-defined in JavaScript too, so `Date.parse` of one is NaN |
+| `process`, apart from `argv` | `process.argv` is there, with Node's shape, because a script given arguments has to be able to read them — see [CLI.md](CLI.md#arguments). Nothing else on `process` is, and it is not the beginning of a Node-compatible runtime |
 | `arguments` | Deliberate, and now for a stronger reason than taste: arity is checked, so a call may not pass more arguments than the function declares. There are never extra arguments for `arguments` to collect, and it could only ever repeat the parameters. A rest parameter is how you accept a variable number, and it says so in the signature |
 | Subclassing built-ins — `class MyArray extends Array` | `extends` takes a class, and the built-ins are native constructors rather than classes; the error says so |
 | Bare import specifiers — `import x from "lodash"` | No package system to resolve against |

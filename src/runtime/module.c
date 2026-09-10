@@ -7,6 +7,8 @@
 
 #include "cscript/ast.h"
 #include "cscript/compiler.h"
+#include "cscript/debug.h"
+#include "cscript/lexer.h"
 #include "cscript/memory.h"
 #include "cscript/module.h"
 #include "cscript/object.h"
@@ -201,12 +203,23 @@ ObjModule *csModuleLoadResolved(const char *resolvedPath, const char *shownAs,
   AstArena arena;
   csAstArenaInit(&arena);
 
+  /* The stages the command line asked to see, for every file the program is
+   * made of rather than only for the one `-e` was given. */
+  if (csDumping(CS_DUMP_TOKENS)) {
+    csLexerDumpTokens(source, &diag);
+    csDiagnosticsInit(&diag, source, csModuleDisplayPath(module->path->chars));
+  }
+
   AstNode *program = csParse(source, &arena, &diag);
   bool ok = program != NULL;
   if (ok) ok = csModuleLoadImports(program, resolvedPath, &diag);
   if (ok) ok = csTypeCheck(program, &diag);
+  if (ok && csDumping(CS_DUMP_AST)) csAstPrint(program);
 
   ObjFunction *body = ok ? csCompile(program, module, &diag) : NULL;
+  if (body != NULL && csDumping(CS_DUMP_BYTECODE)) {
+    csDisassembleChunk(&body->chunk, csModuleDisplayPath(module->path->chars));
+  }
 
   csAstArenaFree(&arena);
   free(source);
@@ -221,14 +234,20 @@ ObjModule *csModuleLoadResolved(const char *resolvedPath, const char *shownAs,
   return module;
 }
 
-InterpretResult csRunFile(const char *path) {
+/* Resolves and compiles the file and its imports. */
+static InterpretResult loadEntryPoint(const char *path) {
   char resolved[PATH_MAX];
   if (realpath(path, resolved) == NULL) {
     fprintf(stderr, "cscript: could not open '%s'\n", path);
     return CS_COMPILE_ERROR;
   }
-
   if (csModuleLoadResolved(resolved, path, NULL, 0) == NULL) return CS_COMPILE_ERROR;
+  return CS_OK;
+}
+
+InterpretResult csRunFile(const char *path) {
+  InterpretResult loaded = loadEntryPoint(path);
+  if (loaded != CS_OK) return loaded;
 
   InterpretResult result = csVMRunPendingModules();
   if (result != CS_OK) return result;
@@ -236,3 +255,5 @@ InterpretResult csRunFile(const char *path) {
   /* The program has run; anything it left pending runs now. */
   return csVMRunEventLoop();
 }
+
+InterpretResult csCheckFile(const char *path) { return loadEntryPoint(path); }

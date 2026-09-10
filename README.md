@@ -71,7 +71,7 @@ The full list, with the reasoning for each, is in
 ---
 ## Status
 
-**v0.44.0.** The language is feature-complete for everyday code and well past
+**v0.45.0.** The language is feature-complete for everyday code and well past
 it: objects and arrays, functions and closures, classes with private members
 and static blocks, modules, promises and `async`/`await`, generators and async
 generators, regular expressions, `Map`/`Set`, `Symbol`, `BigInt`, `Date`,
@@ -125,10 +125,18 @@ make
 ./build/release/cscript                       # REPL
 ./build/release/cscript examples/hello.cx     # run a file
 ./build/release/cscript -e 'console.log(6*7);'
+./build/release/cscript --check src/*.cx      # compile and type-check only
 ./build/release/cscript --help
 ```
 
 > Source files use **`.cx`**. `.cs` belongs to C#.
+
+In the REPL, an entry that is one expression has its value printed, and one
+that leaves a bracket open keeps reading. `--check` compiles and type-checks
+without running, which is what an editor or a CI step wants; `--print-tokens`,
+`--print-ast` and `--print-bytecode` show any stage of the pipeline for any
+program; arguments after the script arrive in `process.argv`, spelled the way
+Node spells it. `cscript --help` has the rest.
 
 ---
 
@@ -137,6 +145,7 @@ make
 | Document | What is in it |
 | --- | --- |
 | [A tour of the language](docs/TOUR.md) | Enough to judge it, in one page |
+| [The command line](docs/CLI.md) | Every option, the exit codes, and the REPL |
 | [Grammar and semantics](docs/GRAMMAR.md) | The full syntax as EBNF, and what each construct means |
 | [Against JavaScript](docs/JAVASCRIPT.md) | What is the same, what differs on purpose and why, what is missing |
 | [Architecture](docs/ARCHITECTURE.md) | The pipeline, the object model, the collector, the compiler |

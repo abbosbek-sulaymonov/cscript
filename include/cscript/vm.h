@@ -293,6 +293,22 @@ void csVMFree(void);
 /* Compiles and runs a whole source string. */
 InterpretResult csInterpret(const char *source, const char *sourceName);
 
+/* Compiles and checks a source string without running it, which is what
+ * `--check` is: the parser, the type checker and the code generator all have
+ * something to say about a program before it does anything, and an editor or a
+ * CI step wants to hear it without the program's side effects. Imports are
+ * resolved and compiled too, so a broken one is reported here rather than at
+ * the first statement that needs it. */
+InterpretResult csCheck(const char *source, const char *sourceName);
+
+/* The arguments after the script's path, as `process.argv` sees them.
+ *
+ * Called once, after csVMInit and before anything runs. `process` is frozen
+ * like every other namespace, which stops a program reassigning it; this goes
+ * through the C API, which is below where that is enforced. */
+void csVMSetScriptArgs(const char *executable, const char *script,
+                       const char *const *args, int count);
+
 /* Marks a built-in as constant. Module-level `const` marks its own table. */
 void csVMMarkBuiltinConst(ObjString *name);
 

@@ -54,4 +54,10 @@ bool csModuleLoadImports(const AstNode *program, const char *fromPath,
 /* Loads and runs a file as the entry point of a program. */
 InterpretResult csRunFile(const char *path);
 
+/* Loads and compiles a file and everything it imports, and stops there.
+ *
+ * The loader already builds the graph before anything runs, so `--check` on a
+ * file is the same walk with the run left off. */
+InterpretResult csCheckFile(const char *path);
+
 #endif /* CSCRIPT_MODULE_H */
