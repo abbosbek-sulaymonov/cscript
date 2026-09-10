@@ -1,12 +1,10 @@
-/* native_string.c — the built-in string methods.
+/* native_string.c — a string's methods that read or reshape it.
  *
- * Strings are immutable and interned, so every method here produces a new
- * string through csStringCopy rather than editing in place. Two consequences:
- * a method that changes nothing can return its receiver unchanged, and any
- * intermediate buffer is plain malloc memory the collector never sees.
- *
- * Indexing is by byte. That is correct for ASCII and wrong for multi-byte
- * UTF-8, which is stated in docs/GRAMMAR.md rather than papered over.
+ * Strings are immutable and interned, so every one of these builds a new one
+ * rather than editing in place — and indexes are by byte, which is correct for
+ * ASCII and is the documented limit. The methods that take a *pattern* are in
+ * native_string_search.c, because a pattern may be a regex and that pulls the
+ * whole engine in with it.
  */
 #include <ctype.h>
 #include <math.h>
@@ -18,7 +16,8 @@
 #include "cscript/object.h"
 #include "cscript/vm.h"
 
-/* Clamps a possibly-negative index the way JavaScript's slice does. */
+#include "native/native_internal.h"
+
 static int clampIndex(double raw, int length) {
   int index = (int)raw;
   if (index < 0) index += length;
@@ -27,7 +26,7 @@ static int clampIndex(double raw, int length) {
   return index;
 }
 
-static bool stringArg(int argCount, Value *args, int position, const char *method,
+bool csNativeStringArg(int argCount, Value *args, int position, const char *method,
                       ObjString **out) {
   if (argCount <= position || !IS_STRING(args[position])) {
     csVMRuntimeError("%s expects a string, got %s", method,
@@ -55,7 +54,7 @@ static bool numberArg(int argCount, Value *args, int position, double fallback,
 }
 
 /* Builds a result string from a malloc'd buffer and releases the buffer. */
-static bool finishString(char *buffer, int length, Value *result) {
+bool csNativeFinishString(char *buffer, int length, Value *result) {
   if (buffer == NULL) {
     csVMRuntimeError("out of memory building a string");
     return false;
@@ -68,14 +67,14 @@ static bool finishString(char *buffer, int length, Value *result) {
 static bool stringCase(Value receiver, Value *result, bool upper) {
   ObjString *string = AS_STRING(receiver);
   char *buffer = (char *)malloc((size_t)string->length + 1);
-  if (buffer == NULL) return finishString(NULL, 0, result);
+  if (buffer == NULL) return csNativeFinishString(NULL, 0, result);
 
   for (int i = 0; i < string->length; i++) {
     unsigned char c = (unsigned char)string->chars[i];
     buffer[i] = (char)(upper ? toupper(c) : tolower(c));
   }
   buffer[string->length] = '\0';
-  return finishString(buffer, string->length, result);
+  return csNativeFinishString(buffer, string->length, result);
 }
 
 static bool stringToUpper(Value receiver, int argCount, Value *args, Value *result) {
@@ -209,7 +208,7 @@ static bool stringCharCodeAt(Value receiver, int argCount, Value *args, Value *r
 }
 
 /* Returns the byte offset of `needle` in `haystack` at or after `from`, or -1. */
-static int findFrom(ObjString *haystack, ObjString *needle, int from) {
+int csNativeFindFrom(ObjString *haystack, ObjString *needle, int from) {
   if (needle->length == 0) return from <= haystack->length ? from : haystack->length;
   if (from < 0) from = 0;
 
@@ -223,18 +222,18 @@ static int findFrom(ObjString *haystack, ObjString *needle, int from) {
 
 static bool stringIndexOf(Value receiver, int argCount, Value *args, Value *result) {
   ObjString *needle;
-  if (!stringArg(argCount, args, 0, "indexOf", &needle)) return false;
+  if (!csNativeStringArg(argCount, args, 0, "indexOf", &needle)) return false;
 
   double from;
   if (!numberArg(argCount, args, 1, 0, "indexOf", &from)) return false;
 
-  *result = NUMBER_VAL(findFrom(AS_STRING(receiver), needle, (int)from));
+  *result = NUMBER_VAL(csNativeFindFrom(AS_STRING(receiver), needle, (int)from));
   return true;
 }
 
 static bool stringLastIndexOf(Value receiver, int argCount, Value *args, Value *result) {
   ObjString *needle;
-  if (!stringArg(argCount, args, 0, "lastIndexOf", &needle)) return false;
+  if (!csNativeStringArg(argCount, args, 0, "lastIndexOf", &needle)) return false;
   ObjString *string = AS_STRING(receiver);
 
   for (int i = string->length - needle->length; i >= 0; i--) {
@@ -249,14 +248,14 @@ static bool stringLastIndexOf(Value receiver, int argCount, Value *args, Value *
 
 static bool stringIncludes(Value receiver, int argCount, Value *args, Value *result) {
   ObjString *needle;
-  if (!stringArg(argCount, args, 0, "includes", &needle)) return false;
-  *result = BOOL_VAL(findFrom(AS_STRING(receiver), needle, 0) >= 0);
+  if (!csNativeStringArg(argCount, args, 0, "includes", &needle)) return false;
+  *result = BOOL_VAL(csNativeFindFrom(AS_STRING(receiver), needle, 0) >= 0);
   return true;
 }
 
 static bool stringStartsWith(Value receiver, int argCount, Value *args, Value *result) {
   ObjString *needle;
-  if (!stringArg(argCount, args, 0, "startsWith", &needle)) return false;
+  if (!csNativeStringArg(argCount, args, 0, "startsWith", &needle)) return false;
   ObjString *string = AS_STRING(receiver);
 
   *result = BOOL_VAL(needle->length <= string->length &&
@@ -266,7 +265,7 @@ static bool stringStartsWith(Value receiver, int argCount, Value *args, Value *r
 
 static bool stringEndsWith(Value receiver, int argCount, Value *args, Value *result) {
   ObjString *needle;
-  if (!stringArg(argCount, args, 0, "endsWith", &needle)) return false;
+  if (!csNativeStringArg(argCount, args, 0, "endsWith", &needle)) return false;
   ObjString *string = AS_STRING(receiver);
 
   int offset = string->length - needle->length;
@@ -289,202 +288,16 @@ static bool stringRepeat(Value receiver, int argCount, Value *args, Value *resul
 
   size_t length = (size_t)string->length * (size_t)times;
   char *buffer = (char *)malloc(length + 1);
-  if (buffer == NULL) return finishString(NULL, 0, result);
+  if (buffer == NULL) return csNativeFinishString(NULL, 0, result);
 
   for (int i = 0; i < times; i++) {
     memcpy(buffer + (size_t)i * (size_t)string->length, string->chars,
            (size_t)string->length);
   }
   buffer[length] = '\0';
-  return finishString(buffer, (int)length, result);
+  return csNativeFinishString(buffer, (int)length, result);
 }
 
-/* Replaces the first match, or every match when `all` is set. */
-/* A pattern where a string was expected hands off to the regex side, which
- * knows the rules about groups and the `g` flag. */
-static bool stringReplaceImpl(Value receiver, int argCount, Value *args, Value *result,
-                              bool all, const char *method) {
-  if (argCount > 0 && IS_REGEX(args[0])) {
-    return csRegexStringReplace(receiver, argCount, args, result, all);
-  }
-
-  ObjString *needle;
-  if (!stringArg(argCount, args, 0, method, &needle)) return false;
-
-  /* A function replacer is called once per hit with the match, where it
-   * started and the whole subject — the same three arguments the pattern form
-   * passes, minus the captures a plain string has none of. */
-  bool byFunction = argCount > 1 && csValueIsCallable(args[1]);
-  ObjString *replacement = NULL;
-  if (!byFunction && !stringArg(argCount, args, 1, method, &replacement)) return false;
-
-  ObjString *string = AS_STRING(receiver);
-
-  size_t capacity = (size_t)string->length + 16;
-  char *buffer = (char *)malloc(capacity);
-  if (buffer == NULL) return finishString(NULL, 0, result);
-  size_t length = 0;
-
-  int cursor = 0;
-  bool replaced = false;
-  while (cursor <= string->length) {
-    int hit = (!replaced || all) ? findFrom(string, needle, cursor) : -1;
-    /* An empty needle would match forever; stop after the first. */
-    if (hit < 0 || (needle->length == 0 && replaced)) break;
-
-    /* The callee is user code and may allocate, so it runs before the buffer
-     * is sized — its result is what has to fit. */
-    ObjString *piece = replacement;
-    if (byFunction) {
-      Value argv[3];
-      ObjString *matched = csStringCopy(string->chars + hit, needle->length);
-      csPushTempRoot((Obj *)matched);
-      argv[0] = OBJ_VAL(matched);
-      argv[1] = NUMBER_VAL(hit);
-      argv[2] = OBJ_VAL(string);
-
-      Value produced;
-      bool ok = csVMCallAdapted(args[1], argv, 3, &produced);
-      csPopTempRoot();
-      if (!ok) {
-        free(buffer);
-        return false;
-      }
-
-      if (IS_STRING(produced)) {
-        piece = AS_STRING(produced);
-      } else {
-        size_t textLength = 0;
-        char *text = csValueToCString(produced, &textLength);
-        if (text == NULL) {
-          free(buffer);
-          return finishString(NULL, 0, result);
-        }
-        piece = csStringCopy(text, (int)textLength);
-        free(text);
-      }
-    }
-
-    size_t needed = length + (size_t)(hit - cursor) + (size_t)piece->length + 1;
-    if (needed > capacity) {
-      while (capacity < needed) capacity *= 2;
-      char *grown = (char *)realloc(buffer, capacity);
-      if (grown == NULL) {
-        free(buffer);
-        return finishString(NULL, 0, result);
-      }
-      buffer = grown;
-    }
-
-    memcpy(buffer + length, string->chars + cursor, (size_t)(hit - cursor));
-    length += (size_t)(hit - cursor);
-    memcpy(buffer + length, piece->chars, (size_t)piece->length);
-    length += (size_t)piece->length;
-
-    cursor = hit + (needle->length > 0 ? needle->length : 1);
-    replaced = true;
-    if (!all) break;
-  }
-
-  if (cursor < string->length) {
-    size_t remaining = (size_t)(string->length - cursor);
-    size_t needed = length + remaining + 1;
-    if (needed > capacity) {
-      while (capacity < needed) capacity *= 2;
-      char *grown = (char *)realloc(buffer, capacity);
-      if (grown == NULL) {
-        free(buffer);
-        return finishString(NULL, 0, result);
-      }
-      buffer = grown;
-    }
-    memcpy(buffer + length, string->chars + cursor, remaining);
-    length += remaining;
-  }
-  buffer[length] = '\0';
-  return finishString(buffer, (int)length, result);
-}
-
-/* Both take a pattern and nothing else, so they are thin. */
-static bool stringMatch(Value receiver, int argCount, Value *args, Value *result) {
-  if (argCount < 1 || !IS_REGEX(args[0])) {
-    csVMRuntimeError("match expects a regular expression");
-    return false;
-  }
-  return csRegexStringMatch(receiver, argCount, args, result);
-}
-
-static bool stringSearch(Value receiver, int argCount, Value *args, Value *result) {
-  if (argCount < 1 || !IS_REGEX(args[0])) {
-    csVMRuntimeError("search expects a regular expression");
-    return false;
-  }
-  return csRegexStringSearch(receiver, argCount, args, result);
-}
-
-static bool stringReplace(Value receiver, int argCount, Value *args, Value *result) {
-  return stringReplaceImpl(receiver, argCount, args, result, false, "replace");
-}
-static bool stringReplaceAll(Value receiver, int argCount, Value *args, Value *result) {
-  return stringReplaceImpl(receiver, argCount, args, result, true, "replaceAll");
-}
-
-static bool stringSplit(Value receiver, int argCount, Value *args, Value *result) {
-  if (argCount > 0 && IS_REGEX(args[0])) {
-    return csRegexStringSplit(receiver, argCount, args, result);
-  }
-
-  ObjString *string = AS_STRING(receiver);
-
-  ObjArray *pieces = csArrayNew();
-  csPushTempRoot((Obj *)pieces);
-
-  /* With no separator the whole string is the single piece. */
-  if (argCount < 1 || IS_UNDEFINED(args[0])) {
-    csValueArrayWrite(&pieces->elements, receiver);
-    csPopTempRoot();
-    *result = OBJ_VAL(pieces);
-    return true;
-  }
-
-  if (!IS_STRING(args[0])) {
-    csPopTempRoot();
-    csVMRuntimeError("split expects a string, got %s", csValueTypeName(args[0]));
-    return false;
-  }
-  ObjString *separator = AS_STRING(args[0]);
-
-  /* An empty separator splits into single characters. */
-  if (separator->length == 0) {
-    for (int i = 0; i < string->length; i++) {
-      ObjString *piece = csStringCopy(string->chars + i, 1);
-      csPushTempRoot((Obj *)piece);
-      csValueArrayWrite(&pieces->elements, OBJ_VAL(piece));
-      csPopTempRoot();
-    }
-    csPopTempRoot();
-    *result = OBJ_VAL(pieces);
-    return true;
-  }
-
-  int cursor = 0;
-  for (;;) {
-    int hit = findFrom(string, separator, cursor);
-    int end = hit < 0 ? string->length : hit;
-
-    ObjString *piece = csStringCopy(string->chars + cursor, end - cursor);
-    csPushTempRoot((Obj *)piece);
-    csValueArrayWrite(&pieces->elements, OBJ_VAL(piece));
-    csPopTempRoot();
-
-    if (hit < 0) break;
-    cursor = hit + separator->length;
-  }
-
-  csPopTempRoot();
-  *result = OBJ_VAL(pieces);
-  return true;
-}
 
 static bool stringPad(Value receiver, int argCount, Value *args, Value *result,
                       bool atStart, const char *method) {
@@ -516,7 +329,7 @@ static bool stringPad(Value receiver, int argCount, Value *args, Value *result,
 
   int padLength = target - string->length;
   char *buffer = (char *)malloc((size_t)target + 1);
-  if (buffer == NULL) return finishString(NULL, 0, result);
+  if (buffer == NULL) return csNativeFinishString(NULL, 0, result);
 
   int offset = atStart ? 0 : string->length;
   if (!atStart) memcpy(buffer, string->chars, (size_t)string->length);
@@ -524,7 +337,7 @@ static bool stringPad(Value receiver, int argCount, Value *args, Value *result,
   if (atStart) memcpy(buffer + padLength, string->chars, (size_t)string->length);
 
   buffer[target] = '\0';
-  return finishString(buffer, target, result);
+  return csNativeFinishString(buffer, target, result);
 }
 
 static bool stringPadStart(Value receiver, int argCount, Value *args, Value *result) {
@@ -546,7 +359,7 @@ static bool stringConcat(Value receiver, int argCount, Value *args, Value *resul
   }
 
   char *buffer = (char *)malloc(length + 1);
-  if (buffer == NULL) return finishString(NULL, 0, result);
+  if (buffer == NULL) return csNativeFinishString(NULL, 0, result);
 
   size_t offset = (size_t)string->length;
   memcpy(buffer, string->chars, offset);
@@ -555,17 +368,19 @@ static bool stringConcat(Value receiver, int argCount, Value *args, Value *resul
     char *piece = csValueToCString(args[i], &pieceLength);
     if (piece == NULL) {
       free(buffer);
-      return finishString(NULL, 0, result);
+      return csNativeFinishString(NULL, 0, result);
     }
     memcpy(buffer + offset, piece, pieceLength);
     offset += pieceLength;
     free(piece);
   }
   buffer[offset] = '\0';
-  return finishString(buffer, (int)offset, result);
+  return csNativeFinishString(buffer, (int)offset, result);
 }
 
-static void defineStringMethod(const char *name, NativeFn function, int arity) {
+/* ---------------- installation ---------------- */
+
+void csNativeDefineStringMethod(const char *name, NativeFn function, int arity) {
   ObjNative *native = csNativeNew(function, name, arity);
   csPushTempRoot((Obj *)native);
   ObjString *key = csStringCopy(name, (int)strlen(name));
@@ -576,28 +391,25 @@ static void defineStringMethod(const char *name, NativeFn function, int arity) {
 }
 
 void csStringMethodsInstall(void) {
-  defineStringMethod("toUpperCase", stringToUpper, 0);
-  defineStringMethod("toLowerCase", stringToLower, 0);
-  defineStringMethod("trim", stringTrim, 0);
-  defineStringMethod("trimStart", stringTrimStart, 0);
-  defineStringMethod("trimEnd", stringTrimEnd, 0);
-  defineStringMethod("slice", stringSlice, -1);
-  defineStringMethod("substring", stringSubstring, -1);
-  defineStringMethod("charAt", stringCharAt, -1);
-  defineStringMethod("at", stringAt, -1);
-  defineStringMethod("charCodeAt", stringCharCodeAt, -1);
-  defineStringMethod("indexOf", stringIndexOf, -1);
-  defineStringMethod("lastIndexOf", stringLastIndexOf, -1);
-  defineStringMethod("includes", stringIncludes, -1);
-  defineStringMethod("startsWith", stringStartsWith, -1);
-  defineStringMethod("endsWith", stringEndsWith, -1);
-  defineStringMethod("repeat", stringRepeat, -1);
-  defineStringMethod("match", stringMatch, -1);
-  defineStringMethod("search", stringSearch, -1);
-  defineStringMethod("replace", stringReplace, -1);
-  defineStringMethod("replaceAll", stringReplaceAll, -1);
-  defineStringMethod("split", stringSplit, -1);
-  defineStringMethod("padStart", stringPadStart, -1);
-  defineStringMethod("padEnd", stringPadEnd, -1);
-  defineStringMethod("concat", stringConcat, -1);
+  csNativeDefineStringMethod("toUpperCase", stringToUpper, 0);
+  csNativeDefineStringMethod("toLowerCase", stringToLower, 0);
+  csNativeDefineStringMethod("trim", stringTrim, 0);
+  csNativeDefineStringMethod("trimStart", stringTrimStart, 0);
+  csNativeDefineStringMethod("trimEnd", stringTrimEnd, 0);
+  csNativeDefineStringMethod("slice", stringSlice, -1);
+  csNativeDefineStringMethod("substring", stringSubstring, -1);
+  csNativeDefineStringMethod("charAt", stringCharAt, -1);
+  csNativeDefineStringMethod("at", stringAt, -1);
+  csNativeDefineStringMethod("charCodeAt", stringCharCodeAt, -1);
+  csNativeDefineStringMethod("indexOf", stringIndexOf, -1);
+  csNativeDefineStringMethod("lastIndexOf", stringLastIndexOf, -1);
+  csNativeDefineStringMethod("includes", stringIncludes, -1);
+  csNativeDefineStringMethod("startsWith", stringStartsWith, -1);
+  csNativeDefineStringMethod("endsWith", stringEndsWith, -1);
+  csNativeDefineStringMethod("repeat", stringRepeat, -1);
+  csNativeDefineStringMethod("padStart", stringPadStart, -1);
+  csNativeDefineStringMethod("padEnd", stringPadEnd, -1);
+  csNativeDefineStringMethod("concat", stringConcat, -1);
+
+  csNativeInstallStringSearch();
 }

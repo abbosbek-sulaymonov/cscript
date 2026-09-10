@@ -622,44 +622,102 @@ table, then reset the stack.
 | `include/cscript/` | One public header per subsystem |
 | **Front end** | |
 | `src/compiler/lexer.c` | Source text to tokens |
+| `src/compiler/lexer_keyword.c` | Which identifiers are keywords, and every token's name |
+| `src/compiler/lexer_internal.h` | The seam between those two |
 | `src/compiler/parser.c` | The token plumbing, the precedence table, and `csParse` |
-| `src/compiler/parser_expression.c` | Expressions, templates, functions and arrows |
-| `src/compiler/parser_declaration.c` | Variables, patterns, classes, imports and exports |
+| `src/compiler/parser_expression.c` | Precedence climbing, and the primary dispatcher |
+| `src/compiler/parser_primary.c` | The operands an expression can start with |
+| `src/compiler/parser_prefix.c` | The operators an expression can start with |
+| `src/compiler/parser_arrow.c` | Templates, arrows, and the function forms |
+| `src/compiler/parser_declaration.c` | Variable declarations and the patterns they bind |
+| `src/compiler/parser_class.c` | The class body, in source order |
+| `src/compiler/parser_module.c` | `import` and `export`, in every form |
 | `src/compiler/parser_statement.c` | Blocks, conditionals, the loop forms, `switch`, `try` |
-| `src/compiler/parser_internal.h` | What those four share |
-| `src/compiler/ast.c` | Node constructors and the arena they live in |
+| `src/compiler/parser_internal.h` | What all of those share |
+| `src/compiler/ast.c` | The arena, and the expression nodes |
+| `src/compiler/ast_statement.c` | The statement and declaration nodes |
+| `src/compiler/ast_name.c` | An operator's name, for diagnostics and the dump |
+| `src/compiler/ast_internal.h` | How a node and a list are made |
 | **Checking** | |
-| `src/compiler/typecheck.c` | Static checking; annotates the AST with types |
+| `src/compiler/typecheck.c` | The scope, the builtins, and the node dispatcher |
+| `src/compiler/typecheck_value.c` | The type of an expression |
+| `src/compiler/typecheck_statement.c` | The checking a statement needs |
+| `src/compiler/typecheck_internal.h` | The checker's state |
 | `src/compiler/type.c` | The type lattice and assignability |
 | **Back end** | |
 | `src/compiler/compiler.c` | Emit helpers, scopes, locals, and the node dispatcher |
-| `src/compiler/compiler_expression.c` | Operators, assignment, `this`/`super`, closures |
+| `src/compiler/compiler_node_value.c` | What each expression node becomes |
+| `src/compiler/compiler_node_statement.c` | What each statement node becomes |
+| `src/compiler/compiler_expression.c` | Operators, and the conditions that feed a jump |
+| `src/compiler/compiler_assign.c` | Assignment, in all the forms it takes |
+| `src/compiler/compiler_function.c` | Functions, and what `this` means inside one |
 | `src/compiler/compiler_statement.c` | Control flow and the destructuring a declaration lowers to |
 | `src/compiler/compiler_class.c` | Classes: members, accessors, statics, constructors |
 | `src/compiler/compiler_module.c` | Imports and exports, resolved at compile time |
 | `src/compiler/compiler_internal.h` | The compiler's ambient state and the seams |
 | `src/compiler/chunk.c` | Bytecode buffer, constant pool, inline-cache arrays |
 | **Runtime** | |
-| `src/runtime/vm.c` | The interpreter loop and everything on its hot path |
+| `src/runtime/vm.c` | The interpreter: the dispatch, and the unit everything below is compiled into |
+| `src/runtime/vm_state.inc` | The one VM, and the stack it runs on |
+| `src/runtime/vm_number.inc` | Errors, and the arithmetic that has to be exact |
+| `src/runtime/vm_property.inc` | Accessors, and asking an object for what it may not have |
+| `src/runtime/vm_call.inc` | Calling, and the arity a call has to satisfy |
+| `src/runtime/vm_invoke.inc` | A callee that is not a plain closure |
+| `src/runtime/vm_iterate.inc` | Object keys, and what `for...of` pulls from |
+| `src/runtime/vm_upvalue.inc` | Captured locals, and the opcode profile |
+| `src/runtime/vm_throw.inc` | Where a throw goes |
+| `src/runtime/vm_cache_miss.inc` | What an inline cache misses |
+| `src/runtime/vm_ops_*.inc` | The opcode bodies, by role — six files |
 | `src/runtime/vm_fiber.c` | Suspendable calls, for `await` |
 | `src/runtime/vm_event.c` | Microtasks, timers, and the loop that drains them |
 | `src/runtime/vm_internal.h` | The seams between those three |
-| `src/runtime/object.c` | Heap object types, string interning, promises |
+| `src/runtime/object.c` | The allocation every heap object goes through, and strings |
+| `src/runtime/object_internal.h` | The one thing the object files share |
+| `src/runtime/object_bag.c` | An object's properties: slots, then a table |
+| `src/runtime/object_new.c` | The constructors for everything that is not a property bag |
+| `src/runtime/object_print.c` | How each object prints, which is not how it converts |
+| `src/runtime/object_gc.c` | What the collector does with each object type |
 | `src/runtime/shape.c` | Hidden classes: the layout an object has |
 | `src/runtime/memory.c` | The allocator and the collector |
 | `src/runtime/table.c` | Open-addressing hash table |
-| `src/runtime/value.c` | Value operations, coercion, number formatting |
+| `src/runtime/value.c` | What a Value is, and what it converts to |
+| `src/runtime/value_render.c` | Turning a Value into text, in the two ways that differ |
+| `src/runtime/value_internal.h` | The seam between those two |
 | `src/runtime/module.c` | Resolving, loading and ordering source files |
 | `src/runtime/bigint.c` | Arbitrary-precision integers |
-| `src/runtime/regex.c` | The regex engine, testable on its own |
+| `src/runtime/regex.c` | Compiling a pattern to a program |
+| `src/runtime/regex_match.c` | Running one against a subject |
+| `src/runtime/regex_internal.h` | The compiled program both halves see |
 | **Compiler (second tier)** | |
 | `src/jit/jit.c` | Tiering: what gets hot, and what happens when it does |
-| `src/jit/ir.c` | Lowering bytecode to the typed IR, and inlining into it |
-| `src/jit/jitcode.c` | The arm64 encoder and the executable memory it fills |
+| `src/jit/ir.c` | The walk that lowers a function's bytecode |
+| `src/jit/ir_internal.h` | The lowering's own state, and the seams between its files |
+| `src/jit/ir_build.c` | Registers, instructions, block boundaries, push and pop |
+| `src/jit/ir_lower_data.c` | Constants, globals, locals and the operand stack |
+| `src/jit/ir_lower_arith.c` | Arithmetic and comparison |
+| `src/jit/ir_lower_object.c` | Property reads and writes, and the layouts they assume |
+| `src/jit/ir_lower_flow.c` | Jumps, branches, calls and returns |
+| `src/jit/ir_inline.c` | Splicing a small callee's body in where the call was |
+| `src/jit/ir_replay.c` | What the interpreter does across a hand-over |
+| `src/jit/ir_types.c` | What each value holds, and whether it is proved enough to run |
+| `src/jit/ir_print.c` | The IR in readable form, and where its typing stops |
+| `src/jit/ir_interpret.c` | Running the lowered form, to check it against the bytecode |
+| `src/jit/jitcode.c` | Compiling a lowered function, and the memory it runs from |
+| `src/jit/jitcode_internal.h` | The seam between the backend's files |
+| `src/jit/jitcode_arm64.c` | The arm64 instructions this backend can emit |
+| `src/jit/jitcode_alloc.c` | Deciding where every value lives |
+| `src/jit/jitcode_emit.c` | One IR instruction to machine code |
 | **Standard library** | |
-| `src/native/native.c` | The built-in global environment |
-| `src/native/native_array.c` | Array methods |
-| `src/native/native_string.c` | String methods |
+| `src/native/native.c` | The global environment, and what is installed into it |
+| `src/native/native_internal.h` | The seam between the library's files |
+| `src/native/native_object.c` | The `Object` namespace |
+| `src/native/native_descriptor.c` | Property descriptors, both directions |
+| `src/native/native_math.c` | `Math`, and the numeric functions |
+| `src/native/native_convert.c` | Converting to a number, string or boolean, and parsing |
+| `src/native/native_array.c` | Array methods that stay inside the runtime |
+| `src/native/native_array_callback.c` | Array methods that call back into user code |
+| `src/native/native_string.c` | String methods that read or reshape |
+| `src/native/native_string_search.c` | String methods that take a pattern |
 | `src/native/native_number.c` | `Number`, and the numeric conversions |
 | `src/native/native_json.c` | `JSON.stringify` and `JSON.parse` |
 | `src/native/native_promise.c` | Promises and timers |
@@ -671,7 +729,8 @@ table, then reset the stack.
 | `src/native/native_symbol.c` | `Symbol` and the well-known ones |
 | `src/native/native_bigint.c` | The `BigInt` surface |
 | **Tools** | |
-| `src/compiler/debug.c` | Disassembler and AST printer |
+| `src/compiler/debug.c` | The disassembler, and the flags that ask for a dump |
+| `src/compiler/debug_ast.c` | The parse tree, printed |
 | `src/compiler/diagnostic.c` | Error reporting |
 | `src/main.c` | The command line, the REPL, and the file runner |
 
@@ -682,6 +741,31 @@ were split by **what they handle**, not by phase — the pieces of a
 recursive-descent parser are mutually recursive because the grammar is, so
 layering them would have been a fiction. Each group shares an internal header
 that nothing outside it includes.
+
+**`vm.c` could not be split that way at all**, and finding out why is worth
+recording. Its opcode bodies each end in `VM_NEXT()`, which under
+computed-goto dispatch is a jump to a label in `run()` — so a case cannot
+become a function without giving up the dispatch strategy
+[measured above](#what-did-not-help-computed-goto). And its helpers *could*
+become separate translation units, but doing so cost **13-49%** on the
+interpreter benchmarks — 49% on `bench/branches.cx` — because the compiler had
+been inlining and specialising them into the loop, and a cross-unit call
+cannot be inlined.
+
+So the file is split and the translation unit is not: `vm.c` is a list of
+`#include`s of `.inc` fragments, and the object code is byte-for-byte what it
+was. An interleaved A/B of the two binaries puts the difference between -1.9%
+and +2.7%, which is the machine's noise. `vm_fiber.c` and `vm_event.c` stay
+separate units because `await` and the microtask queue are not on the hot
+path.
+
+`ir.c` was split the same way later, and needed one thing the others did not.
+Its cases said `goto handOver` and `goto failed`, which a function cannot do to
+its caller, so the four groups answer a `LowerResult` the walk acts on instead
+— with a fourth value, `LOWER_UNHANDLED`, that is not an outcome at all. It
+means "not mine", so the walk asks each group in turn and what happens to an
+opcode none of them claims is the hand-over the `default` case used to do.
+Every case body moved unchanged.
 
 **The interpreter loop was not split, and that is deliberate.** Computed-goto
 dispatch depends on the labels and the cached `ip` and `frame` living in one

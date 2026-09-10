@@ -7,9 +7,9 @@
 #include <stdint.h>
 
 #define CS_VERSION_MAJOR 0
-#define CS_VERSION_MINOR 45
+#define CS_VERSION_MINOR 46
 #define CS_VERSION_PATCH 0
-#define CS_VERSION_STRING "0.45.0"
+#define CS_VERSION_STRING "0.46.0"
 
 /* Value stack depth, shared by every active call frame. */
 #define CS_STACK_MAX (64 * 256)

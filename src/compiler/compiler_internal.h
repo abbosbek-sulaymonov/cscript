@@ -191,6 +191,16 @@ ObjFunction *endFunction(int line);
 void emitClosure(const Compiler *compiler, ObjFunction *function, int line);
 void compileNode(const AstNode *node);
 
+/* The innermost loop a `break` or `continue` means, given the label it named
+ * or none. NULL when there is no such loop, having said so. */
+Loop *compilerTargetLoop(const char *label, int labelLength, bool needsContinue,
+                         int line);
+
+/* The two halves it dispatches to. Each answers false for a node it does not
+ * handle, which is how the dispatcher knows to ask the other. */
+bool compileValueNode(const AstNode *node, int line);
+bool compileStatementNode(const AstNode *node, int line);
+
 /* src/compiler_expression.c */
 void compileOperandPair(const AstNode *left, const AstNode *right, int line);
 /* `#field`. The hash is part of the name, and only the lexer can produce it,
