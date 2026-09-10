@@ -10,6 +10,7 @@ void csDiagnosticsInit(Diagnostics *diag, const char *source,
   diag->sourceName = sourceName;
   diag->errorCount = 0;
   diag->panicMode = false;
+  diag->quiet = false;
 }
 
 /* Finds the start of the line containing `at`, walking back from it. */
@@ -32,6 +33,10 @@ void csDiagnosticError(Diagnostics *diag, int line, const char *at, int length,
   if (diag->panicMode) return;
   diag->panicMode = true;
   diag->errorCount++;
+
+  /* Counted but not reported: the caller is asking whether this parses, not
+   * compiling it. See Diagnostics.quiet. */
+  if (diag->quiet) return;
 
   fprintf(stderr, "%s:%d: error: ", diag->sourceName, line);
 

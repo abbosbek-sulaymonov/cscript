@@ -673,7 +673,7 @@ table, then reset the stack.
 | **Tools** | |
 | `src/compiler/debug.c` | Disassembler and AST printer |
 | `src/compiler/diagnostic.c` | Error reporting |
-| `src/main.c` | CLI, REPL, file runner |
+| `src/main.c` | The command line, the REPL, and the file runner |
 
 ### How it was split, and what was not
 

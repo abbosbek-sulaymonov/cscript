@@ -27,15 +27,16 @@ make test-ir      # same suite with the IR *replacing* the interpreter
 make test-jit     # compiled and interpreted must print the same thing
 make test-jit-gc  # the same, with a collection on every allocation
 make test-node    # examples must match Node.js output
+make test-cli     # the binary's own options, and the REPL
 make test-regex   # the regex engine on its own, without the language
-make test-all     # the seven that make up a clean run
+make test-all     # the eight that make up a clean run
 make test FILTER=scoping
 UPDATE=1 tests/run_tests.sh    # rewrite .expected from actual output
 ```
 
 `make test-all` is `test`, `test-gc`, `test-switch`, `test-tagged`,
-`test-node`, `test-ir` and `test-jit`. `test-asan` is deliberately not among
-them — see the note below — `test-regex` needs no language build, and
+`test-node`, `test-cli`, `test-ir` and `test-jit`. `test-asan` is deliberately
+not among them — see the note below — `test-regex` needs no language build, and
 `test-jit-gc` is slow enough to be run deliberately rather than always.
 
 Every `tests/cases/<group>/NAME.cx` runs and its output is compared against
@@ -50,6 +51,13 @@ constant pool was never marked, so string literals were collected mid-run.
 under Node and requires byte-identical output, except for the files listed as
 deliberately divergent — which it requires to actually differ, so a fix that
 silently stops working also fails the build.
+
+**`make test-cli` is the only suite that runs the binary rather than a
+program.** Every other one hands `cscript` a file and compares what it prints,
+which says nothing about what it does with its own options and nothing at all
+about what can be typed at a prompt. Both have been wrong in ways a program
+could not show: an entry as ordinary as `1+1` was a syntax error in the REPL,
+and a file that was not there was reported as a program that would not compile.
 
 **`make test-ir` and `make test-jit` are how the second tier is checked.** The
 first raises the compiler's threshold to one and runs the whole golden suite
@@ -95,6 +103,7 @@ cscript/
 ├── tests/
 │   ├── run_tests.sh     golden-file runner
 │   ├── node_parity.sh   examples vs. Node.js
+│   ├── cli.sh           the binary's own options, and the REPL
 │   ├── jit_differential.sh  compiled and interpreted must agree
 │   ├── regex_engine_test.c  the regex engine on its own
 │   └── cases/           *.cx paired with *.expected, grouped by role:

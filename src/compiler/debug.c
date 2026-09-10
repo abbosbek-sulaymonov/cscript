@@ -3,10 +3,23 @@
 
 #include "cscript/debug.h"
 #include "cscript/object.h"
-#include "cscript/object.h"
 #include "cscript/opcode.h"
 #include "cscript/type.h"
 #include "cscript/value.h"
+
+/* The trace build asks for every stage, which is what it always did. Anything
+ * else starts with none and the command line adds them. */
+unsigned csDumpStages =
+#ifdef CS_DEBUG_PRINT_TOKENS
+    CS_DUMP_TOKENS |
+#endif
+#ifdef CS_DEBUG_PRINT_AST
+    CS_DUMP_AST |
+#endif
+#ifdef CS_DEBUG_PRINT_CODE
+    CS_DUMP_BYTECODE |
+#endif
+    0u;
 
 /* The disassembler doubles as the one place that knows how long each
  * instruction is. Anything else needing that — the tiering pass, which walks a

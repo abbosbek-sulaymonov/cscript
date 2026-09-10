@@ -1241,6 +1241,17 @@ void csNativesInstall(void) {
   defineFunction("clearInterval", csClearTimeoutFn(), -1);
   defineFunction("queueMicrotask", csQueueMicrotaskFn(), -1);
 
+  /* `process`, with the one member a command line needs. Deliberately not the
+   * beginning of a Node-compatible surface: `argv` is here because a script
+   * given arguments has to be able to read them, and it is spelled this way
+   * because a program that reads it runs under Node too — which is the claim
+   * the whole test suite is built to keep. */
+  ObjObject *processObject = defineNamespace("process");
+  ObjArray *emptyArgs = csArrayNew();
+  csPushTempRoot((Obj *)emptyArgs);
+  csObjectSetProperty(processObject, "argv", OBJ_VAL(emptyArgs));
+  csPopTempRoot();
+
   defineGlobal("NaN", NUMBER_VAL(NAN));
   defineGlobal("Infinity", NUMBER_VAL(INFINITY));
 

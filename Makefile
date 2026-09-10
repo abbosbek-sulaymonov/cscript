@@ -8,6 +8,7 @@
 #   make test-asan  golden-file suite against the AddressSanitizer build
 #   make test-gc    golden-file suite with a collection on every allocation
 #   make test-node  check the examples against Node.js (skipped if absent)
+#   make test-cli   the binary's own options, and the REPL
 #   make test-switch  same suite, forcing the portable switch dispatch
 #   make test-tagged  same suite, forcing the 16-byte tagged-union Value
 #   make test-jit   compiled and interpreted must print the same thing
@@ -51,7 +52,7 @@ ASAN          := -fsanitize=address
 TRACE_DEFINES := -DCS_DEBUG_PRINT_TOKENS -DCS_DEBUG_PRINT_AST \
                  -DCS_DEBUG_PRINT_CODE -DCS_DEBUG_TRACE_EXECUTION
 
-.PHONY: all release debug asan gcstress switch tagged profile jit jitgc trace test test-regex test-ir test-asan test-gc test-node test-switch test-tagged test-jit test-jit-gc test-all bench-jit run clean help
+.PHONY: all release debug asan gcstress switch tagged profile jit jitgc trace test test-regex test-ir test-asan test-gc test-node test-cli test-switch test-tagged test-jit test-jit-gc test-all bench-jit run clean help
 .DEFAULT_GOAL := release
 
 all: release
@@ -116,6 +117,12 @@ test-ir: jit
 test-node: release
 	@BIN=$(BUILD)/release/cscript tests/node_parity.sh
 
+# The binary's own arguments, and the REPL. Nothing else covers either: every
+# other suite runs programs, which says nothing about what the CLI does with
+# its options and nothing at all about what can be typed at a prompt.
+test-cli: release
+	@BIN=$(BUILD)/release/cscript tests/cli.sh
+
 # The interpreter dispatches through computed goto where the compiler supports
 # it, and a switch everywhere else. Only one of those is exercised by a normal
 # build, so the other is run explicitly here.
@@ -154,7 +161,7 @@ test-jit-gc: jitgc
 bench-jit: jit
 	@bench/jit.sh
 
-test-all: test test-gc test-switch test-tagged test-node test-ir test-jit
+test-all: test test-gc test-switch test-tagged test-node test-cli test-ir test-jit
 
 run: release
 	@$(BUILD)/release/cscript $(FILE)
@@ -171,6 +178,7 @@ help:
 	@echo "make test-asan  same suite under AddressSanitizer"
 	@echo "make test-gc    same suite, collecting on every allocation"
 	@echo "make test-node  check the examples against Node.js"
+	@echo "make test-cli   the CLI's own options, and the REPL"
 	@echo "make test-switch same suite with switch dispatch"
 	@echo "make test-tagged same suite with the tagged-union Value"
 	@echo "make test-ir     same suite with the IR replacing the interpreter"
@@ -179,7 +187,7 @@ help:
 	@echo "make test-regex  the regex engine on its own"
 	@echo "make bench-jit   what the JIT backend is worth"
 	@echo "make test-all   test + test-gc + test-switch + test-tagged +"
-	@echo "                test-node + test-ir + test-jit"
+	@echo "                test-node + test-cli + test-ir + test-jit"
 	@echo "make jit           report what a JIT would compile"
 	@echo "make run FILE=examples/hello.cx"
 	@echo "make clean"

@@ -5,6 +5,7 @@
  * machinery to compile it is worth writing, and the interesting part of that
  * decision here is how much of a hot function's work is already typed.
  */
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -110,15 +111,28 @@ static const char *scanChunk(const Chunk *chunk) {
   return NULL;
 }
 
+/* Resolved once, from the flag if one was given, then the environment, then
+ * the default. Held rather than recomputed because the back-edge counter asks
+ * for it on every iteration of every loop. */
+static int jitThreshold = -1;
+static bool jitReportRequested = false;
+
 int csJitThreshold(void) {
-  static int threshold = -1;
-  if (threshold < 0) {
+  if (jitThreshold < 0) {
     const char *override = getenv("CS_JIT_THRESHOLD");
-    threshold = override != NULL ? atoi(override) : 10000;
-    if (threshold < 1) threshold = 1;
+    jitThreshold = override != NULL ? atoi(override) : 10000;
+    if (jitThreshold < 1) jitThreshold = 1;
   }
-  return threshold;
+  return jitThreshold;
 }
+
+void csJitSetThreshold(int threshold) {
+  jitThreshold = threshold < 1 ? 1 : threshold;
+}
+
+void csJitDisable(void) { jitThreshold = INT_MAX; }
+
+void csJitRequestReport(void) { jitReportRequested = true; }
 
 /* Whether the assumptions the compiled code was built on still hold.
  *
@@ -375,7 +389,7 @@ void csJitDumpProfile(void) {
   /* Asked for explicitly. The report goes to stdout, so printing it by default
    * would land in the middle of whatever the program itself wrote — including
    * every golden test, which is how the lowering is verified. */
-  if (getenv("CS_JIT_REPORT") == NULL) return;
+  if (!jitReportRequested && getenv("CS_JIT_REPORT") == NULL) return;
 
   if (hotCount == 0) {
     printf("\n== tiering: nothing reached %d ==\n", CS_JIT_THRESHOLD);
