@@ -69,34 +69,36 @@ already measured says it is the thing that pays.
 | **61 ✅** | Replaying a hand-over, so a loop below a declaration still compiles — `jit_calls` **23.7×**, `calls` **24.0×** |
 | **62 ✅** | A branch that read its condition from memory the value was never in |
 | **63 ✅** | Slot types per block rather than per function |
-| next | Replaying a conditional jump, which is what still refuses `loops_control` |
+| **64 ✅** | Replaying a jump, so a hand-over with a `break` in it keeps the loop |
 | next | A property store that *adds* one, which is what a constructor does |
 | next | Allocating an object in compiled code — attempted, backed out; see below |
 | next | Calling a CScript function from compiled code, for the callees inlining will not take: it needs frames and safepoints |
 
 ---
 
-## What a conditional jump in a skipped run still costs
+## Two holes that replaying a jump found
 
-Replaying a hand-over recovers the height and the slot types across a run the
-lowering is leaving to the interpreter, but only for runs made of instructions
-whose effect on the frame is fixed. A conditional jump is not one of them, and
-not because its fall-through is hard to model — it is a pop and a fall-through
-— but because of where the *taken* arm goes. Its target then has a predecessor
-the IR does not know about, and every entry type derived for that block is
-derived from the wrong set of paths.
+Neither was reachable while a hand-over containing a jump ended the lowering,
+and both were older than any of this.
 
-So the replay gives up on one, and with it goes the per-block typing for the
-whole function: from that point the lowering's linear state describes a path
-that did not happen. `tests/cases/language/loops_control.cx` has exactly one
-such jump — `if (w > 3) break;` inside a run handed over for a `console.log` —
-and it is the only program in the tree the compiler no longer takes part in.
+**The reachability walk did not follow fall-through.** A block the lowering
+cuts short of a terminator runs into the next one, which the code generator
+relies on when it lays the blocks out in order — but the walk that proves no
+compiled path reaches a block with a *fabricated* entry height only followed
+jumps and branches. So such a block could be declared unreachable and then be
+reached, handing the interpreter a frame at the wrong depth. `labels.cx` did
+exactly that, and the answer was a boolean where a loop counter should be.
 
-The fix is to merge the replay's state at the jump into the target block's
-entry state, as one more incoming path, rather than distrusting the function.
-That needs the height to agree as well as the types, which is the part worth
-doing carefully: a `break` pops the locals of the scope it leaves, so the two
-arms of one jump do not always arrive at the same depth.
+**A block picked up after a skip carried a stale belief about its slots.** The
+lowering would resume at a block whose height some jump had recorded — the
+height being a fact — while its own model of what each slot held still
+described the path it had abandoned. Nothing had noticed because the model is
+only advisory: every load it types optimistically is retyped by the dataflow
+afterwards, and a function whose arithmetic loses its proof is refused. It is
+still the wrong thing to record as a path that happened, so a block resumed
+this way now takes its types from a predecessor or claims nothing at all —
+which is what made it worth teaching every lowered jump to record its types
+along with its height.
 
 ---
 

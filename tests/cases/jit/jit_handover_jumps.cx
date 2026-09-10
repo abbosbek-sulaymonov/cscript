@@ -1,0 +1,70 @@
+// A jump inside a run the lowering hands over to the interpreter.
+//
+// Replaying a handed-over run recovers the height and the slot types on the
+// far side, but only for runs made of instructions whose effect on the frame
+// is fixed. A jump was not one of them — and not because its fall-through is
+// hard to model. It is where the *taken* arm goes: the target acquires a
+// predecessor the IR does not know about, and every entry type derived for it
+// then comes from the wrong set of paths.
+//
+// So the taken arm is recorded as one more incoming path. What is checked here
+// is that the answer is the same either way, in the shapes where the jump and
+// the hand-over are in the same run.
+function loggingLoop(n: number): number {
+  let kept: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    if (i % 100 === 0) {
+      console.log("at", i);
+      continue;
+    }
+    kept = kept + 1;
+  }
+  return kept;
+}
+console.log(loggingLoop(400));
+
+// A `break` out of the handed-over run rather than a `continue`.
+function stopEarly(n: number): number {
+  let seen: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    seen = seen + 1;
+    if (i === 300) {
+      console.log("stopping at", i);
+      break;
+    }
+  }
+  return seen;
+}
+console.log(stopEarly(400));
+
+// Two levels, left by a label — the jump pops the inner scope's locals before
+// it goes, so the height on the taken arm is not the height at the jump.
+function labelled(n: number): number {
+  let total: number = 0;
+  outer: for (let i: number = 0; i < n; i++) {
+    for (let j: number = 0; j < 3; j++) {
+      if (j === 2) {
+        console.log("skipping", i);
+        continue outer;
+      }
+      total = total + 1;
+    }
+  }
+  return total;
+}
+console.log(labelled(200));
+
+// A return inside a handed-over run, after which nothing flows anywhere.
+function earlyReturn(n: number): number {
+  let total: number = 0;
+  for (let i: number = 0; i < n; i++) {
+    total = total + i;
+    if (total > 10000) {
+      console.log("giving up at", i);
+      return -1;
+    }
+  }
+  return total;
+}
+console.log(earlyReturn(400));
+console.log(earlyReturn(10));

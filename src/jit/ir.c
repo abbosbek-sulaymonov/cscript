@@ -381,13 +381,72 @@ static bool replayPop(int *height, int count) {
   return true;
 }
 
+/* The taken arm of a jump inside a run being replayed.
+ *
+ * A jump can only be the *last* instruction of such a run: the scan that finds
+ * where the run ends stops at the first leader, and a jump makes the
+ * instruction after it one. So there is at most one of these, and modelling
+ * the fall-through is only half the answer — the other arm is an incoming path
+ * that the block it lands on has to know about, or every entry type derived for
+ * that block comes from the wrong set of paths.
+ *
+ * `fallsThrough` is false for an unconditional jump, where the run's end is not
+ * reached at all and the height there means nothing. */
+typedef struct {
+  int target; /* bytecode offset of the taken arm, or -1 */
+  int height;
+  IrType slotType[IR_MAX_STACK];
+  bool fallsThrough;
+} ReplayJump;
+
+/* How many values a jump takes off the stack before it goes, and whether it
+ * may also fall through. Returns false for a jump this does not model. */
+static bool jumpEffect(uint8_t opcode, int *pops, bool *fallsThrough) {
+  *fallsThrough = true;
+  switch (opcode) {
+    /* Unconditional, so the instruction after it is not reached from here. */
+    case OP_JUMP:
+    case OP_LOOP:
+      *pops = 0;
+      *fallsThrough = false;
+      return true;
+    /* These test the value and leave it, because the expression they are part
+     * of still wants it — `a && b` yields an operand, not a boolean. */
+    case OP_JUMP_IF_FALSE:
+    case OP_JUMP_IF_TRUE:
+      *pops = 0;
+      return true;
+    case OP_POP_JUMP_IF_FALSE:
+      *pops = 1;
+      return true;
+    /* The fused compare-and-branch forms consume both operands on either arm,
+     * so the two arrive at the same depth. */
+    case OP_JUMP_IF_NOT_LESS:
+    case OP_JUMP_IF_NOT_LESS_EQUAL:
+    case OP_JUMP_IF_NOT_GREATER:
+    case OP_JUMP_IF_NOT_GREATER_EQUAL:
+    case OP_JUMP_IF_EQUAL:
+    case OP_JUMP_IF_NOT_EQUAL:
+      *pops = 2;
+      return true;
+    default:
+      return false;
+  }
+}
+
 /* Returns the operand-stack height at `to`, or -1 when the run holds something
  * this does not model. `slotType` is written only on success, so a run given
- * up on halfway leaves the lowering's view of the frame untouched. */
+ * up on halfway leaves the lowering's view of the frame untouched. `jump`
+ * receives the taken arm of the run's final jump, if it has one, and `refusal`
+ * the opcode it could not model, for the tiering report. */
 static int replayHandedOver(const Chunk *chunk, IrType *slotType, int from, int to,
-                            int height) {
+                            int height, ReplayJump *jump, const char **refusal) {
   IrType replayed[IR_MAX_STACK];
   memcpy(replayed, slotType, sizeof replayed);
+
+  jump->target = -1;
+  jump->fallsThrough = true;
+  *refusal = NULL;
 
   for (int offset = from; offset < to;) {
     uint8_t opcode = chunk->code[offset];
@@ -510,10 +569,57 @@ static int replayHandedOver(const Chunk *chunk, IrType *slotType, int from, int 
              replayPush(replayed, &height, IR_TYPE_UNKNOWN);
         break;
 
+      /* A return, after which nothing flows anywhere: the interpreter leaves
+       * the function, so the end of the run is not reached along this path and
+       * the height there is not a fact about anything. Whatever follows is
+       * dead code, so there is no point modelling it either. */
+      case OP_RETURN:
+        jump->target = -1;
+        jump->fallsThrough = false;
+        memcpy(slotType, replayed, sizeof replayed);
+        return height;
+
+      /* A jump, which the reasoning above says can only be the last
+       * instruction here. Its taken arm is recorded for the caller to merge
+       * into the block it lands on; what is modelled below is the other arm. */
+      case OP_JUMP:
+      case OP_LOOP:
+      case OP_JUMP_IF_FALSE:
+      case OP_JUMP_IF_TRUE:
+      case OP_POP_JUMP_IF_FALSE:
+      case OP_JUMP_IF_NOT_LESS:
+      case OP_JUMP_IF_NOT_LESS_EQUAL:
+      case OP_JUMP_IF_NOT_GREATER:
+      case OP_JUMP_IF_NOT_GREATER_EQUAL:
+      case OP_JUMP_IF_EQUAL:
+      case OP_JUMP_IF_NOT_EQUAL: {
+        int pops = 0;
+        bool falls = true;
+        if (!jumpEffect(opcode, &pops, &falls)) return -1;
+        if (!replayPop(&height, pops)) return -1;
+
+        int past = csInstructionLength(chunk, offset);
+        if (past <= offset) return -1;
+        /* If it is not the last instruction of the run, the assumption that
+         * put it there is wrong and nothing below is safe to believe. */
+        if (past != to) return -1;
+
+        int reach = (chunk->code[offset + 1] << 8) | chunk->code[offset + 2];
+        jump->target = opcode == OP_LOOP ? past - reach : past + reach;
+        jump->height = height;
+        jump->fallsThrough = falls;
+        memcpy(jump->slotType, replayed, sizeof jump->slotType);
+        break;
+      }
+
       default:
+        *refusal = csOpcodeName((OpCode)opcode);
         return -1;
     }
-    if (!ok) return -1;
+    if (!ok) {
+      *refusal = csOpcodeName((OpCode)opcode);
+      return -1;
+    }
 
     int next = csInstructionLength(chunk, offset);
     if (next <= offset) return -1;
@@ -524,9 +630,50 @@ static int replayHandedOver(const Chunk *chunk, IrType *slotType, int from, int 
   return height;
 }
 
-/* Notes that `target` is entered with `height` on the stack. */
+/* Records that a block is also entered along a path the lowering did not walk:
+ * the taken arm of a jump inside a run handed over to the interpreter.
+ *
+ * Merging rather than replacing, because the block may already have a state
+ * recorded from the walk, and both are real paths in. The height is the one
+ * thing a meet cannot fix — it decides which slot every emitted instruction
+ * names — so a disagreement there is reported rather than reconciled. */
+static void recordArrivalTypes(IrFunction *ir, int block, const IrType *slotType) {
+  IrType *recorded = &ir->blockEntryTypes[(size_t)block * IR_MAX_SLOTS];
+  if (!ir->blockEntrySeeded[block]) {
+    memcpy(recorded, slotType, sizeof(IrType) * IR_MAX_SLOTS);
+    ir->blockEntrySeeded[block] = true;
+    return;
+  }
+  for (int s = 0; s < IR_MAX_SLOTS; s++) {
+    if (recorded[s] != slotType[s]) recorded[s] = IR_TYPE_UNKNOWN;
+  }
+}
+
+static bool recordArrival(IrFunction *ir, Lowering *low, int block,
+                          const IrType *slotType, int height) {
+  if (block < 0 || block >= ir->blockCount || block >= IR_MAX_BLOCKS) return false;
+  if (low->entryHeight[block] < 0) {
+    low->entryHeight[block] = height;
+  } else if (low->entryHeight[block] != height) {
+    return false;
+  }
+  recordArrivalTypes(ir, block, slotType);
+  return true;
+}
+
+/* Notes that `target` is entered with `height` on the stack, and with the
+ * slots holding what they hold here.
+ *
+ * The types are recorded for the same reason a replayed jump's are: this is a
+ * real path into that block, and where the walk picks up again after a run it
+ * could not carry its own model across, what some predecessor recorded is the
+ * only thing worth believing. Without it a loop below a `continue` inside a
+ * handed-over run lost its counter's type and the whole function with it. */
 static bool reachBlock(Lowering *low, int target, int height) {
   if (target < 0 || target >= IR_MAX_BLOCKS) return true;
+  if (target < low->ir->blockCount) {
+    recordArrivalTypes(low->ir, target, low->slotType);
+  }
   if (low->entryHeight[target] < 0) {
     low->entryHeight[target] = height;
     return true;
@@ -1031,10 +1178,30 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
   for (int offset = 0; offset < chunk->count;) {
     if (leader[offset]) {
       blockIndex = blockAt(ir, offset);
-      /* A recorded height beats the linear one: it came from an actual jump. */
+      /* A recorded height beats the linear one: it came from an actual jump,
+       * or from the taken arm of one inside a run handed over.
+       *
+       * It is also a *fact*, which is what lets the walk pick up again: after
+       * a run it could not replay the linear height means nothing, but a
+       * recorded one means something, and everything downstream of here needs
+       * a height more than it needs types. What the slots hold is the part
+       * that is not known, so where no predecessor recorded it, nothing is
+       * claimed — the alternative is carrying a stale belief forward and
+       * recording it as though it were a path that happened. */
       if (blockIndex >= 0 && blockIndex < IR_MAX_BLOCKS &&
           low.entryHeight[blockIndex] >= 0) {
         low.stackTop = low.entryHeight[blockIndex];
+        if (skipped) {
+          if (blockIndex < ir->blockCount && ir->blockEntrySeeded[blockIndex]) {
+            memcpy(low.slotType,
+                   &ir->blockEntryTypes[(size_t)blockIndex * IR_MAX_SLOTS],
+                   sizeof low.slotType);
+          } else {
+            for (int s = 0; s < IR_MAX_STACK; s++) low.slotType[s] = IR_TYPE_UNKNOWN;
+          }
+          for (int s = 0; s < IR_MAX_STACK; s++) low.stack[s] = -1;
+          skipped = false;
+        }
       } else if (skipped) {
         /* Nothing reaches this block from the part being compiled, and its
          * height is unknown, so the whole of it is left to the interpreter —
@@ -1062,11 +1229,23 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
       /* What the lowering walked into this block believing. That is a real
        * path — the one the interpreter also takes to get here — and it is the
        * only one on the way into a loop the compiler takes over part-way
-       * through, where no lowered jump reaches the header at all. */
+       * through, where no lowered jump reaches the header at all.
+       *
+       * Merged with anything a skipped jump's taken arm already recorded for
+       * this block, because that is a real path too; and where the walk itself
+       * has nothing to say, the recorded state is adopted so that the walk has
+       * something true to carry on from. */
       if (blockIndex >= 0 && blockIndex < ir->blockCount) {
-        memcpy(&ir->blockEntryTypes[(size_t)blockIndex * IR_MAX_SLOTS], low.slotType,
-               sizeof low.slotType);
-        ir->blockEntrySeeded[blockIndex] = true;
+        IrType *recorded = &ir->blockEntryTypes[(size_t)blockIndex * IR_MAX_SLOTS];
+        if (!ir->blockEntrySeeded[blockIndex]) {
+          memcpy(recorded, low.slotType, sizeof low.slotType);
+          ir->blockEntrySeeded[blockIndex] = true;
+        } else {
+          for (int s = 0; s < IR_MAX_SLOTS; s++) {
+            if (recorded[s] != low.slotType[s]) recorded[s] = IR_TYPE_UNKNOWN;
+          }
+          memcpy(low.slotType, recorded, sizeof low.slotType);
+        }
       }
     }
 
@@ -1758,19 +1937,40 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
        * instruction in it has a fixed effect, the height and the slot types at
        * the other end follow from the bytecode rather than being unknown. That
        * is what lets a loop below a function declaration still compile. */
-      int resumed = replayHandedOver(chunk, low.slotType, floorOffset, skip, blockFloor);
+      ReplayJump taken;
+      const char *replayRefusal = NULL;
+      int resumed = replayHandedOver(chunk, low.slotType, floorOffset, skip,
+                                     blockFloor, &taken, &replayRefusal);
+
+      /* A run that ends in a jump has a second arm, and the block it lands on
+       * has to know about it or every entry type derived for that block comes
+       * from the wrong set of paths. Recording it is what lets a run with a
+       * `break` in it be replayed at all. */
+      if (resumed >= 0 && taken.target >= 0 &&
+          !recordArrival(ir, &low, blockAt(ir, taken.target), taken.slotType,
+                         taken.height)) {
+        replayRefusal = "a jump whose arms disagree on the stack height";
+        resumed = -1;
+      }
+
       if (resumed >= 0) {
         low.stackTop = resumed;
         /* Nothing this function computed is in those positions any more: the
          * interpreter put the values there. Marking them as holding no
          * register is what stops a later instruction reading a stale one. */
         for (int s = 0; s < IR_MAX_STACK; s++) low.stack[s] = -1;
+        /* An unconditional jump does not reach the end of the run, so the
+         * height there is not a fact about anything. The block that starts
+         * there is entered by its own predecessors or not at all, and the walk
+         * picks up again wherever one of them recorded a state. */
+        if (!taken.fallsThrough) skipped = true;
       } else {
         /* From here the linear state describes a path that did not happen, so
          * nothing recorded after this point can be believed — and the seeds
          * already taken are only sound while every one of them is. */
         skipped = true;
         ir->blockEntryTrusted = false;
+        if (ir->firstReplayRefusal == NULL) ir->firstReplayRefusal = replayRefusal;
       }
 
       offset = skip;
@@ -1830,17 +2030,34 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
     grew = false;
     for (int b = 0; b < ir->blockCount; b++) {
       if (!reachable[b]) continue;
+
+      int targets[3] = {-1, -1, -1};
       for (int i = 0; i < ir->blocks[b].count; i++) {
         const IrInst *inst = &ir->blocks[b].instructions[i];
-        int targets[2] = {-1, -1};
         if (inst->op == IR_JUMP) targets[0] = inst->a;
         if (inst->op == IR_BRANCH) { targets[0] = inst->b; targets[1] = inst->c; }
-        for (int k = 0; k < 2; k++) {
-          int to = targets[k];
-          if (to < 0 || to >= ir->blockCount || reachable[to]) continue;
-          reachable[to] = true;
-          grew = true;
+      }
+      /* And the edge no instruction names. A block the lowering cut short of a
+       * terminator runs into the next one, which the code generator relies on
+       * when it lays them out in order — so leaving it out of this walk let a
+       * block with a fabricated entry height be declared unreachable and then
+       * be reached, handing the interpreter a frame at the wrong depth. */
+      int count = ir->blocks[b].count;
+      if (count == 0) {
+        targets[2] = b + 1;
+      } else {
+        IrOp last = ir->blocks[b].instructions[count - 1].op;
+        if (last != IR_JUMP && last != IR_BRANCH && last != IR_RETURN &&
+            last != IR_EXIT) {
+          targets[2] = b + 1;
         }
+      }
+
+      for (int k = 0; k < 3; k++) {
+        int to = targets[k];
+        if (to < 0 || to >= ir->blockCount || reachable[to]) continue;
+        reachable[to] = true;
+        grew = true;
       }
     }
   }
