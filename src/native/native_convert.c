@@ -134,6 +134,40 @@ static bool numberIsFinite(Value receiver, int argCount, Value *args, Value *res
   return true;
 }
 
+/* `String.fromCharCode(72, 105)` is "Hi".
+ *
+ * Bytes, not UTF-16 code units: CScript's strings are bytes and its
+ * `charCodeAt` answers one, so this is that operation inverted. A code above
+ * 255 is refused rather than truncated — silently writing the low byte of a
+ * character someone asked for is the kind of wrong answer that looks right. */
+static bool stringFromCharCode(Value receiver, int argCount, Value *args,
+                               Value *result) {
+  (void)receiver;
+  char *buffer = CS_ALLOCATE(char, argCount + 1);
+  for (int i = 0; i < argCount; i++) {
+    if (!IS_NUMBER(args[i])) {
+      CS_FREE_ARRAY(char, buffer, argCount + 1);
+      csVMRuntimeError("String.fromCharCode expects numbers");
+      return false;
+    }
+    double code = AS_NUMBER(args[i]);
+    if (code < 0 || code > 255 || code != (double)(int)code) {
+      CS_FREE_ARRAY(char, buffer, argCount + 1);
+      csVMRuntimeError("String.fromCharCode expects whole numbers from 0 to 255, "
+                       "got %g",
+                       code);
+      return false;
+    }
+    buffer[i] = (char)(unsigned char)(int)code;
+  }
+  buffer[argCount] = '\0';
+
+  ObjString *text = csStringCopy(buffer, argCount);
+  CS_FREE_ARRAY(char, buffer, argCount + 1);
+  *result = OBJ_VAL(text);
+  return true;
+}
+
 void csNativeInstallConversions(void) {
   /* Number is callable *and* a namespace, so it is defined as a function whose
    * statics carry the rest. */
@@ -162,7 +196,20 @@ void csNativeInstallConversions(void) {
   csNativeDefineFunction("isNaN", globalIsNaN, -1);
   csNativeDefineFunction("isFinite", globalIsFinite, -1);
 
-  /* Explicit conversions, so nothing has to rely on implicit coercion. */
-  csNativeDefineFunction("String", stringConvert, 1);
+  /* Explicit conversions, so nothing has to rely on implicit coercion.
+   * `String` is callable *and* a namespace, the same shape as `Number` above:
+   * building a character from its code is the other half of `charCodeAt`, and
+   * without it a program cannot construct one at all. */
+  ObjNative *stringFn = csNativeNew(stringConvert, "String", 1);
+  csPushTempRoot((Obj *)stringFn);
+  ObjObject *stringNs = csObjectNew("String");
+  csPushTempRoot((Obj *)stringNs);
+  stringFn->statics = stringNs;
+  csNativeDefineGlobal("String", OBJ_VAL(stringFn));
+  csNativeDefineMethod(stringNs, "fromCharCode", stringFromCharCode, -1);
+  csObjectFreeze(stringNs);
+  csPopTempRoot();
+  csPopTempRoot();
+
   csNativeDefineFunction("Boolean", booleanConvert, 1);
 }

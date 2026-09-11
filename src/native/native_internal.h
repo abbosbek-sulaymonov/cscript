@@ -31,6 +31,8 @@ void csNativeDefineFunction(const char *name, NativeFn function, int arity);
 void csNativeInstallMath(void);
 void csNativeInstallObject(void);
 void csNativeInstallConversions(void);
+void csNativeInstallFs(void);
+void csNativeInstallProcess(void);
 
 /* `Object`'s four descriptor methods, which live in native_descriptor.c
  * because the two directions have to agree about the same four attributes —

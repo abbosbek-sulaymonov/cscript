@@ -215,6 +215,32 @@ running. The local zone is still available where it is asked for by name —
 `getHours`, `getDay` and `getTimezoneOffset` all use it, and so does
 `new Date(y, m, d)`.
 
+### The file and process APIs are not Node's
+
+CScript reaches a file through a global `fs`, not through an imported module,
+and every operation answers `{ ok: true, … }` or `{ ok: false, error }` rather
+than throwing:
+
+```ts
+const answer = fs.read("data.txt");
+if (!answer.ok) console.log("could not read it: " + answer.error);
+```
+
+Throwing would be the Node shape and the wrong one here, because a runtime
+error in CScript is not catchable — a missing file would end the program. For
+the same reason `process.env` is a **function**: `process.env.HOME` reads a
+property that may not be there, which is a runtime error, so the Node spelling
+would crash on any machine that did not set it.
+
+```ts
+process.env("HOME") ?? "/tmp"     // works
+process.env.HOME                  // would be a runtime error when unset
+```
+
+`std:io` and `std:os` wrap both of these in `Result`s and in names that say
+what they answer. There is no networking and no way to spawn a process; both
+say so rather than existing in a form that cannot work.
+
 ### A binding cannot be used from inside its own initialiser
 
 ```ts

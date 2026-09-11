@@ -1,0 +1,29 @@
+/* `process`: where the program is running, and how to stop.
+ *
+ * Everything here varies by machine, so what is printed is the *shape* of each
+ * answer rather than its value — a test that asserted this machine's working
+ * directory would fail on every other one.
+ *
+ * Node cannot be the oracle: `process.env` is a function here rather than an
+ * object, because reading an absent property is a runtime error in CScript and
+ * `process.env.HOME` would therefore crash on any machine that did not set it.
+ */
+console.log("argv is an array:", Array.isArray(process.argv));
+console.log("argv holds the script:", process.argv.length >= 2);
+
+console.log("env is a function:", typeof process.env);
+console.log("PATH is set:", process.env("PATH") !== undefined);
+console.log("a name nothing sets:", process.env("CSCRIPT_NO_SUCH_VARIABLE"));
+console.log("with a fallback:", process.env("CSCRIPT_NO_SUCH_VARIABLE") ?? "none");
+
+const names = process.envNames();
+console.log("envNames is an array:", Array.isArray(names), names.length > 3);
+console.log("PATH is among them:", names.includes("PATH"));
+
+console.log("cwd is a string:", typeof process.cwd(), process.cwd().length > 0);
+console.log("platform is named:", typeof process.platform, process.platform.length > 0);
+console.log("pid is a number:", typeof process.pid, process.pid > 0);
+
+/* Not frozen, because argv is filled in after the natives are installed. Every
+ * other member is a method, so there is nothing else to reassign. */
+console.log("exit is a function:", typeof process.exit);

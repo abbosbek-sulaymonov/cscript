@@ -1,0 +1,16 @@
+mkdir: true
+write: { ok: true, bytes: 13 }
+read:  [ 'first', 'second', '' ]
+append: true
+lines: 4
+exists: true false
+stat: true true false 19 true
+stat dir: true
+list: true [ 'notes.txt' ]
+missing: false No such file or directory
+bad mkdir: false
+rewrite: true only
+
+remove: true false
+rmdir: true false
+remove missing: No such file or directory

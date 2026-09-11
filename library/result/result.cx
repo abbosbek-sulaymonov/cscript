@@ -20,6 +20,16 @@
  * the same line the language draws between a decision and a mistake.
  */
 
+/* A callback is called with the value only when it declared a parameter.
+ * CScript checks arity, so `map(() => 0)` — a transform that ignores what it
+ * is given, which is how a Result gets used for its ok-ness alone — would
+ * otherwise be an error rather than a transform. The same adaptation the rest
+ * of the library makes. */
+function callWith(callback: any, value: any): any {
+  if (callback.length >= 1) return callback(value);
+  return callback();
+}
+
 export class Result {
   #ok: boolean;
   #value: any;
@@ -85,24 +95,24 @@ export class Result {
   /* Transforms the value and leaves an error alone. */
   map(transform: any): any {
     if (!this.#ok) return this;
-    return Result.ok(transform(this.#value));
+    return Result.ok(callWith(transform, this.#value));
   }
 
   mapErr(transform: any): any {
     if (this.#ok) return this;
-    return Result.err(transform(this.#error));
+    return Result.err(callWith(transform, this.#error));
   }
 
   /* For a step that can itself fail: the callback answers a Result, and this
    * does not wrap it in another one. */
   andThen(next: any): any {
     if (!this.#ok) return this;
-    return next(this.#value);
+    return callWith(next, this.#value);
   }
 
   orElse(recover: any): any {
     if (this.#ok) return this;
-    return recover(this.#error);
+    return callWith(recover, this.#error);
   }
 
   unwrapOr(fallback: any): any {
@@ -110,14 +120,14 @@ export class Result {
   }
 
   unwrapOrElse(fromError: any): any {
-    return this.#ok ? this.#value : fromError(this.#error);
+    return this.#ok ? this.#value : callWith(fromError, this.#error);
   }
 
   /* Both branches, named. The one place a Result has to be taken apart, and
    * the compiler cannot check that you handled both — so this is how to make
    * sure you did. */
   match(onOk: any, onErr: any): any {
-    return this.#ok ? onOk(this.#value) : onErr(this.#error);
+    return this.#ok ? callWith(onOk, this.#value) : callWith(onErr, this.#error);
   }
 
   toOption(): any {
@@ -169,19 +179,19 @@ export class Option {
 
   map(transform: any): any {
     if (!this.#present) return this;
-    return Option.some(transform(this.#value));
+    return Option.some(callWith(transform, this.#value));
   }
 
   /* Keeps the value only if it passes, which is how a `some` becomes a `none`
    * without an `if` at the call site. */
   filter(keep: any): any {
     if (!this.#present) return this;
-    return keep(this.#value) ? this : Option.none();
+    return callWith(keep, this.#value) ? this : Option.none();
   }
 
   andThen(next: any): any {
     if (!this.#present) return this;
-    return next(this.#value);
+    return callWith(next, this.#value);
   }
 
   orElse(build: any): any {
@@ -198,7 +208,7 @@ export class Option {
   }
 
   match(onSome: any, onNone: any): any {
-    return this.#present ? onSome(this.#value) : onNone();
+    return this.#present ? callWith(onSome, this.#value) : onNone();
   }
 
   /* An Option needs an error to become a Result, and only the caller knows

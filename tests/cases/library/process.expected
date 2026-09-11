@@ -1,0 +1,12 @@
+argv is an array: true
+argv holds the script: true
+env is a function: function
+PATH is set: true
+a name nothing sets: undefined
+with a fallback: none
+envNames is an array: true true
+PATH is among them: true
+cwd is a string: string true
+platform is named: string true
+pid is a number: number true
+exit is a function: function

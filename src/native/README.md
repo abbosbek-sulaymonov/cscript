@@ -19,6 +19,8 @@ here reaches into the interpreter's internals — that separation is why
 | [`native_date.c`](native_date.c) | `Date` — one instant, and the ways of writing it down |
 | [`native_map.c`](native_map.c) | `Map`, `Set`, `WeakMap`, `WeakSet` — one structure with a flag |
 | [`native_bigint.c`](native_bigint.c) | `BigInt`, a type of its own rather than a wider number |
+| [`native_fs.c`](native_fs.c) | `fs` — the only way a program reaches a file |
+| [`native_process.c`](native_process.c) | `process` — arguments, environment, directory, platform, exit |
 
 | Methods on a primitive | Holds |
 | --- | --- |
@@ -64,6 +66,14 @@ the members is also the file that can freeze them.
 mysteries later. It can only happen once every member is in place.
 
 ## Two rules every handler follows
+
+**A condition is a value; a mistake is an error.** `fs.read` answers
+`{ ok: false, error }` for a file that is not there, and reports a runtime
+error only when it was handed something that is not a path. The reason is the
+language: a runtime error is not catchable, so reporting one for a missing file
+would take the process down over the most ordinary thing a script does. Every
+handler that can fail *for a reason the caller could have expected* answers
+that reason.
 
 **Check, do not coerce.** A handler verifies that what it was given is what it
 needs and reports a named error otherwise. JavaScript would coerce and often

@@ -1,0 +1,46 @@
+/* std:os — what the program can learn about where it is running.
+ *
+ * Everything here varies by machine, so what is checked is the shape of each
+ * answer. Node cannot be the oracle: `process.env` is a function in CScript,
+ * for the reason os/README.md gives.
+ */
+import { env, envOption, hasEnv, envNames, envAll, cwd, homeDir, tempDir,
+         platform, isMac, isLinux, isWindows, pathSeparator, pathListSeparator,
+         lineEnding, pid, args, scriptPath, executablePath } from "std:os";
+import { equal, deepEqual, ok, notOk } from "std:assert";
+
+ok(hasEnv("PATH"));
+notOk(hasEnv("CSCRIPT_NO_SUCH_VARIABLE"));
+equal(typeof env("PATH"), "string");
+equal(env("CSCRIPT_NO_SUCH_VARIABLE"), undefined);
+equal(env("CSCRIPT_NO_SUCH_VARIABLE", "fallback"), "fallback");
+ok(envOption("PATH").isSome);
+ok(envOption("CSCRIPT_NO_SUCH_VARIABLE").isNone);
+equal(envOption("CSCRIPT_NO_SUCH_VARIABLE").unwrapOr("none"), "none");
+
+const names = envNames();
+ok(names.includes("PATH"));
+deepEqual(names.slice(0).sort(), names, "envNames is sorted");
+equal(envAll().get("PATH"), env("PATH"));
+equal(envAll().size, names.length);
+
+equal(typeof cwd(), "string");
+ok(cwd().length > 0);
+equal(typeof tempDir(), "string");
+ok(tempDir().length > 0);
+
+/* Exactly one platform is the platform. */
+const flags = [isMac(), isLinux(), isWindows()];
+equal(flags.filter((flag: boolean) => flag).length <= 1, true);
+equal(typeof platform(), "string");
+equal(pathSeparator(), isWindows() ? "\\" : "/");
+equal(pathListSeparator(), isWindows() ? ";" : ":");
+equal(lineEnding(), isWindows() ? "\r\n" : "\n");
+
+ok(pid() > 0);
+ok(Array.isArray(args()));
+equal(typeof scriptPath(), "string");
+equal(typeof executablePath(), "string");
+ok(scriptPath().endsWith("os.cx"));
+
+console.log("os ok");

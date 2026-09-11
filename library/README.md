@@ -1,6 +1,6 @@
 # `library/` — the standard library
 
-Ten modules, written in CScript, imported by name:
+Twelve modules, written in CScript, imported by name:
 
 ```ts
 import { range, zip } from "std:iter";
@@ -37,6 +37,8 @@ the layer above: the things you would otherwise write again in every program.
 | [`std:random`](random) | Randomness you can seed, and therefore repeat — `Random` | [README](random/README.md) |
 | [`std:events`](events) | One thing announcing, several listening — `EventEmitter` | [README](events/README.md) |
 | [`std:async`](async) | Waiting, and not doing everything at once — `sleep`, `timeout`, `retry`, `pool` | [README](async/README.md) |
+| [`std:io`](io) | Files as Results, and the two streams — `readText`, `writeLines`, `out`, `StringWriter` | [README](io/README.md) |
+| [`std:os`](os) | Where the program is running — `env`, `args`, `cwd`, `platform`, `exit` | [README](os/README.md) |
 
 [`../examples/library.cx`](../examples/library.cx) uses six of them on one
 small problem, and is checked against Node on every `make test-node`.
@@ -106,7 +108,10 @@ a width counted in characters.
 4. Add a row to the table above.
 
 Every case in that group came out of Node byte-for-byte identical to CScript,
-seeded random sequences included.
+seeded random sequences included — **except `io` and `os`**, which Node cannot
+run: `fs` is a CScript built-in with no Node counterpart, and `process.env` is
+a function here and an object there. Those two expected files were produced by
+CScript and checked against their module READMEs, and each README says so.
 
 ## Related
 
