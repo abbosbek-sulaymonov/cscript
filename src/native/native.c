@@ -53,6 +53,35 @@ static bool consoleError(Value receiver, int argCount, Value *args, Value *resul
   return true;
 }
 
+/* One string, with no newline and no formatting.
+ *
+ * `console.log` ends a line and renders a value for a human to read, which is
+ * the right default and the wrong tool for building output a character at a
+ * time — a progress line, a column, a file being assembled on the way out.
+ * Without this, `std:io`'s writers would have to buffer a line and hand it to
+ * console.log, which makes a partial line invisible until it is finished. */
+static bool writeExactly(FILE *out, const char *forWhat, int argCount, Value *args,
+                         Value *result) {
+  if (argCount != 1 || !IS_STRING(args[0])) {
+    csVMRuntimeError("%s expects exactly one string", forWhat);
+    return false;
+  }
+  ObjString *text = AS_STRING(args[0]);
+  if (text->length > 0) fwrite(text->chars, 1, (size_t)text->length, out);
+  *result = UNDEFINED_VAL;
+  return true;
+}
+
+static bool consoleWrite(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  return writeExactly(stdout, "console.write", argCount, args, result);
+}
+
+static bool consoleWriteError(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  return writeExactly(stderr, "console.writeError", argCount, args, result);
+}
+
 /* ---------------- Array ---------------- */
 
 static bool arrayIsArray(Value receiver, int argCount, Value *args, Value *result) {
@@ -326,6 +355,8 @@ void csNativesInstall(void) {
   csNativeDefineMethod(console, "log", consoleLog, -1);
   csNativeDefineMethod(console, "error", consoleError, -1);
   csNativeDefineMethod(console, "warn", consoleError, -1);
+  csNativeDefineMethod(console, "write", consoleWrite, 1);
+  csNativeDefineMethod(console, "writeError", consoleWriteError, 1);
   csObjectFreeze(console);
 
   /* Each of these makes its namespace, fills it and seals it — see
@@ -380,16 +411,8 @@ void csNativesInstall(void) {
   csNativeDefineFunction("clearInterval", csClearTimeoutFn(), -1);
   csNativeDefineFunction("queueMicrotask", csQueueMicrotaskFn(), -1);
 
-  /* `process`, with the one member a command line needs. Deliberately not the
-   * beginning of a Node-compatible surface: `argv` is here because a script
-   * given arguments has to be able to read them, and it is spelled this way
-   * because a program that reads it runs under Node too — which is the claim
-   * the whole test suite is built to keep. */
-  ObjObject *processObject = csNativeDefineNamespace("process");
-  ObjArray *emptyArgs = csArrayNew();
-  csPushTempRoot((Obj *)emptyArgs);
-  csObjectSetProperty(processObject, "argv", OBJ_VAL(emptyArgs));
-  csPopTempRoot();
+  csNativeInstallFs();
+  csNativeInstallProcess();
 
   csNativeDefineGlobal("NaN", NUMBER_VAL(NAN));
   csNativeDefineGlobal("Infinity", NUMBER_VAL(INFINITY));

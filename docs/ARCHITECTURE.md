@@ -722,6 +722,8 @@ table, then reset the stack.
 | `src/jit/jitcode_alloc.c` | Deciding where every value lives |
 | `src/jit/jitcode_emit.c` | One IR instruction to machine code |
 | **Standard library** | One namespace per file |
+| `src/native/native_fs.c` | `fs`: read, write, stat, list — answers, never throws |
+| `src/native/native_process.c` | `process`: arguments, environment, directory, platform, exit |
 | `src/native/native.c` | The global environment, and what is installed into it |
 | `src/native/native_internal.h` | The seam between the library's files |
 | `src/native/native_object.c` | The `Object` namespace |

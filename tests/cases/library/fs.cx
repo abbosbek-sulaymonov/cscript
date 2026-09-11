@@ -1,0 +1,40 @@
+/* The `fs` namespace: the only way a program reaches a file.
+ *
+ * Every operation answers `{ ok }` rather than throwing, because a runtime
+ * error is not catchable here and reading a file that might not be there is
+ * the most ordinary thing a script does. What is printed below is therefore
+ * the *shape* of each answer.
+ *
+ * Node cannot be the oracle for this case: it has no global `fs`, and its own
+ * filesystem module is a different API. The expected output was written from
+ * the specification in library/io/README.md and checked by running it.
+ */
+const base = "/tmp/cscript_fs_case";
+const file = base + "/notes.txt";
+
+console.log("mkdir:", fs.makeDirectory(base).ok);
+console.log("write:", fs.write(file, "first\nsecond\n"));
+console.log("read: ", fs.read(file).text.split("\n"));
+console.log("append:", fs.append(file, "third\n").ok);
+console.log("lines:", fs.read(file).text.split("\n").length);
+
+console.log("exists:", fs.exists(file), fs.exists(base + "/missing.txt"));
+
+const info = fs.stat(file);
+console.log("stat:", info.ok, info.isFile, info.isDirectory, info.size, info.modifiedMs > 0);
+console.log("stat dir:", fs.stat(base).isDirectory);
+
+const listed = fs.list(base);
+console.log("list:", listed.ok, listed.entries);
+
+/* Failure is a value, not a throw: the program carries on. */
+const missing = fs.read(base + "/missing.txt");
+console.log("missing:", missing.ok, missing.error);
+console.log("bad mkdir:", fs.makeDirectory("/tmp/cscript_fs_case/a/b/c").ok);
+
+/* Writing over a file replaces it; appending does not. */
+console.log("rewrite:", fs.write(file, "only\n").ok, fs.read(file).text);
+
+console.log("remove:", fs.remove(file).ok, fs.exists(file));
+console.log("rmdir:", fs.remove(base).ok, fs.exists(base));
+console.log("remove missing:", fs.remove(base).error);

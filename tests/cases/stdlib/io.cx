@@ -1,0 +1,78 @@
+/* std:io — files as Results, and the two streams.
+ *
+ * Node cannot be the oracle for this case: `fs` is a CScript built-in with no
+ * Node counterpart, and Node's own filesystem module is a different API. The
+ * expected output was produced by CScript and checked against
+ * library/io/README.md line by line.
+ */
+import { readText, readLines, writeText, appendText, writeLines, appendLine,
+         exists, stat, size, isDirectory, isFile, list, remove, makeDirectory,
+         ensureDirectory, out, err, Stream, StringWriter } from "std:io";
+import { equal, deepEqual, ok, notOk } from "std:assert";
+
+const base = "/tmp/cscript_io_case";
+const file = base + "/notes.txt";
+
+ok(ensureDirectory(base).isOk);
+ok(ensureDirectory(base).isOk, "already there is success");
+
+ok(writeText(file, "first\nsecond\n").isOk);
+equal(readText(file).value, "first\nsecond\n");
+deepEqual(readLines(file).value, ["first", "second"]);
+
+ok(appendText(file, "third\n").isOk);
+deepEqual(readLines(file).value, ["first", "second", "third"]);
+ok(appendLine(file, "fourth").isOk);
+deepEqual(readLines(file).value, ["first", "second", "third", "fourth"]);
+
+ok(writeLines(file, ["a", "b"]).isOk);
+equal(readText(file).value, "a\nb\n");
+
+ok(exists(file));
+notOk(exists(base + "/missing.txt"));
+ok(isFile(file));
+notOk(isDirectory(file));
+ok(isDirectory(base));
+equal(size(file).value, 4);
+ok(stat(file).value.modifiedMs > 0);
+
+ok(writeText(base + "/a.txt", "1").isOk);
+ok(writeText(base + "/b.txt", "2").isOk);
+deepEqual(list(base).value, ["a.txt", "b.txt", "notes.txt"]);
+
+/* A failure is a value, and carries the path with the reason. */
+const missing = readText(base + "/missing.txt");
+ok(missing.isErr);
+equal(missing.error, "cannot read /tmp/cscript_io_case/missing.txt: No such file or directory");
+equal(missing.unwrapOr("(nothing)"), "(nothing)");
+ok(readLines(base + "/missing.txt").isErr);
+ok(writeText(base + "/no/such/dir/x.txt", "x").isErr);
+
+/* A Result composes rather than being unpacked at every step. */
+const wordCount = readText(file).map((text: string) => text.split("\n").length - 1);
+equal(wordCount.value, 2);
+
+const writer = new StringWriter();
+writer.write("no newline");
+equal(writer.text(), "no newline");
+equal(writer.length, 10);
+writer.clear();
+writer.line("one").line("two").lines([3, 4]);
+equal(writer.text(), "one\ntwo\n3\n4\n");
+
+/* The streams take the same three methods, so a function can be handed either. */
+function report(stream: any) {
+  stream.write("a").write("b").line("!");
+  stream.lines(["x", "y"]);
+}
+report(out);
+report(new StringWriter());
+
+ok(remove(base + "/a.txt").isOk);
+ok(remove(base + "/b.txt").isOk);
+ok(remove(file).isOk);
+notOk(exists(file));
+ok(remove(base).isOk);
+ok(remove(base).isErr, "removing what is gone is an error");
+
+console.log("io ok");

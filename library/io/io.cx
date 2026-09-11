@@ -1,0 +1,186 @@
+/* io.cx — files, and the two streams a program writes to.
+ *
+ * Over the `fs` and `console` built-ins, with one thing changed: every
+ * operation that can fail answers a `Result` rather than an `{ ok }` object,
+ * so a failure composes with `map` and `andThen` instead of being unpacked at
+ * every call site. `fs` answers the object because it is the layer that cannot
+ * depend on a library module; this is the layer that can.
+ *
+ * Synchronous throughout, because `fs` is: CScript's event loop drives
+ * promises and timers, not I/O, so an asynchronous file API here would be a
+ * synchronous read wearing a promise.
+ *
+ * What is absent, and why: no networking and no spawning. Neither exists in
+ * the runtime, and a module that pretended otherwise would be worse than one
+ * that says so.
+ */
+import { Result } from "std:result";
+
+/* Every `fs` answer, in the shape the rest of the library speaks. The error is
+ * given the path as well as the reason: "No such file or directory" without it
+ * is the least useful message a program can print. */
+function resultOf(answer: any, path: string, action: string): any {
+  if (answer.ok) return Result.ok(answer);
+  return Result.err(action + " " + path + ": " + answer.error);
+}
+
+/* --- reading ------------------------------------------------------------- */
+
+export function readText(path: string): any {
+  return resultOf(fs.read(path), path, "cannot read").map((a: any) => a.text);
+}
+
+/* The lines of a file, without the empty one a trailing newline leaves behind.
+ * A file ending in a newline has as many lines as it has newlines, which is
+ * what `wc -l` says and what a caller means. */
+export function readLines(path: string): any {
+  return readText(path).map((text: string) => {
+    const all = text.split("\n");
+    if (all.length > 0 && all[all.length - 1] === "") all.pop();
+    return all;
+  });
+}
+
+/* --- writing ------------------------------------------------------------- */
+
+export function writeText(path: string, text: string): any {
+  return resultOf(fs.write(path, text), path, "cannot write").map((a: any) => a.bytes);
+}
+
+export function appendText(path: string, text: string): any {
+  return resultOf(fs.append(path, text), path, "cannot append to").map((a: any) => a.bytes);
+}
+
+/* Each line gets a newline, the last one included: a text file whose final
+ * line is unterminated is the thing every other tool complains about. */
+export function writeLines(path: string, lines: any): any {
+  let text = "";
+  for (const line of lines) text = text + line + "\n";
+  return writeText(path, text);
+}
+
+export function appendLine(path: string, line: string): any {
+  return appendText(path, line + "\n");
+}
+
+/* --- asking and arranging ------------------------------------------------ */
+
+export function exists(path: string): boolean {
+  return fs.exists(path);
+}
+
+export function stat(path: string): any {
+  return resultOf(fs.stat(path), path, "cannot stat");
+}
+
+export function size(path: string): any {
+  return stat(path).map((info: any) => info.size);
+}
+
+export function isDirectory(path: string): boolean {
+  const info = fs.stat(path);
+  return info.ok && info.isDirectory;
+}
+
+export function isFile(path: string): boolean {
+  const info = fs.stat(path);
+  return info.ok && info.isFile;
+}
+
+/* Sorted, unlike `fs.list`. A filesystem's order is not meaningful, so a
+ * program that prints it unsorted produces output that differs between
+ * machines for no reason the reader can see. */
+export function list(path: string): any {
+  return resultOf(fs.list(path), path, "cannot list").map((a: any) => {
+    const entries = a.entries.slice(0);
+    entries.sort();
+    return entries;
+  });
+}
+
+export function remove(path: string): any {
+  return resultOf(fs.remove(path), path, "cannot remove").map(() => undefined);
+}
+
+export function makeDirectory(path: string): any {
+  return resultOf(fs.makeDirectory(path), path, "cannot create")
+             .map(() => undefined);
+}
+
+/* Already there is success, not failure: the caller asked for a directory to
+ * exist, and it does. */
+export function ensureDirectory(path: string): any {
+  if (isDirectory(path)) return Result.ok(undefined);
+  return makeDirectory(path);
+}
+
+/* --- the two streams ----------------------------------------------------- */
+
+/* A stream a program writes to, with `write` leaving the line open and `line`
+ * ending it. `console.log` can only do the second, which is why the built-in
+ * `console.write` exists underneath this. */
+export class Stream {
+  #isError: boolean;
+
+  constructor(isError: boolean) {
+    this.#isError = isError;
+  }
+
+  write(text: string): any {
+    if (this.#isError) {
+      console.writeError(text);
+    } else {
+      console.write(text);
+    }
+    return this;
+  }
+
+  line(text: string = ""): any {
+    return this.write(text + "\n");
+  }
+
+  /* Each item on its own line, which is the shape most output takes. */
+  lines(items: any): any {
+    for (const item of items) this.line(String(item));
+    return this;
+  }
+}
+
+export const out: any = new Stream(false);
+export const err: any = new Stream(true);
+
+/* Collects text instead of printing it, for building output that is written
+ * once — to a file, or to a stream after being measured. The same three
+ * methods as a Stream, so a function can take either. */
+export class StringWriter {
+  #parts: any = [];
+
+  write(text: string): any {
+    this.#parts.push(text);
+    return this;
+  }
+
+  line(text: string = ""): any {
+    return this.write(text + "\n");
+  }
+
+  lines(items: any): any {
+    for (const item of items) this.line(String(item));
+    return this;
+  }
+
+  get length(): number {
+    let total = 0;
+    for (const part of this.#parts) total = total + part.length;
+    return total;
+  }
+
+  text(): string {
+    return this.#parts.join("");
+  }
+
+  clear(): any {
+    this.#parts = [];
+    return this;
+  }
+}
