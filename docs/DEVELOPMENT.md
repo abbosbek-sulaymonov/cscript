@@ -125,7 +125,8 @@ cscript/
 │   └── cases/           *.cx paired with *.expected, grouped by role:
 │                        language, library, types, async, imports, errors, jit
 ├── library/             the standard library, written in CScript
-│                        (README.md — imported as std:name)
+│   └── <name>/          one directory per module: <name>.cx and its README
+│                        (imported as std:<name>)
 ├── examples/            runnable sample programs
 ├── bench/               the benchmarks, and the Rust and C ports
 ├── editors/             VS Code, tree-sitter, and the Linguist material

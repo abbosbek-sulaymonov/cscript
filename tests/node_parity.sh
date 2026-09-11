@@ -50,7 +50,7 @@ trap 'rm -rf "$tmp"' EXIT
 # The standard library, as Node can see it: `std:iter` becomes `./std_iter.ts`,
 # and every module is copied under that name. Flat, because one module may
 # import another and the two have to agree about where they are.
-for module in "$ROOT"/library/*.cx; do
+for module in "$ROOT"/library/*/*.cx; do
   [[ -e "$module" ]] || continue
   sed -E 's|"std:([a-zA-Z0-9_]+)"|"./std_\1.ts"|g' "$module" \
     > "$tmp/std_$(basename "$module" .cx).ts"

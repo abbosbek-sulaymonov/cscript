@@ -118,11 +118,17 @@ static bool executableDirectory(char *out, size_t size) {
   return true;
 }
 
-/* `<directory>/<name>.cx`, if there is such a file. */
+/* `<directory>/<name>/<name>.cx`, if there is such a file.
+ *
+ * A module is a directory rather than a file, so that it can carry its own
+ * README beside its source — the specification of what it offers, where the
+ * source is what it does. The name is repeated rather than the file being
+ * called `index` or `mod`, so that a stack frame or a grep names the module
+ * and not the twenty files that would otherwise share a name. */
 static bool stdModuleIn(const char *directory, const char *name, char *out,
                         size_t outSize) {
   char candidate[PATH_MAX];
-  if (snprintf(candidate, sizeof candidate, "%s/%s.cx", directory, name) >=
+  if (snprintf(candidate, sizeof candidate, "%s/%s/%s.cx", directory, name, name) >=
       (int)sizeof candidate) {
     return false;
   }
