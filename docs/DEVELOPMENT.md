@@ -42,6 +42,17 @@ not among them — see the note below — `test-regex` needs no language build, 
 Every `tests/cases/<group>/NAME.cx` runs and its output is compared against
 `NAME.expected`; cases named `error_*` assert the failure path.
 
+**The `stdlib` group is checked against Node like everything else.** Node has
+never heard of `std:iter`, so `tests/std_node.sh` copies the program and the
+library to a scratch directory, rewrites the `std:` specifiers to relative
+paths, and runs it under `--experimental-strip-types`. Every expected file in
+that group was produced that way and matches CScript byte for byte — seeded
+random sequences included. Regenerate one with:
+
+```bash
+tests/std_node.sh tests/cases/stdlib/iter.cx > tests/cases/stdlib/iter.expected
+```
+
 **`make test-gc` is not decoration.** Collecting on every single allocation
 means any value the collector cannot reach from a root is freed the instant it
 becomes unreachable. It caught a real bug in milestone 1 — the executing chunk's
@@ -109,9 +120,12 @@ cscript/
 │   ├── node_parity.sh   examples vs. Node.js
 │   ├── cli.sh           the binary's own options, and the REPL
 │   ├── jit_differential.sh  compiled and interpreted must agree
+│   ├── std_node.sh      runs a program under Node with std: resolved
 │   ├── regex_engine_test.c  the regex engine on its own
 │   └── cases/           *.cx paired with *.expected, grouped by role:
 │                        language, library, types, async, imports, errors, jit
+├── library/             the standard library, written in CScript
+│                        (README.md — imported as std:name)
 ├── examples/            runnable sample programs
 ├── bench/               the benchmarks, and the Rust and C ports
 ├── editors/             VS Code, tree-sitter, and the Linguist material

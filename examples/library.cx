@@ -1,0 +1,76 @@
+/* The standard library, on one small problem.
+ *
+ * A week of readings arrives as raw rows. Summarise them, group them, and
+ * report — using std:iter to walk, std:stats to summarise, std:collections to
+ * count, std:strings to lay it out, and std:result to say what a bad row is
+ * without throwing.
+ *
+ * Every module here is imported as `std:name`, which resolves to the library
+ * that ships with the language rather than to a path relative to this file.
+ */
+import { map, filter, groupBy, toArray, chain } from "std:iter";
+import { mean, median, max, min, round, describe } from "std:stats";
+import { Counter } from "std:collections";
+import { padCenter, titleCase, format } from "std:strings";
+import { Result } from "std:result";
+import { pipe } from "std:func";
+
+const rows = [
+  "mon:18", "tue:21", "wed:not-a-number", "thu:24", "fri:19", "sat:27", "sun:23",
+];
+
+/* A row that will not parse is a value, not a throw: the report wants to say
+ * how many were dropped, which means the failures have to survive the parse. */
+function parseRow(row: string): any {
+  const parts = row.split(":");
+  if (parts.length !== 2) return Result.err("malformed row: " + row);
+  const reading = Number(parts[1]);
+  if (reading !== reading) return Result.err("not a number: " + row);
+  return Result.ok({ day: parts[0], reading: reading });
+}
+
+const parsed = toArray(map(rows, parseRow));
+const kept = toArray(map(filter(parsed, (r: any) => r.isOk), (r: any) => r.value));
+const dropped = toArray(filter(parsed, (r: any) => r.isErr));
+
+console.log(padCenter(" readings ", 34, "="));
+for (const row of kept) {
+  const bar = "#".repeat(Math.round(row.reading / 3));
+  console.log(titleCase(row.day).padEnd(6) + bar + " " + String(row.reading));
+}
+
+const readings = toArray(map(kept, (r: any) => r.reading));
+console.log(padCenter(" summary ", 34, "="));
+console.log(format("{count} kept, {dropped} dropped", {
+  count: kept.length,
+  dropped: dropped.length,
+}));
+console.log(format("low {low}, high {high}, mean {mean}, median {median}", {
+  low: min(readings),
+  high: max(readings),
+  mean: round(mean(readings), 2),
+  median: median(readings),
+}));
+
+for (const failure of dropped) console.log("  dropped: " + failure.error);
+
+/* Grouping and counting, the two things a Map is always used for by hand. */
+const warmth = groupBy(kept, (r: any) => r.reading >= 22 ? "warm" : "mild");
+console.log(padCenter(" grouped ", 34, "="));
+for (const [label, group] of warmth) {
+  const days = toArray(map(group, (r: any) => r.day));
+  console.log(label.padEnd(6) + days.join(" "));
+}
+
+const letters = new Counter(chain(...map(kept, (r: any) => r.day)));
+console.log("most common letter: " + String(letters.mostCommon(1)[0][0]));
+
+/* A pipeline, because the shape of the calculation is the point of it. */
+const summarise = pipe(
+  (rs: any) => toArray(map(rs, (r: any) => r.reading)),
+  (values: any) => describe(values),
+  (summary: any) => format("{count} readings, spread {spread}", {
+    count: summary.count,
+    spread: summary.max - summary.min,
+  }));
+console.log(summarise(kept));

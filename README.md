@@ -153,6 +153,7 @@ Node spells it. `cscript --help` has the rest.
 | [Roadmap](docs/ROADMAP.md) | What has been built, and what is next |
 | [Working on it](docs/DEVELOPMENT.md) | Build modes, the test suites, and where everything lives |
 | [The source map](src/README.md) | What is in `src/`, directory by directory, and the conventions every file follows |
+| [The standard library](library/README.md) | The ten `std:` modules that ship with the language |
 | [Editor support](editors/README.md) | VS Code, tree-sitter, and what GitHub does and does not know |
 
 ---

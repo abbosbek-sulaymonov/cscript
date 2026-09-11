@@ -143,7 +143,10 @@
             ObjString *key = csObjectKeyAt(from, i);
             if (!csObjectIsEnumerable(from, key)) continue;
             Value value;
-            if (!csVMReadOwnProperty(from, key, &value)) return CS_RUNTIME_ERROR;
+            if (!csVMReadOwnProperty(from, key, &value)) {
+              HANDLE_FAILED_CALL();
+              VM_NEXT();
+            }
             csObjectPut(object, key, value);
           }
         } else if (IS_ARRAY(source)) {
@@ -195,7 +198,10 @@
           if (named) continue;
 
           Value value;
-          if (!csVMReadOwnProperty(from, key, &value)) return CS_RUNTIME_ERROR;
+          if (!csVMReadOwnProperty(from, key, &value)) {
+            HANDLE_FAILED_CALL();
+            VM_NEXT();
+          }
           csObjectPut(rest, key, value);
         }
 

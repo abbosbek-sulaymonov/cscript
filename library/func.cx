@@ -1,0 +1,115 @@
+/* func.cx — building a function out of other functions.
+ *
+ * Small enough to be obvious, common enough to be worth not writing again.
+ * The one thing to know before using any of it: CScript checks arity, so a
+ * function here is called with exactly the arguments it declared. That is why
+ * `pipe` passes one value along and `memoize` passes the arguments it was
+ * handed, rather than either of them adding an index or a context nobody asked
+ * for.
+ */
+
+export function identity(value: any): any {
+  return value;
+}
+
+export function constant(value: any): any {
+  return () => value;
+}
+
+export function noop() {
+  return undefined;
+}
+
+/* Left to right: `pipe(f, g)(x)` is `g(f(x))`, which is the order the steps
+ * are written in. `compose` is the same thing the other way round, for the
+ * readers who learned it from mathematics. */
+export function pipe(...steps: any): any {
+  return (value: any) => {
+    let current = value;
+    for (const step of steps) current = step(current);
+    return current;
+  };
+}
+
+export function compose(...steps: any): any {
+  return (value: any) => {
+    let current = value;
+    for (let i = steps.length - 1; i >= 0; i--) current = steps[i](current);
+    return current;
+  };
+}
+
+/* Fixes the leading arguments and asks for the rest later. */
+export function partial(fn: any, ...bound: any): any {
+  return (...rest: any) => fn(...bound, ...rest);
+}
+
+/* Two- and three-argument currying, spelled out rather than general: a general
+ * `curry` has to guess when it has enough arguments, and guessing wrong is a
+ * function that silently returns another function instead of an answer. */
+export function curry2(fn: any): any {
+  return (first: any) => (second: any) => fn(first, second);
+}
+
+export function curry3(fn: any): any {
+  return (first: any) => (second: any) => (third: any) => fn(first, second, third);
+}
+
+export function flip(fn: any): any {
+  return (first: any, second: any) => fn(second, first);
+}
+
+export function negate(test: any): any {
+  return (...args: any) => !test(...args);
+}
+
+/* Runs the body once and answers that same value ever after — including when
+ * the first call returned undefined, which is why a flag is kept rather than
+ * the result being tested. */
+export function once(fn: any): any {
+  let called = false;
+  let result: any = undefined;
+  return (...args: any) => {
+    if (called) return result;
+    called = true;
+    result = fn(...args);
+    return result;
+  };
+}
+
+/* Remembers what a call answered, keyed by its arguments.
+ *
+ * The key is JSON, which is what makes it work for numbers, strings and plain
+ * structures and not for anything with identity: two different objects with
+ * the same fields are one key here. Pass `keyOf` where that is wrong.
+ *
+ * Only worth it for a function that is expensive and pure. A memoized function
+ * that reads anything outside its arguments answers the first reading for
+ * ever. */
+export function memoize(fn: any, keyOf: any = null): any {
+  const answers = new Map();
+  return (...args: any) => {
+    const key = keyOf === null ? JSON.stringify(args) : keyOf(...args);
+    if (answers.has(key)) return answers.get(key);
+    const result = fn(...args);
+    answers.set(key, result);
+    return result;
+  };
+}
+
+/* Runs `fn` for its effect and answers the value unchanged, for putting a
+ * `console.log` in the middle of a pipe without rewriting the pipe. */
+export function tap(fn: any): any {
+  return (value: any) => {
+    fn(value);
+    return value;
+  };
+}
+
+/* `times(3, i => i * 2)` is [0, 2, 4]. The callback is optional, so
+ * `times(3)` is [0, 1, 2]. */
+export function times(count: number, fn: any = null): any {
+  const out: any = [];
+  for (let i = 0; i < count; i++) out.push(fn === null ? i : fn(i));
+  return out;
+}

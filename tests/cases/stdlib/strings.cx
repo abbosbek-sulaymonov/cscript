@@ -1,0 +1,37 @@
+import { words, lines, capitalize, uncapitalize, titleCase, camelCase, pascalCase,
+         kebabCase, snakeCase, truncate, padCenter, wrap, dedent, indent, isBlank,
+         count, reverse, ensurePrefix, ensureSuffix, stripPrefix, stripSuffix,
+         format } from "std:strings";
+import { equal, deepEqual } from "std:assert";
+
+deepEqual(words("parseHTTPResponse"), ["parse", "HTTP", "Response"]);
+deepEqual(words("parse_http_response"), ["parse", "http", "response"]);
+deepEqual(words("parse-http response"), ["parse", "http", "response"]);
+deepEqual(lines("a\nb"), ["a", "b"]);
+equal(capitalize("abc"), "Abc"); equal(capitalize(""), "");
+equal(uncapitalize("ABC"), "aBC");
+equal(titleCase("hello wide world"), "Hello Wide World");
+equal(camelCase("parse_http_response"), "parseHttpResponse");
+equal(pascalCase("parse http response"), "ParseHttpResponse");
+equal(kebabCase("parseHTTPResponse"), "parse-http-response");
+equal(snakeCase("parseHTTPResponse"), "parse_http_response");
+equal(truncate("abcdefgh", 5), "ab...");
+equal(truncate("abc", 5), "abc");
+equal(truncate("abcdef", 2, "..."), "..");
+equal(padCenter("ab", 6, "."), "..ab..");
+equal(padCenter("ab", 7, "."), "..ab...");
+deepEqual(wrap("the quick brown fox jumps", 10), ["the quick", "brown fox", "jumps"]);
+equal(dedent("    a\n      b"), "a\n  b");
+equal(indent("a\nb", 2), "  a\n  b");
+equal(isBlank("  \t "), true); equal(isBlank(" x "), false);
+equal(count("banana", "an"), 2); equal(count("aaaa", "aa"), 2); equal(count("x", ""), 0);
+equal(reverse("abc"), "cba");
+equal(ensurePrefix("x", "/"), "/x"); equal(ensurePrefix("/x", "/"), "/x");
+equal(ensureSuffix("x", "/"), "x/"); equal(stripPrefix("/x", "/"), "x");
+equal(stripSuffix("x.cx", ".cx"), "x");
+equal(format("{a} is {b}", { a: "x", b: 2 }), "x is 2");
+equal(format("{a} and {missing}", { a: 1 }), "1 and {missing}");
+console.log(camelCase("parse_http_response"), kebabCase("parseHTTPResponse"));
+console.log(wrap("one two three four five", 9));
+console.log(format("{name} scored {score}", { name: "Ada", score: 10 }));
+console.log("strings ok");

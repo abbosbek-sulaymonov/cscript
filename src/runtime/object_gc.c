@@ -133,6 +133,9 @@ void csObjectBlacken(Obj *object) {
       }
       csMarkObject((Obj *)fiber->promise);
       csMarkObject((Obj *)fiber->generator);
+      /* The fiber this one interrupted. Marking it is what keeps the stack it
+       * is holding — and everything on it — from being swept while it runs. */
+      csMarkObject((Obj *)fiber->caller);
       break;
     }
 

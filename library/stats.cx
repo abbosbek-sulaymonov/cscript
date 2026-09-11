@@ -1,0 +1,222 @@
+/* stats.cx — summarising a list of numbers.
+ *
+ * Every function here takes anything `for...of` accepts and answers a number,
+ * and every one of them refuses a sequence that is empty rather than answering
+ * NaN: the mean of nothing is a question with no answer, and NaN travelling
+ * through three more calculations before showing up is how a wrong number gets
+ * printed with confidence.
+ *
+ * The arithmetic itself is annotated `number` throughout, which is not
+ * decoration — a fully-typed function is one the compiler can lower to machine
+ * code with no type guards at all, and these are the functions most likely to
+ * be called in a loop.
+ */
+
+/* Anything iterable, as an array of numbers, checked once so that the rest can
+ * assume it. Reporting the offender rather than "not a number" is the
+ * difference between finding the bad row and searching for it. */
+function numbers(values: any, forWhat: string): any {
+  const out: any = [];
+  for (const value of values) {
+    if (typeof value !== "number") {
+      throw new Error(forWhat + " needs numbers, and was given " + typeof value);
+    }
+    out.push(value);
+  }
+  if (out.length === 0) throw new Error(forWhat + " of an empty sequence");
+  return out;
+}
+
+export function sum(values: any): number {
+  let total = 0;
+  for (const value of values) total = total + value;
+  return total;
+}
+
+export function product(values: any): number {
+  let total = 1;
+  for (const value of values) total = total * value;
+  return total;
+}
+
+export function mean(values: any): number {
+  const all = numbers(values, "mean");
+  return sum(all) / all.length;
+}
+
+/* The middle of the sorted values, or the mean of the middle two. Sorts a copy
+ * — a function that summarises its input should not rearrange it. */
+export function median(values: any): number {
+  const all = numbers(values, "median");
+  const sorted = all.slice(0);
+  sorted.sort((a: number, b: number) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[middle];
+  return (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+/* Every value tied for most frequent, in the order they first appear. An array
+ * rather than one number, because a tie is the common case in small samples
+ * and picking a winner would be inventing one. */
+export function mode(values: any): any {
+  const all = numbers(values, "mode");
+  const counts = new Map();
+  let best = 0;
+  for (const value of all) {
+    const next = (counts.has(value) ? counts.get(value) : 0) + 1;
+    counts.set(value, next);
+    if (next > best) best = next;
+  }
+
+  const winners: any = [];
+  for (const [value, count] of counts) {
+    if (count === best) winners.push(value);
+  }
+  return winners;
+}
+
+export function min(values: any): number {
+  const all = numbers(values, "min");
+  let lowest = all[0];
+  for (const value of all) {
+    if (value < lowest) lowest = value;
+  }
+  return lowest;
+}
+
+export function max(values: any): number {
+  const all = numbers(values, "max");
+  let highest = all[0];
+  for (const value of all) {
+    if (value > highest) highest = value;
+  }
+  return highest;
+}
+
+export function spread(values: any): number {
+  const all = numbers(values, "spread");
+  return max(all) - min(all);
+}
+
+/* Sample variance — divided by n-1, not n.
+ *
+ * The n-1 is Bessel's correction, and it is the right default because a sample
+ * is almost always what one has: dividing by n underestimates the variance of
+ * the population it was drawn from. `populationVariance` is there for the case
+ * where the values really are everything. */
+export function variance(values: any): number {
+  const all = numbers(values, "variance");
+  if (all.length < 2) throw new Error("variance needs at least two values");
+  const average = mean(all);
+  let total = 0;
+  for (const value of all) {
+    const difference = value - average;
+    total = total + difference * difference;
+  }
+  return total / (all.length - 1);
+}
+
+export function populationVariance(values: any): number {
+  const all = numbers(values, "populationVariance");
+  const average = mean(all);
+  let total = 0;
+  for (const value of all) {
+    const difference = value - average;
+    total = total + difference * difference;
+  }
+  return total / all.length;
+}
+
+export function stdev(values: any): number {
+  return Math.sqrt(variance(values));
+}
+
+export function populationStdev(values: any): number {
+  return Math.sqrt(populationVariance(values));
+}
+
+/* The value below which `fraction` of the data lies, interpolating between the
+ * two neighbours when the position falls between them — which is the method
+ * every spreadsheet uses, so a number from here matches one from there. */
+export function quantile(values: any, fraction: number): number {
+  if (fraction < 0 || fraction > 1) {
+    throw new Error("a quantile is between 0 and 1, and was given " + String(fraction));
+  }
+  const all = numbers(values, "quantile");
+  const sorted = all.slice(0);
+  sorted.sort((a: number, b: number) => a - b);
+  if (sorted.length === 1) return sorted[0];
+
+  const position = fraction * (sorted.length - 1);
+  const below = Math.floor(position);
+  const above = Math.ceil(position);
+  if (below === above) return sorted[below];
+  return sorted[below] + (sorted[above] - sorted[below]) * (position - below);
+}
+
+export function percentile(values: any, percent: number): number {
+  return quantile(values, percent / 100);
+}
+
+/* --- single numbers ------------------------------------------------------- */
+
+export function clamp(value: number, low: number, high: number): number {
+  if (low > high) throw new Error("clamp was given a low bound above its high bound");
+  if (value < low) return low;
+  if (value > high) return high;
+  return value;
+}
+
+/* `at` outside 0..1 extrapolates rather than clamping, which is what makes
+ * this usable for an animation that overshoots on purpose. */
+export function lerp(from: number, to: number, at: number): number {
+  return from + (to - from) * at;
+}
+
+/* Where `value` sits between `low` and `high`, as 0..1. The inverse of lerp. */
+export function normalize(value: number, low: number, high: number): number {
+  if (high === low) throw new Error("normalize was given an empty range");
+  return (value - low) / (high - low);
+}
+
+export function round(value: number, places: number = 0): number {
+  const scale = Math.pow(10, places);
+  return Math.round(value * scale) / scale;
+}
+
+/* --- several at once ------------------------------------------------------ */
+
+/* The usual summary in one walk, for printing or logging. */
+export function describe(values: any): any {
+  const all = numbers(values, "describe");
+  return {
+    count: all.length,
+    min: min(all),
+    max: max(all),
+    mean: mean(all),
+    median: median(all),
+    stdev: all.length < 2 ? 0 : stdev(all),
+  };
+}
+
+/* A running total, one element per input: [1,2,3] gives [1,3,6]. */
+export function cumulativeSum(values: any): any {
+  const out: any = [];
+  let total = 0;
+  for (const value of values) {
+    total = total + value;
+    out.push(total);
+  }
+  return out;
+}
+
+/* How many standard deviations each value is from the mean. */
+export function zScores(values: any): any {
+  const all = numbers(values, "zScores");
+  const average = mean(all);
+  const deviation = stdev(all);
+  if (deviation === 0) throw new Error("zScores of values that are all the same");
+  const out: any = [];
+  for (const value of all) out.push((value - average) / deviation);
+  return out;
+}

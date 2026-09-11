@@ -5,6 +5,11 @@
  * already exists, which is what makes a missing export a compile error rather
  * than a runtime one. A module is cached under its resolved path, so a diamond
  * of imports runs the shared file once.
+ *
+ * One kind of specifier is not a path at all. `std:iter` names a module in the
+ * library that ships with the language, and has to mean the same file whatever
+ * directory the program was run from — so it is resolved against the
+ * executable's own location rather than against the importer.
  */
 #include <limits.h>
 #include <stdarg.h>
@@ -12,6 +17,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 
 #include "cscript/ast.h"
 #include "cscript/compiler.h"
@@ -81,8 +90,135 @@ static void directoryOf(const char *path, char *out, size_t size) {
   out[length] = '\0';
 }
 
+/* ---- the standard library ----------------------------------------------- */
+
+#define CS_STD_PREFIX "std:"
+#define CS_STD_PREFIX_LENGTH 4
+
+/* Where this binary is, which is the one thing an installed copy and a source
+ * checkout both know about themselves. False where the platform has no way to
+ * ask, in which case only CSCRIPT_STD_PATH can find the library. */
+static bool executableDirectory(char *out, size_t size) {
+  char path[PATH_MAX];
+#if defined(__APPLE__)
+  uint32_t length = (uint32_t)sizeof path;
+  if (_NSGetExecutablePath(path, &length) != 0) return false;
+#elif defined(__linux__)
+  ssize_t length = readlink("/proc/self/exe", path, sizeof path - 1);
+  if (length <= 0) return false;
+  path[length] = '\0';
+#else
+  (void)path;
+  return false;
+#endif
+
+  char resolved[PATH_MAX];
+  if (realpath(path, resolved) == NULL) return false;
+  directoryOf(resolved, out, size);
+  return true;
+}
+
+/* `<directory>/<name>.cx`, if there is such a file. */
+static bool stdModuleIn(const char *directory, const char *name, char *out,
+                        size_t outSize) {
+  char candidate[PATH_MAX];
+  if (snprintf(candidate, sizeof candidate, "%s/%s.cx", directory, name) >=
+      (int)sizeof candidate) {
+    return false;
+  }
+
+  char resolved[PATH_MAX];
+  if (realpath(candidate, resolved) == NULL) return false;
+
+  size_t length = strlen(resolved);
+  if (length >= outSize) return false;
+  memcpy(out, resolved, length + 1);
+  return true;
+}
+
+/* Where the library is.
+ *
+ * CSCRIPT_STD_PATH first, so a copy under test can be pointed at the library
+ * it is testing rather than at whichever one is installed. Then three places
+ * relative to the binary: an installed tree, a source checkout — where the
+ * binary is build/<configuration>/cscript — and a binary sitting beside the
+ * library directory. The first that exists wins, whatever is in it. */
+static bool stdLibraryDirectory(char *out, size_t outSize) {
+  /* Set and wrong is not the same as unset: falling back to another library
+   * would answer with a file the environment explicitly said not to use. */
+  const char *override = getenv("CSCRIPT_STD_PATH");
+  if (override != NULL) {
+    char resolved[PATH_MAX];
+    if (realpath(override, resolved) == NULL) return false;
+    size_t length = strlen(resolved);
+    if (length >= outSize) return false;
+    memcpy(out, resolved, length + 1);
+    return true;
+  }
+
+  char executable[PATH_MAX];
+  if (!executableDirectory(executable, sizeof executable)) return false;
+
+  static const char *const relative[] = {"../lib/cscript", "../../library", "library"};
+  for (size_t i = 0; i < sizeof relative / sizeof relative[0]; i++) {
+    char candidate[PATH_MAX];
+    if (snprintf(candidate, sizeof candidate, "%s/%s", executable, relative[i]) >=
+        (int)sizeof candidate) {
+      continue;
+    }
+    char resolved[PATH_MAX];
+    if (realpath(candidate, resolved) == NULL) continue;
+    size_t length = strlen(resolved);
+    if (length >= outSize) return false;
+    memcpy(out, resolved, length + 1);
+    return true;
+  }
+  return false;
+}
+
+/* The file behind `std:<name>`. */
+static bool stdModulePath(const char *name, char *out, size_t outSize) {
+  /* A module name, not a path. Refusing the separators and the dot is what
+   * stops `std:../../etc/passwd` from being a way out of the library. */
+  if (*name == '\0') return false;
+  for (const char *at = name; *at != '\0'; at++) {
+    if (*at == '/' || *at == '\\' || *at == '.') return false;
+  }
+
+  char directory[PATH_MAX];
+  if (!stdLibraryDirectory(directory, sizeof directory)) return false;
+  return stdModuleIn(directory, name, out, outSize);
+}
+
+const char *csModuleResolutionHint(const char *specifier) {
+  if (strncmp(specifier, CS_STD_PREFIX, CS_STD_PREFIX_LENGTH) != 0) return "";
+
+  /* Two different failures wear the same message otherwise: a library that is
+   * not there at all, and a library that is there without this module in it. */
+  static char hint[PATH_MAX + 96];
+  char directory[PATH_MAX];
+  if (!stdLibraryDirectory(directory, sizeof directory)) {
+    const char *override = getenv("CSCRIPT_STD_PATH");
+    if (override != NULL) {
+      snprintf(hint, sizeof hint,
+               " — CSCRIPT_STD_PATH is set to '%s', which is not a directory",
+               override);
+      return hint;
+    }
+    return " — the standard library was not found; set CSCRIPT_STD_PATH to the"
+           " directory holding it";
+  }
+  snprintf(hint, sizeof hint, " — no module of that name in the standard library at %s",
+           directory);
+  return hint;
+}
+
 bool csModuleResolve(const char *fromPath, const char *specifier, char *out,
                      size_t outSize) {
+  if (strncmp(specifier, CS_STD_PREFIX, CS_STD_PREFIX_LENGTH) == 0) {
+    return stdModulePath(specifier + CS_STD_PREFIX_LENGTH, out, outSize);
+  }
+
   char directory[PATH_MAX];
   directoryOf(fromPath, directory, sizeof directory);
 
@@ -150,8 +286,9 @@ bool csModuleLoadImports(const AstNode *program, const char *fromPath,
     char resolved[PATH_MAX];
     if (!csModuleResolve(fromPath, statement->as.import.specifier, resolved,
                          sizeof resolved)) {
-      csDiagnosticError(diag, statement->line, NULL, 0, "cannot find module '%s'",
-                        statement->as.import.specifier);
+      csDiagnosticError(diag, statement->line, NULL, 0, "cannot find module '%s'%s",
+                        statement->as.import.specifier,
+                        csModuleResolutionHint(statement->as.import.specifier));
       ok = false;
       continue;
     }

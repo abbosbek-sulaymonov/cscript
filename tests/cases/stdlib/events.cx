@@ -1,0 +1,52 @@
+import { EventEmitter } from "std:events";
+import { equal, deepEqual, ok, throws, messageOf } from "std:assert";
+
+const bus = new EventEmitter();
+const seen: any = [];
+const remove = bus.on("tick", (n: number) => seen.push(n));
+bus.on("tick", () => seen.push("bare"));
+equal(bus.emit("tick", 1), true);
+deepEqual(seen, [1, "bare"]);
+equal(bus.listenerCount("tick"), 2);
+remove();
+equal(bus.listenerCount("tick"), 1);
+equal(bus.emit("nobody"), false);
+
+let onceCount = 0;
+bus.once("boom", () => { onceCount = onceCount + 1; });
+bus.emit("boom"); bus.emit("boom");
+equal(onceCount, 1);
+equal(bus.listenerCount("boom"), 0);
+
+const named = new EventEmitter();
+named.on("a", () => {}); named.on("b", () => {});
+deepEqual(named.eventNames(), ["a", "b"]);
+named.removeAllListeners("a");
+deepEqual(named.eventNames(), ["b"]);
+named.removeAllListeners();
+deepEqual(named.eventNames(), []);
+
+const angry = new EventEmitter();
+angry.on("x", () => { throw new Error("listener failed"); });
+equal(messageOf(throws(() => angry.emit("x"))), "listener failed");
+
+const mutating = new EventEmitter();
+const order: any = [];
+mutating.on("m", () => { order.push(1); mutating.removeAllListeners("m"); });
+mutating.on("m", () => order.push(2));
+mutating.emit("m");
+deepEqual(order, [1, 2]);
+
+async function waitForOne() {
+  const later = new EventEmitter();
+  const promise = later.next("ready");
+  later.emit("ready", "payload");
+  equal(await promise, "payload");
+
+  const log = new EventEmitter();
+  log.on("line", (text: string) => console.log("heard:", text));
+  log.emit("line", "hello");
+  console.log(log.listenerCount("line"), log.eventNames());
+  console.log("events ok");
+}
+waitForOne();

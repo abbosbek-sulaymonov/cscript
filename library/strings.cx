@@ -1,0 +1,249 @@
+/* strings.cx — the string operations that are not one method call.
+ *
+ * A string already answers `split`, `trim`, `padStart` and the rest; what is
+ * here is the things built out of those that everyone writes again: the four
+ * naming conventions, wrapping text to a width, and taking an indented block
+ * of source and un-indenting it.
+ *
+ * Everything works on bytes rather than on code points, which is what
+ * CScript's own string methods do. For ASCII — identifiers, keys, log lines —
+ * the two are the same thing.
+ */
+
+/* --- taking a string apart ------------------------------------------------ */
+
+/* The words in a name, whatever convention wrote it: `parseHTTPResponse`,
+ * `parse_http_response` and `parse-http-response` all give the same three.
+ *
+ * A run of capitals is one word up to the last of them, because that last
+ * capital starts the next: HTTPResponse is HTTP and Response, not H, T, T, P
+ * and Response. */
+export function words(text: string): any {
+  const found: any = [];
+  let current = "";
+
+  for (let i = 0; i < text.length; i++) {
+    const character = text[i];
+    const isSeparator = character === " " || character === "_" ||
+                        character === "-" || character === "." ||
+                        character === "/" || character === "\t" ||
+                        character === "\n";
+    if (isSeparator) {
+      if (current !== "") found.push(current);
+      current = "";
+      continue;
+    }
+
+    const upper = character === character.toUpperCase() &&
+                  character !== character.toLowerCase();
+    if (upper && current !== "") {
+      const previous = current[current.length - 1];
+      const previousLower = previous !== previous.toUpperCase();
+      const nextLower = i + 1 < text.length &&
+                        text[i + 1] !== text[i + 1].toUpperCase() &&
+                        text[i + 1] === text[i + 1].toLowerCase();
+      if (previousLower || nextLower) {
+        found.push(current);
+        current = "";
+      }
+    }
+    current = current + character;
+  }
+  if (current !== "") found.push(current);
+  return found;
+}
+
+export function lines(text: string): any {
+  return text.split("\n");
+}
+
+/* --- naming conventions --------------------------------------------------- */
+
+export function capitalize(text: string): string {
+  if (text.length === 0) return text;
+  return text[0].toUpperCase() + text.slice(1);
+}
+
+export function uncapitalize(text: string): string {
+  if (text.length === 0) return text;
+  return text[0].toLowerCase() + text.slice(1);
+}
+
+export function titleCase(text: string): string {
+  const out: any = [];
+  for (const word of words(text)) out.push(capitalize(word.toLowerCase()));
+  return out.join(" ");
+}
+
+export function camelCase(text: string): string {
+  const parts = words(text);
+  if (parts.length === 0) return "";
+  const out: any = [parts[0].toLowerCase()];
+  for (let i = 1; i < parts.length; i++) out.push(capitalize(parts[i].toLowerCase()));
+  return out.join("");
+}
+
+export function pascalCase(text: string): string {
+  const out: any = [];
+  for (const word of words(text)) out.push(capitalize(word.toLowerCase()));
+  return out.join("");
+}
+
+export function kebabCase(text: string): string {
+  const out: any = [];
+  for (const word of words(text)) out.push(word.toLowerCase());
+  return out.join("-");
+}
+
+export function snakeCase(text: string): string {
+  const out: any = [];
+  for (const word of words(text)) out.push(word.toLowerCase());
+  return out.join("_");
+}
+
+/* --- fitting a string to a shape ------------------------------------------ */
+
+/* Cuts to `width` *including* the ending, so the result is never longer than
+ * asked for — a truncation that overflows the column it was cut for is not a
+ * truncation.
+ *
+ * The default ending is three dots rather than an ellipsis character because
+ * lengths here are in bytes: "…" is three of them, so an ellipsis would eat
+ * three columns of a width measured in characters. */
+export function truncate(text: string, width: number, ending: string = "..."): string {
+  if (text.length <= width) return text;
+  if (width <= ending.length) return ending.slice(0, width);
+  return text.slice(0, width - ending.length) + ending;
+}
+
+/* Pads on both sides, the extra space going right when it cannot be even. */
+export function padCenter(text: string, width: number, filler: string = " "): string {
+  if (text.length >= width) return text;
+  const total = width - text.length;
+  const left = Math.floor(total / 2);
+  return text.padStart(text.length + left, filler).padEnd(width, filler);
+}
+
+/* Breaks on spaces, never inside a word — except a word longer than the width,
+ * which has nowhere else to break and is left to overflow rather than split
+ * into something that is no longer the word. */
+export function wrap(text: string, width: number): any {
+  const out: any = [];
+  for (const line of text.split("\n")) {
+    let current = "";
+    for (const word of line.split(" ")) {
+      if (word === "") continue;
+      if (current === "") {
+        current = word;
+        continue;
+      }
+      if (current.length + 1 + word.length <= width) {
+        current = current + " " + word;
+        continue;
+      }
+      out.push(current);
+      current = word;
+    }
+    out.push(current);
+  }
+  return out;
+}
+
+/* Removes the indentation every line shares, for a block written inside code
+ * that was itself indented. Blank lines are ignored when working out what is
+ * shared, because a blank line indents to nothing. */
+export function dedent(text: string): string {
+  const all = text.split("\n");
+  let shared = -1;
+  for (const line of all) {
+    if (line.trim() === "") continue;
+    let spaces = 0;
+    while (spaces < line.length && line[spaces] === " ") spaces = spaces + 1;
+    if (shared < 0 || spaces < shared) shared = spaces;
+  }
+  if (shared <= 0) return text;
+
+  const out: any = [];
+  for (const line of all) out.push(line.length >= shared ? line.slice(shared) : line);
+  return out.join("\n");
+}
+
+export function indent(text: string, by: number = 2, filler: string = " "): string {
+  const prefix = filler.repeat(by);
+  const out: any = [];
+  for (const line of text.split("\n")) out.push(line === "" ? line : prefix + line);
+  return out.join("\n");
+}
+
+/* --- asking about one ----------------------------------------------------- */
+
+export function isBlank(text: string): boolean {
+  return text.trim().length === 0;
+}
+
+/* Non-overlapping, which is what "how many times does this appear" means to
+ * everyone who is not writing a regular-expression engine. */
+export function count(text: string, needle: string): number {
+  if (needle === "") return 0;
+  let total = 0;
+  let at = 0;
+  while (true) {
+    const found = text.indexOf(needle, at);
+    if (found < 0) return total;
+    total = total + 1;
+    at = found + needle.length;
+  }
+  return total;
+}
+
+export function reverse(text: string): string {
+  let out = "";
+  for (let i = text.length - 1; i >= 0; i--) out = out + text[i];
+  return out;
+}
+
+export function ensurePrefix(text: string, prefix: string): string {
+  return text.startsWith(prefix) ? text : prefix + text;
+}
+
+export function ensureSuffix(text: string, suffix: string): string {
+  return text.endsWith(suffix) ? text : text + suffix;
+}
+
+export function stripPrefix(text: string, prefix: string): string {
+  return text.startsWith(prefix) ? text.slice(prefix.length) : text;
+}
+
+export function stripSuffix(text: string, suffix: string): string {
+  if (!text.endsWith(suffix) || suffix === "") return text;
+  return text.slice(0, text.length - suffix.length);
+}
+
+/* `format("{a} is {b}", { a: "x", b: 2 })`.
+ *
+ * Deliberately not a template literal: this is for a pattern that arrives as
+ * data — from a config file, a translation table — which is exactly the case a
+ * template literal cannot serve, because it is compiled. A name with no value
+ * is left alone rather than replaced with "undefined", so a mistake in the
+ * pattern survives to be seen. */
+export function format(pattern: string, values: any): string {
+  let out = "";
+  let i = 0;
+  while (i < pattern.length) {
+    if (pattern[i] !== "{") {
+      out = out + pattern[i];
+      i = i + 1;
+      continue;
+    }
+    const close = pattern.indexOf("}", i);
+    if (close < 0) {
+      out = out + pattern.slice(i);
+      return out;
+    }
+    const name = pattern.slice(i + 1, close);
+    const value = values?.[name];
+    out = out + (value === undefined ? "{" + name + "}" : String(value));
+    i = close + 1;
+  }
+  return out;
+}

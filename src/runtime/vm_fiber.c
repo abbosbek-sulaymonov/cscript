@@ -72,6 +72,7 @@ void finishFiber(ObjFiber *fiber, ObjFiber *enclosing, InterpretResult result) {
   ObjPromise *promise = fiber->promise;
   fiber->state = FIBER_DONE;
   swapExecutionState(fiber);
+  fiber->caller = NULL;
   vm.currentFiber = enclosing;
 
   if (promise == NULL) return;
@@ -86,6 +87,7 @@ void finishFiber(ObjFiber *fiber, ObjFiber *enclosing, InterpretResult result) {
 
 void runFiber(ObjFiber *fiber) {
   ObjFiber *enclosing = vm.currentFiber;
+  fiber->caller = enclosing;
   vm.currentFiber = fiber;
   fiber->state = FIBER_RUNNING;
   swapExecutionState(fiber);
@@ -99,7 +101,8 @@ void runFiber(ObjFiber *fiber) {
   vm.fiberYielded = false;
     fiber->state = FIBER_SUSPENDED;
     swapExecutionState(fiber);
-    vm.currentFiber = enclosing;
+    fiber->caller = NULL;
+  vm.currentFiber = enclosing;
     return;
   }
   finishFiber(fiber, enclosing, result);
@@ -138,6 +141,7 @@ void csVMResumeFiber(ObjFiber *fiber, Value value, bool isRejection) {
   if (fiber->state != FIBER_SUSPENDED) return;
 
   ObjFiber *enclosing = vm.currentFiber;
+  fiber->caller = enclosing;
   vm.currentFiber = fiber;
   fiber->state = FIBER_RUNNING;
   swapExecutionState(fiber);
@@ -171,7 +175,8 @@ void csVMResumeFiber(ObjFiber *fiber, Value value, bool isRejection) {
     vm.fiberYielded = false;
     fiber->state = FIBER_SUSPENDED;
     swapExecutionState(fiber);
-    vm.currentFiber = enclosing;
+    fiber->caller = NULL;
+  vm.currentFiber = enclosing;
 
     /* An async generator that reached a `yield` has an answer for the `next()`
      * that is still waiting on a promise. One that merely reached another
@@ -197,7 +202,8 @@ void csVMResumeFiber(ObjFiber *fiber, Value value, bool isRejection) {
     generator->done = true;
     fiber->state = FIBER_DONE;
     swapExecutionState(fiber);
-    vm.currentFiber = enclosing;
+    fiber->caller = NULL;
+  vm.currentFiber = enclosing;
     csGeneratorResumed(generator, false, failed, reason);
     return;
   }
@@ -223,6 +229,7 @@ static InterpretResult driveGenerator(ObjGenerator *generator, bool pushValue,
   ObjFiber *fiber = generator->fiber;
   ObjFiber *enclosing = vm.currentFiber;
 
+  fiber->caller = enclosing;
   vm.currentFiber = fiber;
   fiber->state = FIBER_RUNNING;
   swapExecutionState(fiber);
@@ -239,7 +246,8 @@ static InterpretResult driveGenerator(ObjGenerator *generator, bool pushValue,
     vm.fiberYielded = false;
     fiber->state = FIBER_SUSPENDED;
     swapExecutionState(fiber);
-    vm.currentFiber = enclosing;
+    fiber->caller = NULL;
+  vm.currentFiber = enclosing;
     return CS_OK;
   }
 
@@ -251,6 +259,7 @@ static InterpretResult driveGenerator(ObjGenerator *generator, bool pushValue,
   generator->done = true;
   fiber->state = FIBER_DONE;
   swapExecutionState(fiber);
+  fiber->caller = NULL;
   vm.currentFiber = enclosing;
   return result;
 }

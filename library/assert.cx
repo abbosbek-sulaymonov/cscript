@@ -1,0 +1,194 @@
+/* assert.cx — checking what a program believes, and saying so when it is wrong.
+ *
+ * Every failure throws an Error whose `name` is "AssertionError", so a test
+ * runner can tell an assertion from a bug in the code under test. What it
+ * cannot tell you about is a *runtime* error: those are not catchable in
+ * CScript by design, so `throws` sees a `throw` the program made and nothing
+ * else. That is the same line the language draws everywhere — a decision the
+ * program took, against a mistake it made.
+ *
+ * `deepEqual` compares primitives, arrays and plain objects. It cannot compare
+ * a Map or a Set structurally, because CScript has no way to tell one from a
+ * plain object at runtime: reading `.size` off something that is not a Map is
+ * a runtime error rather than `undefined`, so there is no safe test to make.
+ * Compare `[...map]` instead, which is an array of pairs and works.
+ */
+
+/* Throwing rather than returning false: an assertion that is ignored is worse
+ * than no assertion, because it reads like a check that passed. */
+function fail(message: string, detail: string) {
+  const error = new Error(detail === "" ? message : message + " — " + detail);
+  error.name = "AssertionError";
+  throw error;
+}
+
+/* `describe` rather than String(): a string has to come back quoted, or
+ * `equal("1", 1)` reports `1 !== 1` and reads like a bug in the assertion. */
+export function describe(value: any): string {
+  if (typeof value === "string") return "'" + value + "'";
+  if (value === undefined) return "undefined";
+  if (value === null) return "null";
+  if (Array.isArray(value)) {
+    const parts: any = [];
+    for (const element of value) parts.push(describe(element));
+    return "[" + parts.join(", ") + "]";
+  }
+  if (typeof value === "object") {
+    const keys = Object.keys(value);
+    if (keys.length === 0) return "{}";
+    const parts: any = [];
+    for (const key of keys) parts.push(key + ": " + describe(value[key]));
+    return "{ " + parts.join(", ") + " }";
+  }
+  return String(value);
+}
+
+/* SameValueZero: NaN equals itself, and -0 equals 0. The first is what makes
+ * an array of computed numbers comparable at all; the second is a difference
+ * from Node's deepStrictEqual, and is deliberate — a sign of zero that no
+ * arithmetic can observe is not worth failing a test over. */
+function same(a: any, b: any): boolean {
+  if (a === b) return true;
+  return a !== a && b !== b;
+}
+
+export function isDeepEqual(a: any, b: any): boolean {
+  if (same(a, b)) return true;
+
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!isDeepEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+
+  if (Array.isArray(a) || Array.isArray(b)) return false;
+  if (typeof a !== "object" || typeof b !== "object") return false;
+  if (a === null || b === null) return false;
+
+  const keys = Object.keys(a);
+  const otherKeys = Object.keys(b);
+  if (keys.length !== otherKeys.length) return false;
+  for (const key of keys) {
+    if (b[key] === undefined && a[key] !== undefined) return false;
+    if (!isDeepEqual(a[key], b[key])) return false;
+  }
+  return true;
+}
+
+/* --- the assertions ------------------------------------------------------ */
+
+export function ok(value: any, message: string = "") {
+  if (value) return;
+  fail("expected a truthy value, got " + describe(value), message);
+}
+
+export function notOk(value: any, message: string = "") {
+  if (!value) return;
+  fail("expected a falsy value, got " + describe(value), message);
+}
+
+export function equal(actual: any, expected: any, message: string = "") {
+  if (same(actual, expected)) return;
+  fail(describe(actual) + " !== " + describe(expected), message);
+}
+
+export function notEqual(actual: any, expected: any, message: string = "") {
+  if (!same(actual, expected)) return;
+  fail("expected something other than " + describe(expected), message);
+}
+
+export function deepEqual(actual: any, expected: any, message: string = "") {
+  if (isDeepEqual(actual, expected)) return;
+  fail(describe(actual) + " is not deeply equal to " + describe(expected), message);
+}
+
+export function notDeepEqual(actual: any, expected: any, message: string = "") {
+  if (!isDeepEqual(actual, expected)) return;
+  fail("expected something not deeply equal to " + describe(expected), message);
+}
+
+/* Comparing floats with === is a bug waiting for a decimal fraction: 0.1 + 0.2
+ * is not 0.3 in any binary format, which is arithmetic rather than a mistake. */
+export function closeTo(actual: number, expected: number, tolerance: number = 1e-9,
+                        message: string = "") {
+  const difference = actual - expected;
+  const distance = difference < 0 ? -difference : difference;
+  if (distance <= tolerance) return;
+  fail(String(actual) + " is not within " + String(tolerance) + " of " + String(expected),
+       message);
+}
+
+export function includes(haystack: any, needle: any, message: string = "") {
+  if (typeof haystack === "string") {
+    if (haystack.includes(needle)) return;
+    fail(describe(haystack) + " does not contain " + describe(needle), message);
+  }
+  for (const element of haystack) {
+    if (same(element, needle)) return;
+  }
+  fail(describe(haystack) + " does not contain " + describe(needle), message);
+}
+
+export function hasLength(value: any, length: number, message: string = "") {
+  if (value.length === length) return;
+  fail("expected " + String(length) + " items, got " + String(value.length), message);
+}
+
+/* Returns what was thrown, so a caller can go on to assert about it.
+ *
+ * `expected` narrows what counts: a string is matched against the thrown
+ * error's message, and a function is asked. Anything a `throws` accepts that
+ * the body did not do is a failure, so a test cannot pass by throwing the
+ * wrong thing. */
+export function throws(body: any, expected: any = null, message: string = ""): any {
+  let thrown: any = null;
+  let threw = false;
+  try {
+    body();
+  } catch (error) {
+    threw = true;
+    thrown = error;
+  }
+
+  if (!threw) fail("expected the call to throw, and it returned", message);
+
+  if (typeof expected === "string") {
+    const text = messageOf(thrown);
+    if (!text.includes(expected)) {
+      fail("thrown message " + describe(text) + " does not contain " + describe(expected),
+           message);
+    }
+  } else if (typeof expected === "function") {
+    if (!expected(thrown)) {
+      fail("the thrown value " + describe(thrown) + " was not what was expected", message);
+    }
+  }
+  return thrown;
+}
+
+export function doesNotThrow(body: any, message: string = ""): any {
+  try {
+    return body();
+  } catch (error) {
+    fail("expected the call not to throw, and it threw " + describe(messageOf(error)),
+         message);
+  }
+  return undefined;
+}
+
+/* A thrown value need not be an Error — `throw "text"` is legal — so this is
+ * how everything above reads one without assuming which it got. */
+export function messageOf(thrown: any): string {
+  if (typeof thrown === "string") return thrown;
+  if (typeof thrown === "object" && thrown !== null) {
+    const text = thrown?.message;
+    if (typeof text === "string") return text;
+  }
+  return String(thrown);
+}
+
+export function unreachable(message: string = "reached code that should not run") {
+  fail(message, "");
+}

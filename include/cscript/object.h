@@ -267,6 +267,18 @@ struct ObjFiber {
   int handlerCount;
   struct ObjUpvalue *openUpvalues;
 
+  /* The fiber this one interrupted, while this one is running, and NULL
+   * otherwise.
+   *
+   * Not bookkeeping — it is what makes a chain of running fibers reachable.
+   * Swapping puts the *caller's* execution state into this fiber's fields, so
+   * an outer generator's stack is held by the inner fiber's `stack`, while the
+   * outer fiber object itself is held only by its generator, which lives on a
+   * stack that is now reachable only through it. Without this link the whole
+   * chain is a cycle nothing points into, and a collection while two
+   * generators are nested frees a stack that is still being run. */
+  struct ObjFiber *caller;
+
   /* What the async function call handed back to its caller, settled when the
    * body returns or throws. */
   ObjPromise *promise;

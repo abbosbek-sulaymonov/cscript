@@ -1,0 +1,80 @@
+import { sleep, delay, timeout, retry, pool, settleAll, debounce, throttle,
+         deferred } from "std:async";
+import { equal, deepEqual, ok, messageOf } from "std:assert";
+
+async function main() {
+  const started = Date.now();
+  await sleep(10);
+  ok(Date.now() - started >= 8);
+  equal(await delay("kept", 5), "kept");
+
+  equal(await timeout(delay("fast", 1), 200), "fast");
+  try {
+    await timeout(delay("slow", 200), 10, "too slow");
+    ok(false, "the timeout should have rejected");
+  } catch (e) { equal(messageOf(e), "too slow"); }
+
+  let tries = 0;
+  const flaky = async () => {
+    tries = tries + 1;
+    if (tries < 3) throw new Error("not yet");
+    return "third time";
+  };
+  const notes: any = [];
+  equal(await retry(flaky, { attempts: 5, delayMs: 1, onRetry: (e: any, n: number) => notes.push(n) }),
+        "third time");
+  equal(tries, 3);
+  deepEqual(notes, [1, 2]);
+
+  try {
+    await retry(async () => { throw new Error("always"); }, { attempts: 2, delayMs: 1 });
+    ok(false, "retry should have given up");
+  } catch (e) { equal(messageOf(e), "always"); }
+
+  const order: any = [];
+  let inFlight = 0;
+  let highWater = 0;
+  const results = await pool([1, 2, 3, 4, 5], 2, async (n: number) => {
+    inFlight = inFlight + 1;
+    if (inFlight > highWater) highWater = inFlight;
+    await sleep(5);
+    inFlight = inFlight - 1;
+    order.push(n);
+    return n * 10;
+  });
+  deepEqual(results, [10, 20, 30, 40, 50]);
+  ok(highWater <= 2);
+  equal(order.length, 5);
+
+  const indexed = await pool(["a", "b"], 1, async (v: string, i: number) => v + String(i));
+  deepEqual(indexed, ["a0", "b1"]);
+
+  const settled = await settleAll([Promise.resolve(1), Promise.reject(new Error("no"))]);
+  equal(settled[0].ok, true); equal(settled[0].value, 1);
+  equal(settled[1].ok, false); equal(messageOf(settled[1].error), "no");
+
+  let debounceCalls = 0;
+  const bounced = debounce(() => { debounceCalls = debounceCalls + 1; }, 20);
+  bounced.run(); bounced.run(); bounced.run();
+  await sleep(40);
+  equal(debounceCalls, 1);
+  bounced.run();
+  bounced.cancel();
+  await sleep(30);
+  equal(debounceCalls, 1);
+
+  let throttleCalls = 0;
+  const limited = throttle(() => { throttleCalls = throttleCalls + 1; }, 30);
+  limited(); limited(); limited();
+  equal(throttleCalls, 1);
+  await sleep(40);
+  limited();
+  equal(throttleCalls, 2);
+
+  const gate = deferred();
+  setTimeout(() => gate.resolve("opened"), 5);
+  equal(await gate.promise, "opened");
+
+  console.log("async ok");
+}
+main();

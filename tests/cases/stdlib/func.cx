@@ -1,0 +1,32 @@
+import { identity, constant, noop, pipe, compose, partial, curry2, curry3,
+         flip, negate, once, memoize, tap, times } from "std:func";
+import { equal, deepEqual } from "std:assert";
+
+equal(identity(3), 3);
+equal(constant(7)(), 7);
+equal(noop(), undefined);
+const double = (x: number) => x * 2;
+const inc = (x: number) => x + 1;
+equal(pipe(double, inc)(5), 11);
+equal(compose(double, inc)(5), 12);
+equal(partial((a: number, b: number, c: number) => a + b + c, 1, 2)(3), 6);
+equal(curry2((a: number, b: number) => a - b)(9)(4), 5);
+equal(curry3((a: number, b: number, c: number) => a + b + c)(1)(2)(3), 6);
+equal(flip((a: string, b: string) => a + b)("x", "y"), "yx");
+equal(negate((x: number) => x > 1)(0), true);
+let calls = 0;
+const start = once(() => { calls = calls + 1; return "started"; });
+equal(start(), "started"); equal(start(), "started"); equal(calls, 1);
+let computed = 0;
+const slow = memoize((n: number) => { computed = computed + 1; return n * n; });
+equal(slow(4), 16); equal(slow(4), 16); equal(computed, 1);
+const byFirst = memoize((a: number, b: number) => a + b, (a: number, b: number) => a);
+equal(byFirst(1, 1), 2); equal(byFirst(1, 9), 2);
+let seen: any = null;
+equal(tap((v: any) => { seen = v; })(42), 42); equal(seen, 42);
+deepEqual(times(3), [0, 1, 2]);
+deepEqual(times(3, (i: number) => i * 2), [0, 2, 4]);
+const slugify = pipe((s: string) => s.trim(), (s: string) => s.toLowerCase());
+console.log(slugify("  Hello World  "));
+console.log(times(4, (i: number) => i * i));
+console.log("func ok");

@@ -38,7 +38,8 @@ void compileImport(const AstNode *node) {
   char resolved[4096];
   if (!csModuleResolve(currentUnit->module->path->chars, node->as.import.specifier,
                        resolved, sizeof resolved)) {
-    errorAt(line, "cannot find module '%s'", node->as.import.specifier);
+    errorAt(line, "cannot find module '%s'%s", node->as.import.specifier,
+            csModuleResolutionHint(node->as.import.specifier));
     return;
   }
 
@@ -111,7 +112,8 @@ void compileExport(const AstNode *node) {
     char resolved[4096];
     if (!csModuleResolve(currentUnit->module->path->chars, node->as.export.specifier,
                          resolved, sizeof resolved)) {
-      errorAt(line, "cannot find module '%s'", node->as.export.specifier);
+      errorAt(line, "cannot find module '%s'%s", node->as.export.specifier,
+              csModuleResolutionHint(node->as.export.specifier));
       return;
     }
     ObjModule *from = csModuleFind(resolved);

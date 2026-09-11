@@ -279,6 +279,7 @@ ObjFiber *csFiberNew(void) {
   fiber->handlers = handlers;
   fiber->handlerCount = 0;
   fiber->openUpvalues = NULL;
+  fiber->caller = NULL;
   fiber->promise = NULL;
   fiber->state = FIBER_READY;
   fiber->generator = NULL;

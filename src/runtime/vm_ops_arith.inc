@@ -32,7 +32,10 @@
           csVMPush(NUMBER_VAL(AS_NUMBER(a) + AS_NUMBER(b)));
           VM_NEXT();
         }
-        if (!concatenateOrAdd()) return CS_RUNTIME_ERROR;
+        if (!concatenateOrAdd()) {
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
+        }
         VM_NEXT();
       }
 

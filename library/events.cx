@@ -1,0 +1,116 @@
+/* events.cx — one thing announcing, several things listening.
+ *
+ * The point of an emitter is that the part which knows something happened does
+ * not have to know who cares. What is worth knowing about this one:
+ *
+ * An event carries **one** payload, not a variadic list. CScript checks arity,
+ * so an emitter that passed three arguments would be an error at every
+ * ordinary one-parameter listener rather than an ignored extra — and a
+ * listener that takes no parameters at all is called with none, which is why
+ * the call below asks how many it declared.
+ *
+ * A listener that throws stops the emit, and the throw reaches the caller of
+ * `emit`. Swallowing it would be the more forgiving choice and the wrong one:
+ * an exception nobody sees is how a broken listener stays broken.
+ */
+
+export class EventEmitter {
+  #listeners: any = new Map();
+
+  /* Registers `listener` for `event`, and answers a function that removes it.
+   * Keeping the remover means an anonymous arrow can still be taken off,
+   * without the caller having to hold the same reference to pass to `off`. */
+  on(event: string, listener: any): any {
+    if (!this.#listeners.has(event)) this.#listeners.set(event, []);
+    this.#listeners.get(event).push(listener);
+    return () => this.off(event, listener);
+  }
+
+  /* Removes itself before running, so a listener that emits the same event
+   * again does not re-enter this one. */
+  once(event: string, listener: any): any {
+    /* `let` and then assign, rather than `const`: an arrow bound with `const`
+     * cannot see its own binding from inside itself, and this one has to, in
+     * order to take itself off the list. */
+    let wrapper: any = null;
+    wrapper = (payload: any) => {
+      this.off(event, wrapper);
+      return callListener(listener, payload);
+    };
+    return this.on(event, wrapper);
+  }
+
+  /* Removes the first registration of `listener`, keeping the rest in order.
+   * The array is rebuilt rather than spliced, because CScript's arrays have no
+   * `splice` — and a rebuild is the same O(n) the splice would have been. */
+  off(event: string, listener: any): boolean {
+    if (!this.#listeners.has(event)) return false;
+    const registered = this.#listeners.get(event);
+
+    let found = -1;
+    for (let i = 0; i < registered.length; i++) {
+      if (registered[i] === listener) {
+        found = i;
+        break;
+      }
+    }
+    if (found < 0) return false;
+
+    const kept: any = [];
+    for (let i = 0; i < registered.length; i++) {
+      if (i !== found) kept.push(registered[i]);
+    }
+    if (kept.length === 0) {
+      this.#listeners.delete(event);
+    } else {
+      this.#listeners.set(event, kept);
+    }
+    return true;
+  }
+
+  /* Walks a copy of the list, so a listener that adds or removes one does not
+   * change what this emit delivers — the alternative is a listener that is
+   * skipped or run twice depending on where it was in the array. */
+  emit(event: string, payload: any = undefined): boolean {
+    if (!this.#listeners.has(event)) return false;
+    const registered = this.#listeners.get(event).slice(0);
+    for (const listener of registered) callListener(listener, payload);
+    return registered.length > 0;
+  }
+
+  listenerCount(event: string): number {
+    if (!this.#listeners.has(event)) return 0;
+    return this.#listeners.get(event).length;
+  }
+
+  eventNames(): any {
+    const names: any = [];
+    for (const name of this.#listeners.keys()) names.push(name);
+    return names;
+  }
+
+  removeAllListeners(event: any = null) {
+    if (event === null) {
+      this.#listeners = new Map();
+      return;
+    }
+    this.#listeners.delete(event);
+  }
+
+  /* Resolves the next time `event` is emitted, so an emitter can be awaited
+   * rather than listened to — which is what one usually wants when waiting for
+   * a single occurrence rather than reacting to a stream of them. */
+  next(event: string): any {
+    return new Promise((resolve: any) => {
+      this.once(event, (payload: any) => resolve(payload));
+    });
+  }
+}
+
+/* A listener is called with as many arguments as it declared: none for
+ * `() => …`, the payload for `(x) => …`. Passing a payload to a listener that
+ * takes no parameters would be a runtime error, not an ignored extra. */
+function callListener(listener: any, payload: any): any {
+  if (listener.length >= 1) return listener(payload);
+  return listener();
+}

@@ -1,0 +1,44 @@
+import { Random, seeded, random } from "std:random";
+import { equal, deepEqual, ok, throws, messageOf } from "std:assert";
+
+const a = new Random(7); const b = new Random(7);
+deepEqual([a.next(), a.next(), a.next()], [b.next(), b.next(), b.next()]);
+const r = seeded(1);
+for (let i = 0; i < 200; i++) { const v = r.next(); ok(v >= 0 && v < 1); }
+const dice = seeded(42);
+const seen = new Set();
+for (let i = 0; i < 300; i++) { const roll = dice.int(1, 6); ok(roll >= 1 && roll <= 6); seen.add(roll); }
+equal(seen.size, 6);
+ok(dice.float(2, 3) >= 2);
+equal(typeof dice.bool(), "boolean");
+equal(dice.bool(1), true); equal(dice.bool(0), false);
+const items = [1, 2, 3, 4, 5];
+ok(items.includes(dice.pick(items)));
+const shuffled = dice.shuffle(items);
+deepEqual(items, [1, 2, 3, 4, 5]);
+equal(shuffled.length, 5);
+deepEqual(shuffled.slice(0).sort((x: number, y: number) => x - y), items);
+equal(dice.sample(items, 3).length, 3);
+equal(new Set(dice.sample(items, 5)).size, 5);
+equal(dice.weighted(["a", "b"], [1, 0]), "a");
+const counts = new Map();
+const weighted = seeded(3);
+for (let i = 0; i < 400; i++) {
+  const got = weighted.weighted(["x", "y"], [3, 1]);
+  counts.set(got, (counts.has(got) ? counts.get(got) : 0) + 1);
+}
+ok(counts.get("x") > counts.get("y"));
+const bell = seeded(9);
+let total = 0;
+for (let i = 0; i < 500; i++) total = total + bell.gaussian(10, 2);
+ok(Math.abs(total / 500 - 10) < 1);
+deepEqual([...(() => { const s = seeded(5).stream(); return [s.next().value, s.next().value]; })()].length, 2);
+equal(messageOf(throws(() => dice.pick([]))), "pick from an empty list");
+equal(messageOf(throws(() => dice.sample([1], 2))), "sample of 2 from 1 items");
+equal(messageOf(throws(() => dice.int(5, 1))), "int was given a low bound above its high bound");
+ok(random.next() >= 0);
+const shown = seeded(2024);
+console.log([shown.int(1, 6), shown.int(1, 6), shown.int(1, 6)]);
+console.log(shown.shuffle(["a", "b", "c", "d"]));
+console.log(shown.weighted(["common", "rare"], [9, 1]));
+console.log("random ok");
