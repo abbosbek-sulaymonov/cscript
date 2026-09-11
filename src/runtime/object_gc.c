@@ -196,11 +196,16 @@ void csObjectBlacken(Obj *object) {
       break;
     }
 
-    case OBJ_UPVALUE:
+    case OBJ_UPVALUE: {
       /* `closed` holds the value once the variable has left the stack. While
        * the upvalue is still open it is empty, and the stack root covers it. */
-      csMarkValue(((ObjUpvalue *)object)->closed);
+      ObjUpvalue *upvalue = (ObjUpvalue *)object;
+      csMarkValue(upvalue->closed);
+      /* And the fiber that stack belongs to, which may be reachable from
+       * nothing else — see ObjUpvalue.home. */
+      csMarkObject((Obj *)upvalue->home);
       break;
+    }
 
     case OBJ_CLOSURE: {
       ObjClosure *closure = (ObjClosure *)object;

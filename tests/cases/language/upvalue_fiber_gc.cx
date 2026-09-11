@@ -1,0 +1,59 @@
+/* A closure over a suspended async function's local, resumed later.
+ *
+ * A regression test for `make test-gc`. An open upvalue holds a raw pointer
+ * into the stack of whichever fiber the variable lives on, and a suspended
+ * fiber can be reachable from nothing else: an async function awaiting a
+ * promise held by an object on its own stack is a cycle, and the thing that
+ * will eventually settle that promise is a *different* fiber holding the
+ * upvalue. The collector therefore freed the stack the upvalue pointed into,
+ * and `shared` came back as whatever the memory held next — a number where an
+ * object had been.
+ *
+ * The gate is what makes the shape necessary: the outer function cannot finish
+ * until the inner one runs, and the inner one is reached only from the timer
+ * queue.
+ */
+function sleep(ms: number): any {
+  return new Promise((resolve: any) => setTimeout(() => resolve(undefined), ms));
+}
+
+class Gate {
+  #waiting: any = [];
+  #count: number = 0;
+
+  expect(howMany: number) {
+    this.#count = howMany;
+  }
+
+  arrive(name: string) {
+    this.#count = this.#count - 1;
+    if (this.#count > 0) return;
+    for (const resolve of this.#waiting) resolve(undefined);
+    this.#waiting = [];
+  }
+
+  wait(): any {
+    if (this.#count === 0) return Promise.resolve(undefined);
+    return new Promise((resolve: any) => { this.#waiting.push(resolve); });
+  }
+}
+
+async function main() {
+  const gate = new Gate();
+  const seen: any = [];
+  gate.expect(3);
+
+  for (const name of ["a", "b", "c"]) {
+    (async () => {
+      await sleep(1);
+      /* Both of these read through an upvalue into main's stack. */
+      seen.push(name);
+      gate.arrive(name);
+    })();
+  }
+
+  await gate.wait();
+  seen.sort();
+  console.log(seen.join(","));
+}
+main();

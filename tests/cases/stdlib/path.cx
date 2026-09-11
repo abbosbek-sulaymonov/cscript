@@ -1,0 +1,65 @@
+import { split, isAbsolute, dirname, basename, extname, stem, join, normalize,
+         resolve, relative, withExtension, withName, isInside, fromWindows,
+         toWindows } from "std:path";
+import { equal, deepEqual, ok, notOk, messageOf, throws } from "std:assert";
+
+deepEqual(split("/a//b/"), ["a", "b"]);
+deepEqual(split(""), []);
+ok(isAbsolute("/a")); notOk(isAbsolute("a"));
+
+equal(dirname("/a/b/c.txt"), "/a/b");
+equal(dirname("/a"), "/");
+equal(dirname("a"), ".", "which means the directory I am in");
+equal(dirname("/a/b/"), "/a");
+
+equal(basename("/a/b/c.txt"), "c.txt");
+equal(basename("/a/b/c.txt", ".txt"), "c");
+equal(basename("/a/b/"), "b");
+equal(basename(".cx", ".cx"), ".cx", "a name that is only the suffix is kept");
+
+equal(extname("a.tar.gz"), ".gz");
+equal(extname("a"), "");
+equal(extname(".bashrc"), "", "a leading dot is a name, not an extension");
+equal(stem("/a/b.cx"), "b");
+equal(stem("a.tar.gz"), "a.tar");
+
+equal(join("a/", "/b", "c.txt"), "a/b/c.txt");
+equal(join("a", "", "b"), "a/b");
+equal(join("/", "a"), "/a");
+equal(join(), ".");
+equal(join("a", "../b"), "b", "and the result is normalised");
+
+equal(normalize("/a/b/../c/./d"), "/a/c/d");
+equal(normalize("a/./b"), "a/b");
+equal(normalize("../a/../b"), "../b", "a relative .. is kept");
+equal(normalize("/../a"), "/a", "an absolute one cannot climb past the root");
+equal(normalize(""), ".");
+
+equal(resolve("/base", "a/b"), "/base/a/b");
+equal(resolve("/base", "/elsewhere"), "/elsewhere");
+
+equal(relative("/a/b/c", "/a/d"), "../../d");
+equal(relative("a/b", "a/b"), ".");
+equal(relative("/a", "/a/b/c"), "b/c");
+equal(messageOf(throws(() => relative("/a", "b"))),
+      "path.relative needs two paths of the same kind, got '/a' and 'b'");
+
+equal(withExtension("/a/b.cx", "js"), "/a/b.js");
+equal(withExtension("/a/b.cx", ".js"), "/a/b.js", "the dot is optional");
+equal(withExtension("b", ".js"), "b.js");
+equal(withExtension("/a/b.cx", ""), "/a/b");
+equal(withName("/a/b.cx", "c.txt"), "/a/c.txt");
+equal(withName("b.cx", "c.txt"), "c.txt");
+
+ok(isInside("/a", "/a/b"));
+notOk(isInside("/a", "/b"));
+notOk(isInside("/a", "/a"), "a path is not inside itself");
+notOk(isInside("/a", "b"));
+
+equal(fromWindows("a\\b\\c"), "a/b/c");
+equal(toWindows("a/b/c"), "a\\b\\c");
+
+console.log(join("src", "../lib", "mod.cx"), normalize("/a/./b/../c"));
+console.log(dirname("/x/y.cx"), basename("/x/y.cx", ".cx"), extname("y.tar.gz"));
+console.log(relative("/a/b", "/a/c/d"));
+console.log("path ok");

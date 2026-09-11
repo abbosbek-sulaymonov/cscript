@@ -1,0 +1,201 @@
+/* clone.cx — copying a value rather than sharing it.
+ *
+ * Assignment shares: `const b = a` gives two names for one object, and a write
+ * through either is visible through both. That is usually what is wanted and
+ * occasionally the source of a bug nothing points at — a "copy" of a
+ * configuration that turns out to be the configuration.
+ *
+ * Two depths, and the difference matters more than it looks: `shallow` copies
+ * the top level and shares everything below it, `deep` copies all the way
+ * down. A shallow copy of `{ a: { b: 1 } }` shares the inner object, so
+ * `copy.a.b = 2` changes the original.
+ *
+ * What can be copied: arrays, plain objects, Maps, Sets and Dates. A class
+ * instance comes back **shared**, because its private fields are invisible to
+ * any walk and a copy of the public half would be a different object wearing
+ * the same name. `deepReport` says what was shared rather than copied, for
+ * the cases where that has to be known.
+ */
+import { kindOf } from "std:kind";
+
+/* A copy of the top level. Everything one level down is shared. */
+export function shallow(value: any): any {
+  const kind = kindOf(value);
+  if (kind === "array") return value.slice(0);
+  if (kind === "map") return new Map(value);
+  if (kind === "set") return new Set(value);
+  if (kind === "date") return new Date(value.getTime());
+  if (kind !== "object") return value;
+
+  const out: any = {};
+  for (const key of Object.keys(value)) out[key] = value[key];
+  return out;
+}
+
+/* A copy all the way down.
+ *
+ * Cycles are preserved rather than refused: the map from original to copy is
+ * what makes `a.self = a` come back as a copy whose `self` is that same copy,
+ * and it is also what stops the walk from recursing for ever. A Map keyed by
+ * object works here because Map compares keys by identity. */
+export function deep(value: any): any {
+  return copyInto(value, new Map());
+}
+
+function copyInto(value: any, seen: any): any {
+  const kind = kindOf(value);
+  if (kind !== "array" && kind !== "object" && kind !== "map" && kind !== "set" &&
+      kind !== "date") {
+    /* A primitive is its own copy; an instance, a function, a promise and a
+     * generator are shared, because none can be taken apart from outside. */
+    return value;
+  }
+  if (seen.has(value)) return seen.get(value);
+
+  if (kind === "date") {
+    const out = new Date(value.getTime());
+    seen.set(value, out);
+    return out;
+  }
+
+  if (kind === "array") {
+    const out: any = [];
+    seen.set(value, out);
+    for (const element of value) out.push(copyInto(element, seen));
+    return out;
+  }
+
+  if (kind === "map") {
+    const out = new Map();
+    seen.set(value, out);
+    /* The keys are copied too. A key that is an object is a different key once
+     * copied — which is the point of a deep copy, and would be a surprise if
+     * only the values were copied. */
+    for (const [key, held] of value) out.set(copyInto(key, seen), copyInto(held, seen));
+    return out;
+  }
+
+  if (kind === "set") {
+    const out = new Set();
+    seen.set(value, out);
+    for (const element of value) out.add(copyInto(element, seen));
+    return out;
+  }
+
+  const out: any = {};
+  seen.set(value, out);
+  for (const key of Object.keys(value)) out[key] = copyInto(value[key], seen);
+  return out;
+}
+
+/* `{ value, shared }` — the copy, and the path of everything in it that could
+ * only be shared. An empty list means the copy is independent of the original;
+ * anything in it names a place where the two still meet.
+ *
+ * This exists because the alternative is a silent half-copy: a deep clone that
+ * quietly shares a class instance is the failure mode this whole project is
+ * written against. */
+export function deepReport(value: any): any {
+  const shared: any = [];
+  const copy = copyReporting(value, new Map(), shared, "");
+  return { value: copy, shared: shared };
+}
+
+function copyReporting(value: any, seen: any, shared: any, path: string): any {
+  const kind = kindOf(value);
+  const where = path === "" ? "(the value itself)" : path;
+
+  /* A primitive has nothing to share. Everything else that cannot be taken
+   * apart is named, so the caller knows exactly which parts of the copy are
+   * still the original. */
+  if (kind === "number" || kind === "string" || kind === "boolean" ||
+      kind === "bigint" || kind === "symbol" || kind === "null" ||
+      kind === "undefined") {
+    return value;
+  }
+  if (kind !== "array" && kind !== "object" && kind !== "map" && kind !== "set" &&
+      kind !== "date") {
+    shared.push(where + " (" + kind + ")");
+    return value;
+  }
+  if (seen.has(value)) return seen.get(value);
+
+  if (kind === "date") {
+    const out = new Date(value.getTime());
+    seen.set(value, out);
+    return out;
+  }
+
+  if (kind === "array") {
+    const out: any = [];
+    seen.set(value, out);
+    for (let i = 0; i < value.length; i++) {
+      out.push(copyReporting(value[i], seen, shared, path + "[" + String(i) + "]"));
+    }
+    return out;
+  }
+
+  if (kind === "map") {
+    const out = new Map();
+    seen.set(value, out);
+    for (const [key, held] of value) {
+      const at = path === "" ? "{" + String(key) + "}" : path + "{" + String(key) + "}";
+      out.set(copyReporting(key, seen, shared, at), copyReporting(held, seen, shared, at));
+    }
+    return out;
+  }
+
+  if (kind === "set") {
+    const out = new Set();
+    seen.set(value, out);
+    let index = 0;
+    for (const element of value) {
+      out.add(copyReporting(element, seen, shared, path + "<" + String(index) + ">"));
+      index = index + 1;
+    }
+    return out;
+  }
+
+  const out: any = {};
+  seen.set(value, out);
+  for (const key of Object.keys(value)) {
+    out[key] = copyReporting(value[key], seen, shared, path === "" ? key
+                                                                   : path + "." + key);
+  }
+  return out;
+}
+
+/* A copy with some keys replaced: `withFields(user, { name: "new" })`.
+ *
+ * The update is applied over a shallow copy, which is the shape almost every
+ * "change one field" ends up being — and doing it in one call is what stops it
+ * being written as a mutation because that was shorter. */
+export function withFields(value: any, changes: any): any {
+  const out = shallow(value);
+  for (const key of Object.keys(changes)) out[key] = changes[key];
+  return out;
+}
+
+/* A copy without some keys. */
+export function withoutFields(value: any, keys: any): any {
+  const drop = new Set();
+  for (const key of keys) drop.add(key);
+
+  const out: any = {};
+  for (const key of Object.keys(value)) {
+    if (drop.has(key)) continue;
+    out[key] = value[key];
+  }
+  return out;
+}
+
+/* Only the keys asked for, and only those that are there. */
+export function pickFields(value: any, keys: any): any {
+  const out: any = {};
+  const present = new Set();
+  for (const key of Object.keys(value)) present.add(key);
+  for (const key of keys) {
+    if (present.has(key)) out[key] = value[key];
+  }
+  return out;
+}

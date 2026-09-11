@@ -171,8 +171,19 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
       /* Any other primitive with methods of its own — a number, so far. The
        * table is asked before the type is rejected, which is what keeps the
        * rule "a primitive has no properties" from being wrong the moment one
-       * gains a method. */
-      if (csTypeFindMethod(object, node->as.property.name,
+       * gains a method.
+       *
+       * TYPE_OBJECT is excluded on purpose. An array and a plain object are
+       * the same type here, so the array methods are in the table under
+       * TYPE_OBJECT — and answering "function" for any property whose *name*
+       * matches one of them means an ordinary field cannot be called `at`,
+       * `sort`, `filter`, `map` or `includes`. `{ sort: "name" }.sort` is a
+       * string, and typing it as a function made `o.sort < 5` a compile error
+       * on correct code. A property of an object stays dynamic; a call through
+       * one still gets its result type from this same table, which is what
+       * keeps `xs.map(f)` known to be an array. */
+      if (object != TYPE_OBJECT &&
+          csTypeFindMethod(object, node->as.property.name,
                      node->as.property.length) != NULL) {
         result = TYPE_FUNCTION;
         break;

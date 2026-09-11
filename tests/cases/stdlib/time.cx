@@ -1,0 +1,82 @@
+import { MILLISECOND, SECOND, MINUTE, HOUR, DAY, WEEK, milliseconds, seconds,
+         minutes, hours, days, toSeconds, toMinutes, toHours, toDays, parts,
+         formatDuration, parseDuration, now, formatInstant, formatClock,
+         formatDate, startOfDay, sameDay, Stopwatch, measure } from "std:time";
+import { equal, deepEqual, ok, notOk } from "std:assert";
+
+equal(MILLISECOND, 1);
+equal(SECOND, 1000);
+equal(MINUTE, 60000);
+equal(HOUR, 3600000);
+equal(DAY, 86400000);
+equal(WEEK, 604800000);
+
+equal(milliseconds(5), 5);
+equal(seconds(90), 90000);
+equal(minutes(5), 300000);
+equal(hours(1.5), 5400000);
+equal(days(2), 172800000);
+equal(toSeconds(90000), 90);
+equal(toMinutes(90000), 1.5);
+equal(toHours(HOUR * 3), 3);
+equal(toDays(DAY), 1);
+
+const broken = parts(90061456);
+equal(broken.days, 1);
+equal(broken.hours, 1);
+equal(broken.minutes, 1);
+equal(broken.seconds, 1);
+equal(broken.milliseconds, 456);
+notOk(broken.negative);
+ok(parts(-1000).negative);
+
+equal(formatDuration(3723456), "1h 2m", "two units, because more is noise");
+equal(formatDuration(3723456, 4), "1h 2m 3s 456ms");
+equal(formatDuration(0), "0ms", "rather than the empty string");
+equal(formatDuration(-90000), "-1m 30s");
+equal(formatDuration(500), "500ms");
+equal(formatDuration(DAY * 2 + HOUR), "2d 1h");
+
+equal(parseDuration("1h30m"), 5400000);
+equal(parseDuration("500ms"), 500);
+equal(parseDuration("2.5s"), 2500);
+equal(parseDuration("1d"), DAY);
+equal(parseDuration("1w"), WEEK);
+equal(parseDuration("1h 30m"), 5400000, "spaces are allowed");
+ok(parseDuration("nonsense") !== parseDuration("nonsense"), "NaN, not a throw");
+ok(parseDuration("") !== parseDuration(""));
+ok(parseDuration("5x") !== parseDuration("5x"));
+
+equal(formatInstant(0), "1970-01-01T00:00:00.000Z");
+equal(formatClock(3723456), "01:02:03");
+equal(formatClock(3723456, true), "01:02:03.456");
+equal(formatDate(86400000 * 400), "1971-02-05");
+equal(startOfDay(90061000), 86400000);
+ok(sameDay(0, 3600000));
+notOk(sameDay(0, 90000000));
+
+/* A stopwatch that was never started measures nothing, rather than the
+ * fifty-odd years since 1970. */
+const idle = new Stopwatch(false);
+notOk(idle.isRunning);
+equal(idle.elapsed, 0);
+equal(idle.lap(), 0);
+equal(idle.stop(), 0);
+
+const watch = new Stopwatch();
+ok(watch.isRunning);
+ok(watch.elapsed >= 0);
+ok(watch.lap() >= 0);
+const stopped = watch.stop();
+notOk(watch.isRunning);
+equal(watch.stop(), stopped, "stopping twice reads the same time");
+
+const measured = measure(() => 21 * 2);
+equal(measured.value, 42);
+ok(measured.elapsed >= 0);
+
+console.log(formatDuration(3723456), formatDuration(3723456, 4), formatDuration(-90000));
+console.log(parseDuration("1h30m"), parseDuration("2.5s"));
+console.log(formatInstant(1234567890123), formatClock(3723456, true), formatDate(0));
+console.log(JSON.stringify(parts(90061456)));
+console.log("time ok");

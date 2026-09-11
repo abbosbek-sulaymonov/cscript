@@ -1,0 +1,155 @@
+/* cmp.cx — comparators, and the one the language cannot write.
+ *
+ * `<` and `>` in CScript are numeric: comparing two strings with them is a
+ * runtime error, not a lexicographic answer. So while `["b", "a"].sort()`
+ * works — the built-in sort compares strings internally — a *comparator* over
+ * strings cannot be written in CScript at all without going through character
+ * codes. `compareStrings` here is that, and everything which orders anything
+ * other than numbers rests on it.
+ *
+ * The rest is the composition: order by a key, reverse an order, break a tie
+ * with another order. Each answers a function of two arguments returning a
+ * negative number, zero, or a positive one — the shape `Array.sort` takes.
+ */
+
+/* --- the primitives ------------------------------------------------------- */
+
+export function compareNumbers(a: number, b: number): number {
+  /* Not `a - b`: the subtraction overflows to Infinity for large values and
+   * answers NaN when either side is NaN, and a comparator answering NaN sorts
+   * unpredictably rather than failing. */
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+/* Lexicographic by byte, which is what the built-in sort does with no
+ * comparator — so this and that agree.
+ *
+ * Character by character, because `<` on two strings is a runtime error here.
+ * The shorter string comes first when one is a prefix of the other, which is
+ * the rule every other language uses. */
+export function compareStrings(a: string, b: string): number {
+  const shorter = a.length < b.length ? a.length : b.length;
+  for (let i = 0; i < shorter; i++) {
+    const left = a.charCodeAt(i);
+    const right = b.charCodeAt(i);
+    if (left < right) return -1;
+    if (left > right) return 1;
+  }
+  return compareNumbers(a.length, b.length);
+}
+
+/* Case-insensitive, for ASCII. Ties are broken by the case-sensitive order, so
+ * "a" and "A" have a stable relationship rather than an arbitrary one. */
+export function compareStringsInsensitive(a: string, b: string): number {
+  const folded = compareStrings(a.toLowerCase(), b.toLowerCase());
+  return folded !== 0 ? folded : compareStrings(a, b);
+}
+
+export function compareBooleans(a: boolean, b: boolean): number {
+  /* False before true, which is the order that makes `sortBy(xs, isDone)` put
+   * the unfinished work first. */
+  if (a === b) return 0;
+  return a ? 1 : -1;
+}
+
+/* Whatever it is handed: numbers numerically, strings lexicographically,
+ * booleans false-first. Anything else is compared by its text, which is at
+ * least stable and is why the specific functions above exist. */
+export function compare(a: any, b: any): number {
+  if (typeof a === "number" && typeof b === "number") return compareNumbers(a, b);
+  if (typeof a === "string" && typeof b === "string") return compareStrings(a, b);
+  if (typeof a === "boolean" && typeof b === "boolean") return compareBooleans(a, b);
+  return compareStrings(String(a), String(b));
+}
+
+/* --- building one --------------------------------------------------------- */
+
+/* Orders by what `keyOf` answers: `sort(cmp.by(p => p.age))`. */
+export function by(keyOf: any, order: any = null): any {
+  const inner = order === null ? compare : order;
+  return (a: any, b: any) => inner(keyOf(a), keyOf(b));
+}
+
+export function byDescending(keyOf: any, order: any = null): any {
+  return reversed(by(keyOf, order));
+}
+
+export function reversed(order: any): any {
+  return (a: any, b: any) => order(b, a);
+}
+
+/* The first order that has an opinion decides: `then(by(lastName), by(age))`.
+ * Written out as a fold rather than as a chain of `||`, because a comparator
+ * answering 0 is falsy and the shorter spelling would then be wrong for a tie
+ * in the middle. */
+export function then(...orders: any): any {
+  return (a: any, b: any) => {
+    for (const order of orders) {
+      const side = order(a, b);
+      if (side !== 0) return side;
+    }
+    return 0;
+  };
+}
+
+/* `undefined` and `null` first, or last, with everything else in `order`.
+ * Sorting a list with holes in it is otherwise a comparison against undefined,
+ * which answers 0 and leaves them wherever they happened to be. */
+export function nullsFirst(order: any = null): any {
+  const inner = order === null ? compare : order;
+  return (a: any, b: any) => {
+    const aMissing = a === null || a === undefined;
+    const bMissing = b === null || b === undefined;
+    if (aMissing && bMissing) return 0;
+    if (aMissing) return -1;
+    if (bMissing) return 1;
+    return inner(a, b);
+  };
+}
+
+export function nullsLast(order: any = null): any {
+  return reversed(nullsFirst(reversed(order === null ? compare : order)));
+}
+
+/* --- using one ------------------------------------------------------------ */
+
+/* The smallest and largest by an order, without sorting: O(n) rather than
+ * O(n log n), and the answer for an empty sequence is `undefined` rather than
+ * an error, because "the largest of nothing" is a question a loop asks. */
+export function minBy(items: any, order: any = null): any {
+  const inner = order === null ? compare : order;
+  let best: any = undefined;
+  let first = true;
+  for (const item of items) {
+    if (first || inner(item, best) < 0) best = item;
+    first = false;
+  }
+  return best;
+}
+
+export function maxBy(items: any, order: any = null): any {
+  const inner = order === null ? compare : order;
+  let best: any = undefined;
+  let first = true;
+  for (const item of items) {
+    if (first || inner(item, best) > 0) best = item;
+    first = false;
+  }
+  return best;
+}
+
+/* Whether a sequence is already ordered, which is worth knowing before paying
+ * to sort it — and is how a test says "this came back sorted". */
+export function isSorted(items: any, order: any = null): boolean {
+  const inner = order === null ? compare : order;
+  let previous: any = undefined;
+  let first = true;
+  for (const item of items) {
+    if (!first && inner(previous, item) > 0) return false;
+    previous = item;
+    first = false;
+  }
+  return true;
+}

@@ -1,0 +1,47 @@
+import { code, char, codes, fromCodes, isAscii, isDigit, isUpper, isLower, isAlpha,
+         isAlphanumeric, isSpace, isPunctuation, isControl, isPrintable, isHexDigit,
+         toUpper, toLower, digitValue, hexValue, isAsciiText, stripControl } from "std:ascii";
+import { equal, deepEqual, ok, notOk, messageOf, throws } from "std:assert";
+
+equal(code("A"), 65);
+equal(code(""), -1, "not 0, which is a real character");
+equal(char(65), "A");
+deepEqual(codes("Hi"), [72, 105]);
+equal(fromCodes([72, 105]), "Hi");
+equal(messageOf(throws(() => char(300))), "ascii.char needs a whole number from 0 to 255, got 300");
+
+/* Every predicate takes a character or a code. */
+ok(isDigit("7")); ok(isDigit(55)); notOk(isDigit("a"));
+ok(isUpper("A")); notOk(isUpper("a"));
+ok(isLower("z")); notOk(isLower("Z"));
+ok(isAlpha("q")); ok(isAlpha("Q")); notOk(isAlpha("1"));
+ok(isAlphanumeric("1")); ok(isAlphanumeric("z")); notOk(isAlphanumeric("-"));
+ok(isSpace(" ")); ok(isSpace("\t")); ok(isSpace("\n")); notOk(isSpace("x"));
+ok(isPunctuation("-")); ok(isPunctuation("!")); notOk(isPunctuation("a"));
+notOk(isPunctuation(" "), "a space is not punctuation");
+ok(isControl(0)); ok(isControl(127)); ok(isControl("\n")); notOk(isControl("a"));
+ok(isPrintable("a")); ok(isPrintable(" ")); notOk(isPrintable(31));
+ok(isHexDigit("f")); ok(isHexDigit("F")); ok(isHexDigit("9")); notOk(isHexDigit("g"));
+ok(isAscii(127)); notOk(isAscii(128), "a byte above 127 is part of a sequence");
+
+equal(toUpper("a"), "A");
+equal(toUpper("A"), "A");
+equal(toUpper("1"), "1");
+equal(toLower("Z"), "z");
+equal(toLower(90), "z");
+
+equal(digitValue("7"), 7);
+equal(digitValue("a"), -1, "not NaN, so it composes without a check");
+equal(hexValue("f"), 15);
+equal(hexValue("F"), 15);
+equal(hexValue("9"), 9);
+equal(hexValue("g"), -1);
+
+ok(isAsciiText("plain text"));
+notOk(isAsciiText("café"), "the accented byte is above 127");
+equal(stripControl("a\nb\tc"), "abc");
+equal(stripControl("a\nb", "."), "a.b");
+
+console.log(codes("AZaz09"), char(35));
+console.log(toUpper("m"), digitValue("4"), hexValue("c"), isAsciiText("ok"));
+console.log("ascii ok");

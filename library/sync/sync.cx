@@ -1,0 +1,296 @@
+/* sync.cx — ordering asynchronous work.
+ *
+ * The names come from languages with threads, and here they mean something
+ * narrower and worth being precise about. **CScript is single-threaded.**
+ * Nothing in this module protects memory, because nothing can interleave in
+ * the middle of a statement: between two `await`s a function has the machine
+ * to itself.
+ *
+ * What these do is order *resumptions*. Two async functions that both `await`
+ * the same thing will both continue, in some order, and if each reads then
+ * writes a shared value across that `await` they can still lose an update —
+ * not because two things ran at once, but because one ran between the read and
+ * the write of the other. A Mutex here makes a section of asynchronous code
+ * run to completion before another enters it. That is the whole guarantee.
+ *
+ * The other three are about waiting: a Semaphore bounds how many things are in
+ * flight, a WaitGroup waits for a set of them to finish, and a Channel hands
+ * values from a producer to a consumer.
+ */
+import { deferred } from "std:async";
+
+/* --- Mutex ---------------------------------------------------------------- */
+
+/* One holder at a time.
+ *
+ * `lock()` answers a release function rather than taking one back through a
+ * method, so the thing that has to be called is in the hands of whoever holds
+ * the lock — and `withLock` exists because a release that must be called is a
+ * release that will be forgotten on some path.
+ */
+export class Mutex {
+  #held: boolean = false;
+  #waiting: any = [];
+
+  get isHeld(): boolean {
+    return this.#held;
+  }
+
+  get waiterCount(): number {
+    return this.#waiting.length;
+  }
+
+  /* Resolves with the release function once the lock is free. */
+  lock(): any {
+    if (!this.#held) {
+      this.#held = true;
+      return Promise.resolve(() => this.#release());
+    }
+
+    const gate = deferred();
+    this.#waiting.push(gate);
+    return gate.promise;
+  }
+
+  /* Hands the lock straight to the next waiter rather than releasing it and
+   * letting them race for it: a gap between the two would let anything that
+   * happened to be scheduled in between jump the queue. First in, first
+   * served, which is what makes a queue of writers finish. */
+  #release() {
+    if (this.#waiting.length === 0) {
+      this.#held = false;
+      return;
+    }
+    const next = this.#waiting.shift();
+    next.resolve(() => this.#release());
+  }
+
+  /* The form to reach for: the release cannot be forgotten, including when the
+   * body throws — which is the case that leaves a lock held for ever. */
+  async withLock(body: any): any {
+    const release = await this.lock();
+    try {
+      return await body();
+    } finally {
+      release();
+    }
+  }
+}
+
+/* --- Semaphore ------------------------------------------------------------ */
+
+/* At most `permits` holders at a time. A Mutex is a Semaphore of one; this is
+ * for bounding how much work is in flight — the same reason `async.pool`
+ * exists, in the form that suits code which is not a loop over a list. */
+export class Semaphore {
+  #free: number;
+  #waiting: any = [];
+
+  constructor(permits: number) {
+    if (permits < 1) throw new Error("a Semaphore needs at least one permit");
+    this.#free = permits;
+  }
+
+  get available(): number {
+    return this.#free;
+  }
+
+  get waiterCount(): number {
+    return this.#waiting.length;
+  }
+
+  acquire(): any {
+    if (this.#free > 0) {
+      this.#free = this.#free - 1;
+      return Promise.resolve(() => this.#release());
+    }
+    const gate = deferred();
+    this.#waiting.push(gate);
+    return gate.promise;
+  }
+
+  #release() {
+    if (this.#waiting.length > 0) {
+      const next = this.#waiting.shift();
+      next.resolve(() => this.#release());
+      return;
+    }
+    this.#free = this.#free + 1;
+  }
+
+  async withPermit(body: any): any {
+    const release = await this.acquire();
+    try {
+      return await body();
+    } finally {
+      release();
+    }
+  }
+}
+
+/* --- WaitGroup ------------------------------------------------------------ */
+
+/* Waits for a set of things to finish.
+ *
+ * `add` before starting each one, `done` as each finishes, `wait` for all of
+ * them. Where `Promise.all` needs every promise in hand at once, this counts —
+ * so work that starts more work can be waited on as one set.
+ */
+export class WaitGroup {
+  #count: number = 0;
+  #waiting: any = [];
+
+  get pending(): number {
+    return this.#count;
+  }
+
+  add(howMany: number = 1): any {
+    if (howMany < 1) throw new Error("WaitGroup.add needs a positive count");
+    this.#count = this.#count + howMany;
+    return this;
+  }
+
+  /* More `done`s than `add`s is a bug in the caller worth reporting: the
+   * alternative is a group that answers "finished" while work is still
+   * running. */
+  done(): any {
+    if (this.#count === 0) throw new Error("WaitGroup.done with nothing pending");
+    this.#count = this.#count - 1;
+    if (this.#count > 0) return this;
+
+    const waiting = this.#waiting;
+    this.#waiting = [];
+    for (const gate of waiting) gate.resolve(undefined);
+    return this;
+  }
+
+  /* Resolves immediately when nothing is pending, which makes a group that was
+   * never used safe to wait on. */
+  wait(): any {
+    if (this.#count === 0) return Promise.resolve(undefined);
+    const gate = deferred();
+    this.#waiting.push(gate);
+    return gate.promise;
+  }
+
+  /* Runs `body`, counting it in and out — the whole pattern in one call. */
+  async run(body: any): any {
+    this.add();
+    try {
+      return await body();
+    } finally {
+      this.done();
+    }
+  }
+}
+
+/* --- Channel -------------------------------------------------------------- */
+
+/* Values handed from a producer to a consumer, in order.
+ *
+ * A queue would do as much if the consumer always arrived last. A Channel is
+ * for when it does not: `receive()` on an empty one waits, and `send()` on a
+ * full one waits, so neither side has to know how fast the other is.
+ *
+ * `capacity` of zero means unbounded — `send` never waits, and the queue grows
+ * to whatever the producer puts in it. Any other capacity is back-pressure:
+ * the producer is made to wait, which is the point of having one.
+ */
+export class Channel {
+  #capacity: number;
+  #queue: any = [];
+  #receivers: any = [];
+  #senders: any = [];
+  #closed: boolean = false;
+
+  constructor(capacity: number = 0) {
+    if (capacity < 0) throw new Error("a Channel needs a capacity of zero or more");
+    this.#capacity = capacity;
+  }
+
+  get length(): number {
+    return this.#queue.length;
+  }
+
+  get isClosed(): boolean {
+    return this.#closed;
+  }
+
+  /* Resolves once the value has been taken or queued. Handed straight to a
+   * waiting receiver when there is one, which is what keeps a rendezvous from
+   * costing a trip through the queue. */
+  send(value: any): any {
+    if (this.#closed) throw new Error("send on a closed Channel");
+
+    if (this.#receivers.length > 0) {
+      const receiver = this.#receivers.shift();
+      receiver.resolve({ value: value, done: false });
+      return Promise.resolve(undefined);
+    }
+
+    if (this.#capacity === 0 || this.#queue.length < this.#capacity) {
+      this.#queue.push(value);
+      return Promise.resolve(undefined);
+    }
+
+    /* Full: wait for room, then put it in. */
+    const gate = deferred();
+    this.#senders.push({ value: value, gate: gate });
+    return gate.promise;
+  }
+
+  /* Resolves with `{ value, done }` — `done` once the channel is closed and
+   * drained, which is how a consumer knows to stop rather than waiting for
+   * ever. */
+  receive(): any {
+    if (this.#queue.length > 0) {
+      const value = this.#queue.shift();
+      /* A sender that was waiting for room can now be let in, and its value
+       * takes the place just freed. */
+      if (this.#senders.length > 0) {
+        const sender = this.#senders.shift();
+        this.#queue.push(sender.value);
+        sender.gate.resolve(undefined);
+      }
+      return Promise.resolve({ value: value, done: false });
+    }
+
+    if (this.#closed) return Promise.resolve({ value: undefined, done: true });
+
+    const gate = deferred();
+    this.#receivers.push(gate);
+    return gate.promise;
+  }
+
+  /* Nothing more will be sent. Anything already queued is still delivered;
+   * every waiting receiver is told it is finished. */
+  close(): any {
+    if (this.#closed) return this;
+    this.#closed = true;
+
+    const waiting = this.#receivers;
+    this.#receivers = [];
+    for (const gate of waiting) gate.resolve({ value: undefined, done: true });
+
+    /* A sender still holding a value will never be taken from, and is told so
+     * rather than left waiting on a promise nothing will settle. */
+    const senders = this.#senders;
+    this.#senders = [];
+    for (const sender of senders) {
+      sender.gate.reject(new Error("the Channel was closed before this send"));
+    }
+    return this;
+  }
+
+  /* Everything until the channel is closed and drained, as an array. For a
+   * consumer that wants the lot rather than one at a time. */
+  async drain(): any {
+    const out: any = [];
+    while (true) {
+      const next = await this.receive();
+      if (next.done) return out;
+      out.push(next.value);
+    }
+    return out;
+  }
+}

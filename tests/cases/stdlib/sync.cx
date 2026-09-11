@@ -1,0 +1,126 @@
+import { Mutex, Semaphore, WaitGroup, Channel } from "std:sync";
+import { sleep } from "std:async";
+import { equal, deepEqual, ok, notOk, messageOf, throws } from "std:assert";
+
+async function main() {
+  /* A Mutex makes a section run to completion before another enters it. The
+   * unguarded version of this loses updates: each reader sees the same value
+   * across its await and writes the same result back. */
+  let shared = 0;
+  async function unguarded() {
+    const seen = shared;
+    await sleep(1);
+    shared = seen + 1;
+  }
+  await Promise.all([unguarded(), unguarded(), unguarded()]);
+  equal(shared, 1, "three increments, one visible — the lost-update race");
+
+  const lock = new Mutex();
+  shared = 0;
+  async function guarded() {
+    await lock.withLock(async () => {
+      const seen = shared;
+      await sleep(1);
+      shared = seen + 1;
+    });
+  }
+  await Promise.all([guarded(), guarded(), guarded()]);
+  equal(shared, 3, "and the same three under a lock");
+
+  /* First in, first served. */
+  const order: any = [];
+  const queue = new Mutex();
+  const held = await queue.lock();
+  ok(queue.isHeld);
+  const first = queue.withLock(async () => { order.push("first"); });
+  const second = queue.withLock(async () => { order.push("second"); });
+  equal(queue.waiterCount, 2);
+  held();
+  await Promise.all([first, second]);
+  deepEqual(order, ["first", "second"]);
+
+  /* A throw inside withLock still releases. */
+  try {
+    await queue.withLock(async () => { throw new Error("inside"); });
+  } catch (e) { equal(messageOf(e), "inside"); }
+  notOk(queue.isHeld, "a throw does not leave the lock held");
+
+  /* A Semaphore bounds how many are in flight. */
+  const gate = new Semaphore(2);
+  let inFlight = 0;
+  let highWater = 0;
+  async function work() {
+    await gate.withPermit(async () => {
+      inFlight = inFlight + 1;
+      if (inFlight > highWater) highWater = inFlight;
+      await sleep(2);
+      inFlight = inFlight - 1;
+    });
+  }
+  await Promise.all([work(), work(), work(), work(), work()]);
+  equal(highWater, 2);
+  equal(gate.available, 2, "every permit comes back");
+
+  /* A WaitGroup counts rather than holding promises. */
+  const group = new WaitGroup();
+  const finished: any = [];
+  for (const name of ["a", "b", "c"]) {
+    group.add();
+    (async () => {
+      await sleep(1);
+      finished.push(name);
+      group.done();
+    })();
+  }
+  equal(group.pending, 3);
+  await group.wait();
+  equal(finished.length, 3);
+  await group.wait();
+  equal(group.pending, 0, "waiting on an idle group resolves at once");
+  equal(messageOf(throws(() => group.done())), "WaitGroup.done with nothing pending");
+
+  const counted = new WaitGroup();
+  equal(await counted.run(async () => 42), 42);
+  equal(counted.pending, 0);
+
+  /* A Channel hands values across, in order, with the consumer arriving late
+   * or early. */
+  const unbounded = new Channel();
+  await unbounded.send(1);
+  await unbounded.send(2);
+  equal(unbounded.length, 2);
+  equal((await unbounded.receive()).value, 1);
+  equal((await unbounded.receive()).value, 2);
+
+  /* Receiving first: the value is handed straight over. */
+  const pending = unbounded.receive();
+  await unbounded.send("late");
+  equal((await pending).value, "late");
+
+  unbounded.close();
+  ok(unbounded.isClosed);
+  ok((await unbounded.receive()).done, "a closed and drained channel is done");
+  equal(messageOf(throws(() => unbounded.send("after"))), "send on a closed Channel");
+
+  /* A bounded channel makes the producer wait, which is the point of one. */
+  const bounded = new Channel(1);
+  await bounded.send("one");
+  let sentSecond = false;
+  const blocked = bounded.send("two").then(() => { sentSecond = true; });
+  await sleep(2);
+  notOk(sentSecond, "the second send waits for room");
+  equal((await bounded.receive()).value, "one");
+  await blocked;
+  ok(sentSecond);
+  equal((await bounded.receive()).value, "two");
+
+  /* Queued values survive a close; drain collects the lot. */
+  const closing = new Channel();
+  await closing.send("a");
+  await closing.send("b");
+  closing.close();
+  deepEqual(await closing.drain(), ["a", "b"]);
+
+  console.log("sync ok");
+}
+main();

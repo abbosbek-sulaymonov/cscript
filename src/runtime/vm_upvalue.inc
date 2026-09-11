@@ -29,6 +29,10 @@ static ObjUpvalue *captureUpvalue(Value *local) {
   if (upvalue != NULL && upvalue->location == local) return upvalue;
 
   ObjUpvalue *created = csUpvalueNew(local);
+  /* Whose stack this points into. The running fiber's, or the main one's when
+   * no fiber is running — and the main stack is a root in its own right, so
+   * NULL needs no link. */
+  created->home = vm.currentFiber;
   created->next = upvalue;
   if (previous == NULL) {
     vm.openUpvalues = created;
@@ -45,6 +49,10 @@ static void closeUpvalues(Value *last) {
     ObjUpvalue *upvalue = vm.openUpvalues;
     upvalue->closed = *upvalue->location;
     upvalue->location = &upvalue->closed;
+    /* The value no longer lives on anyone's stack, so the link to the fiber
+     * that owned it is dropped — keeping it would retain a whole stack for a
+     * variable that has already been copied off it. */
+    upvalue->home = NULL;
     vm.openUpvalues = upvalue->next;
   }
 }

@@ -51,6 +51,9 @@ ObjUpvalue *csUpvalueNew(Value *slot) {
   upvalue->location = slot;
   upvalue->closed = NULL_VAL;
   upvalue->next = NULL;
+  /* Filled in by whoever captured it, which is the only place that knows whose
+   * stack the slot belongs to. */
+  upvalue->home = NULL;
   return upvalue;
 }
 

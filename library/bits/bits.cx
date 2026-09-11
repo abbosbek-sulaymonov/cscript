@@ -1,0 +1,310 @@
+/* bits.cx — the bitwise operations the language does not have.
+ *
+ * CScript has no `&`, `|`, `^`, `~`, `<<` or `>>`: writing one is a syntax
+ * error that suggests `&&`. So this is not a convenience layer over operators
+ * — it *is* the bitwise arithmetic, done on doubles.
+ *
+ * That works because every value here is an unsigned 32-bit integer, and a
+ * double holds every integer up to 2^53 exactly. A 32-bit result therefore
+ * never loses a bit, and the shifts are multiplication and division by powers
+ * of two with a modulo to keep the width.
+ *
+ * Anything outside 0…2^32-1 is brought into range first, the way a hardware
+ * register would: `wrap` is what every function here starts with. A signed
+ * view is available through `toSigned` and `fromSigned`, because two's
+ * complement is a way of reading the same 32 bits rather than a different
+ * number.
+ */
+
+const WIDTH = 32;
+const SPAN = 4294967296; /* 2^32 */
+const HALF = 2147483648; /* 2^31, the sign bit */
+
+/* --- keeping to 32 bits --------------------------------------------------- */
+
+/* Any number as the 32 bits a register would hold: truncated towards zero,
+ * then wrapped. Negative values wrap to their two's complement, which is what
+ * makes `not(0)` and `fromSigned(-1)` the same value. */
+export function wrap(value: number): number {
+  const whole = Math.trunc(value);
+  const inside = whole % SPAN;
+  return inside < 0 ? inside + SPAN : inside;
+}
+
+/* The same 32 bits read as a signed number: 4294967295 is -1. */
+export function toSigned(value: number): number {
+  const bits = wrap(value);
+  return bits >= HALF ? bits - SPAN : bits;
+}
+
+export function fromSigned(value: number): number {
+  return wrap(value);
+}
+
+/* --- the operators -------------------------------------------------------- */
+
+/* Bit by bit, low to high. Thirty-two iterations of three operations, which is
+ * slower than an instruction and is the price of the operators not existing.
+ * `combine` decides which operation it is, so `and`, `or` and `xor` differ by
+ * one line rather than by three copies of the loop. */
+function pairwise(a: number, b: number, combine: any): number {
+  let left = wrap(a);
+  let right = wrap(b);
+  let result = 0;
+  let place = 1;
+  for (let i = 0; i < WIDTH; i++) {
+    const lowLeft = left % 2;
+    const lowRight = right % 2;
+    if (combine(lowLeft === 1, lowRight === 1)) result = result + place;
+    left = Math.floor(left / 2);
+    right = Math.floor(right / 2);
+    place = place * 2;
+  }
+  return result;
+}
+
+export function and(a: number, b: number): number {
+  return pairwise(a, b, (left: boolean, right: boolean) => left && right);
+}
+
+export function or(a: number, b: number): number {
+  return pairwise(a, b, (left: boolean, right: boolean) => left || right);
+}
+
+export function xor(a: number, b: number): number {
+  return pairwise(a, b, (left: boolean, right: boolean) => left !== right);
+}
+
+/* Every bit flipped, which for 32 bits is the distance from all-ones. */
+export function not(value: number): number {
+  return SPAN - 1 - wrap(value);
+}
+
+/* Left shift: multiply, then keep 32 bits. Bits shifted off the top are gone,
+ * as they are in hardware. */
+export function shiftLeft(value: number, by: number): number {
+  if (by < 0) return shiftRight(value, -by);
+  if (by >= WIDTH) return 0;
+  return wrap(wrap(value) * Math.pow(2, by));
+}
+
+/* Logical right shift — zeros come in at the top, which is JavaScript's `>>>`.
+ * The arithmetic one, which copies the sign bit, is `shiftRightSigned`. */
+export function shiftRight(value: number, by: number): number {
+  if (by < 0) return shiftLeft(value, -by);
+  if (by >= WIDTH) return 0;
+  return Math.floor(wrap(value) / Math.pow(2, by));
+}
+
+export function shiftRightSigned(value: number, by: number): number {
+  if (by <= 0) return shiftLeft(value, -by);
+  if (by >= WIDTH) return toSigned(value) < 0 ? SPAN - 1 : 0;
+  const signed = toSigned(value);
+  return wrap(Math.floor(signed / Math.pow(2, by)));
+}
+
+/* Rotation, which a shift cannot express: the bits that leave one end arrive
+ * at the other. */
+export function rotateLeft(value: number, by: number): number {
+  const places = ((by % WIDTH) + WIDTH) % WIDTH;
+  if (places === 0) return wrap(value);
+  return or(shiftLeft(value, places), shiftRight(value, WIDTH - places));
+}
+
+export function rotateRight(value: number, by: number): number {
+  return rotateLeft(value, WIDTH - (((by % WIDTH) + WIDTH) % WIDTH));
+}
+
+/* --- one bit at a time ---------------------------------------------------- */
+
+export function testBit(value: number, index: number): boolean {
+  if (index < 0 || index >= WIDTH) return false;
+  return shiftRight(value, index) % 2 === 1;
+}
+
+export function setBit(value: number, index: number): number {
+  if (index < 0 || index >= WIDTH) return wrap(value);
+  return or(value, shiftLeft(1, index));
+}
+
+export function clearBit(value: number, index: number): number {
+  if (index < 0 || index >= WIDTH) return wrap(value);
+  return and(value, not(shiftLeft(1, index)));
+}
+
+export function toggleBit(value: number, index: number): number {
+  if (index < 0 || index >= WIDTH) return wrap(value);
+  return xor(value, shiftLeft(1, index));
+}
+
+/* --- counting ------------------------------------------------------------- */
+
+/* How many bits are set. Named for the instruction that does it in one cycle
+ * on the hardware this cannot reach. */
+export function popcount(value: number): number {
+  let bits = wrap(value);
+  let total = 0;
+  while (bits > 0) {
+    total = total + (bits % 2);
+    bits = Math.floor(bits / 2);
+  }
+  return total;
+}
+
+export function leadingZeros(value: number): number {
+  const bits = wrap(value);
+  if (bits === 0) return WIDTH;
+  let count = 0;
+  for (let i = WIDTH - 1; i >= 0; i--) {
+    if (testBit(bits, i)) return count;
+    count = count + 1;
+  }
+  return WIDTH;
+}
+
+export function trailingZeros(value: number): number {
+  const bits = wrap(value);
+  if (bits === 0) return WIDTH;
+  let count = 0;
+  while (!testBit(bits, count)) count = count + 1;
+  return count;
+}
+
+/* The position of the highest set bit, or -1 for zero — which is
+ * `floor(log2(n))` without the floating-point error that makes
+ * `Math.log2(8)` a hair under 3 on some machines. */
+export function highestBit(value: number): number {
+  const bits = wrap(value);
+  return bits === 0 ? -1 : WIDTH - 1 - leadingZeros(bits);
+}
+
+/* --- powers of two -------------------------------------------------------- */
+
+export function isPowerOfTwo(value: number): boolean {
+  const bits = wrap(value);
+  return bits !== 0 && popcount(bits) === 1;
+}
+
+/* The smallest power of two that is at least `value`. Zero and one both answer
+ * one, and anything that would pass 2^31 answers 2^31 rather than wrapping to
+ * zero — a size that silently became nothing is the worst answer available. */
+export function nextPowerOfTwo(value: number): number {
+  const bits = wrap(value);
+  if (bits <= 1) return 1;
+  if (bits > HALF) return HALF;
+  let power = 1;
+  while (power < bits) power = power * 2;
+  return power;
+}
+
+/* --- reading and writing -------------------------------------------------- */
+
+/* Binary text, padded to `width` so that a column of them lines up. */
+export function toBinary(value: number, width: number = 0): string {
+  let bits = wrap(value);
+  let out = "";
+  while (bits > 0) {
+    out = String(bits % 2) + out;
+    bits = Math.floor(bits / 2);
+  }
+  if (out === "") out = "0";
+  return width > out.length ? out.padStart(width, "0") : out;
+}
+
+export function fromBinary(text: string): number {
+  let out = 0;
+  for (let i = 0; i < text.length; i++) {
+    const digit = text[i];
+    if (digit !== "0" && digit !== "1") {
+      throw new Error("bits.fromBinary needs a binary string, got " + text);
+    }
+    out = out * 2 + (digit === "1" ? 1 : 0);
+  }
+  return wrap(out);
+}
+
+export function toHex(value: number, width: number = 0): string {
+  const digits = "0123456789abcdef";
+  let bits = wrap(value);
+  let out = "";
+  while (bits > 0) {
+    out = digits[bits % 16] + out;
+    bits = Math.floor(bits / 16);
+  }
+  if (out === "") out = "0";
+  return width > out.length ? out.padStart(width, "0") : out;
+}
+
+/* --- a set of bits wider than 32 ----------------------------------------- */
+
+/* A bit per index, over as many 32-bit words as needed.
+ *
+ * A Set of numbers would do the same job with far more memory per element —
+ * this is one bit each, which is what makes a sieve or a visited-set over a
+ * million indices reasonable. */
+export class Bitset {
+  #words: any = [];
+  #size: number = 0;
+
+  constructor(size: number = 0) {
+    this.#size = size;
+    const words = Math.ceil(size / WIDTH);
+    for (let i = 0; i < words; i++) this.#words.push(0);
+  }
+
+  get size(): number {
+    return this.#size;
+  }
+
+  #grow(index: number) {
+    if (index < this.#size) return;
+    this.#size = index + 1;
+    const needed = Math.ceil(this.#size / WIDTH);
+    while (this.#words.length < needed) this.#words.push(0);
+  }
+
+  set(index: number): any {
+    this.#grow(index);
+    const word = Math.floor(index / WIDTH);
+    this.#words[word] = setBit(this.#words[word], index % WIDTH);
+    return this;
+  }
+
+  clear(index: number): any {
+    if (index >= this.#size) return this;
+    const word = Math.floor(index / WIDTH);
+    this.#words[word] = clearBit(this.#words[word], index % WIDTH);
+    return this;
+  }
+
+  test(index: number): boolean {
+    if (index < 0 || index >= this.#size) return false;
+    return testBit(this.#words[Math.floor(index / WIDTH)], index % WIDTH);
+  }
+
+  /* How many are set, by word rather than by index: thirty-two bits counted
+   * per iteration instead of one. */
+  get count(): number {
+    let total = 0;
+    for (const word of this.#words) total = total + popcount(word);
+    return total;
+  }
+
+  /* The indices that are set, in order, as a generator — a Bitset over a
+   * million indices should not have to build an array to be read. */
+  *[Symbol.iterator]() {
+    for (let i = 0; i < this.#size; i++) {
+      if (this.test(i)) yield i;
+    }
+  }
+
+  toArray(): any {
+    const out: any = [];
+    for (const index of this) out.push(index);
+    return out;
+  }
+
+  toString(): string {
+    return "Bitset(" + String(this.count) + "/" + String(this.#size) + ")";
+  }
+}

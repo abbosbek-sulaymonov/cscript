@@ -1,0 +1,121 @@
+/* cell.cx — a value in a box, and a value computed once.
+ *
+ * `const` prevents rebinding, not mutation, and `let` allows both — so there
+ * is no way in the language to say "this binding never changes, and what it
+ * holds does". A Cell is that: the binding is `const` and the contents are
+ * asked for and set through methods, which makes every change a call that can
+ * be found by searching.
+ *
+ * It is also the one way to share a mutable value across closures without
+ * relying on an enclosing `let`. Two functions that both hold the same Cell
+ * see each other's writes, and neither has to be defined inside the same
+ * scope.
+ *
+ * `Lazy` and `Once` are the same idea in time rather than in space: a value
+ * computed the first time it is asked for, and a body that runs at most once.
+ */
+
+export class Cell {
+  #value: any;
+
+  constructor(value: any = undefined) {
+    this.#value = value;
+  }
+
+  get(): any {
+    return this.#value;
+  }
+
+  set(value: any): any {
+    this.#value = value;
+    return this;
+  }
+
+  /* `cell.update(n => n + 1)` — a read and a write as one call, which is what
+   * stops the two drifting apart when the expression between them grows. */
+  update(transform: any): any {
+    this.#value = transform(this.#value);
+    return this.#value;
+  }
+
+  /* Answers the old value and leaves the new one, for a swap that has to keep
+   * what was there. */
+  replace(value: any): any {
+    const previous = this.#value;
+    this.#value = value;
+    return previous;
+  }
+
+  /* Answers what was there and leaves `undefined`. */
+  take(): any {
+    return this.replace(undefined);
+  }
+
+  get isEmpty(): boolean {
+    return this.#value === undefined;
+  }
+
+  toString(): string {
+    return "Cell(" + String(this.#value) + ")";
+  }
+}
+
+/* A value computed the first time it is asked for, and remembered.
+ *
+ * The difference from a plain `const` is *when*: an expensive value that is
+ * only needed on some paths costs nothing on the others. The difference from
+ * `memoize` is that there are no arguments — a Lazy holds one value, not a
+ * table of them. */
+export class Lazy {
+  #build: any;
+  #value: any = undefined;
+  #built: boolean = false;
+
+  constructor(build: any) {
+    this.#build = build;
+  }
+
+  /* A flag rather than testing the value, so a builder that answered
+   * `undefined` is not run again every time. */
+  get(): any {
+    if (!this.#built) {
+      this.#value = this.#build();
+      this.#built = true;
+    }
+    return this.#value;
+  }
+
+  get isBuilt(): boolean {
+    return this.#built;
+  }
+
+  /* Forgets the value so the next `get` builds again — for the cases where
+   * what it was built from has changed. */
+  reset(): any {
+    this.#value = undefined;
+    this.#built = false;
+    return this;
+  }
+}
+
+/* A body that runs at most once, however many times it is called.
+ *
+ * `func.once` wraps a function and answers a function; this is the same rule
+ * as an object, for when the guard has to be handed around or asked whether it
+ * has fired. */
+export class Once {
+  #done: boolean = false;
+  #result: any = undefined;
+
+  /* Answers what the body answered — the first time, and every time after. */
+  run(body: any): any {
+    if (this.#done) return this.#result;
+    this.#done = true;
+    this.#result = body();
+    return this.#result;
+  }
+
+  get hasRun(): boolean {
+    return this.#done;
+  }
+}

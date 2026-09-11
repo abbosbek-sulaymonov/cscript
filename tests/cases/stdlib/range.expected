@@ -1,0 +1,4 @@
+Range(1, 5) [ 1, 2, 3, 4 ] 4
+Range(3, 5) Range(1, 10)
+Range(0, 3) Range(2, 10)
+range ok

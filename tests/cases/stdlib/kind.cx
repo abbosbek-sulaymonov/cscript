@@ -1,0 +1,55 @@
+import { kindOf, isPlainObject, isArray, isMap, isSet, isWeak, isDate, isRegex,
+         isPromise, isGenerator, isInstance, isFunction, isPrimitive, isWalkable,
+         isCollection } from "std:kind";
+import { equal, ok, notOk, deepEqual } from "std:assert";
+
+class Point { x: number = 1; }
+function* counter(): any { yield 1; }
+
+equal(kindOf(null), "null");
+equal(kindOf(undefined), "undefined");
+equal(kindOf(1), "number");
+equal(kindOf("s"), "string");
+equal(kindOf(true), "boolean");
+equal(kindOf(1n), "bigint");
+equal(kindOf(Symbol("s")), "symbol");
+equal(kindOf([]), "array");
+equal(kindOf({}), "object");
+equal(kindOf(new Map()), "map");
+equal(kindOf(new Set()), "set");
+equal(kindOf(new WeakMap()), "weakmap");
+equal(kindOf(new WeakSet()), "weakset");
+equal(kindOf(new Date(0)), "date");
+equal(kindOf(/re/), "regex");
+equal(kindOf(Promise.resolve(1)), "promise");
+equal(kindOf(counter()), "generator");
+equal(kindOf(Point), "class");
+equal(kindOf(new Point()), "instance");
+equal(kindOf((x: number) => x), "function");
+
+/* The distinction the whole module exists for: a Map is not a plain object,
+ * and asking `Object.keys` about one is a runtime error rather than an empty
+ * answer. */
+ok(isPlainObject({}));
+notOk(isPlainObject(new Map()));
+notOk(isPlainObject([]));
+notOk(isPlainObject(new Point()));
+
+ok(isArray([])); ok(isMap(new Map())); ok(isSet(new Set()));
+ok(isWeak(new WeakMap())); ok(isWeak(new WeakSet())); notOk(isWeak(new Map()));
+ok(isDate(new Date(0))); ok(isRegex(/x/)); ok(isPromise(Promise.resolve(1)));
+ok(isGenerator(counter())); ok(isInstance(new Point()));
+ok(isFunction((x: number) => x)); ok(isFunction(Point), "a class is callable");
+
+ok(isPrimitive(1)); ok(isPrimitive(null)); ok(isPrimitive(undefined));
+notOk(isPrimitive({})); notOk(isPrimitive([]));
+
+ok(isWalkable({})); ok(isWalkable([]));
+notOk(isWalkable(new Map()), "a Map has no own keys to walk");
+
+ok(isCollection(new Map())); ok(isCollection(new Set()));
+notOk(isCollection(new WeakMap()), "a weak one cannot be iterated at all");
+
+const shapes: any = [{}, [], new Map(), new Set(), new Date(0), new Point()];
+console.log(shapes.map((v: any) => kindOf(v)));
+console.log("kind ok");

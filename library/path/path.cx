@@ -1,0 +1,205 @@
+/* path.cx — file paths as strings, with no filesystem involved.
+ *
+ * Every function here is pure text. Nothing touches the disk, nothing asks
+ * where the program is running, and `resolve` takes the base it should resolve
+ * against rather than reaching for the working directory — which is what makes
+ * the whole module testable and what keeps it independent of
+ * [`std:os`](../os) and [`std:io`](../io).
+ *
+ * POSIX separators. A Windows path can be brought in with `fromWindows` and
+ * written back out with `toWindows`, so the middle of a program only ever
+ * deals with one shape.
+ */
+
+const SEPARATOR = "/";
+
+/* --- taking a path apart -------------------------------------------------- */
+
+/* The parts, with the empty ones dropped: "a//b/" gives ["a", "b"]. A leading
+ * separator is not a part — `isAbsolute` is how that is asked about. */
+export function split(path: string): any {
+  const out: any = [];
+  for (const part of path.split(SEPARATOR)) {
+    if (part !== "") out.push(part);
+  }
+  return out;
+}
+
+export function isAbsolute(path: string): boolean {
+  return path.startsWith(SEPARATOR);
+}
+
+/* Everything before the last separator, or "." when there is none — which is
+ * what `dirname` answers everywhere else, and means "the directory I am in". */
+export function dirname(path: string): string {
+  const trimmed = stripTrailing(path);
+  const at = trimmed.lastIndexOf(SEPARATOR);
+  if (at < 0) return ".";
+  if (at === 0) return SEPARATOR;
+  return trimmed.slice(0, at);
+}
+
+/* The last part. With `suffix`, that suffix is removed if it is there — which
+ * is the shell's `basename file.cx .cx`. */
+export function basename(path: string, suffix: string = ""): string {
+  const trimmed = stripTrailing(path);
+  const at = trimmed.lastIndexOf(SEPARATOR);
+  const name = at < 0 ? trimmed : trimmed.slice(at + 1);
+  if (suffix !== "" && name.endsWith(suffix) && name !== suffix) {
+    return name.slice(0, name.length - suffix.length);
+  }
+  return name;
+}
+
+/* The extension, including the dot, or "". A leading dot is not an extension:
+ * ".bashrc" is a name, not a file with a "bashrc" extension, which is the rule
+ * every other implementation follows. */
+export function extname(path: string): string {
+  const name = basename(path);
+  const at = name.lastIndexOf(".");
+  if (at <= 0) return "";
+  return name.slice(at);
+}
+
+/* The name without its extension. */
+export function stem(path: string): string {
+  const name = basename(path);
+  const extension = extname(path);
+  return extension === "" ? name : name.slice(0, name.length - extension.length);
+}
+
+/* --- putting one together ------------------------------------------------- */
+
+/* Joins with one separator between parts, whatever the parts end or begin
+ * with, and normalises the result. An empty part is skipped rather than
+ * producing a doubled separator. */
+export function join(...parts: any): string {
+  let out = "";
+  for (const part of parts) {
+    const text = String(part);
+    if (text === "") continue;
+    if (out === "") {
+      out = text;
+      continue;
+    }
+    out = stripTrailing(out) + SEPARATOR + stripLeading(text);
+  }
+  return out === "" ? "." : normalize(out);
+}
+
+/* Removes "." and resolves "..", without asking the filesystem anything — so
+ * a symbolic link is followed differently here than by the kernel, which is
+ * the one thing to know about any purely textual normalisation.
+ *
+ * A ".." that would climb past the root of an absolute path is dropped: there
+ * is nothing above "/". On a relative path it is kept, because "../x" means
+ * something the text cannot resolve on its own. */
+export function normalize(path: string): string {
+  const absolute = isAbsolute(path);
+  const out: any = [];
+  for (const part of split(path)) {
+    if (part === ".") continue;
+    if (part !== "..") {
+      out.push(part);
+      continue;
+    }
+    const last = out.length > 0 ? out[out.length - 1] : undefined;
+    if (last !== undefined && last !== "..") {
+      out.pop();
+    } else if (!absolute) {
+      out.push("..");
+    }
+  }
+
+  const joined = out.join(SEPARATOR);
+  if (absolute) return SEPARATOR + joined;
+  return joined === "" ? "." : joined;
+}
+
+/* `path` if it is absolute, otherwise `base` and `path` joined. The base is a
+ * parameter rather than the working directory, which is what keeps this pure
+ * — a caller who wants the working directory passes `os.cwd()`. */
+export function resolve(base: string, path: string): string {
+  return isAbsolute(path) ? normalize(path) : join(base, path);
+}
+
+/* How to get from `from` to `to`, using ".." as needed. Both are normalised
+ * first, and both must be the same kind: a relative path from an absolute one
+ * to a relative one has no meaning without knowing where the relative one
+ * starts. */
+export function relative(from: string, to: string): string {
+  if (isAbsolute(from) !== isAbsolute(to)) {
+    throw new Error("path.relative needs two paths of the same kind, got '" +
+                    from + "' and '" + to + "'");
+  }
+
+  const fromParts = split(normalize(from));
+  const toParts = split(normalize(to));
+
+  let shared = 0;
+  while (shared < fromParts.length && shared < toParts.length &&
+         fromParts[shared] === toParts[shared]) {
+    shared = shared + 1;
+  }
+
+  const out: any = [];
+  for (let i = shared; i < fromParts.length; i++) out.push("..");
+  for (let i = shared; i < toParts.length; i++) out.push(toParts[i]);
+  return out.length === 0 ? "." : out.join(SEPARATOR);
+}
+
+/* --- changing one --------------------------------------------------------- */
+
+/* Replaces the extension, adding one when there was none. The dot is optional
+ * in `extension`, because forgetting it is the obvious mistake and both
+ * spellings mean the same thing. */
+export function withExtension(path: string, extension: string): string {
+  const dotted = extension === "" || extension.startsWith(".") ? extension
+                                                               : "." + extension;
+  const directory = dirname(path);
+  const name = stem(path) + dotted;
+  return directory === "." && !path.startsWith("./") ? name : join(directory, name);
+}
+
+export function withName(path: string, name: string): string {
+  const directory = dirname(path);
+  return directory === "." && !path.startsWith("./") ? name : join(directory, name);
+}
+
+/* Whether `child` is inside `parent`. Textual, so it answers about the names
+ * rather than about the filesystem — a symbolic link out of a directory is
+ * still inside it by this test. */
+export function isInside(parent: string, child: string): boolean {
+  const parentParts = split(normalize(parent));
+  const childParts = split(normalize(child));
+  if (isAbsolute(parent) !== isAbsolute(child)) return false;
+  if (childParts.length <= parentParts.length) return false;
+  for (let i = 0; i < parentParts.length; i++) {
+    if (parentParts[i] !== childParts[i]) return false;
+  }
+  return true;
+}
+
+/* --- Windows ------------------------------------------------------------- */
+
+export function fromWindows(path: string): string {
+  return path.replaceAll("\\", SEPARATOR);
+}
+
+export function toWindows(path: string): string {
+  return path.replaceAll(SEPARATOR, "\\");
+}
+
+/* --- the two trims everything above uses --------------------------------- */
+
+function stripTrailing(path: string): string {
+  let out = path;
+  while (out.length > 1 && out.endsWith(SEPARATOR)) out = out.slice(0, out.length - 1);
+  return out;
+}
+
+function stripLeading(path: string): string {
+  let out = path;
+  while (out.startsWith(SEPARATOR)) out = out.slice(1);
+  return out;
+}

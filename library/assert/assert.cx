@@ -7,12 +7,12 @@
  * else. That is the same line the language draws everywhere — a decision the
  * program took, against a mistake it made.
  *
- * `deepEqual` compares primitives, arrays and plain objects. It cannot compare
- * a Map or a Set structurally, because CScript has no way to tell one from a
- * plain object at runtime: reading `.size` off something that is not a Map is
- * a runtime error rather than `undefined`, so there is no safe test to make.
- * Compare `[...map]` instead, which is an array of pairs and works.
+ * `deepEqual` compares primitives, arrays, plain objects, Maps, Sets and
+ * Dates. What it cannot compare is an instance of a class — private fields are
+ * invisible to any walk, so two instances are equal here only if they are the
+ * same object.
  */
+import { kindOf } from "std:kind";
 
 /* Throwing rather than returning false: an assertion that is ignored is worse
  * than no assertion, because it reads like a check that passed. */
@@ -33,7 +33,19 @@ export function describe(value: any): string {
     for (const element of value) parts.push(describe(element));
     return "[" + parts.join(", ") + "]";
   }
-  if (typeof value === "object") {
+  const kind = kindOf(value);
+  if (kind === "map" || kind === "set") {
+    const parts: any = [];
+    if (kind === "map") {
+      for (const [key, held] of value) parts.push(describe(key) + " => " + describe(held));
+    } else {
+      for (const element of value) parts.push(describe(element));
+    }
+    const name = kind === "map" ? "Map" : "Set";
+    return name + "(" + String(value.size) + ")" +
+           (parts.length === 0 ? " {}" : " { " + parts.join(", ") + " }");
+  }
+  if (kind === "object") {
     const keys = Object.keys(value);
     if (keys.length === 0) return "{}";
     const parts: any = [];
@@ -55,7 +67,13 @@ function same(a: any, b: any): boolean {
 export function isDeepEqual(a: any, b: any): boolean {
   if (same(a, b)) return true;
 
-  if (Array.isArray(a) && Array.isArray(b)) {
+  /* Two different kinds are never equal, and asking the kind first is what
+   * makes the rest of this safe: walking a Map with Object.keys is a runtime
+   * error rather than an empty answer. */
+  const kind = kindOf(a);
+  if (kind !== kindOf(b)) return false;
+
+  if (kind === "array") {
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
       if (!isDeepEqual(a[i], b[i])) return false;
@@ -63,9 +81,28 @@ export function isDeepEqual(a: any, b: any): boolean {
     return true;
   }
 
-  if (Array.isArray(a) || Array.isArray(b)) return false;
-  if (typeof a !== "object" || typeof b !== "object") return false;
-  if (a === null || b === null) return false;
+  if (kind === "map") {
+    if (a.size !== b.size) return false;
+    for (const [key, value] of a) {
+      if (!b.has(key)) return false;
+      if (!isDeepEqual(value, b.get(key))) return false;
+    }
+    return true;
+  }
+
+  if (kind === "set") {
+    if (a.size !== b.size) return false;
+    for (const element of a) {
+      if (!b.has(element)) return false;
+    }
+    return true;
+  }
+
+  /* The same instant is the same date. A Date has no own keys, so the walk
+   * below would call every pair of them equal. */
+  if (kind === "date") return a.getTime() === b.getTime();
+
+  if (kind !== "object") return false;
 
   const keys = Object.keys(a);
   const otherKeys = Object.keys(b);

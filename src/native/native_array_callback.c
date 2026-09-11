@@ -251,7 +251,29 @@ static bool arraySort(Value receiver, int argCount, Value *args, Value *result) 
   ObjArray *array = ARRAY_OF(receiver);
   bool hasComparator = argCount >= 1 && !IS_UNDEFINED(args[0]);
 
-  for (int i = 1; i < array->elements.count; i++) {
+  /* Every `undefined` goes to the end first, and the comparator never sees
+   * one. That is what the specification says, and what Node does, so a
+   * comparator written against one engine behaves the same on the other —
+   * `[3, undefined, 1].sort(cmp)` is `[1, 3, undefined]` either way. A
+   * comparator asked about undefined would otherwise have to answer for a
+   * value that is not really in the ordering at all. Stable, because the
+   * defined values keep their relative order as they are moved down. */
+  int defined = 0;
+  for (int i = 0; i < array->elements.count; i++) {
+    if (IS_UNDEFINED(array->elements.values[i])) continue;
+    array->elements.values[defined++] = array->elements.values[i];
+  }
+  int holes = array->elements.count - defined;
+  for (int i = defined; i < array->elements.count; i++) {
+    array->elements.values[i] = UNDEFINED_VAL;
+  }
+
+  /* Only the defined part is sorted; the tail of undefined is already where
+   * it belongs. */
+  int sortable = defined;
+  (void)holes;
+
+  for (int i = 1; i < sortable; i++) {
     Value key = array->elements.values[i];
     int j = i - 1;
 

@@ -1,0 +1,172 @@
+/* range.cx — an interval as a value.
+ *
+ * Not to be confused with [`iter.range`](../iter), which *produces* numbers.
+ * This *describes* an interval: it can be asked whether it contains something,
+ * clamped against, intersected with another, and compared — and it can also be
+ * iterated, which is where the two meet.
+ *
+ * The distinction matters because the questions are different. A loop wants
+ * numbers one at a time; a validator wants to hold "1 to 10" as one thing and
+ * ask about it repeatedly. Passing `iter.range(1, 10)` around cannot do the
+ * second: a generator is used up once it has been read.
+ *
+ * The end is **exclusive** by default, matching every slice, every substring
+ * and `iter.range` itself. `Range.inclusive(1, 10)` is there because "1 to 10"
+ * in prose usually means both ends, and the mismatch between the two readings
+ * is a reliable source of off-by-one.
+ */
+
+export class Range {
+  #start: number;
+  #end: number;
+
+  /* Held as a half-open pair whatever it was built from, so every operation
+   * below has one case rather than two. */
+  constructor(start: number, end: number) {
+    if (typeof start !== "number" || typeof end !== "number") {
+      throw new Error("a Range needs two numbers");
+    }
+    this.#start = start;
+    this.#end = end;
+  }
+
+  /* `Range.inclusive(1, 3)` holds 1, 2 and 3. */
+  static inclusive(start: number, last: number): any {
+    return new Range(start, last + 1);
+  }
+
+  static ofLength(start: number, length: number): any {
+    return new Range(start, start + length);
+  }
+
+  /* The smallest range holding everything given, which is the shape a
+   * measurement takes: the extent of what was seen. */
+  static covering(values: any): any {
+    let low: any = undefined;
+    let high: any = undefined;
+    for (const value of values) {
+      if (low === undefined || value < low) low = value;
+      if (high === undefined || value > high) high = value;
+    }
+    if (low === undefined) throw new Error("Range.covering of nothing");
+    return Range.inclusive(low, high);
+  }
+
+  get start(): number {
+    return this.#start;
+  }
+
+  /* Exclusive: the first value *not* in the range. */
+  get end(): number {
+    return this.#end;
+  }
+
+  /* The last value in it, which is what a reader usually means by "end". */
+  get last(): number {
+    return this.#end - 1;
+  }
+
+  get length(): number {
+    const span = this.#end - this.#start;
+    return span > 0 ? span : 0;
+  }
+
+  get isEmpty(): boolean {
+    return this.#end <= this.#start;
+  }
+
+  /* --- asking --------------------------------------------------------- */
+
+  contains(value: number): boolean {
+    return value >= this.#start && value < this.#end;
+  }
+
+  /* Every value of `other` is in this one. An empty range is inside anything,
+   * which is the convention that makes `intersect` compose. */
+  containsRange(other: any): boolean {
+    if (other.isEmpty) return true;
+    return other.start >= this.#start && other.end <= this.#end;
+  }
+
+  overlaps(other: any): boolean {
+    if (this.isEmpty || other.isEmpty) return false;
+    return this.#start < other.end && other.start < this.#end;
+  }
+
+  /* Held inside the range: below the start becomes the start, at or above the
+   * end becomes the last value in it. An empty range has nothing to clamp to
+   * and says so rather than answering a number that is not in it. */
+  clamp(value: number): number {
+    if (this.isEmpty) throw new Error("cannot clamp against an empty range");
+    if (value < this.#start) return this.#start;
+    if (value > this.last) return this.last;
+    return value;
+  }
+
+  /* --- combining ------------------------------------------------------ */
+
+  /* The overlap, which is empty when there is none. */
+  intersect(other: any): any {
+    const start = this.#start > other.start ? this.#start : other.start;
+    const end = this.#end < other.end ? this.#end : other.end;
+    return new Range(start, end < start ? start : end);
+  }
+
+  /* The smallest range holding both — which also holds whatever sits between
+   * them when they do not touch. `overlaps` is how to find out whether that
+   * happened. */
+  union(other: any): any {
+    if (this.isEmpty) return other;
+    if (other.isEmpty) return this;
+    const start = this.#start < other.start ? this.#start : other.start;
+    const end = this.#end > other.end ? this.#end : other.end;
+    return new Range(start, end);
+  }
+
+  /* Moved by `by`, keeping its length. */
+  shifted(by: number): any {
+    return new Range(this.#start + by, this.#end + by);
+  }
+
+  /* Wider at both ends by `by`, which is what a margin around a measurement
+   * is. A negative `by` narrows it, and cannot take it past empty. */
+  grown(by: number): any {
+    const start = this.#start - by;
+    const end = this.#end + by;
+    return new Range(start, end < start ? start : end);
+  }
+
+  /* --- reading -------------------------------------------------------- */
+
+  /* Whole numbers from the start, which is why this is iterable at all: a
+   * range of reals has no next value. A fractional start walks in ones from
+   * there, because that is the only stride the range itself implies. */
+  *[Symbol.iterator]() {
+    for (let at = this.#start; at < this.#end; at = at + 1) yield at;
+  }
+
+  toArray(): any {
+    const out: any = [];
+    for (const value of this) out.push(value);
+    return out;
+  }
+
+  equals(other: any): boolean {
+    if (this.isEmpty && other.isEmpty) return true;
+    return this.#start === other.start && this.#end === other.end;
+  }
+
+  toString(): string {
+    return "Range(" + String(this.#start) + ", " + String(this.#end) + ")";
+  }
+}
+
+/* `range(1, 4)` reads better than `new Range(1, 4)` at a call site, and is the
+ * spelling the rest of the library uses. */
+export function range(start: number, end: number): any {
+  return new Range(start, end);
+}
+
+export function inclusive(start: number, last: number): any {
+  return Range.inclusive(start, last);
+}
