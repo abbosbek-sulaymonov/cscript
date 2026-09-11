@@ -44,7 +44,7 @@ trap 'rm -rf "$tmp"' EXIT
 # `std:name` becomes `./std_name.ts`, and each library module is copied under
 # that name. Flat, because a library module may import another one and the two
 # then have to agree about where they are.
-for module in "$ROOT"/library/*.cx; do
+for module in "$ROOT"/library/*/*.cx; do
   [[ -e "$module" ]] || continue
   name="$(basename "$module" .cx)"
   sed -E 's|"std:([a-zA-Z0-9_]+)"|"./std_\1.ts"|g' "$module" > "$tmp/std_$name.ts"

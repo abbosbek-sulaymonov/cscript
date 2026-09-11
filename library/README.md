@@ -14,23 +14,29 @@ with the language, so a script anywhere on disk means the same file by it —
 everything else must be a relative path, so that reading an import tells you
 which file it means.
 
+**A module is a directory.** `library/iter/iter.cx` is the source and
+`library/iter/README.md` is its specification — what every export takes and
+answers, and the reasoning behind how it is written. The file repeats the
+directory's name rather than being called `index` or `mod`, so a stack frame or
+a grep names the module instead of the twentieth file to share a name.
+
 This is deliberately *not* the C built-ins. `Math`, `JSON`, `Map`, `Promise`,
 `Date` and the string and array methods are in
 [`../src/native/`](../src/native/README.md) and need no import. What is here is
 the layer above: the things you would otherwise write again in every program.
 
-| Module | Holds |
-| --- | --- |
-| [`std:assert`](assert.cx) | `ok`, `equal`, `deepEqual`, `closeTo`, `throws` — checking what a program believes |
-| [`std:iter`](iter.cx) | `range`, `zip`, `chunk`, `groupBy`, `unique` — sequences, lazily, one element at a time |
-| [`std:func`](func.cx) | `pipe`, `compose`, `memoize`, `once`, `partial` — building a function out of others |
-| [`std:collections`](collections.cx) | `Deque`, `PriorityQueue`, `Counter`, `DefaultMap` — the four structures a Map and an array do not cover |
-| [`std:result`](result.cx) | `Result`, `Option` — a failure or an absence as a value rather than a throw |
-| [`std:strings`](strings.cx) | `camelCase`, `wrap`, `dedent`, `truncate`, `format` — the string work that is not one method call |
-| [`std:stats`](stats.cx) | `mean`, `median`, `stdev`, `quantile`, `describe` — summarising numbers |
-| [`std:random`](random.cx) | `Random` — randomness you can seed, and therefore repeat |
-| [`std:events`](events.cx) | `EventEmitter` — one thing announcing, several listening |
-| [`std:async`](async.cx) | `sleep`, `timeout`, `retry`, `pool`, `debounce` — waiting, and not doing everything at once |
+| Module | Holds | Reference |
+| --- | --- | --- |
+| [`std:assert`](assert) | Checking what a program believes — `ok`, `equal`, `deepEqual`, `closeTo`, `throws` | [README](assert/README.md) |
+| [`std:iter`](iter) | Sequences, lazily — `range`, `zip`, `chunk`, `groupBy`, `unique` | [README](iter/README.md) |
+| [`std:func`](func) | Building a function out of others — `pipe`, `compose`, `memoize`, `once` | [README](func/README.md) |
+| [`std:collections`](collections) | The four structures a Map and an array do not cover — `Deque`, `PriorityQueue`, `Counter`, `DefaultMap` | [README](collections/README.md) |
+| [`std:result`](result) | A failure or an absence as a value — `Result`, `Option` | [README](result/README.md) |
+| [`std:strings`](strings) | The string work that is not one method call — `camelCase`, `wrap`, `dedent`, `format` | [README](strings/README.md) |
+| [`std:stats`](stats) | Summarising numbers — `mean`, `median`, `stdev`, `quantile`, `describe` | [README](stats/README.md) |
+| [`std:random`](random) | Randomness you can seed, and therefore repeat — `Random` | [README](random/README.md) |
+| [`std:events`](events) | One thing announcing, several listening — `EventEmitter` | [README](events/README.md) |
+| [`std:async`](async) | Waiting, and not doing everything at once — `sleep`, `timeout`, `retry`, `pool` | [README](async/README.md) |
 
 [`../examples/library.cx`](../examples/library.cx) uses six of them on one
 small problem, and is checked against Node on every `make test-node`.
@@ -81,9 +87,12 @@ a width counted in characters.
 
 ## Adding a module
 
-1. Write `library/<name>.cx`, exporting what it offers. It is imported as
-   `std:<name>`; no registration anywhere.
-2. Add a case to [`../tests/cases/stdlib/`](../tests/cases/stdlib) that
+1. Write `library/<name>/<name>.cx`, exporting what it offers. It is imported
+   as `std:<name>`; no registration anywhere.
+2. Write `library/<name>/README.md` beside it: what each export takes and
+   answers, then why the code is the way it is. The ten already there are the
+   shape to follow.
+3. Add a case to [`../tests/cases/stdlib/`](../tests/cases/stdlib) that
    exercises it with `std:assert`, and generate its `.expected` **with Node**:
 
    ```bash
@@ -94,7 +103,7 @@ a width counted in characters.
    [`../tests/std_node.sh`](../tests/std_node.sh) runs a CScript program under
    Node with `std:` rewritten to point at these files, which is what lets Node
    be the oracle for a library that Node has never heard of.
-3. Add a row to the table above.
+4. Add a row to the table above.
 
 Every case in that group came out of Node byte-for-byte identical to CScript,
 seeded random sequences included.
