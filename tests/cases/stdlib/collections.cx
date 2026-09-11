@@ -1,0 +1,47 @@
+import { Deque, PriorityQueue, Counter, DefaultMap } from "std:collections";
+import { equal, deepEqual, ok } from "std:assert";
+
+const d = new Deque([2, 3]);
+d.pushFront(1); d.pushBack(4);
+deepEqual(d.toArray(), [1, 2, 3, 4]);
+equal(d.size, 4); equal(d.peekFront(), 1); equal(d.peekBack(), 4);
+equal(d.popFront(), 1); equal(d.popBack(), 4);
+deepEqual([...d], [2, 3]);
+equal(d.at(1), 3); equal(d.at(9), undefined);
+const big = new Deque();
+for (let i = 0; i < 100; i++) big.pushBack(i);
+equal(big.size, 100); equal(big.at(99), 99); equal(big.popFront(), 0);
+const wrap = new Deque();
+for (let i = 0; i < 20; i++) { wrap.pushBack(i); wrap.popFront(); }
+wrap.pushFront(7); equal(wrap.peekBack(), 7);
+d.clear(); ok(d.isEmpty); equal(d.popFront(), undefined);
+
+const q = new PriorityQueue(null, [5, 1, 4]);
+q.push(3);
+equal(q.peek(), 1);
+deepEqual([q.pop(), q.pop(), q.pop(), q.pop(), q.pop()], [1, 3, 4, 5, undefined]);
+const maxQ = new PriorityQueue((a: number, b: number) => b - a, [1, 9, 5]);
+deepEqual([...maxQ], [9, 5, 1]);
+const tasks = new PriorityQueue((a: any, b: any) => a.at - b.at);
+tasks.push({ at: 3, name: "c" }); tasks.push({ at: 1, name: "a" });
+equal(tasks.pop().name, "a");
+
+const c = new Counter("mississippi");
+equal(c.get("s"), 4); equal(c.get("z"), 0); equal(c.total, 11);
+deepEqual(c.mostCommon(2), [["i", 4], ["s", 4]]);
+c.add("z", 2); equal(c.get("z"), 2); c.add("z", -2); equal(c.has("z"), false);
+equal(c.size, 4);
+deepEqual([...c].length, 4);
+
+const groups = new DefaultMap(() => []);
+groups.get("a").push(1); groups.get("a").push(2); groups.get("b").push(3);
+deepEqual(groups.get("a"), [1, 2]);
+equal(groups.size, 2); equal(groups.has("z"), false); equal(groups.size, 2);
+const keyed = new DefaultMap((k: string) => k + "!");
+equal(keyed.get("hi"), "hi!");
+const line = new Deque(["b", "c"]);
+line.pushFront("a"); line.pushBack("d");
+console.log(line.toArray(), line.size);
+console.log([...new PriorityQueue(null, [5, 2, 9, 1])]);
+console.log(new Counter("abracadabra").mostCommon(3));
+console.log("collections ok");

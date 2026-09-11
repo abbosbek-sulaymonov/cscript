@@ -1,0 +1,39 @@
+import { range, count, repeat, cycle, map, filter, take, drop, takeWhile, dropWhile,
+         zip, enumerate, chain, flatten, unique, chunk, pairwise, toArray, reduce,
+         some, every, find, findIndex, length, groupBy, partition } from "std:iter";
+import { deepEqual, equal } from "std:assert";
+
+deepEqual([...range(4)], [0, 1, 2, 3]);
+deepEqual([...range(1, 4)], [1, 2, 3]);
+deepEqual([...range(3, 0, -1)], [3, 2, 1]);
+deepEqual([...take(count(10, 5), 3)], [10, 15, 20]);
+deepEqual([...repeat("x", 3)], ["x", "x", "x"]);
+deepEqual([...take(cycle([1, 2]), 5)], [1, 2, 1, 2, 1]);
+deepEqual([...map([1, 2], (x: number) => x * 2)], [2, 4]);
+deepEqual([...filter(range(6), (x: number) => x % 2 === 0)], [0, 2, 4]);
+deepEqual([...drop([1, 2, 3], 1)], [2, 3]);
+deepEqual([...takeWhile([1, 2, 9, 1], (x: number) => x < 3)], [1, 2]);
+deepEqual([...dropWhile([1, 2, 9, 1], (x: number) => x < 3)], [9, 1]);
+deepEqual([...zip([1, 2, 3], "ab")], [[1, "a"], [2, "b"]]);
+deepEqual([...enumerate("ab", 1)], [[1, "a"], [2, "b"]]);
+deepEqual([...chain([1], [2, 3])], [1, 2, 3]);
+deepEqual([...flatten([[1, 2], 3])], [1, 2, 3]);
+deepEqual([...unique([1, 1, 2, 1])], [1, 2]);
+deepEqual([...chunk(range(5), 2)], [[0, 1], [2, 3], [4]]);
+deepEqual([...pairwise([1, 2, 3])], [[1, 2], [2, 3]]);
+equal(reduce([1, 2, 3], (a: number, b: number) => a + b), 6);
+equal(reduce([], (a: number, b: number) => a + b, 0), 0);
+equal(some([1, 2], (x: number) => x > 1), true);
+equal(every([1, 2], (x: number) => x > 0), true);
+equal(find([1, 2, 3], (x: number) => x > 1), 2);
+equal(findIndex([1, 2, 3], (x: number) => x > 1), 1);
+equal(length(range(7)), 7);
+const groups = groupBy([1, 2, 3, 4], (x: number) => x % 2);
+deepEqual([...groups.keys()], [1, 0]);
+deepEqual(groups.get(0), [2, 4]);
+deepEqual(partition([1, 2, 3], (x: number) => x > 1), [[2, 3], [1]]);
+deepEqual(toArray("abc"), ["a", "b", "c"]);
+console.log([...take(map(range(1, 6), (n: number) => n * n), 3)]);
+console.log([...chunk("abcdefg", 3)]);
+console.log([...zip(range(3), cycle(["a", "b"]))]);
+console.log("iter ok");

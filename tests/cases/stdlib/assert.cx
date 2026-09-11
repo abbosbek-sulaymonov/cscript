@@ -1,0 +1,24 @@
+import { ok, equal, notEqual, deepEqual, notDeepEqual, closeTo, includes,
+         hasLength, notOk, throws, doesNotThrow, describe, isDeepEqual, messageOf } from "std:assert";
+
+ok(true); notOk(false);
+
+equal(1, 1); equal("a", "a"); equal(NaN, NaN);
+notEqual(1, 2);
+deepEqual([1, [2, 3]], [1, [2, 3]]);
+deepEqual({ a: 1, b: { c: 2 } }, { a: 1, b: { c: 2 } });
+notDeepEqual({ a: 1 }, { a: 2 });
+closeTo(0.1 + 0.2, 0.3);
+includes([1, 2, 3], 2); includes("hello", "ell");
+hasLength([1, 2], 2);
+const e = throws(() => { throw new Error("boom"); }, "boom");
+equal(messageOf(e), "boom");
+throws(() => { throw new Error("nope"); }, (x: any) => messageOf(x) === "nope");
+equal(doesNotThrow(() => 42), 42);
+console.log(describe([1, "a", { b: null }]), isDeepEqual([1], [1]));
+console.log(messageOf(throws(() => { equal(1, 2, "counts must match"); })));
+console.log(messageOf(throws(() => { deepEqual([1], [1, 2]); })));
+console.log(messageOf(throws(() => { throws(() => 1); })));
+console.log(describe({ a: [1, "two"], b: null }));
+console.log(isDeepEqual({ x: [1, 2] }, { x: [1, 2] }), isDeepEqual([1], [1, 2]));
+console.log("assert ok");

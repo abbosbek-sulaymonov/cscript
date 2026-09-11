@@ -34,7 +34,8 @@
           if (findIteratorMethod(peekStack(0), &iteratorMethod)) {
             Value iterator;
             if (!callWithReceiver(iteratorMethod, peekStack(0), NULL, 0, &iterator)) {
-              return CS_RUNTIME_ERROR;
+              HANDLE_FAILED_CALL();
+              VM_NEXT();
             }
             csPushTempRoot(AS_OBJ(iterator));
 
@@ -46,7 +47,8 @@
               if (!iteratorStep(iterator, &produced, &done)) {
                 csPopTempRoot();
                 csPopTempRoot();
-                return CS_RUNTIME_ERROR;
+                HANDLE_FAILED_CALL();
+                VM_NEXT();
               }
               if (done) break;
               csValueArrayWrite(&drained->elements, produced);
@@ -74,7 +76,8 @@
             bool done;
             if (!csGeneratorNext(generator, UNDEFINED_VAL, &produced, &done)) {
               csPopTempRoot();
-              return CS_RUNTIME_ERROR;
+              HANDLE_FAILED_CALL();
+              VM_NEXT();
             }
             if (done) break;
             csValueArrayWrite(&drained->elements, produced);
@@ -298,7 +301,10 @@
           ok = callValue(found, argCount);
         }
         if (name != NULL) csPopTempRoot();
-        if (!ok) return CS_RUNTIME_ERROR;
+        if (!ok) {
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
+        }
 
         frame = &vm.frames[vm.frameCount - 1];
         VM_NEXT();

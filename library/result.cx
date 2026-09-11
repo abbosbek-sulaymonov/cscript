@@ -1,0 +1,219 @@
+/* result.cx — a failure as a value, and a missing thing as a value.
+ *
+ * `throw` is right when a caller cannot sensibly carry on. It is wrong when
+ * failing is an ordinary outcome — parsing user input, looking something up,
+ * dividing by what might be zero — because then every call site has to be
+ * wrapped in `try` to find out, and the type of the function says nothing
+ * about the fact that it can fail.
+ *
+ * A Result says so in the value. `Result.ok(v)` and `Result.err(e)` are the
+ * two shapes, `isOk` tells them apart, and `map`/`andThen` chain work that
+ * only runs on the happy path — an error travels to the end of the chain
+ * untouched, which is the whole point of holding one this way.
+ *
+ * Option is the same idea for absence: `Option.some(v)` or `Option.none()`,
+ * distinct from `undefined` so that "there was no value" and "the value is
+ * undefined" stop being the same answer.
+ *
+ * This pairs with CScript's uncatchable runtime errors: a `throw` you own can
+ * be turned into a Result by `attempt`, and a runtime error cannot — which is
+ * the same line the language draws between a decision and a mistake.
+ */
+
+export class Result {
+  #ok: boolean;
+  #value: any;
+  #error: any;
+
+  /* The constructor is not the interface — `Result.ok` and `Result.err` are,
+   * because `new Result(true, v, null)` says nothing at a call site. */
+  constructor(ok: boolean, value: any, error: any) {
+    this.#ok = ok;
+    this.#value = value;
+    this.#error = error;
+  }
+
+  static ok(value: any = undefined): any {
+    return new Result(true, value, null);
+  }
+
+  static err(error: any): any {
+    return new Result(false, undefined, error);
+  }
+
+  /* Runs a body that may throw and answers what happened, which is the bridge
+   * from code that throws to code that does not. */
+  static attempt(body: any): any {
+    try {
+      return Result.ok(body());
+    } catch (error) {
+      return Result.err(error);
+    }
+  }
+
+  /* Ok only if every one is, holding the values in order; otherwise the first
+   * error. What `Promise.all` does, for a value rather than a promise. */
+  static all(results: any): any {
+    const values: any = [];
+    for (const result of results) {
+      if (!result.isOk) return result;
+      values.push(result.value);
+    }
+    return Result.ok(values);
+  }
+
+  get isOk(): boolean {
+    return this.#ok;
+  }
+
+  get isErr(): boolean {
+    return !this.#ok;
+  }
+
+  /* Reading the value of an error is a mistake worth stopping on: the whole
+   * reason to hold a failure in a value is that it cannot be walked past. */
+  get value(): any {
+    if (!this.#ok) throw new Error("read the value of an error Result");
+    return this.#value;
+  }
+
+  get error(): any {
+    if (this.#ok) throw new Error("read the error of an ok Result");
+    return this.#error;
+  }
+
+  /* Transforms the value and leaves an error alone. */
+  map(transform: any): any {
+    if (!this.#ok) return this;
+    return Result.ok(transform(this.#value));
+  }
+
+  mapErr(transform: any): any {
+    if (this.#ok) return this;
+    return Result.err(transform(this.#error));
+  }
+
+  /* For a step that can itself fail: the callback answers a Result, and this
+   * does not wrap it in another one. */
+  andThen(next: any): any {
+    if (!this.#ok) return this;
+    return next(this.#value);
+  }
+
+  orElse(recover: any): any {
+    if (this.#ok) return this;
+    return recover(this.#error);
+  }
+
+  unwrapOr(fallback: any): any {
+    return this.#ok ? this.#value : fallback;
+  }
+
+  unwrapOrElse(fromError: any): any {
+    return this.#ok ? this.#value : fromError(this.#error);
+  }
+
+  /* Both branches, named. The one place a Result has to be taken apart, and
+   * the compiler cannot check that you handled both — so this is how to make
+   * sure you did. */
+  match(onOk: any, onErr: any): any {
+    return this.#ok ? onOk(this.#value) : onErr(this.#error);
+  }
+
+  toOption(): any {
+    return this.#ok ? Option.some(this.#value) : Option.none();
+  }
+
+  toString(): string {
+    return this.#ok ? "Ok(" + String(this.#value) + ")"
+                    : "Err(" + String(this.#error) + ")";
+  }
+}
+
+export class Option {
+  #present: boolean;
+  #value: any;
+
+  constructor(present: boolean, value: any) {
+    this.#present = present;
+    this.#value = value;
+  }
+
+  static some(value: any): any {
+    return new Option(true, value);
+  }
+
+  static none(): any {
+    return new Option(false, undefined);
+  }
+
+  /* `undefined` and `null` become none, anything else some — the bridge from
+   * an ordinary API that answers one of those for "nothing". */
+  static from(value: any): any {
+    if (value === undefined || value === null) return Option.none();
+    return Option.some(value);
+  }
+
+  get isSome(): boolean {
+    return this.#present;
+  }
+
+  get isNone(): boolean {
+    return !this.#present;
+  }
+
+  get value(): any {
+    if (!this.#present) throw new Error("read the value of an empty Option");
+    return this.#value;
+  }
+
+  map(transform: any): any {
+    if (!this.#present) return this;
+    return Option.some(transform(this.#value));
+  }
+
+  /* Keeps the value only if it passes, which is how a `some` becomes a `none`
+   * without an `if` at the call site. */
+  filter(keep: any): any {
+    if (!this.#present) return this;
+    return keep(this.#value) ? this : Option.none();
+  }
+
+  andThen(next: any): any {
+    if (!this.#present) return this;
+    return next(this.#value);
+  }
+
+  orElse(build: any): any {
+    if (this.#present) return this;
+    return build();
+  }
+
+  unwrapOr(fallback: any): any {
+    return this.#present ? this.#value : fallback;
+  }
+
+  unwrapOrElse(build: any): any {
+    return this.#present ? this.#value : build();
+  }
+
+  match(onSome: any, onNone: any): any {
+    return this.#present ? onSome(this.#value) : onNone();
+  }
+
+  /* An Option needs an error to become a Result, and only the caller knows
+   * what the absence means. */
+  toResult(error: any): any {
+    return this.#present ? Result.ok(this.#value) : Result.err(error);
+  }
+
+  /* Empty or one element, so `for...of` and spread work — which is the
+   * shortest way to drop the empties out of a list of Options. */
+  *[Symbol.iterator]() {
+    if (this.#present) yield this.#value;
+  }
+
+  toString(): string {
+    return this.#present ? "Some(" + String(this.#value) + ")" : "None";
+  }
+}

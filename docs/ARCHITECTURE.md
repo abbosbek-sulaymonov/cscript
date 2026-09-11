@@ -42,6 +42,7 @@ src/native/     the standard library, one file per built-in
 src/jit/        lowering to typed IR, and the arm64 backend
 src/main.c      the entry point
 include/cscript/  every public header, one per module above
+library/        the standard library, written in CScript itself
 ```
 
 The grouping is by role rather than by stage, which is why `native/` is beside
@@ -50,6 +51,14 @@ surface, and keeping the two apart is what stops that surface from quietly
 growing. A file in one group names a header in another through a path from
 `src/` — `runtime/vm_internal.h` — so the direction of a dependency is visible
 at the include rather than in a chain of dots.
+
+`library/` is the one part of the implementation that is not C. Ten modules
+written in the language, imported as `std:name` — resolved against the
+binary's own location rather than the importing file, because a script
+anywhere on disk has to mean the same file by `std:iter`. It is checked
+against Node the way the language is: `tests/std_node.sh` rewrites the `std:`
+specifiers to relative paths so Node can run the same program, and every
+expected file in `tests/cases/stdlib/` came out of that.
 
 Each of those directories has a README mapping its own files —
 [`src/README.md`](../src/README.md) is the way in, and the four beside it go
@@ -687,7 +696,7 @@ table, then reset the stack.
 | `src/runtime/value.c` | What a Value is, and what it converts to |
 | `src/runtime/value_render.c` | Turning a Value into text, in the two ways that differ |
 | `src/runtime/value_internal.h` | The seam between those two |
-| `src/runtime/module.c` | Resolving, loading and ordering source files |
+| `src/runtime/module.c` | Resolving, loading and ordering source files, `std:` included |
 | `src/runtime/bigint.c` | Arbitrary-precision integers |
 | `src/runtime/regex.c` | Compiling a pattern to a program |
 | `src/runtime/regex_match.c` | Running one against a subject |

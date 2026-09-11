@@ -1,0 +1,7 @@
+[1, 'a', { b: null }] true
+1 !== 2 — counts must match
+[1] is not deeply equal to [1, 2]
+expected the call to throw, and it returned
+{ a: [1, 'two'], b: null }
+true false
+assert ok

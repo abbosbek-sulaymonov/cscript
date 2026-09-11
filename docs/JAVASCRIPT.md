@@ -215,6 +215,37 @@ running. The local zone is still available where it is asked for by name —
 `getHours`, `getDay` and `getTimezoneOffset` all use it, and so does
 `new Date(y, m, d)`.
 
+### A binding cannot be used from inside its own initialiser
+
+```ts
+const walk = (n: number) => n <= 0 ? "done" : walk(n - 1);   // 'walk' is not defined
+```
+
+JavaScript's `const` is in its temporal dead zone until the initialiser
+finishes, and the arrow above only reads `walk` when it is *called* — by which
+time the binding exists. CScript resolves the name while compiling the
+initialiser, when the local does not exist yet, and falls through to a global
+lookup that finds nothing.
+
+Two spellings work. A `let` assigned afterwards:
+
+```ts
+let walk: any = null;
+walk = (n: number) => n <= 0 ? "done" : walk(n - 1);
+```
+
+or a function declaration, which binds its name before its body is compiled
+precisely so that it can call itself:
+
+```ts
+function walk(n: number): string { return n <= 0 ? "done" : walk(n - 1); }
+```
+
+What is still missing is **hoisting**: a function declaration is usable from
+the line it appears on, not before it, so two local functions cannot call each
+other. At the top level of a module this does not arise, because every
+declaration is bound before the body runs.
+
 ### A runtime error is not catchable
 
 `try`/`catch` catches what a program `throw`s. It does not catch reading a

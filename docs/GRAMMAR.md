@@ -694,9 +694,21 @@ import { add as plus } from "./math.cx";
 import * as math from "./math.cx";
 ```
 
-A specifier is a **relative path with the extension written out**. There is no
-package system to resolve a bare name against, and guessing extensions is how
-a module system starts needing a resolver nobody can predict.
+A specifier is a **relative path with the extension written out**, or a
+**`std:` name** for a module of the standard library:
+
+```ts
+import { add } from "./math.cx";      // a file, relative to this one
+import { range } from "std:iter";     // a module of the standard library
+```
+
+Those are the only two forms. There is no package system to resolve a bare
+name against, and guessing extensions is how a module system starts needing a
+resolver nobody can predict — so a relative specifier says exactly which file
+it means, and a `std:` one names something that ships with the language and is
+found relative to the binary rather than to the program. See
+[../library/README.md](../library/README.md) for what is in it and where it is
+looked for.
 
 Everything a file imports is loaded, compiled and run before the file itself,
 so a program's compile errors all surface in one pass and a module has already
@@ -712,9 +724,9 @@ modules answer a cycle with a half-initialised namespace and a `ReferenceError`
 if you touch the wrong thing at the wrong moment; refusing it names the problem
 where it is.
 
-Not supported, each with an error that says so: **default exports** (one file,
-two ways to name a thing), **`export *`**, **re-exporting** with
-`export { x } from "..."`, **dynamic `import()`**, and **bare specifiers**.
+Default exports, `export *`, re-exporting with `export { x } from "..."` and
+dynamic `import()` all work. What is not supported is a **bare specifier**:
+`import x from "lodash"` has nowhere to look, and says so rather than guessing.
 Imported bindings are `any` to the type checker — types do not cross a file
 boundary yet.
 

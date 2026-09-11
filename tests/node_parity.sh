@@ -3,9 +3,11 @@
 #
 # CScript's syntax is a subset of TypeScript's, so every example is handed to
 # Node as a .ts file with --experimental-strip-types, which erases the
-# annotations and runs the JavaScript underneath. That checks two claims at
-# once: the syntax really is TypeScript, and the behaviour really does match
-# once the types are gone.
+# annotations and runs the JavaScript underneath. An example that imports from
+# the standard library gets that too: `std:` specifiers are rewritten to copies
+# of library/, so the library is checked against Node exactly as the language
+# is. That checks two claims at once: the syntax really is TypeScript, and the
+# behaviour really does match once the types are gone.
 #
 # Most examples must produce byte-identical output. The exceptions are the
 # files that exist to demonstrate a deliberate semantic difference, listed in
@@ -45,6 +47,22 @@ fi
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
+# The standard library, as Node can see it: `std:iter` becomes `./std_iter.ts`,
+# and every module is copied under that name. Flat, because one module may
+# import another and the two have to agree about where they are.
+for module in "$ROOT"/library/*.cx; do
+  [[ -e "$module" ]] || continue
+  sed -E 's|"std:([a-zA-Z0-9_]+)"|"./std_\1.ts"|g' "$module" \
+    > "$tmp/std_$(basename "$module" .cx).ts"
+done
+
+# `.cx` specifiers become `.ts`, and `std:` specifiers become the copies above.
+# The second argument is how to reach them from the file being rewritten: a
+# directory example sits one level down from where the copies are.
+rewrite() {
+  sed -E -e 's|\.cx"|.ts"|g' -e "s|\"std:([a-zA-Z0-9_]+)\"|\"$2std_\\1.ts\"|g" "$1"
+}
+
 pass=0; fail=0; divergent=0
 
 # An example is either one .cx file or a directory whose main.cx is the entry
@@ -76,12 +94,12 @@ for example in "${examples[@]}"; do
     rm -rf "$tmp/$name"
     cp -R "$(dirname "$example")" "$tmp/$name"
     while IFS= read -r file; do
-      sed 's/\.cx"/.ts"/g' "$file" > "${file%.cx}.ts"
+      rewrite "$file" "../" > "${file%.cx}.ts"
       rm "$file"
     done < <(find "$tmp/$name" -name '*.cx')
     entry="$tmp/$name/main.ts"
   else
-    cp "$example" "$tmp/$name.ts"
+    rewrite "$example" "./" > "$tmp/$name.ts"
     entry="$tmp/$name.ts"
   fi
 

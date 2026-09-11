@@ -1,0 +1,45 @@
+/* A generator driving another generator, with allocation in between.
+ *
+ * This is a regression test for `make test-gc`, where a collection happens at
+ * every allocation. Swapping execution state puts the *caller's* stack into
+ * the running fiber's fields, so an outer generator's stack is held by the
+ * inner fiber — while the outer fiber object itself is held only by its
+ * generator, which lives on a stack that is by then reachable only through it.
+ * Nothing pointed into that cycle, so a collection here used to free a stack
+ * that was still being run, and the process aborted inside malloc.
+ *
+ * The allocations matter: each `push` and each array literal is a chance to
+ * collect, and the crash needed one to land while both generators were live.
+ */
+function* source(): any {
+  const kept: any = [];
+  for (const item of [1, 2, 3]) {
+    kept.push([item, item * 2]);
+    yield item;
+  }
+  while (true) {
+    for (const pair of kept) yield pair[0] + pair[1];
+  }
+}
+
+function* limit(iterable: any, howMany: number): any {
+  let taken = 0;
+  for (const element of iterable) {
+    yield [taken, element];
+    taken = taken + 1;
+    if (taken >= howMany) return;
+  }
+}
+
+/* Printed as JSON so the expected file is the same in Node and here: Node's
+ * console.log breaks a wide array across lines and CScript's does not, which
+ * is a difference in the printer rather than in what was produced. */
+const collected: any = [];
+for (const pair of limit(source(), 7)) collected.push(pair);
+console.log(JSON.stringify(collected));
+
+/* Three deep, to check the chain and not only one link. */
+function* passThrough(iterable: any): any {
+  for (const element of iterable) yield element;
+}
+console.log(JSON.stringify([...limit(passThrough(source()), 5)]));

@@ -1,0 +1,323 @@
+/* collections.cx — the four structures a Map and an array do not cover.
+ *
+ * A deque, so that taking from the front is not O(n); a priority queue, so
+ * that "smallest so far" is not a sort per insertion; a counter, because
+ * counting occurrences is the most-written five lines in any language; and a
+ * map that fills in its own missing values, because the alternative is that
+ * same `if (!map.has(k))` line before every update.
+ *
+ * Each is iterable, so `for...of` and `[...]` work on all of them.
+ */
+
+/* --- Deque ---------------------------------------------------------------- */
+
+/* A ring buffer, not an array with `shift`.
+ *
+ * `shift` moves every remaining element down one, so a queue built on it costs
+ * O(n) per item taken and O(n²) to drain — which is invisible at ten elements
+ * and fatal at a hundred thousand. Here both ends are an index update. */
+export class Deque {
+  #items: any = [undefined, undefined, undefined, undefined,
+                 undefined, undefined, undefined, undefined];
+  #head: number = 0;
+  #count: number = 0;
+
+  constructor(initial: any = null) {
+    if (initial === null) return;
+    for (const element of initial) this.pushBack(element);
+  }
+
+  get size(): number {
+    return this.#count;
+  }
+
+  get isEmpty(): boolean {
+    return this.#count === 0;
+  }
+
+  /* Doubling rather than growing by one keeps the amortised cost of a push at
+   * O(1): every element is copied at most once per doubling. */
+  #grow() {
+    const capacity = this.#items.length;
+    if (this.#count < capacity) return;
+    const next: any = [];
+    for (let i = 0; i < this.#count; i++) {
+      next.push(this.#items[(this.#head + i) % capacity]);
+    }
+    for (let i = this.#count; i < capacity * 2; i++) next.push(undefined);
+    this.#items = next;
+    this.#head = 0;
+  }
+
+  pushBack(value: any) {
+    this.#grow();
+    this.#items[(this.#head + this.#count) % this.#items.length] = value;
+    this.#count = this.#count + 1;
+  }
+
+  pushFront(value: any) {
+    this.#grow();
+    const capacity = this.#items.length;
+    this.#head = (this.#head - 1 + capacity) % capacity;
+    this.#items[this.#head] = value;
+    this.#count = this.#count + 1;
+  }
+
+  /* `undefined` when there is nothing, rather than an error: a queue running
+   * dry is the ordinary end of a loop, not a mistake. */
+  popFront(): any {
+    if (this.#count === 0) return undefined;
+    const value = this.#items[this.#head];
+    this.#items[this.#head] = undefined;
+    this.#head = (this.#head + 1) % this.#items.length;
+    this.#count = this.#count - 1;
+    return value;
+  }
+
+  popBack(): any {
+    if (this.#count === 0) return undefined;
+    const at = (this.#head + this.#count - 1) % this.#items.length;
+    const value = this.#items[at];
+    this.#items[at] = undefined;
+    this.#count = this.#count - 1;
+    return value;
+  }
+
+  peekFront(): any {
+    if (this.#count === 0) return undefined;
+    return this.#items[this.#head];
+  }
+
+  peekBack(): any {
+    if (this.#count === 0) return undefined;
+    return this.#items[(this.#head + this.#count - 1) % this.#items.length];
+  }
+
+  at(index: number): any {
+    if (index < 0 || index >= this.#count) return undefined;
+    return this.#items[(this.#head + index) % this.#items.length];
+  }
+
+  clear() {
+    this.#items = [undefined, undefined, undefined, undefined,
+                   undefined, undefined, undefined, undefined];
+    this.#head = 0;
+    this.#count = 0;
+  }
+
+  toArray(): any {
+    const out: any = [];
+    for (let i = 0; i < this.#count; i++) out.push(this.at(i));
+    return out;
+  }
+
+  *[Symbol.iterator]() {
+    for (let i = 0; i < this.#count; i++) yield this.at(i);
+  }
+}
+
+/* --- PriorityQueue -------------------------------------------------------- */
+
+/* A binary heap: push and pop are O(log n), and the smallest is always at the
+ * front. Sorting after every insertion would be O(n log n) each time, and
+ * scanning for the minimum would be O(n) — which is the same thing said twice
+ * about why this structure exists.
+ *
+ * "Smallest" is whatever the comparator says, so a max-heap is
+ * `new PriorityQueue((a, b) => b - a)`. */
+export class PriorityQueue {
+  #items: any = [];
+  #compare: any;
+
+  constructor(compare: any = null, initial: any = null) {
+    this.#compare = compare === null ? (a: any, b: any) => a - b : compare;
+    if (initial === null) return;
+    for (const element of initial) this.push(element);
+  }
+
+  get size(): number {
+    return this.#items.length;
+  }
+
+  get isEmpty(): boolean {
+    return this.#items.length === 0;
+  }
+
+  push(value: any) {
+    this.#items.push(value);
+    let at = this.#items.length - 1;
+    while (at > 0) {
+      const parent = Math.floor((at - 1) / 2);
+      if (this.#compare(this.#items[at], this.#items[parent]) >= 0) break;
+      this.#swap(at, parent);
+      at = parent;
+    }
+  }
+
+  pop(): any {
+    if (this.#items.length === 0) return undefined;
+    const top = this.#items[0];
+    const last = this.#items.pop();
+    if (this.#items.length === 0) return top;
+
+    this.#items[0] = last;
+    let at = 0;
+    while (true) {
+      const left = at * 2 + 1;
+      const right = left + 1;
+      let smallest = at;
+      if (left < this.#items.length &&
+          this.#compare(this.#items[left], this.#items[smallest]) < 0) {
+        smallest = left;
+      }
+      if (right < this.#items.length &&
+          this.#compare(this.#items[right], this.#items[smallest]) < 0) {
+        smallest = right;
+      }
+      if (smallest === at) break;
+      this.#swap(at, smallest);
+      at = smallest;
+    }
+    return top;
+  }
+
+  peek(): any {
+    if (this.#items.length === 0) return undefined;
+    return this.#items[0];
+  }
+
+  #swap(a: number, b: number) {
+    const held = this.#items[a];
+    this.#items[a] = this.#items[b];
+    this.#items[b] = held;
+  }
+
+  /* Drains the queue, which is what makes it a sort. The queue is empty
+   * afterwards — a heap cannot be walked in order without taking it apart. */
+  *[Symbol.iterator]() {
+    while (this.#items.length > 0) yield this.pop();
+  }
+}
+
+/* --- Counter -------------------------------------------------------------- */
+
+/* How many times each thing was seen. A Map underneath, so a key can be a
+ * number, a boolean or an object rather than only a string. */
+export class Counter {
+  #counts: any = new Map();
+
+  constructor(initial: any = null) {
+    if (initial === null) return;
+    for (const element of initial) this.add(element);
+  }
+
+  get size(): number {
+    return this.#counts.size;
+  }
+
+  add(key: any, howMany: number = 1) {
+    const current = this.#counts.has(key) ? this.#counts.get(key) : 0;
+    const next = current + howMany;
+    if (next === 0) {
+      this.#counts.delete(key);
+    } else {
+      this.#counts.set(key, next);
+    }
+  }
+
+  /* Zero for something never seen, rather than undefined: a count is a number,
+   * and `counter.get(x) + 1` should not be NaN for the first one. */
+  get(key: any): number {
+    if (!this.#counts.has(key)) return 0;
+    return this.#counts.get(key);
+  }
+
+  has(key: any): boolean {
+    return this.#counts.has(key);
+  }
+
+  delete(key: any): boolean {
+    return this.#counts.delete(key);
+  }
+
+  get total(): number {
+    let sum = 0;
+    for (const count of this.#counts.values()) sum = sum + count;
+    return sum;
+  }
+
+  /* Most frequent first, ties in insertion order, as `[key, count]` pairs.
+   * `howMany` below zero means all of them. */
+  mostCommon(howMany: number = -1): any {
+    const pairs: any = [];
+    for (const pair of this.#counts) pairs.push(pair);
+    pairs.sort((a: any, b: any) => b[1] - a[1]);
+    if (howMany < 0) return pairs;
+    return pairs.slice(0, howMany);
+  }
+
+  keys(): any {
+    return this.#counts.keys();
+  }
+
+  *[Symbol.iterator]() {
+    for (const pair of this.#counts) yield pair;
+  }
+}
+
+/* --- DefaultMap ----------------------------------------------------------- */
+
+/* A Map whose missing values are built rather than absent.
+ *
+ * `groups.get(key).push(x)` works on the first key as well as the tenth, which
+ * removes the `if (!map.has(key)) map.set(key, [])` line that otherwise
+ * precedes every update. The factory is called with the key, so a default can
+ * depend on it. */
+export class DefaultMap {
+  #values: any = new Map();
+  #build: any;
+
+  constructor(build: any, initial: any = null) {
+    this.#build = build;
+    if (initial === null) return;
+    for (const [key, value] of initial) this.#values.set(key, value);
+  }
+
+  get size(): number {
+    return this.#values.size;
+  }
+
+  get(key: any): any {
+    if (!this.#values.has(key)) {
+      this.#values.set(key, this.#build.length >= 1 ? this.#build(key) : this.#build());
+    }
+    return this.#values.get(key);
+  }
+
+  /* Deliberately does *not* build: asking whether something is there should
+   * not be what puts it there. */
+  has(key: any): boolean {
+    return this.#values.has(key);
+  }
+
+  set(key: any, value: any): any {
+    this.#values.set(key, value);
+    return this;
+  }
+
+  delete(key: any): boolean {
+    return this.#values.delete(key);
+  }
+
+  keys(): any {
+    return this.#values.keys();
+  }
+
+  values(): any {
+    return this.#values.values();
+  }
+
+  *[Symbol.iterator]() {
+    for (const pair of this.#values) yield pair;
+  }
+}

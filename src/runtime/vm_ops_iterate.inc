@@ -36,7 +36,8 @@
             findIteratorMethod(target, &iteratorMethod)) {
           Value iterator;
           if (!callWithReceiver(iteratorMethod, target, NULL, 0, &iterator)) {
-            return CS_RUNTIME_ERROR;
+            HANDLE_FAILED_CALL();
+            VM_NEXT();
           }
           csVMPop();
           csVMPush(iterator);
@@ -140,7 +141,8 @@
 
         Value answered;
         if (!callWithReceiver(next, target, NULL, 0, &answered)) {
-          return CS_RUNTIME_ERROR;
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
         }
         csVMPush(answered);
         frame = &vm.frames[vm.frameCount - 1];
@@ -197,7 +199,8 @@
           Value iteratorMethod;
           if (!findIteratorMethod(source, &iteratorMethod)) VM_NEXT();
           if (!callWithReceiver(iteratorMethod, source, NULL, 0, &source)) {
-            return CS_RUNTIME_ERROR;
+            HANDLE_FAILED_CALL();
+            VM_NEXT();
           }
         }
 
@@ -210,7 +213,8 @@
           if (!iteratorStep(source, &produced, &done)) {
             csPopTempRoot();
             csPopTempRoot();
-            return CS_RUNTIME_ERROR;
+            HANDLE_FAILED_CALL();
+            VM_NEXT();
           }
           if (done) break;
           csValueArrayWrite(&taken->elements, produced);
@@ -263,7 +267,8 @@
            * It restores this one before returning, so `frame` still points
            * where it did. */
           if (!csGeneratorNext(generator, UNDEFINED_VAL, &produced, &done)) {
-            return CS_RUNTIME_ERROR;
+            HANDLE_FAILED_CALL();
+            VM_NEXT();
           }
           vm.stackTop -= 2;
           if (done) {
@@ -279,7 +284,10 @@
         if (IS_OBJECT(iterable)) {
           Value produced;
           bool done;
-          if (!iteratorStep(iterable, &produced, &done)) return CS_RUNTIME_ERROR;
+          if (!iteratorStep(iterable, &produced, &done)) {
+            HANDLE_FAILED_CALL();
+            VM_NEXT();
+          }
           vm.stackTop -= 2;
           frame = &vm.frames[vm.frameCount - 1];
           if (done) {

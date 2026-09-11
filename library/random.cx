@@ -1,0 +1,139 @@
+/* random.cx — randomness you can repeat.
+ *
+ * `Math.random` cannot be seeded, which makes it useless for the two things
+ * randomness is most often needed for: a test that must fail the same way
+ * twice, and a simulation someone else has to be able to reproduce. A Random
+ * here carries its own state, so `new Random(7)` gives the same sequence on
+ * every machine and every run.
+ *
+ * The generator is a linear congruential one — the constants are Numerical
+ * Recipes' — chosen because every step stays inside the 53 bits a double
+ * holds exactly, so the sequence is identical wherever it runs. That is the
+ * property being bought here. It is emphatically not cryptographic: the next
+ * value follows from the last, and anyone who sees one output can compute the
+ * rest.
+ */
+
+const MODULUS = 4294967296; /* 2^32 */
+const MULTIPLIER = 1664525;
+const INCREMENT = 1013904223;
+
+export class Random {
+  #state: number = 0;
+
+  constructor(seed: number = 0) {
+    /* Seed 0 with an LCG is not degenerate the way a xorshift's would be, but
+     * a fractional or negative seed is: the state has to be a whole number
+     * inside the modulus for the recurrence to close. */
+    const whole = Math.floor(Math.abs(seed));
+    this.#state = whole % MODULUS;
+  }
+
+  /* The next raw state. Everything else here is built on this one step. */
+  #step(): number {
+    this.#state = (this.#state * MULTIPLIER + INCREMENT) % MODULUS;
+    return this.#state;
+  }
+
+  /* 0 inclusive, 1 exclusive — the same contract as Math.random. */
+  next(): number {
+    return this.#step() / MODULUS;
+  }
+
+  /* Both ends inclusive, which is what "a number between 1 and 6" means to
+   * everyone who is not writing an array index. */
+  int(low: number, high: number): number {
+    if (low > high) throw new Error("int was given a low bound above its high bound");
+    const span = Math.floor(high) - Math.ceil(low) + 1;
+    return Math.ceil(low) + Math.floor(this.next() * span);
+  }
+
+  float(low: number = 0, high: number = 1): number {
+    return low + this.next() * (high - low);
+  }
+
+  bool(chance: number = 0.5): boolean {
+    return this.next() < chance;
+  }
+
+  pick(items: any): any {
+    if (items.length === 0) throw new Error("pick from an empty list");
+    return items[this.int(0, items.length - 1)];
+  }
+
+  /* Fisher–Yates, on a copy. Shuffling in place would be faster and would also
+   * mean that shuffling a list of results reorders whatever else is holding
+   * it, which is a bug the caller cannot see coming. */
+  shuffle(items: any): any {
+    const out: any = [];
+    for (const item of items) out.push(item);
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = this.int(0, i);
+      const held = out[i];
+      out[i] = out[j];
+      out[j] = held;
+    }
+    return out;
+  }
+
+  /* `howMany` distinct elements, without replacement. */
+  sample(items: any, howMany: number): any {
+    const all: any = [];
+    for (const item of items) all.push(item);
+    if (howMany > all.length) {
+      throw new Error("sample of " + String(howMany) + " from " +
+                      String(all.length) + " items");
+    }
+    return this.shuffle(all).slice(0, howMany);
+  }
+
+  /* One item, chosen with a probability proportional to its weight. Weights
+   * need not add to 1 — they are normalised here, because requiring that of a
+   * caller is requiring them to redo it every time the list changes. */
+  weighted(items: any, weights: any): any {
+    if (items.length !== weights.length) {
+      throw new Error("weighted was given " + String(items.length) + " items and " +
+                      String(weights.length) + " weights");
+    }
+    let total = 0;
+    for (const weight of weights) {
+      if (weight < 0) throw new Error("weighted was given a negative weight");
+      total = total + weight;
+    }
+    if (total <= 0) throw new Error("weighted was given no weight at all");
+
+    let landed = this.next() * total;
+    for (let i = 0; i < items.length; i++) {
+      landed = landed - weights[i];
+      if (landed < 0) return items[i];
+    }
+    return items[items.length - 1];
+  }
+
+  /* A normal distribution, by Box–Muller. Two values fall out of the
+   * transform and one is kept: caching the other would make the sequence
+   * depend on how many gaussians were asked for rather than on how many steps
+   * were taken, which is the reproducibility this class exists for. */
+  gaussian(centre: number = 0, deviation: number = 1): number {
+    let first = this.next();
+    while (first === 0) first = this.next();
+    const second = this.next();
+    const magnitude = Math.sqrt(-2 * Math.log(first));
+    return centre + deviation * magnitude * Math.cos(2 * Math.PI * second);
+  }
+
+  /* An unbounded sequence of this generator's values, for pairing with
+   * `take` from std:iter. */
+  *stream() {
+    while (true) yield this.next();
+  }
+}
+
+/* A generator seeded from the clock, for when reproducibility is not the
+ * point. Deliberately a Random rather than a wrapper over Math.random, so
+ * that switching to a fixed seed changes one line. */
+export const random: any = new Random(Date.now() % MODULUS);
+
+export function seeded(seed: number): any {
+  return new Random(seed);
+}

@@ -53,19 +53,29 @@ bool compileStatementNode(const AstNode *node, int line) {
       break;
 
     case AST_FUNCTION:
-      compileFunction(node);
       /* A declaration binds the closure to its name; an expression leaves it
        * on the stack for whatever wanted it. An inferred name is not a
-       * declaration — the binding it was named after does its own. */
+       * declaration — the binding it was named after does its own.
+       *
+       * A local declaration names its slot *before* the body is compiled, so
+       * that the body can resolve its own name: the slot is where OP_CLOSURE
+       * is about to push, and a recursive call reads it through an upvalue
+       * that is captured open and therefore sees the closure once it lands
+       * there. Declaring afterwards — which is the ordinary order, since a
+       * value is normally already in the slot — left a local function unable
+       * to call itself. */
+      if (node->as.function.isDeclaration && current->scopeDepth > 0) {
+        addLocal(node->as.function.name, node->as.function.nameLength, false, line);
+        compileFunction(node);
+        break;
+      }
+
+      compileFunction(node);
       if (node->as.function.isDeclaration) {
-        if (current->scopeDepth > 0) {
-          addLocal(node->as.function.name, node->as.function.nameLength, false, line);
-        } else {
-          addGlobal(node->as.function.name, node->as.function.nameLength, false, line);
-          emitConstantOp(OP_DEFINE_GLOBAL, identifierConstant(node->as.function.name,
-                                       node->as.function.nameLength, line),
-                    line);
-        }
+        addGlobal(node->as.function.name, node->as.function.nameLength, false, line);
+        emitConstantOp(OP_DEFINE_GLOBAL, identifierConstant(node->as.function.name,
+                                     node->as.function.nameLength, line),
+                  line);
       }
       break;
 

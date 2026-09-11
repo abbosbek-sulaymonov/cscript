@@ -172,7 +172,10 @@
         }
 
         Value value;
-        if (!propertyReadSlow(name, cache, receiver, &value)) return CS_RUNTIME_ERROR;
+        if (!propertyReadSlow(name, cache, receiver, &value)) {
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
+        }
         csVMPush(value);
         VM_NEXT();
       }
@@ -192,7 +195,10 @@
         }
 
         Value value;
-        if (!propertyReadSlow(name, cache, receiver, &value)) return CS_RUNTIME_ERROR;
+        if (!propertyReadSlow(name, cache, receiver, &value)) {
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
+        }
         vm.stackTop[-1] = value;
         VM_NEXT();
       }
@@ -213,7 +219,10 @@
           VM_NEXT();
         }
 
-        if (!propertyWriteSlow(name, cache, receiver, value)) return CS_RUNTIME_ERROR;
+        if (!propertyWriteSlow(name, cache, receiver, value)) {
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
+        }
         /* Leave the assigned value: assignment is an expression. */
         vm.stackTop -= 2;
         csVMPush(value);
@@ -234,7 +243,10 @@
           VM_NEXT();
         }
 
-        if (!propertyWriteSlow(name, cache, receiver, value)) return CS_RUNTIME_ERROR;
+        if (!propertyWriteSlow(name, cache, receiver, value)) {
+          HANDLE_FAILED_CALL();
+          VM_NEXT();
+        }
         vm.stackTop -= 2;
         VM_NEXT();
       }

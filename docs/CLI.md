@@ -108,6 +108,27 @@ It is the only member of `process` there is. It exists because a script given
 arguments has to be able to read them, not as the start of a Node-compatible
 runtime surface.
 
+## The standard library
+
+`import { range } from "std:iter"` resolves against the **binary's own
+location** rather than the program's: `<binary>/../lib/cscript` for an
+installed tree, `<binary>/../../library` for a source checkout, then
+`<binary>/library`.
+
+`CSCRIPT_STD_PATH` overrides all of that with a directory of your own. Setting
+it to somewhere that is not a directory is an error rather than a reason to
+fall back — falling back would run a library the environment said not to use.
+
+```bash
+CSCRIPT_STD_PATH=./library ./build/release/cscript program.cx
+```
+
+The error when a module cannot be found says which of the two things went
+wrong: no library at all, or no module of that name in the one that was found.
+[../library/README.md](../library/README.md) lists the modules.
+
+---
+
 ## The compiler's flags
 
 `--jit-threshold` and `--no-jit` do what `CS_JIT_THRESHOLD` in the environment

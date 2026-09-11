@@ -66,9 +66,15 @@ bool parseModuleSpecifier(Parser *parser, const char **out, int *outLength) {
   int length = literal->as.string.length;
   bool relative = (length > 2 && text[0] == '.' && text[1] == '/') ||
                   (length > 3 && text[0] == '.' && text[1] == '.' && text[2] == '/');
-  if (!relative) {
+  /* The one specifier that is not a path: `std:iter` names a module in the
+   * library that ships with the language, wherever that has been installed.
+   * Everything else has to be relative, so that reading an import tells you
+   * which file it means without knowing about a search path. */
+  bool standard = length > 4 && strncmp(text, "std:", 4) == 0;
+  if (!relative && !standard) {
     csDiagnosticError(parser->diag, parser->previous.line, NULL, 0,
-                      "a module path must be relative and start with './' or '../'");
+                      "a module path must be relative and start with './' or "
+                      "'../', or name a standard-library module as 'std:name'");
     return false;
   }
 

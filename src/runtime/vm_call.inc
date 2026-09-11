@@ -48,7 +48,8 @@ static bool importAtRuntime(ObjModule *from, ObjString *specifier, Value *out,
   char resolved[4096];
   const char *fromPath = from != NULL ? from->path->chars : "<main>";
   if (!csModuleResolve(fromPath, specifier->chars, resolved, sizeof resolved)) {
-    *out = csVMMakeError("cannot find module '%s'", specifier->chars);
+    *out = csVMMakeError("cannot find module '%s'%s", specifier->chars,
+                         csModuleResolutionHint(specifier->chars));
     return false;
   }
 
@@ -118,7 +119,13 @@ static bool concatenateOrAdd(void) {
     if (aText == NULL || bText == NULL) {
       free(aText);
       free(bText);
-      csVMRuntimeError("out of memory while concatenating strings");
+      /* Two different failures reach here: an allocation that could not be
+       * made, and a user `toString` that threw. Reporting the first over the
+       * second would replace a real error with a wrong one — and would lose
+       * the throw, which an enclosing `try` was entitled to catch. */
+      if (!vm.hasPendingException) {
+        csVMRuntimeError("out of memory while concatenating strings");
+      }
       return false;
     }
 

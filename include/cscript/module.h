@@ -26,6 +26,10 @@ char *csReadFile(const char *path, bool quiet);
 /* Turns `specifier` — always relative — into an absolute path, resolved
  * against the directory holding `fromPath`. Returns false when nothing is
  * there, which is the only way a specifier can fail to resolve. */
+/* What to add to a "cannot find module" message: empty for an ordinary path,
+ * and for a `std:` specifier the one thing that would explain it. */
+const char *csModuleResolutionHint(const char *specifier);
+
 bool csModuleResolve(const char *fromPath, const char *specifier, char *out,
                      size_t outSize);
 
