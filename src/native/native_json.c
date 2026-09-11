@@ -207,6 +207,53 @@ static bool parseLiteral(JsonParser *parser, const char *text, Value value,
   return true;
 }
 
+/* Four hex digits, or -1. */
+static long readHex4(JsonParser *parser) {
+  if (parser->end - parser->cursor < 4) return -1;
+  long code = 0;
+  for (int i = 0; i < 4; i++) {
+    char digit = parser->cursor[i];
+    long value;
+    if (digit >= '0' && digit <= '9') {
+      value = digit - '0';
+    } else if (digit >= 'a' && digit <= 'f') {
+      value = digit - 'a' + 10;
+    } else if (digit >= 'A' && digit <= 'F') {
+      value = digit - 'A' + 10;
+    } else {
+      return -1;
+    }
+    code = code * 16 + value;
+  }
+  parser->cursor += 4;
+  return code;
+}
+
+/* A code point as UTF-8, which is what a CScript string holds — the source
+ * literal "é" is those same two bytes. Answers how many were written. */
+static int encodeUtf8(unsigned long code, char *into) {
+  if (code < 0x80u) {
+    into[0] = (char)code;
+    return 1;
+  }
+  if (code < 0x800u) {
+    into[0] = (char)(0xc0u | (code >> 6));
+    into[1] = (char)(0x80u | (code & 0x3fu));
+    return 2;
+  }
+  if (code < 0x10000u) {
+    into[0] = (char)(0xe0u | (code >> 12));
+    into[1] = (char)(0x80u | ((code >> 6) & 0x3fu));
+    into[2] = (char)(0x80u | (code & 0x3fu));
+    return 3;
+  }
+  into[0] = (char)(0xf0u | (code >> 18));
+  into[1] = (char)(0x80u | ((code >> 12) & 0x3fu));
+  into[2] = (char)(0x80u | ((code >> 6) & 0x3fu));
+  into[3] = (char)(0x80u | (code & 0x3fu));
+  return 4;
+}
+
 static bool parseString(JsonParser *parser, Value *out) {
   parser->cursor++; /* opening quote */
 
@@ -219,34 +266,55 @@ static bool parseString(JsonParser *parser, Value *out) {
   }
 
   while (parser->cursor < parser->end && *parser->cursor != '"') {
-    char c = *parser->cursor++;
-    if (c == '\\' && parser->cursor < parser->end) {
+    /* Up to four bytes per character, because a \u escape can be any code
+     * point. Everything else writes one. */
+    char pending[4];
+    int pendingCount = 1;
+    pending[0] = *parser->cursor++;
+
+    if (pending[0] == '\\' && parser->cursor < parser->end) {
       char escaped = *parser->cursor++;
       switch (escaped) {
-        case 'n': c = '\n'; break;
-        case 't': c = '\t'; break;
-        case 'r': c = '\r'; break;
-        case 'b': c = '\b'; break;
-        case 'f': c = '\f'; break;
-        case '"': c = '"'; break;
-        case '\\': c = '\\'; break;
-        case '/': c = '/'; break;
+        case 'n': pending[0] = '\n'; break;
+        case 't': pending[0] = '\t'; break;
+        case 'r': pending[0] = '\r'; break;
+        case 'b': pending[0] = '\b'; break;
+        case 'f': pending[0] = '\f'; break;
+        case '"': pending[0] = '"'; break;
+        case '\\': pending[0] = '\\'; break;
+        case '/': pending[0] = '/'; break;
         case 'u': {
-          /* Only the Basic Latin range is decoded; anything else is passed
-           * through as a literal '?', matching the ASCII-only string model. */
-          if (parser->end - parser->cursor < 4) break;
-          char digits[5] = {parser->cursor[0], parser->cursor[1], parser->cursor[2],
-                            parser->cursor[3], '\0'};
-          parser->cursor += 4;
-          long code = strtol(digits, NULL, 16);
-          c = code < 128 ? (char)code : '?';
+          /* Decoded to UTF-8. This used to answer a literal '?' for anything
+           * above 127 — a silent corruption of every accented character that
+           * arrived escaped, and a difference from both the source lexer and
+           * every other JSON reader. A surrogate pair is two escapes meaning
+           * one code point, and is joined here rather than written as two
+           * unpaired halves. */
+          long code = readHex4(parser);
+          if (code < 0) {
+            free(buffer);
+            return false; /* not four hex digits */
+          }
+          if (code >= 0xd800 && code <= 0xdbff &&
+              parser->end - parser->cursor >= 6 && parser->cursor[0] == '\\' &&
+              parser->cursor[1] == 'u') {
+            const char *before = parser->cursor;
+            parser->cursor += 2;
+            long low = readHex4(parser);
+            if (low >= 0xdc00 && low <= 0xdfff) {
+              code = 0x10000 + (code - 0xd800) * 0x400 + (low - 0xdc00);
+            } else {
+              parser->cursor = before; /* not a pair after all */
+            }
+          }
+          pendingCount = encodeUtf8((unsigned long)code, pending);
           break;
         }
-        default: c = escaped; break;
+        default: pending[0] = escaped; break;
       }
     }
 
-    if (length + 2 > capacity) {
+    while (length + (size_t)pendingCount + 1 > capacity) {
       capacity *= 2;
       char *grown = (char *)realloc(buffer, capacity);
       if (grown == NULL) {
@@ -256,7 +324,7 @@ static bool parseString(JsonParser *parser, Value *out) {
       }
       buffer = grown;
     }
-    buffer[length++] = c;
+    for (int i = 0; i < pendingCount; i++) buffer[length++] = pending[i];
   }
 
   if (parser->cursor >= parser->end) {

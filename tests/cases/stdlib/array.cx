@@ -1,0 +1,53 @@
+import { splice, insertAt, removeAt, removeValue, swapped, rotated, reversed,
+         sortBy, sortWith, dedupe, binarySearch, insertionIndex, flattenDeep,
+         first, last, isEmpty, filled, padded } from "std:array";
+import { equal, deepEqual, ok, notOk } from "std:assert";
+
+const source = [1, 2, 3, 4, 5];
+
+deepEqual(splice(source, 1, 2), [1, 4, 5]);
+deepEqual(splice(source, 1, 2, "a", "b"), [1, "a", "b", 4, 5]);
+deepEqual(splice(source, -2, 1), [1, 2, 3, 5]);
+deepEqual(splice(source, 1), [1]);
+deepEqual(splice(source, 0, 0, 0), [0, 1, 2, 3, 4, 5]);
+deepEqual(splice(source, 99, 3), [1, 2, 3, 4, 5]);
+deepEqual(source, [1, 2, 3, 4, 5], "splice does not touch its argument");
+
+deepEqual(insertAt(source, 2, "x"), [1, 2, "x", 3, 4, 5]);
+deepEqual(removeAt(source, 0), [2, 3, 4, 5]);
+deepEqual(removeValue(source, 3), [1, 2, 4, 5]);
+deepEqual(removeValue(source, 99), [1, 2, 3, 4, 5]);
+deepEqual(swapped(source, 0, 4), [5, 2, 3, 4, 1]);
+deepEqual(rotated(source, 2), [3, 4, 5, 1, 2]);
+deepEqual(rotated(source, -1), [5, 1, 2, 3, 4]);
+deepEqual(rotated([], 3), []);
+deepEqual(reversed(source), [5, 4, 3, 2, 1]);
+
+const people = [{ name: "Ada", age: 36 }, { name: "Bob", age: 24 }];
+deepEqual(sortBy(people, (p: any) => p.age)[0].name, "Bob");
+deepEqual(sortBy(people, (p: any) => p.name)[0].name, "Ada");
+deepEqual(sortWith([3, 1, 2], (a: number, b: number) => b - a), [3, 2, 1]);
+deepEqual(dedupe([1, 1, 2, 1, 3]), [1, 2, 3]);
+deepEqual(dedupe([{ id: 1 }, { id: 1 }], (x: any) => x.id).length, 1);
+
+const sorted = [10, 20, 30, 40];
+equal(binarySearch(sorted, 30), 2);
+equal(binarySearch(sorted, 35), -1);
+equal(insertionIndex(sorted, 35), 3);
+equal(insertionIndex(sorted, 5), 0);
+equal(insertionIndex(sorted, 50), 4);
+equal(binarySearch(["a", "b", "c"], "b"), 1);
+
+deepEqual(flattenDeep([1, [2, [3, [4]]]]), [1, 2, 3, 4]);
+equal(first(source), 1);
+equal(last(source), 5);
+equal(first([]), undefined);
+ok(isEmpty([]));
+notOk(isEmpty([1]));
+deepEqual(filled(3, 0), [0, 0, 0]);
+deepEqual(padded([1], 3, null), [1, null, null]);
+deepEqual(padded([1, 2, 3], 2, null), [1, 2, 3]);
+
+console.log(splice([1, 2, 3, 4], 1, 2, "x"));
+console.log(rotated(["a", "b", "c"], 1), insertionIndex([1, 3, 5], 4));
+console.log("array ok");

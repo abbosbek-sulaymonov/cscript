@@ -1,0 +1,167 @@
+/* ascii.cx — characters as codes, and the questions one asks about them.
+ *
+ * CScript's strings are bytes: `text[i]` is one byte and `charCodeAt` answers
+ * its value, so for ASCII a character and a byte are the same thing. That is
+ * what this module is about — the 128 codes, their classification, and the
+ * conversions between a character and its number.
+ *
+ * Nothing here is Unicode-aware, deliberately. A byte above 127 is part of a
+ * multi-byte sequence whose meaning cannot be decided one byte at a time, so
+ * every predicate answers false for it rather than guessing.
+ *
+ * The classification is written out arithmetically rather than with a lookup
+ * table or a regular expression: the ranges *are* the definition, and a table
+ * would be a second copy of them to keep in step.
+ */
+
+/* --- between a character and its code ------------------------------------ */
+
+/* The code of the first character, or -1 for an empty string. Not 0: that is
+ * NUL, a real character, and answering it for "nothing" would make the two
+ * indistinguishable. */
+export function code(text: string): number {
+  return text.length === 0 ? -1 : text.charCodeAt(0);
+}
+
+export function char(value: number): string {
+  if (value < 0 || value > 255 || value !== Math.floor(value)) {
+    throw new Error("ascii.char needs a whole number from 0 to 255, got " +
+                    String(value));
+  }
+  return String.fromCharCode(value);
+}
+
+/* Every code in a string, which is how a byte-level algorithm reads one. */
+export function codes(text: string): any {
+  const out: any = [];
+  for (let i = 0; i < text.length; i++) out.push(text.charCodeAt(i));
+  return out;
+}
+
+export function fromCodes(values: any): string {
+  let out = "";
+  for (const value of values) out = out + char(value);
+  return out;
+}
+
+/* --- classification ------------------------------------------------------- */
+
+/* Each takes a one-character string *or* a code, because a caller has one or
+ * the other and converting first is noise at the call site. */
+function codeOf(value: any): number {
+  return typeof value === "number" ? value : code(String(value));
+}
+
+export function isAscii(value: any): boolean {
+  const at = codeOf(value);
+  return at >= 0 && at <= 127;
+}
+
+export function isDigit(value: any): boolean {
+  const at = codeOf(value);
+  return at >= 48 && at <= 57;
+}
+
+export function isUpper(value: any): boolean {
+  const at = codeOf(value);
+  return at >= 65 && at <= 90;
+}
+
+export function isLower(value: any): boolean {
+  const at = codeOf(value);
+  return at >= 97 && at <= 122;
+}
+
+export function isAlpha(value: any): boolean {
+  return isUpper(value) || isLower(value);
+}
+
+export function isAlphanumeric(value: any): boolean {
+  return isAlpha(value) || isDigit(value);
+}
+
+/* Space, tab, newline, carriage return, vertical tab and form feed — the six
+ * the C standard calls whitespace, which is also what `trim` removes. */
+export function isSpace(value: any): boolean {
+  const at = codeOf(value);
+  return at === 32 || (at >= 9 && at <= 13);
+}
+
+/* Anything printable that is neither a letter, a digit, nor a space. */
+export function isPunctuation(value: any): boolean {
+  const at = codeOf(value);
+  if (!isAscii(at) || isAlphanumeric(at) || isSpace(at)) return false;
+  return at > 32 && at < 127;
+}
+
+/* A control character: the 32 below space, and DEL. Worth a predicate of its
+ * own because these are what a program strips before printing. */
+export function isControl(value: any): boolean {
+  const at = codeOf(value);
+  return (at >= 0 && at <= 31) || at === 127;
+}
+
+export function isPrintable(value: any): boolean {
+  const at = codeOf(value);
+  return at >= 32 && at <= 126;
+}
+
+export function isHexDigit(value: any): boolean {
+  const at = codeOf(value);
+  return isDigit(at) || (at >= 65 && at <= 70) || (at >= 97 && at <= 102);
+}
+
+/* --- case ----------------------------------------------------------------- */
+
+/* One character, by arithmetic: the 32 between 'A' and 'a' is the whole of
+ * ASCII case. `toUpperCase` on a string does the same thing and more, so
+ * these are for the code that is already working in codes. */
+export function toUpper(value: any): string {
+  const at = codeOf(value);
+  return char(isLower(at) ? at - 32 : at);
+}
+
+export function toLower(value: any): string {
+  const at = codeOf(value);
+  return char(isUpper(at) ? at + 32 : at);
+}
+
+/* --- numbers -------------------------------------------------------------- */
+
+/* The value of a digit, or -1. `Number("7")` answers 7 as well; this answers
+ * -1 rather than NaN for something that is not one, which composes without a
+ * separate check. */
+export function digitValue(value: any): number {
+  const at = codeOf(value);
+  return isDigit(at) ? at - 48 : -1;
+}
+
+export function hexValue(value: any): number {
+  const at = codeOf(value);
+  if (isDigit(at)) return at - 48;
+  if (at >= 65 && at <= 70) return at - 55;
+  if (at >= 97 && at <= 102) return at - 87;
+  return -1;
+}
+
+/* --- whole strings -------------------------------------------------------- */
+
+/* Whether every byte is ASCII — worth asking before any byte-level algorithm
+ * runs, because that is exactly the assumption it makes. */
+export function isAsciiText(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) > 127) return false;
+  }
+  return true;
+}
+
+/* Control characters replaced, so text from somewhere else can be printed
+ * without a stray escape sequence rearranging the terminal. */
+export function stripControl(text: string, replacement: string = ""): string {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const at = text.charCodeAt(i);
+    out = out + (isControl(at) ? replacement : text[i]);
+  }
+  return out;
+}

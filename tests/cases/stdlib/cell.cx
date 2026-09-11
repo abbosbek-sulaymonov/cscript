@@ -1,0 +1,51 @@
+import { Cell, Lazy, Once } from "std:cell";
+import { equal, ok, notOk, deepEqual } from "std:assert";
+
+const counter = new Cell(0);
+equal(counter.get(), 0);
+counter.set(5);
+equal(counter.get(), 5);
+equal(counter.update((n: number) => n + 1), 6);
+equal(counter.get(), 6);
+equal(counter.replace(10), 6);
+equal(counter.get(), 10);
+equal(counter.take(), 10);
+ok(counter.isEmpty);
+equal(String(new Cell("held")), "Cell(held)");
+
+/* Two closures over one Cell see each other's writes, without an enclosing
+ * `let` and without being defined in the same scope. */
+const shared = new Cell(0);
+function bump(): any { return shared.update((n: number) => n + 1); }
+function read(): any { return shared.get(); }
+bump(); bump();
+equal(read(), 2);
+
+let built = 0;
+const expensive = new Lazy(() => { built = built + 1; return "computed"; });
+notOk(expensive.isBuilt);
+equal(built, 0, "nothing runs before the first get");
+equal(expensive.get(), "computed");
+equal(expensive.get(), "computed");
+equal(built, 1);
+ok(expensive.isBuilt);
+expensive.reset();
+notOk(expensive.isBuilt);
+equal(expensive.get(), "computed");
+equal(built, 2);
+
+/* A builder answering undefined is still built only once. */
+let emptyBuilds = 0;
+const nothing = new Lazy(() => { emptyBuilds = emptyBuilds + 1; return undefined; });
+nothing.get(); nothing.get();
+equal(emptyBuilds, 1);
+
+const guard = new Once();
+let ran = 0;
+equal(guard.run(() => { ran = ran + 1; return "first"; }), "first");
+equal(guard.run(() => { ran = ran + 1; return "second"; }), "first");
+equal(ran, 1);
+ok(guard.hasRun);
+
+console.log(String(new Cell(42)), new Cell([1, 2]).get());
+console.log("cell ok");

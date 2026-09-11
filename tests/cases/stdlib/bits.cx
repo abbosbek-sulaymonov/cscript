@@ -1,0 +1,84 @@
+import { wrap, toSigned, fromSigned, and, or, xor, not, shiftLeft, shiftRight,
+         shiftRightSigned, rotateLeft, rotateRight, testBit, setBit, clearBit,
+         toggleBit, popcount, leadingZeros, trailingZeros, highestBit, isPowerOfTwo,
+         nextPowerOfTwo, toBinary, fromBinary, toHex, Bitset } from "std:bits";
+import { equal, deepEqual, ok, notOk, messageOf, throws } from "std:assert";
+
+/* CScript has no bitwise operators at all, so these are the operations rather
+ * than a layer over them. The values below were checked against Node's `&`,
+ * `|`, `^`, `~`, `<<`, `>>` and `>>>` across every combination of a spread of
+ * inputs. */
+equal(and(12, 10), 8);
+equal(or(12, 10), 14);
+equal(xor(12, 10), 6);
+equal(not(0), 4294967295);
+equal(not(4294967295), 0);
+equal(toSigned(not(0)), -1);
+equal(toSigned(2147483648), -2147483648);
+equal(fromSigned(-1), 4294967295);
+equal(wrap(-1), 4294967295);
+equal(wrap(4294967296), 0);
+equal(wrap(1.9), 1);
+
+equal(shiftLeft(1, 4), 16);
+equal(shiftLeft(1, 31), 2147483648);
+equal(shiftLeft(1, 32), 0, "everything shifted off the top is gone");
+equal(shiftRight(256, 2), 64);
+equal(shiftRight(4294967295, 28), 15);
+equal(toSigned(shiftRightSigned(4294967292, 1)), -2, "the sign is carried");
+equal(shiftRight(4294967292, 1), 2147483646, "and here it is not");
+equal(rotateLeft(1, 33), 2, "a rotation wraps rather than dropping");
+equal(rotateRight(1, 1), 2147483648);
+
+ok(testBit(5, 0)); notOk(testBit(5, 1)); ok(testBit(5, 2));
+notOk(testBit(5, 32), "out of range is false, not an error");
+equal(setBit(0, 3), 8);
+equal(clearBit(15, 0), 14);
+equal(toggleBit(1, 0), 0);
+equal(toggleBit(0, 0), 1);
+
+equal(popcount(255), 8);
+equal(popcount(0), 0);
+equal(leadingZeros(1), 31);
+equal(leadingZeros(0), 32);
+equal(trailingZeros(8), 3);
+equal(trailingZeros(0), 32);
+equal(highestBit(8), 3);
+equal(highestBit(0), -1);
+
+ok(isPowerOfTwo(1024)); notOk(isPowerOfTwo(0)); notOk(isPowerOfTwo(3));
+equal(nextPowerOfTwo(100), 128);
+equal(nextPowerOfTwo(0), 1);
+equal(nextPowerOfTwo(1), 1);
+equal(nextPowerOfTwo(4000000000), 2147483648, "rather than wrapping to nothing");
+
+equal(toBinary(10), "1010");
+equal(toBinary(10, 8), "00001010");
+equal(toBinary(0), "0");
+equal(fromBinary("1010"), 10);
+equal(fromBinary(""), 0);
+equal(messageOf(throws(() => fromBinary("102"))), "bits.fromBinary needs a binary string, got 102");
+equal(toHex(255), "ff");
+equal(toHex(255, 4), "00ff");
+
+const set = new Bitset(8);
+set.set(0).set(3).set(7);
+deepEqual(set.toArray(), [0, 3, 7]);
+equal(set.count, 3);
+ok(set.test(3)); notOk(set.test(4));
+set.clear(3);
+deepEqual(set.toArray(), [0, 7]);
+notOk(set.test(99), "out of range is false");
+equal(String(set), "Bitset(2/8)");
+
+/* Growing past the first word, which is what the class is for. */
+const wide = new Bitset();
+wide.set(0).set(31).set(32).set(100);
+deepEqual(wide.toArray(), [0, 31, 32, 100]);
+equal(wide.count, 4);
+equal(wide.size, 101);
+deepEqual([...wide], [0, 31, 32, 100]);
+
+console.log(and(12, 10), or(12, 10), xor(12, 10), toSigned(not(0)));
+console.log(toBinary(200, 8), toHex(48879), popcount(4294967295));
+console.log("bits ok");

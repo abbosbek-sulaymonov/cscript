@@ -1,0 +1,73 @@
+import { parse, parseOr, stringify, pretty, stringifyStable } from "std:json";
+import { equal, deepEqual, ok, notOk } from "std:assert";
+
+/* The reason this module exists: the built-in parser reports bad input as a
+ * runtime error, and a runtime error is not catchable — so a program that
+ * parses anything it did not write could not survive a malformed one. */
+const parsed = parse('{"a":[1,2,{"b":null}],"c":true,"d":"text"}');
+ok(parsed.isOk);
+deepEqual(parsed.value, { a: [1, 2, { b: null }], c: true, d: "text" });
+
+deepEqual(parse("[]").value, []);
+deepEqual(parse("{}").value, {});
+deepEqual(parse("[1.5,-2,3e2,-4.5e-3,0]").value, [1.5, -2, 300, -0.0045, 0]);
+equal(parse('"plain"').value, "plain");
+equal(parse("null").value, null);
+equal(parse("true").value, true);
+equal(parse("false").value, false);
+deepEqual(parse('  { "spaced" : [ 1 , 2 ] }  ').value, { spaced: [1, 2] });
+equal(parse('"esc\\"\\\\\\/\\n\\t\\r"').value, 'esc"\\/\n\t\r');
+equal(parse('"\\u0041\\u0042"').value, "AB");
+
+/* A failure is a value, with the position in it. */
+ok(parse("{bad}").isErr);
+equal(parse("{bad}").error, "at 1: a key must be a quoted string");
+equal(parse("[1,]").error, "at 3: JSON has no trailing commas");
+equal(parse('{"a":1,}').error, "at 7: JSON has no trailing commas");
+equal(parse("// nope").error, "at 0: JSON has no comments");
+equal(parse("{'a':1}").error, "at 1: a key must be a quoted string");
+equal(parse("'a'").error, "at 0: JSON strings use double quotes");
+equal(parse("1 2").error, "at 2: unexpected text after the value");
+equal(parse("").error, "at 0: the text ended where a value was expected");
+equal(parse('"unterminated').error, "at 13: the text ended inside a string");
+equal(parse("[1").error, "at 2: expected ',' or ']' in an array");
+equal(parse('{"a"').error, "at 4: expected ':' after a key");
+equal(parse("tru").error, "at 0: expected 'true'");
+equal(parse('"\\q"').error, "at 3: unknown escape '\\q'");
+
+deepEqual(parseOr("nope", { fallback: true }), { fallback: true });
+deepEqual(parseOr("[1]", []), [1]);
+
+equal(stringify({ b: 1, a: [1, "x"] }), '{"b":1,"a":[1,"x"]}');
+equal(stringify([]), "[]");
+equal(stringify({}), "{}");
+equal(stringify(null), "null");
+equal(stringify(undefined), "null");
+equal(stringify(1.5), "1.5");
+equal(stringify(NaN), "null", "which has no JSON spelling");
+equal(stringify(Infinity), "null");
+equal(stringify("a\nb"), '"a\\nb"');
+equal(stringify({ a: undefined, b: 1 }), '{"b":1}', "a key with no value is left out");
+
+/* Sorted keys are what make output diffable. */
+equal(stringifyStable({ b: 1, a: 2 }, 0), '{"a":2,"b":1}');
+equal(pretty({ a: [1, 2] }), '{\n  "a": [\n    1,\n    2\n  ]\n}');
+equal(pretty({}, 2), "{}");
+
+/* A Map keeps its entries here. The built-in printer does not: Node writes
+ * `{}` for one and loses everything in it, and CScript refuses it outright —
+ * see docs/JAVASCRIPT.md. Either way, this is the one that can write it. */
+equal(stringify(new Map([["k", 1]])), '{"k":1}');
+equal(stringify(new Set([1, 2])), "[1,2]");
+equal(stringify(new Date(0)), '"1970-01-01T00:00:00.000Z"');
+
+/* Round-trips agree with the built-in parser on everything it can read. */
+const samples: any = ['{"a":1}', "[1,2,3]", '"x"', "null", "[[1],[2]]", '{"n":-1.5e3}'];
+for (const text of samples) {
+  equal(JSON.stringify(parse(text).value), JSON.stringify(JSON.parse(text)));
+}
+
+console.log(stringify({ b: 1, a: 2 }), stringifyStable({ b: 1, a: 2 }, 0));
+console.log(pretty({ a: [1, { b: 2 }] }));
+console.log(parse("{oops}").error);
+console.log("json ok");

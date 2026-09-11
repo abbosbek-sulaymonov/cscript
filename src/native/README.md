@@ -9,7 +9,7 @@ here reaches into the interpreter's internals — that separation is why
 | Namespaces | Holds |
 | --- | --- |
 | [`native.c`](native.c) | The global environment: `console`, the error constructors, `Array`'s statics, the timers, `process`, and the one function that builds all of it |
-| [`native_object.c`](native_object.c) | `Object` — own properties, in the order the object holds them |
+| [`native_object.c`](native_object.c) | `Object` — own properties in the order held, and `kindOf`, which is the only way to ask what a value is |
 | [`native_descriptor.c`](native_descriptor.c) | `Object.defineProperty` and `getOwnPropertyDescriptor` — the only way from CScript to say what an accessor is |
 | [`native_math.c`](native_math.c) | `Math`, and the numeric functions with nowhere else to be |
 | [`native_json.c`](native_json.c) | `JSON.stringify` and `JSON.parse` |

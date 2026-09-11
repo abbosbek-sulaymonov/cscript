@@ -1,0 +1,267 @@
+/* time.cx — durations, and measuring how long something took.
+ *
+ * A `Date` is an instant: the millisecond it happened. A duration is a
+ * *length* of time, and JavaScript has no type for one — so every program
+ * writes `5 * 60 * 1000` and every reader has to work out what it meant. Here
+ * a duration is still a number of milliseconds, but it is built and read
+ * through names: `minutes(5)` and `formatDuration(300000)`.
+ *
+ * Milliseconds and not an opaque type, deliberately: arithmetic on durations
+ * is the whole point of having them, and a class would need `plus` and `times`
+ * to get back what `+` and `*` already do.
+ *
+ * Everything here is UTC. A local time needs a timezone database, which is a
+ * project of its own — and the getters CScript's Date offers are the UTC ones.
+ */
+
+/* --- the units ------------------------------------------------------------ */
+
+export const MILLISECOND: number = 1;
+export const SECOND: number = 1000;
+export const MINUTE: number = 60000;
+export const HOUR: number = 3600000;
+export const DAY: number = 86400000;
+export const WEEK: number = 604800000;
+
+export function milliseconds(count: number): number {
+  return count;
+}
+
+export function seconds(count: number): number {
+  return count * SECOND;
+}
+
+export function minutes(count: number): number {
+  return count * MINUTE;
+}
+
+export function hours(count: number): number {
+  return count * HOUR;
+}
+
+export function days(count: number): number {
+  return count * DAY;
+}
+
+/* --- reading a duration --------------------------------------------------- */
+
+/* The whole and fractional parts, for turning one back into a number of
+ * whatever unit the caller thinks in. */
+export function toSeconds(duration: number): number {
+  return duration / SECOND;
+}
+
+export function toMinutes(duration: number): number {
+  return duration / MINUTE;
+}
+
+export function toHours(duration: number): number {
+  return duration / HOUR;
+}
+
+export function toDays(duration: number): number {
+  return duration / DAY;
+}
+
+/* A duration broken into its parts, none of which overflows into the next:
+ * `{ days, hours, minutes, seconds, milliseconds }`. Negative durations keep
+ * their sign on the whole thing rather than on each part, which is why
+ * `negative` is there beside them. */
+export function parts(duration: number): any {
+  const negative = duration < 0;
+  let left = Math.floor(Math.abs(duration));
+  const wholeDays = Math.floor(left / DAY);
+  left = left - wholeDays * DAY;
+  const wholeHours = Math.floor(left / HOUR);
+  left = left - wholeHours * HOUR;
+  const wholeMinutes = Math.floor(left / MINUTE);
+  left = left - wholeMinutes * MINUTE;
+  const wholeSeconds = Math.floor(left / SECOND);
+  left = left - wholeSeconds * SECOND;
+  return {
+    negative: negative,
+    days: wholeDays,
+    hours: wholeHours,
+    minutes: wholeMinutes,
+    seconds: wholeSeconds,
+    milliseconds: left,
+  };
+}
+
+/* "1h 2m 3s", with the units that are zero left out — except for a duration
+ * of nothing, which is "0ms" rather than the empty string.
+ *
+ * Two units by default, because more is noise: "1h 2m" is what someone reading
+ * a log wants, not "1h 2m 3s 456ms". Ask for more with `most`. */
+export function formatDuration(duration: number, most: number = 2): string {
+  const broken = parts(duration);
+  const named: any = [
+    [broken.days, "d"],
+    [broken.hours, "h"],
+    [broken.minutes, "m"],
+    [broken.seconds, "s"],
+    [broken.milliseconds, "ms"],
+  ];
+
+  const out: any = [];
+  for (const [amount, unit] of named) {
+    if (amount === 0 && out.length === 0) continue;
+    if (out.length >= most) break;
+    out.push(String(amount) + unit);
+  }
+  if (out.length === 0) return "0ms";
+  return (broken.negative ? "-" : "") + out.join(" ");
+}
+
+/* "1h30m", "500ms", "2.5s" — the inverse, for a duration that arrives as text
+ * from a configuration file or an argument.
+ *
+ * Answers NaN rather than throwing for text it cannot read, so a caller can
+ * decide whether that is a mistake or a default. */
+export function parseDuration(text: string): number {
+  const units: any = new Map([["ms", MILLISECOND], ["s", SECOND], ["m", MINUTE],
+                              ["h", HOUR], ["d", DAY], ["w", WEEK]]);
+  let total = 0;
+  let seen = false;
+  let at = 0;
+  const trimmed = text.trim();
+
+  while (at < trimmed.length) {
+    /* A number, then the letters after it. Both are read by hand because a
+     * regular expression would have to be as long as this loop. */
+    let start = at;
+    while (at < trimmed.length && (isDigitAt(trimmed, at) || trimmed[at] === "." ||
+                                   trimmed[at] === "-" || trimmed[at] === "+")) {
+      at = at + 1;
+    }
+    if (at === start) return NaN;
+    const amount = Number(trimmed.slice(start, at));
+    if (amount !== amount) return NaN;
+
+    start = at;
+    while (at < trimmed.length && !isDigitAt(trimmed, at) && trimmed[at] !== " ") {
+      at = at + 1;
+    }
+    const unit = trimmed.slice(start, at).toLowerCase();
+    if (!units.has(unit)) return NaN;
+
+    total = total + amount * units.get(unit);
+    seen = true;
+    while (at < trimmed.length && trimmed[at] === " ") at = at + 1;
+  }
+
+  return seen ? total : NaN;
+}
+
+function isDigitAt(text: string, index: number): boolean {
+  const code = text.charCodeAt(index);
+  return code >= 48 && code <= 57;
+}
+
+/* --- instants ------------------------------------------------------------- */
+
+export function now(): number {
+  return Date.now();
+}
+
+/* An ISO 8601 string, which is what a log line and a filename both want:
+ * sortable as text, and unambiguous about the timezone. */
+export function formatInstant(instant: number): string {
+  return new Date(instant).toISOString();
+}
+
+/* Just the clock part, for output a human reads rather than a machine sorts. */
+export function formatClock(instant: number, withMilliseconds: boolean = false): string {
+  const when = new Date(instant);
+  const clock = pad(when.getUTCHours()) + ":" + pad(when.getUTCMinutes()) + ":" +
+                pad(when.getUTCSeconds());
+  if (!withMilliseconds) return clock;
+  return clock + "." + String(when.getUTCMilliseconds()).padStart(3, "0");
+}
+
+export function formatDate(instant: number): string {
+  const when = new Date(instant);
+  return String(when.getUTCFullYear()) + "-" + pad(when.getUTCMonth() + 1) + "-" +
+         pad(when.getUTCDate());
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+/* The start of the day an instant falls in, which is what grouping by day
+ * needs: two instants are the same day exactly when their `startOfDay` agree. */
+export function startOfDay(instant: number): number {
+  return Math.floor(instant / DAY) * DAY;
+}
+
+export function sameDay(first: number, second: number): boolean {
+  return startOfDay(first) === startOfDay(second);
+}
+
+/* --- measuring ------------------------------------------------------------ */
+
+/* How long something takes, without the two `Date.now()` calls and the
+ * subtraction being written out every time — and without the second one being
+ * forgotten on an early return.
+ *
+ * `lap` answers the time since the last lap, so a sequence of steps can be
+ * measured with one stopwatch rather than one per step. */
+export class Stopwatch {
+  /* Undefined rather than 0 for "not started": 0 is a real instant — the first
+   * of January 1970 — so a stopwatch that had never been started would
+   * otherwise report fifty-odd years of elapsed time. */
+  #startedAt: any = undefined;
+  #lappedAt: any = undefined;
+  #stoppedAt: any = undefined;
+
+  constructor(startNow: boolean = true) {
+    if (startNow) this.start();
+  }
+
+  start(): any {
+    this.#startedAt = Date.now();
+    this.#lappedAt = this.#startedAt;
+    this.#stoppedAt = undefined;
+    return this;
+  }
+
+  /* Milliseconds since the start — frozen once stopped, so reading it twice
+   * after the fact answers the same thing, and zero before it has begun. */
+  get elapsed(): number {
+    if (this.#startedAt === undefined) return 0;
+    const until = this.#stoppedAt === undefined ? Date.now() : this.#stoppedAt;
+    return until - this.#startedAt;
+  }
+
+  get isRunning(): boolean {
+    return this.#startedAt !== undefined && this.#stoppedAt === undefined;
+  }
+
+  /* Zero before the first start, for the same reason. */
+  lap(): number {
+    if (this.#startedAt === undefined) return 0;
+    const at = Date.now();
+    const since = at - this.#lappedAt;
+    this.#lappedAt = at;
+    return since;
+  }
+
+  stop(): number {
+    if (this.#startedAt === undefined) return 0;
+    if (this.#stoppedAt === undefined) this.#stoppedAt = Date.now();
+    return this.elapsed;
+  }
+
+  toString(): string {
+    return "Stopwatch(" + formatDuration(this.elapsed, 3) + ")";
+  }
+}
+
+/* Runs `body` and answers `{ value, elapsed }`. The one thing a stopwatch is
+ * used for, in one call. */
+export function measure(body: any): any {
+  const watch = new Stopwatch();
+  const value = body();
+  return { value: value, elapsed: watch.stop() };
+}

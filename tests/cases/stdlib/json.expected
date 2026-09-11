@@ -1,0 +1,11 @@
+{"b":1,"a":2} {"a":2,"b":1}
+{
+  "a": [
+    1,
+    {
+      "b": 2
+    }
+  ]
+}
+at 1: a key must be a quoted string
+json ok

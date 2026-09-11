@@ -215,6 +215,19 @@ running. The local zone is still available where it is asked for by name —
 `getHours`, `getDay` and `getTimezoneOffset` all use it, and so does
 `new Date(y, m, d)`.
 
+### `JSON.stringify` refuses what it cannot write
+
+```ts
+JSON.stringify(new Map([["k", 1]]))   // undefined here, "{}" in JavaScript
+```
+
+A Map has no own enumerable properties, so JavaScript writes an empty object
+and silently loses everything in it. CScript answers `undefined` instead — the
+same thing it answers for a function — because a file that is missing its
+contents for a reason nobody can see is worse than one that was never written.
+[`std:json`](../library/json/README.md) offers the third answer: its
+`stringify` writes the entries.
+
 ### The file and process APIs are not Node's
 
 CScript reaches a file through a global `fs`, not through an imported module,

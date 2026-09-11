@@ -52,9 +52,10 @@ growing. A file in one group names a header in another through a path from
 `src/` — `runtime/vm_internal.h` — so the direction of a dependency is visible
 at the include rather than in a chain of dots.
 
-`library/` is the one part of the implementation that is not C. Ten modules
-written in the language, one directory each — `library/iter/iter.cx` beside
-the README that specifies it — imported as `std:name` and resolved against the
+`library/` is the one part of the implementation that is not C. Twenty-four
+modules written in the language, one directory each — `library/iter/iter.cx`
+beside the README that specifies it — imported as `std:name` and resolved
+against the
 binary's own location rather than the importing file, because a script
 anywhere on disk has to mean the same file by `std:iter`. It is checked
 against Node the way the language is: `tests/std_node.sh` rewrites the `std:`

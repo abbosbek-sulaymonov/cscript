@@ -495,6 +495,17 @@ typedef struct ObjUpvalue {
   Value *location;
   Value closed;
   struct ObjUpvalue *next; /* the VM's list of still-open upvalues */
+
+  /* The fiber whose stack `location` points into, while this upvalue is open,
+   * and NULL for the main stack.
+   *
+   * It is what keeps that fiber alive. A suspended fiber can be reachable from
+   * nothing else: an async function awaiting a promise that is held by an
+   * object on its own stack is a cycle, and the thing that will eventually
+   * settle that promise is a *different* fiber holding this upvalue. Without
+   * the link, the collector freed the stack the upvalue points into and the
+   * variable came back as whatever the memory held next. */
+  struct ObjFiber *home;
 } ObjUpvalue;
 
 /* A dense array. Sparse arrays and holes are deliberately not supported: they

@@ -1,6 +1,6 @@
 # `library/` — the standard library
 
-Twelve modules, written in CScript, imported by name:
+Twenty-four modules, written in CScript, imported by name:
 
 ```ts
 import { range, zip } from "std:iter";
@@ -25,20 +25,59 @@ This is deliberately *not* the C built-ins. `Math`, `JSON`, `Map`, `Promise`,
 [`../src/native/`](../src/native/README.md) and need no import. What is here is
 the layer above: the things you would otherwise write again in every program.
 
+### Testing
+
 | Module | Holds | Reference |
 | --- | --- | --- |
-| [`std:assert`](assert) | Checking what a program believes — `ok`, `equal`, `deepEqual`, `closeTo`, `throws` | [README](assert/README.md) |
-| [`std:iter`](iter) | Sequences, lazily — `range`, `zip`, `chunk`, `groupBy`, `unique` | [README](iter/README.md) |
-| [`std:func`](func) | Building a function out of others — `pipe`, `compose`, `memoize`, `once` | [README](func/README.md) |
-| [`std:collections`](collections) | The four structures a Map and an array do not cover — `Deque`, `PriorityQueue`, `Counter`, `DefaultMap` | [README](collections/README.md) |
+| [`std:assert`](assert) | `ok`, `equal`, `deepEqual`, `closeTo`, `throws` — and what a runtime error means for `throws` | [README](assert/README.md) |
+
+### Sequences and functions
+
+| Module | Holds | Reference |
+| --- | --- | --- |
+| [`std:iter`](iter) | Lazily, one element at a time — `range`, `zip`, `chunk`, `groupBy`, `unique` | [README](iter/README.md) |
+| [`std:array`](array) | Eagerly, on arrays — `splice`, `sortBy`, `binarySearch`, `dedupe` | [README](array/README.md) |
+| [`std:func`](func) | `pipe`, `compose`, `memoize`, `once`, `partial`, `curry2` | [README](func/README.md) |
+| [`std:cmp`](cmp) | Comparators, including the string one the language cannot write | [README](cmp/README.md) |
+| [`std:range`](range) | An interval as a value — `contains`, `clamp`, `intersect` | [README](range/README.md) |
+
+### Data
+
+| Module | Holds | Reference |
+| --- | --- | --- |
+| [`std:collections`](collections) | `Deque`, `PriorityQueue`, `Counter`, `DefaultMap` | [README](collections/README.md) |
 | [`std:result`](result) | A failure or an absence as a value — `Result`, `Option` | [README](result/README.md) |
-| [`std:strings`](strings) | The string work that is not one method call — `camelCase`, `wrap`, `dedent`, `format` | [README](strings/README.md) |
-| [`std:stats`](stats) | Summarising numbers — `mean`, `median`, `stdev`, `quantile`, `describe` | [README](stats/README.md) |
-| [`std:random`](random) | Randomness you can seed, and therefore repeat — `Random` | [README](random/README.md) |
-| [`std:events`](events) | One thing announcing, several listening — `EventEmitter` | [README](events/README.md) |
-| [`std:async`](async) | Waiting, and not doing everything at once — `sleep`, `timeout`, `retry`, `pool` | [README](async/README.md) |
-| [`std:io`](io) | Files as Results, and the two streams — `readText`, `writeLines`, `out`, `StringWriter` | [README](io/README.md) |
-| [`std:os`](os) | Where the program is running — `env`, `args`, `cwd`, `platform`, `exit` | [README](os/README.md) |
+| [`std:kind`](kind) | What a value *is* — the question `typeof` cannot answer | [README](kind/README.md) |
+| [`std:clone`](clone) | `shallow`, `deep`, `deepReport`, `withFields` | [README](clone/README.md) |
+| [`std:cell`](cell) | A value in a box, and one computed once — `Cell`, `Lazy`, `Once` | [README](cell/README.md) |
+| [`std:bits`](bits) | The bitwise operations the language does not have, and a `Bitset` | [README](bits/README.md) |
+
+### Text, numbers and time
+
+| Module | Holds | Reference |
+| --- | --- | --- |
+| [`std:strings`](strings) | `camelCase`, `wrap`, `dedent`, `truncate`, `format` | [README](strings/README.md) |
+| [`std:ascii`](ascii) | Characters as codes, and their classification | [README](ascii/README.md) |
+| [`std:json`](json) | A parser that fails as a value, and a printer with sorted keys | [README](json/README.md) |
+| [`std:stats`](stats) | `mean`, `median`, `stdev`, `quantile`, `describe` | [README](stats/README.md) |
+| [`std:random`](random) | Randomness you can seed, and therefore repeat | [README](random/README.md) |
+| [`std:time`](time) | Durations, formatting, and a `Stopwatch` | [README](time/README.md) |
+| [`std:path`](path) | File paths as pure text — `join`, `dirname`, `relative` | [README](path/README.md) |
+
+### The world outside
+
+| Module | Holds | Reference |
+| --- | --- | --- |
+| [`std:io`](io) | Files as Results, and the two streams — `readText`, `out`, `StringWriter` | [README](io/README.md) |
+| [`std:os`](os) | `env`, `args`, `cwd`, `platform`, `exit` | [README](os/README.md) |
+
+### Asynchrony
+
+| Module | Holds | Reference |
+| --- | --- | --- |
+| [`std:async`](async) | `sleep`, `timeout`, `retry`, `pool`, `debounce` | [README](async/README.md) |
+| [`std:events`](events) | `EventEmitter` | [README](events/README.md) |
+| [`std:sync`](sync) | Ordering async work — `Mutex`, `Semaphore`, `WaitGroup`, `Channel` | [README](sync/README.md) |
 
 [`../examples/library.cx`](../examples/library.cx) uses six of them on one
 small problem, and is checked against Node on every `make test-node`.

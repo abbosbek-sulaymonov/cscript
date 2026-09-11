@@ -1,0 +1,71 @@
+import { shallow, deep, deepReport, withFields, withoutFields, pickFields } from "std:clone";
+import { equal, deepEqual, ok, notOk, isDeepEqual } from "std:assert";
+
+const nested = { a: 1, inner: { b: 2 }, list: [1, [2]] };
+
+const flat = shallow(nested);
+ok(isDeepEqual(flat, nested));
+flat.a = 99;
+equal(nested.a, 1, "the top level is copied");
+flat.inner.b = 99;
+equal(nested.inner.b, 99, "one level down is shared");
+nested.inner.b = 2;
+
+const full = deep(nested);
+ok(isDeepEqual(full, nested));
+full.inner.b = 99;
+equal(nested.inner.b, 2, "deep copies all the way down");
+full.list[1][0] = 99;
+equal(nested.list[1][0], 2);
+
+deepEqual(deep([1, [2, [3]]]), [1, [2, [3]]]);
+equal(deep(5), 5);
+equal(deep(null), null);
+equal(deep("text"), "text");
+
+/* A cycle comes back as a cycle rather than as an overflow. */
+const looped: any = { name: "self" };
+looped.self = looped;
+const copiedLoop = deep(looped);
+equal(copiedLoop.name, "self");
+ok(copiedLoop.self === copiedLoop, "the cycle points at the copy");
+notOk(copiedLoop.self === looped);
+
+/* Two references to one object stay one object in the copy. */
+const shared = { n: 1 };
+const twice = deep({ left: shared, right: shared });
+ok(twice.left === twice.right);
+notOk(twice.left === shared);
+
+/* A Map, a Set and a Date are copied, keys and all. */
+const withCollections = { m: new Map([["k", { n: 1 }]]), s: new Set([1, 2]),
+                          d: new Date(1000) };
+const copiedCollections = deep(withCollections);
+equal(copiedCollections.m.get("k").n, 1);
+notOk(copiedCollections.m === withCollections.m);
+notOk(copiedCollections.m.get("k") === withCollections.m.get("k"));
+deepEqual([...copiedCollections.s], [1, 2]);
+notOk(copiedCollections.s === withCollections.s);
+equal(copiedCollections.d.getTime(), 1000);
+notOk(copiedCollections.d === withCollections.d);
+ok(isDeepEqual(copiedCollections, withCollections), "and the copy is equal to it");
+
+/* A class instance cannot be taken apart from outside, so it is shared — and
+ * `deepReport` names where, rather than leaving a half-copy to be discovered. */
+class Holder { value: number = 1; }
+const report = deepReport({ a: 1, held: new Holder() });
+equal(report.shared.length, 1);
+equal(report.shared[0], "held (instance)");
+ok(report.value.held === undefined ? false : true);
+equal(deepReport({ a: 1, b: { c: 2 }, m: new Map() }).shared.length, 0,
+      "everything structural is copied");
+
+deepEqual(withFields({ a: 1, b: 2 }, { b: 3 }), { a: 1, b: 3 });
+deepEqual(withFields({ a: 1 }, { b: 2 }), { a: 1, b: 2 });
+deepEqual(withoutFields({ a: 1, b: 2, c: 3 }, ["b"]), { a: 1, c: 3 });
+deepEqual(pickFields({ a: 1, b: 2 }, ["a", "z"]), { a: 1 });
+
+console.log(deep({ a: [1, { b: 2 }] }));
+console.log([...deep(new Map([["a", 1]]))]);
+console.log(deepReport({ kept: 1, held: new Holder() }).shared);
+console.log("clone ok");

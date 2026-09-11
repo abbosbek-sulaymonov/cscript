@@ -1,0 +1,445 @@
+/* json.cx — JSON that can fail without ending the program.
+ *
+ * The built-in `JSON.parse` reports bad input as a *runtime* error, and a
+ * runtime error is not catchable in CScript. So a program that parses anything
+ * it did not write — a config file, an argument, a response — cannot survive a
+ * malformed one. That is the reason this module exists: the parser here is
+ * written in CScript, so a failure is a [`Result`](../result) with a position
+ * in it rather than the end of the process.
+ *
+ * The printer is also written out rather than wrapping `JSON.stringify`,
+ * because the two things it needs — indentation, and keys in a stable order —
+ * are what makes JSON output diffable, and the built-in offers neither.
+ *
+ * It is JSON, not JavaScript: no comments, no trailing commas, no unquoted
+ * keys, no single quotes. Each is refused with a message saying so, because
+ * every one of them is a thing someone will have written by hand.
+ */
+import { Result } from "std:result";
+import { kindOf } from "std:kind";
+
+/* --- parsing -------------------------------------------------------------- */
+
+/* `Result.ok(value)`, or `Result.err("at 12: expected a value")`.
+ *
+ * The position is a character offset, which is what a caller needs to point at
+ * the problem — a line and column can be worked out from the text and the
+ * offset, and cannot be recovered from a line and column alone. */
+export function parse(text: string): any {
+  const state = { text: text, at: 0, error: "" };
+  skipSpace(state);
+  const value = parseValue(state);
+  if (state.error !== "") return Result.err(state.error);
+
+  skipSpace(state);
+  if (state.at < text.length) {
+    return Result.err(complain(state, "unexpected text after the value"));
+  }
+  return Result.ok(value);
+}
+
+/* The same thing for a caller who would rather have a fallback than a Result.
+ * `parseOr(text, {})` is the shape most configuration reading takes. */
+export function parseOr(text: string, fallback: any): any {
+  return parse(text).unwrapOr(fallback);
+}
+
+function complain(state: any, message: string): string {
+  return "at " + String(state.at) + ": " + message;
+}
+
+function fail(state: any, message: string) {
+  if (state.error === "") state.error = complain(state, message);
+}
+
+function skipSpace(state: any) {
+  while (state.at < state.text.length) {
+    const character = state.text[state.at];
+    if (character === " " || character === "\t" || character === "\n" ||
+        character === "\r") {
+      state.at = state.at + 1;
+      continue;
+    }
+    /* A comment is the most common thing wrongly written in JSON, so it is
+     * named rather than reported as "unexpected /". */
+    if (character === "/") {
+      fail(state, "JSON has no comments");
+      return;
+    }
+    return;
+  }
+}
+
+function parseValue(state: any): any {
+  if (state.error !== "") return undefined;
+  if (state.at >= state.text.length) {
+    fail(state, "the text ended where a value was expected");
+    return undefined;
+  }
+
+  const character = state.text[state.at];
+  if (character === "{") return parseObject(state);
+  if (character === "[") return parseArray(state);
+  if (character === "\"") return parseString(state);
+  if (character === "t") return parseWord(state, "true", true);
+  if (character === "f") return parseWord(state, "false", false);
+  if (character === "n") return parseWord(state, "null", null);
+  if (character === "'") {
+    fail(state, "JSON strings use double quotes");
+    return undefined;
+  }
+  if (character === "-" || isDigit(character)) return parseNumber(state);
+
+  fail(state, "expected a value, found '" + character + "'");
+  return undefined;
+}
+
+function parseWord(state: any, word: string, value: any): any {
+  if (state.text.slice(state.at, state.at + word.length) !== word) {
+    fail(state, "expected '" + word + "'");
+    return undefined;
+  }
+  state.at = state.at + word.length;
+  return value;
+}
+
+function parseObject(state: any): any {
+  state.at = state.at + 1; /* the brace */
+  const out: any = {};
+  skipSpace(state);
+  if (state.error !== "") return undefined;
+
+  if (state.text[state.at] === "}") {
+    state.at = state.at + 1;
+    return out;
+  }
+
+  while (true) {
+    skipSpace(state);
+    if (state.error !== "") return undefined;
+    if (state.text[state.at] !== "\"") {
+      fail(state, "a key must be a quoted string");
+      return undefined;
+    }
+    const key = parseString(state);
+    if (state.error !== "") return undefined;
+
+    skipSpace(state);
+    if (state.text[state.at] !== ":") {
+      fail(state, "expected ':' after a key");
+      return undefined;
+    }
+    state.at = state.at + 1;
+
+    skipSpace(state);
+    const value = parseValue(state);
+    if (state.error !== "") return undefined;
+    out[key] = value;
+
+    skipSpace(state);
+    const next = state.text[state.at];
+    if (next === ",") {
+      state.at = state.at + 1;
+      skipSpace(state);
+      /* The other hand-written mistake: a comma before the closing brace. */
+      if (state.text[state.at] === "}") {
+        fail(state, "JSON has no trailing commas");
+        return undefined;
+      }
+      continue;
+    }
+    if (next === "}") {
+      state.at = state.at + 1;
+      return out;
+    }
+    fail(state, "expected ',' or '}' in an object");
+    return undefined;
+  }
+  return out;
+}
+
+function parseArray(state: any): any {
+  state.at = state.at + 1; /* the bracket */
+  const out: any = [];
+  skipSpace(state);
+  if (state.error !== "") return undefined;
+
+  if (state.text[state.at] === "]") {
+    state.at = state.at + 1;
+    return out;
+  }
+
+  while (true) {
+    skipSpace(state);
+    const value = parseValue(state);
+    if (state.error !== "") return undefined;
+    out.push(value);
+
+    skipSpace(state);
+    const next = state.text[state.at];
+    if (next === ",") {
+      state.at = state.at + 1;
+      skipSpace(state);
+      if (state.text[state.at] === "]") {
+        fail(state, "JSON has no trailing commas");
+        return undefined;
+      }
+      continue;
+    }
+    if (next === "]") {
+      state.at = state.at + 1;
+      return out;
+    }
+    fail(state, "expected ',' or ']' in an array");
+    return undefined;
+  }
+  return out;
+}
+
+function parseString(state: any): any {
+  state.at = state.at + 1; /* the opening quote */
+  let out = "";
+  while (state.at < state.text.length) {
+    const character = state.text[state.at];
+    if (character === "\"") {
+      state.at = state.at + 1;
+      return out;
+    }
+    if (character === "\\") {
+      state.at = state.at + 1;
+      const escape = state.text[state.at];
+      state.at = state.at + 1;
+      if (escape === "\"") { out = out + "\""; continue; }
+      if (escape === "\\") { out = out + "\\"; continue; }
+      if (escape === "/") { out = out + "/"; continue; }
+      if (escape === "n") { out = out + "\n"; continue; }
+      if (escape === "t") { out = out + "\t"; continue; }
+      if (escape === "r") { out = out + "\r"; continue; }
+      if (escape === "b") { out = out + "\b"; continue; }
+      if (escape === "f") { out = out + "\f"; continue; }
+      if (escape === "u") {
+        /* Four hex digits, encoded as UTF-8 — which is what a CScript string
+         * holds, and what the built-in parser produces for the same input.
+         * Writing the code as one byte would be right only below 128 and
+         * would quietly corrupt everything above it. */
+        const digits = state.text.slice(state.at, state.at + 4);
+        state.at = state.at + 4;
+        let value = hexValue(digits);
+        if (value < 0) {
+          fail(state, "\\u needs four hex digits");
+          return undefined;
+        }
+
+        /* A character outside the basic plane arrives as a surrogate pair,
+         * which is two escapes that mean one code point. */
+        if (value >= 0xd800 && value <= 0xdbff &&
+            state.text.slice(state.at, state.at + 2) === "\\u") {
+          const lowDigits = state.text.slice(state.at + 2, state.at + 6);
+          const low = hexValue(lowDigits);
+          if (low >= 0xdc00 && low <= 0xdfff) {
+            state.at = state.at + 6;
+            value = 0x10000 + (value - 0xd800) * 0x400 + (low - 0xdc00);
+          }
+        }
+        out = out + utf8(value);
+        continue;
+      }
+      fail(state, "unknown escape '\\" + String(escape) + "'");
+      return undefined;
+    }
+    out = out + character;
+    state.at = state.at + 1;
+  }
+  fail(state, "the text ended inside a string");
+  return undefined;
+}
+
+function parseNumber(state: any): any {
+  const start = state.at;
+  if (state.text[state.at] === "-") state.at = state.at + 1;
+  while (state.at < state.text.length && isDigit(state.text[state.at])) {
+    state.at = state.at + 1;
+  }
+  if (state.text[state.at] === ".") {
+    state.at = state.at + 1;
+    while (state.at < state.text.length && isDigit(state.text[state.at])) {
+      state.at = state.at + 1;
+    }
+  }
+  if (state.text[state.at] === "e" || state.text[state.at] === "E") {
+    state.at = state.at + 1;
+    if (state.text[state.at] === "+" || state.text[state.at] === "-") {
+      state.at = state.at + 1;
+    }
+    while (state.at < state.text.length && isDigit(state.text[state.at])) {
+      state.at = state.at + 1;
+    }
+  }
+
+  const text = state.text.slice(start, state.at);
+  const value = Number(text);
+  if (value !== value) {
+    fail(state, "'" + text + "' is not a number");
+    return undefined;
+  }
+  return value;
+}
+
+function isDigit(character: any): boolean {
+  if (character === undefined) return false;
+  const code = String(character).charCodeAt(0);
+  return code >= 48 && code <= 57;
+}
+
+/* A code point as UTF-8 bytes. One byte below 128, then two, three and four as
+ * the ranges widen — the same encoding the lexer reads source in. */
+function utf8(code: number): string {
+  if (code < 0x80) return String.fromCharCode(code);
+  if (code < 0x800) {
+    return String.fromCharCode(0xc0 + Math.floor(code / 64)) +
+           String.fromCharCode(0x80 + code % 64);
+  }
+  if (code < 0x10000) {
+    return String.fromCharCode(0xe0 + Math.floor(code / 4096)) +
+           String.fromCharCode(0x80 + Math.floor(code / 64) % 64) +
+           String.fromCharCode(0x80 + code % 64);
+  }
+  return String.fromCharCode(0xf0 + Math.floor(code / 262144)) +
+         String.fromCharCode(0x80 + Math.floor(code / 4096) % 64) +
+         String.fromCharCode(0x80 + Math.floor(code / 64) % 64) +
+         String.fromCharCode(0x80 + code % 64);
+}
+
+function hexValue(digits: string): number {
+  if (digits.length !== 4) return -1;
+  let total = 0;
+  for (let i = 0; i < 4; i++) {
+    const code = digits.charCodeAt(i);
+    let digit = -1;
+    if (code >= 48 && code <= 57) digit = code - 48;
+    if (code >= 65 && code <= 70) digit = code - 55;
+    if (code >= 97 && code <= 102) digit = code - 87;
+    if (digit < 0) return -1;
+    total = total * 16 + digit;
+  }
+  return total;
+}
+
+/* --- printing ------------------------------------------------------------- */
+
+/* JSON text. `indent` of zero is one line; anything else is pretty-printed
+ * with that many spaces per level.
+ *
+ * `stable` sorts the keys of every object, which is what makes two runs
+ * comparable: insertion order is not part of what JSON means, so output that
+ * depends on it produces a diff for a change nobody made. */
+export function stringify(value: any, indent: number = 0, stable: boolean = false): string {
+  return write(value, indent, stable, 0);
+}
+
+export function pretty(value: any, indent: number = 2): string {
+  return write(value, indent, false, 0);
+}
+
+/* Sorted keys and two-space indentation: the shape for a file under version
+ * control. */
+export function stringifyStable(value: any, indent: number = 2): string {
+  return write(value, indent, true, 0);
+}
+
+function write(value: any, indent: number, stable: boolean, depth: number): string {
+  const kind = kindOf(value);
+
+  if (kind === "null" || kind === "undefined") return "null";
+  if (kind === "boolean") return value ? "true" : "false";
+  if (kind === "number") {
+    /* Infinity and NaN have no JSON spelling, and null is what every other
+     * implementation writes for them. */
+    if (value !== value || value === Infinity || value === -Infinity) return "null";
+    return String(value);
+  }
+  if (kind === "string") return quote(value);
+  if (kind === "bigint") {
+    throw new Error("JSON has no bigint: convert it to a string or a number first");
+  }
+
+  const newline = indent > 0 ? "\n" : "";
+  const inner = indent > 0 ? " ".repeat(indent * (depth + 1)) : "";
+  const closing = indent > 0 ? " ".repeat(indent * depth) : "";
+  const separator = indent > 0 ? ": " : ":";
+
+  if (kind === "array") {
+    if (value.length === 0) return "[]";
+    const parts: any = [];
+    for (const element of value) parts.push(inner + write(element, indent, stable, depth + 1));
+    return "[" + newline + parts.join("," + newline) + newline + closing + "]";
+  }
+
+  if (kind === "object" || kind === "instance") {
+    /* An instance's own properties, which is what the built-in writes too. Its
+     * private fields are invisible to any walk, here as everywhere. */
+    const keys = Object.keys(value);
+    if (stable) keys.sort();
+    const parts: any = [];
+    for (const key of keys) {
+      const held = value[key];
+      /* undefined has no JSON spelling, so the key is left out — which is what
+       * the built-in does rather than writing null. */
+      if (held === undefined) continue;
+      parts.push(inner + quote(key) + separator + write(held, indent, stable, depth + 1));
+    }
+    if (parts.length === 0) return "{}";
+    return "{" + newline + parts.join("," + newline) + newline + closing + "}";
+  }
+
+  if (kind === "map") {
+    /* A Map has no own properties, so the built-in writes `{}` for one and
+     * loses everything in it. Writing the entries is the useful answer, and is
+     * a deliberate difference — `[...map]` is the way to get pairs instead. */
+    const entries: any = [];
+    for (const [key, held] of value) entries.push([String(key), held]);
+    if (stable) entries.sort((a: any, b: any) => a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0));
+    if (entries.length === 0) return "{}";
+    const parts: any = [];
+    for (const [key, held] of entries) {
+      parts.push(inner + quote(key) + separator + write(held, indent, stable, depth + 1));
+    }
+    return "{" + newline + parts.join("," + newline) + newline + closing + "}";
+  }
+
+  if (kind === "set") {
+    const parts: any = [];
+    for (const element of value) parts.push(inner + write(element, indent, stable, depth + 1));
+    if (parts.length === 0) return "[]";
+    return "[" + newline + parts.join("," + newline) + newline + closing + "]";
+  }
+
+  if (kind === "date") return quote(value.toISOString());
+
+  /* A function, a promise, a generator, a class: nothing JSON can hold, and
+   * the built-in quietly drops them. Saying so is better than a file that is
+   * missing a field for a reason nobody can see. */
+  throw new Error("JSON cannot hold a " + kind);
+}
+
+/* A JSON string, escaping what has to be escaped and nothing else. */
+function quote(text: string): string {
+  let out = "\"";
+  for (let i = 0; i < text.length; i++) {
+    const character = text[i];
+    const code = text.charCodeAt(i);
+    if (character === "\"") { out = out + "\\\""; continue; }
+    if (character === "\\") { out = out + "\\\\"; continue; }
+    if (character === "\n") { out = out + "\\n"; continue; }
+    if (character === "\t") { out = out + "\\t"; continue; }
+    if (character === "\r") { out = out + "\\r"; continue; }
+    if (code === 8) { out = out + "\\b"; continue; }
+    if (code === 12) { out = out + "\\f"; continue; }
+    if (code < 32) {
+      out = out + "\\u" + code.toString(16).padStart(4, "0");
+      continue;
+    }
+    out = out + character;
+  }
+  return out + "\"";
+}

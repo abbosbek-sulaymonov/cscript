@@ -269,6 +269,62 @@ static bool objectSetPrototypeOf(Value receiver, int argCount, Value *args,
   return true;
 }
 
+/* What kind of thing this is, to a program that has to ask.
+ *
+ * `typeof` answers "object" for an object, an array, a Map, a Set, a Date and
+ * a class instance alike, and nothing else in the language can separate them:
+ * every Object method that would tell you — keys, entries, getPrototypeOf,
+ * hasOwn — *refuses* a Map rather than answering about it. So a library that
+ * walks a value structurally had no safe way to ask what it was walking, and
+ * a deep copy or a deep comparison would take the process down on a Map
+ * rather than mis-handle it.
+ *
+ * This answers for anything, and never fails. The names are the ones a program
+ * would write in a comparison, which is why an array is "array" rather than
+ * "object" and null is "null" rather than a kind of nothing. */
+static bool objectKindOf(Value receiver, int argCount, Value *args, Value *result) {
+  (void)receiver;
+  if (argCount < 1) {
+    csVMRuntimeError("Object.kindOf expects a value");
+    return false;
+  }
+
+  Value value = args[0];
+  const char *kind = NULL;
+  if (IS_ARRAY(value)) {
+    kind = "array";
+  } else if (IS_MAP(value)) {
+    /* One structure with two flags underneath, and four names above it —
+     * which is the distinction a caller is asking about. */
+    ObjMap *map = AS_MAP(value);
+    if (map->isWeak) {
+      kind = map->isSet ? "weakset" : "weakmap";
+    } else {
+      kind = map->isSet ? "set" : "map";
+    }
+  } else if (IS_DATE(value)) {
+    kind = "date";
+  } else if (IS_REGEX(value)) {
+    kind = "regex";
+  } else if (IS_PROMISE(value)) {
+    kind = "promise";
+  } else if (IS_GENERATOR(value)) {
+    kind = "generator";
+  } else if (IS_CLASS(value)) {
+    kind = "class";
+  } else if (IS_OBJECT(value)) {
+    /* An instance of a user class knows its class; a plain object does not,
+     * and the difference is what a structural walk needs. */
+    kind = AS_OBJECT(value)->klass != NULL ? "instance" : "object";
+  } else {
+    /* Everything else is what typeof already says, and agrees with it. */
+    kind = csValueTypeName(value);
+  }
+
+  *result = OBJ_VAL(csStringCopy(kind, (int)strlen(kind)));
+  return true;
+}
+
 void csNativeInstallObject(void) {
   ObjObject *ns = csNativeDefineNamespace("Object");
   csNativeDefineMethod(ns, "keys", objectKeys, 1);
@@ -277,6 +333,7 @@ void csNativeInstallObject(void) {
   csNativeDefineMethod(ns, "assign", objectAssign, -1);
   csNativeDefineMethod(ns, "hasOwn", objectHasOwn, 2);
   csNativeDefineMethod(ns, "create", objectCreate, -1);
+  csNativeDefineMethod(ns, "kindOf", objectKindOf, 1);
   csNativeDefineMethod(ns, "getPrototypeOf", objectGetPrototypeOf, 1);
   csNativeDefineMethod(ns, "setPrototypeOf", objectSetPrototypeOf, 2);
   csNativeDefineMethod(ns, "fromEntries", objectFromEntries, 1);

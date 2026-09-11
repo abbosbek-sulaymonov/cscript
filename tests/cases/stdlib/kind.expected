@@ -1,0 +1,2 @@
+[ 'object', 'array', 'map', 'set', 'date', 'instance' ]
+kind ok

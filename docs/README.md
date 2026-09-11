@@ -15,7 +15,7 @@ this order.
 | [DEVELOPMENT.md](DEVELOPMENT.md) | **How do I work on it?** The build modes, the test suites, and where everything lives. |
 | [../README.md](../README.md) | **Why does it exist?** The idea and the status, briefly. |
 | [../src/README.md](../src/README.md) | **Where is the code?** The map of `src/`, the conventions every file follows, and a guide per directory. |
-| [../library/README.md](../library/README.md) | **What ships with it?** The ten standard-library modules, how `std:` resolves, and what the language does to how they are written. |
+| [../library/README.md](../library/README.md) | **What ships with it?** The twenty-four standard-library modules, each with a reference of its own, how `std:` resolves, and what the language does to how they are written. |
 
 ## The shape of the thing
 
