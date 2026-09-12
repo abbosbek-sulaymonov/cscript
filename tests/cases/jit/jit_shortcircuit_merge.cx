@@ -1,0 +1,49 @@
+/* A chain of `||` after an early return, which the compiler once got wrong.
+ *
+ * `a || b || c` compiles to a chain of jump-if-true, and the jump at the end
+ * of each arm lands on the next one — so each of those instructions begins a
+ * block with two predecessors. The lowering took the branch condition out of
+ * its own model of the operand stack, which holds the register the *linear*
+ * walk last pushed there; on the path that arrived by jumping, that register
+ * was produced by an instruction which never ran.
+ *
+ * The result was a wrong answer rather than a crash: `unreserved(46)` came
+ * back false, and std:encoding escaped a `.` that RFC 3986 says to leave
+ * alone. The condition now comes from the slot, which is the one thing both
+ * paths agree on.
+ *
+ * The guard matters: without it the chain is the whole function and the blocks
+ * fall in an order where the bug does not show.
+ */
+function unreserved(code: number): boolean {
+  if (code >= 48 && code <= 57) return true;
+  return code === 45 || code === 46 || code === 95 || code === 126;
+}
+
+/* The same shape with the arms the other way round, since `&&` lowers to the
+ * other branch opcode. */
+function inRange(n: number): boolean {
+  if (n < 0) return false;
+  return n !== 1 && n !== 2 && n !== 3 && n !== 4;
+}
+
+const answers: any = [];
+for (const code of [45, 46, 47, 95, 126, 48, 65]) {
+  answers.push(unreserved(code) ? 1 : 0);
+}
+for (const n of [-1, 0, 1, 2, 3, 4, 5]) {
+  answers.push(inRange(n) ? 1 : 0);
+}
+console.log(answers.join(""));
+
+/* Hot enough to be compiled, and checked on every iteration rather than only
+ * at the end: a miscompile that appears once the function tiers up would
+ * otherwise be invisible in the total. */
+let disagreements = 0;
+for (let i = 0; i < 2000; i++) {
+  if (unreserved(46) !== true) disagreements = disagreements + 1;
+  if (unreserved(47) !== false) disagreements = disagreements + 1;
+  if (inRange(3) !== false) disagreements = disagreements + 1;
+  if (inRange(9) !== true) disagreements = disagreements + 1;
+}
+console.log("disagreements:", disagreements);

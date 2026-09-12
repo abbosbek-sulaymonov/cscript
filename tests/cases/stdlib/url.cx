@@ -1,0 +1,79 @@
+import { parse, format, parseQuery, parseQueryAll, formatQuery, withParts,
+         withParameter, origin } from "std:url";
+import { equal, deepEqual, ok, notOk, messageOf, throws } from "std:assert";
+
+const full = parse("https://user:pw@Example.COM:8443/a/b?x=1&y=two+words#frag").value;
+equal(full.scheme, "https");
+equal(full.user, "user");
+equal(full.password, "pw");
+equal(full.host, "example.com", "the host is compared case-insensitively, so it is lowered");
+equal(full.port, 8443);
+equal(full.path, "/a/b");
+equal(full.fragment, "frag");
+deepEqual([...full.query], [["x", "1"], ["y", "two words"]]);
+
+const plain = parse("http://example.com").value;
+equal(plain.path, "/", "a URL with no path has the root");
+equal(plain.port, -1, "and no port, rather than a guess");
+equal(plain.user, "");
+equal(plain.fragment, "");
+equal(plain.query.size, 0);
+
+/* The fragment comes off first: it may contain anything at all. */
+const odd = parse("https://x.dev/p#a?b/c").value;
+equal(odd.fragment, "a?b/c");
+equal(odd.path, "/p");
+equal(odd.query.size, 0);
+
+equal(parse("nonsense").error,
+      "no scheme in 'nonsense' — a URL needs one, as in https://");
+equal(parse("https://").error, "no host in 'https://'");
+equal(parse("https://x.dev:99999/").error, "port 99999 is out of range");
+ok(parse("https://x.dev:0/").isOk);
+
+/* A port that is not digits is part of the host, so an IPv6 address survives. */
+equal(parse("https://[::1]:8080/").value.host, "[::1]");
+equal(parse("https://[::1]:8080/").value.port, 8080);
+
+deepEqual([...parseQuery("a=1&b=2").value], [["a", "1"], ["b", "2"]]);
+deepEqual([...parseQuery("flag").value], [["flag", ""]], "a name with no = is present");
+deepEqual([...parseQuery("").value], []);
+deepEqual([...parseQuery("a=1&a=2").value], [["a", "2"]], "the last wins, as a server does");
+deepEqual([...parseQueryAll("a=1&a=2").value], [["a", ["1", "2"]]]);
+deepEqual([...parseQuery("q=a%20b%26c").value], [["q", "a b&c"]]);
+
+equal(formatQuery({ q: "a b&c", n: 2 }), "q=a%20b%26c&n=2");
+equal(formatQuery(new Map([["a", "1"]])), "a=1");
+equal(formatQuery([["a", "1"], ["a", "2"]]), "a=1&a=2");
+equal(formatQuery({ tag: ["x", "y"] }), "tag=x&tag=y", "an array is the name repeated");
+equal(formatQuery({ flag: null }), "flag");
+equal(formatQuery({}), "");
+
+equal(format(full), "https://user:pw@example.com:8443/a/b?x=1&y=two%20words#frag");
+equal(format({ scheme: "https", host: "x.dev" }), "https://x.dev/");
+equal(format({ scheme: "https", host: "x.dev", port: 443, path: "a" }), "https://x.dev/a",
+      "the default port is left out, so two spellings do not mean one place");
+equal(format({ scheme: "http", host: "x.dev", port: 80 }), "http://x.dev/");
+equal(format({ scheme: "http", host: "x.dev", port: 8080 }), "http://x.dev:8080/");
+equal(format({ host: "x.dev" }), "https://x.dev/", "https is the default scheme");
+equal(format({ scheme: "https", host: "x.dev", query: "raw=1" }), "https://x.dev/?raw=1");
+equal(format({ scheme: "https", host: "x.dev", query: {} }), "https://x.dev/",
+      "and a ? appears only when there is something after it");
+equal(messageOf(throws(() => format({ scheme: "https" }))), "a URL needs a host");
+
+equal(origin(full), "https://example.com:8443");
+equal(origin(plain), "http://example.com");
+
+const changed = withParts(full, { path: "/other", fragment: "" });
+equal(format(changed), "https://user:pw@example.com:8443/other?x=1&y=two%20words");
+ok(format(withParameter(full, "x", 9)).includes("x=9"));
+equal(full.query.get("x"), "1", "and the original is untouched");
+
+/* What goes out comes back. */
+const roundTrip = parse(format(full)).value;
+equal(format(roundTrip), format(full));
+
+console.log(format(full));
+console.log(formatQuery({ q: "a b", tags: ["x", "y"] }), origin(full));
+console.log(parse("https://x.dev/a?b=1#c").value.path);
+console.log("url ok");

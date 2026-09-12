@@ -79,9 +79,33 @@ LowerResult csIrLowerFlow(LowerAt *at) {
     case OP_POP_JUMP_IF_FALSE:
     case OP_JUMP_IF_FALSE:
     case OP_JUMP_IF_TRUE: {
-      int condition = opcode == OP_POP_JUMP_IF_FALSE
-                          ? csIrPop(low, block, line)
-                          : low->stack[low->stackTop - 1]; /* these leave it */
+      /* These two leave the value on the stack, so it is read rather than
+       * popped — and *loaded from its slot* rather than taken out of the
+       * lowering's abstract stack.
+       *
+       * That distinction is the whole of a miscompile this once produced.
+       * `a || b || c` compiles to a chain of these, and the jump at the end of
+       * each arm lands on the next one — so this instruction begins a block
+       * with two predecessors, and the register the linear walk remembers was
+       * produced on only one of them. Branching on it meant branching on
+       * whatever that register happened to hold, and `percentEncode(".")`
+       * escaped a character it should have left alone. The slot is the one
+       * thing both paths agree on. */
+      int condition;
+      if (opcode == OP_POP_JUMP_IF_FALSE) {
+        condition = csIrPop(low, block, line);
+      } else {
+        if (low->stackTop == 0) {
+          low->reason = "operand stack underflow while lowering";
+          return LOWER_FAILED;
+        }
+        IrType held = low->slotType[low->stackTop - 1];
+        condition = csIrNewRegister(ir, held);
+        IrInst *load = csIrAppend(block, IR_LOAD_LOCAL, line);
+        load->type = held;
+        load->result = condition;
+        load->a = low->stackTop - 1;
+      }
       if (low->reason != NULL) return LOWER_FAILED;
 
       IrInst *branch = csIrAppend(block, IR_BRANCH, line);

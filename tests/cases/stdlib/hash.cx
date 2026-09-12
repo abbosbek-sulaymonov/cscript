@@ -1,0 +1,57 @@
+import { fnv1a, djb2, crc32, murmur3, toHexString, bucket, fingerprint } from "std:hash";
+import { fromString } from "std:bytes";
+import { equal, ok, notOk, deepEqual } from "std:assert";
+
+/* These are the published values: a checksum that only agrees with itself
+ * would be a hash. Each was checked against a reference implementation —
+ * crc32 against zlib's. */
+equal(fnv1a(""), 2166136261);
+equal(fnv1a("a"), 3826002220);
+equal(fnv1a("abc"), 440920331);
+equal(fnv1a("hello world"), 3582672807);
+equal(fnv1a("The quick brown fox jumps over the lazy dog"), 76545936);
+
+equal(crc32(""), 0);
+equal(crc32("a"), 3904355907);
+equal(crc32("abc"), 891568578);
+equal(crc32("hello world"), 222957957);
+equal(crc32("The quick brown fox jumps over the lazy dog"), 1095738169);
+
+equal(murmur3(""), 0);
+equal(murmur3("a"), 1009084850);
+equal(murmur3("abc"), 3017643002);
+equal(murmur3("hello world"), 1586663183);
+equal(murmur3("abc", 42), 1313807976, "a seed makes two tables disagree");
+
+equal(djb2(""), 5381);
+equal(djb2("abc"), 193485963);
+
+/* Bytes and the string of those bytes hash the same, since a string is bytes. */
+equal(fnv1a(fromString("abc")), fnv1a("abc"));
+equal(crc32(fromString("abc")), crc32("abc"));
+equal(murmur3(fromString("abc")), murmur3("abc"));
+
+/* Every answer is an unsigned 32-bit number, which is what makes `% count`
+ * safe — a signed hash is negative half the time. */
+for (const input of ["", "a", "zzzz", "The quick brown fox"]) {
+  for (const value of [fnv1a(input), crc32(input), murmur3(input), djb2(input)]) {
+    ok(value >= 0 && value <= 4294967295);
+    equal(value, Math.floor(value));
+  }
+}
+
+equal(toHexString(crc32("hello world")), "0d4a1185");
+equal(toHexString(0), "00000000");
+equal(fingerprint("x").length, 8);
+ok(bucket("key", 16) < 16);
+ok(bucket("key", 16) >= 0);
+equal(bucket("key", 1), 0);
+
+/* One bit in changes about half the bits out, which is what the finalisation
+ * in murmur3 is for. */
+notOk(murmur3("abc") === murmur3("abd"));
+notOk(fnv1a("abc") === fnv1a("abd"));
+
+console.log(fnv1a("abc"), crc32("abc"), murmur3("abc"), djb2("abc"));
+console.log(toHexString(crc32("hello world")), fingerprint("hello"));
+console.log("hash ok");

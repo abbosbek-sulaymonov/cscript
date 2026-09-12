@@ -1,0 +1,172 @@
+/* hash.cx — turning bytes into a number, fast.
+ *
+ * For bucketing, deduplicating, caching, sharding and checksums. **Not for
+ * security.** Every function here is trivially reversible and trivially
+ * collided on purpose; none is a substitute for SHA-256, and CScript has no
+ * cryptographic primitives at all — not even a source of secure randomness, so
+ * one cannot be built in the language either.
+ *
+ * Say that plainly because the mistake is common and quiet: a password stored
+ * as an FNV hash looks hashed.
+ *
+ * Everything works on a string or a byte array, since a CScript string *is*
+ * bytes. The arithmetic goes through [`std:bits`](../bits), which is where the
+ * 32-bit operations live in a language with no bitwise operators.
+ */
+import { and, xor, wrap, shiftLeft, shiftRight, rotateLeft, toHex } from "std:bits";
+import { fromString } from "std:bytes";
+
+function asBytes(input: any): any {
+  return typeof input === "string" ? fromString(input) : input;
+}
+
+/* --- FNV-1a --------------------------------------------------------------- */
+
+/* The one to reach for by default: two operations per byte, a good spread, and
+ * short enough to read. 32-bit, which is enough for a hash table and not
+ * enough for a content address. */
+export function fnv1a(input: any): number {
+  let value = 2166136261;
+  for (const byte of asBytes(input)) {
+    value = xor(value, byte);
+    /* Multiply by the FNV prime, 16777619, keeping 32 bits. The product would
+     * pass 2^53 if it were done in one step, so it is done in two halves that
+     * each stay exact. */
+    const low = wrap(value % 65536);
+    const high = wrap(Math.floor(value / 65536));
+    value = wrap(low * 16777619 + wrap(high * 16777619 % 65536) * 65536);
+  }
+  return value;
+}
+
+/* --- djb2 ----------------------------------------------------------------- */
+
+/* Bernstein's, kept because it is the one people recognise and because its
+ * behaviour on short ASCII keys is well understood. */
+export function djb2(input: any): number {
+  let value = 5381;
+  for (const byte of asBytes(input)) {
+    /* value * 33 + byte, in 32 bits. */
+    value = wrap(wrap(value * 32) + value + byte);
+  }
+  return value;
+}
+
+/* --- CRC-32 --------------------------------------------------------------- */
+
+/* The checksum in zip, gzip and PNG. Answers the same number as every other
+ * implementation, which is the whole point of a checksum — a value that is
+ * only comparable with itself would be a hash.
+ *
+ * The table is built once, on first use, because 256 entries of eight shifts
+ * each is worth doing once and not per call. */
+let crcTable: any = null;
+
+function buildCrcTable(): any {
+  const table: any = [];
+  for (let n = 0; n < 256; n++) {
+    let value = n;
+    for (let bit = 0; bit < 8; bit++) {
+      value = and(value, 1) === 1 ? xor(3988292384, shiftRight(value, 1))
+                                  : shiftRight(value, 1);
+    }
+    table.push(value);
+  }
+  return table;
+}
+
+export function crc32(input: any): number {
+  if (crcTable === null) crcTable = buildCrcTable();
+  let value = 4294967295;
+  for (const byte of asBytes(input)) {
+    value = xor(crcTable[and(xor(value, byte), 255)], shiftRight(value, 8));
+  }
+  return xor(value, 4294967295);
+}
+
+/* --- MurmurHash3 ---------------------------------------------------------- */
+
+/* Better distributed than FNV on longer keys, and the usual choice for a hash
+ * table that has to hold a million things. The constants are the published
+ * ones; a seed makes two tables over the same keys disagree, which is what
+ * stops a shared worst case. */
+export function murmur3(input: any, seed: number = 0): number {
+  const bytes = asBytes(input);
+  let value = wrap(seed);
+  const blocks = Math.floor(bytes.length / 4);
+
+  for (let i = 0; i < blocks; i++) {
+    const at = i * 4;
+    let block = bytes[at] + bytes[at + 1] * 256 + bytes[at + 2] * 65536 +
+                bytes[at + 3] * 16777216;
+    block = multiply(block, 3432918353);
+    block = rotateLeft(block, 15);
+    block = multiply(block, 461845907);
+
+    value = xor(value, block);
+    value = rotateLeft(value, 13);
+    value = wrap(multiply(value, 5) + 3864292196);
+  }
+
+  /* The tail: whatever is left over, mixed in the same way but without the
+   * rotation that only makes sense for a whole block. */
+  let tail = 0;
+  const left = bytes.length % 4;
+  const at = blocks * 4;
+  if (left === 3) tail = tail + bytes[at + 2] * 65536;
+  if (left >= 2) tail = tail + bytes[at + 1] * 256;
+  if (left >= 1) {
+    tail = tail + bytes[at];
+    tail = multiply(tail, 3432918353);
+    tail = rotateLeft(tail, 15);
+    tail = multiply(tail, 461845907);
+    value = xor(value, tail);
+  }
+
+  /* Finalisation, which is what turns a good-enough accumulation into a good
+   * avalanche: one bit in changes about half the bits out. */
+  value = xor(value, bytes.length);
+  value = xor(value, shiftRight(value, 16));
+  value = multiply(value, 2246822507);
+  value = xor(value, shiftRight(value, 13));
+  value = multiply(value, 3266489909);
+  value = xor(value, shiftRight(value, 16));
+  return value;
+}
+
+/* 32-bit multiplication that stays exact.
+ *
+ * `a * b` for two 32-bit numbers reaches 2^64, well past the 2^53 a double
+ * holds exactly, so the low half would be wrong in a way no test on small
+ * inputs would show. Splitting one side into 16-bit halves keeps every product
+ * under 2^48. */
+function multiply(a: number, b: number): number {
+  const left = wrap(a);
+  const right = wrap(b);
+  const lowRight = right % 65536;
+  const highRight = Math.floor(right / 65536);
+  return wrap(wrap(left * lowRight) + wrap(wrap(left * highRight) % 65536) * 65536);
+}
+
+/* --- using one ------------------------------------------------------------ */
+
+/* The hash as eight hex digits, which is how one is written in a filename, a
+ * cache key or a log line. */
+export function toHexString(value: number): string {
+  return toHex(value, 8);
+}
+
+/* Which of `count` buckets this falls in. The modulo is here rather than at
+ * every call site because `hash % count` with a signed hash is negative half
+ * the time, and every hash here is unsigned for exactly that reason. */
+export function bucket(input: any, count: number): number {
+  if (count < 1) throw new Error("hash.bucket needs at least one bucket");
+  return fnv1a(input) % count;
+}
+
+/* A short, stable, human-typable identifier for a value — for a cache
+ * filename or a test snapshot name. Not unique: eight hex digits is four
+ * billion, so a collision is likely in the tens of thousands. */
+export function fingerprint(input: any): string {
+  return toHexString(murmur3(input));
+}

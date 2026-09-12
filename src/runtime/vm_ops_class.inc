@@ -411,9 +411,20 @@
         }
 
         if (!IS_CLASS(target)) {
-          csVMRuntimeError("the right side of 'instanceof' must be a class or a "
-                           "function, got %s",
-                           csValueTypeName(target));
+          /* A built-in constructor reports as "function", so the plain message
+           * read "must be a class or a function, got function" — which names
+           * the rule and denies it in the same breath. What is actually true:
+           * a built-in carries no prototype object, so nothing can be shown to
+           * have come from one. */
+          if (IS_NATIVE(target)) {
+            csVMRuntimeError("'%s' is a built-in, and 'instanceof' cannot be used "
+                             "with one — ask Object.kindOf(value) instead",
+                             AS_NATIVE(target)->name->chars);
+          } else {
+            csVMRuntimeError("the right side of 'instanceof' must be a class or a "
+                             "function, got %s",
+                             csValueTypeName(target));
+          }
           return CS_RUNTIME_ERROR;
         }
         result = IS_OBJECT(value) && AS_OBJECT(value)->klass != NULL &&

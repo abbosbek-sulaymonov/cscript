@@ -162,6 +162,24 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
         offset = skip;
         continue;
       }
+      /* Nothing the linear walk knows about registers survives a block
+       * boundary. A leader can be reached by a jump as well as by falling
+       * into it, and the two paths leave different registers holding the same
+       * stack position — so every entry is forgotten here, and whatever needs
+       * a value loads it from its slot instead. The sites that read this array
+       * all refuse a forgotten entry rather than guessing, which makes the
+       * cost a function left uncompiled rather than one compiled wrongly. */
+      for (int s = 0; s < IR_MAX_STACK; s++) low.stack[s] = -1;
+
+      /* Nothing the linear walk knows about registers survives a block
+       * boundary. A leader can be reached by a jump as well as by falling
+       * into it, and the two paths leave different registers holding the same
+       * stack position — so every entry is forgotten here, and whatever needs
+       * a value loads it from its slot instead. The sites that read this array
+       * all refuse a forgotten entry rather than guessing, which makes the
+       * cost a function left uncompiled rather than one compiled wrongly. */
+      for (int s = 0; s < IR_MAX_STACK; s++) low.stack[s] = -1;
+
       blockFloor = low.stackTop;
       floorOffset = offset;
       floorCount = 0;

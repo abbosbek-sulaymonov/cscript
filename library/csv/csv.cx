@@ -1,0 +1,187 @@
+/* csv.cx — comma-separated values, including the parts that are not commas.
+ *
+ * CSV looks like `text.split(",")` for about an hour, until a field contains a
+ * comma, or a quote, or a newline — and then the split version produces rows
+ * of the wrong length and nobody notices until the numbers are wrong. This
+ * follows RFC 4180: a field may be quoted, a quoted field may contain the
+ * delimiter, a newline, or a doubled quote meaning one.
+ *
+ * `parse` answers a [`Result`](../result), because a CSV file is input from
+ * outside. What it refuses is narrow — an unterminated quoted field, and a row
+ * whose length does not match the header when a header was asked for — because
+ * everything else that looks like a mistake is something a real file does.
+ */
+import { Result } from "std:result";
+
+/* --- parsing -------------------------------------------------------------- */
+
+/* Rows of fields, as arrays of strings.
+ *
+ * `options` is `{ delimiter, trim, skipEmpty }`. The delimiter is a parameter
+ * because tab-separated files are the same format with a different character,
+ * and having two modules for that would be silly.
+ */
+export function parse(text: string, options: any = null): any {
+  const delimiter = options?.delimiter ?? ",";
+  const trim = options?.trim ?? false;
+  const skipEmpty = options?.skipEmpty ?? true;
+
+  const rows: any = [];
+  let row: any = [];
+  let field = "";
+  let quoted = false;
+  let fieldWasQuoted = false;
+  let i = 0;
+
+  /* A line ending is \n or \r\n, and a bare \r is one too — a file written on
+   * a classic Mac is still a file. */
+  while (i < text.length) {
+    const character = text[i];
+
+    if (quoted) {
+      if (character === "\"") {
+        if (text[i + 1] === "\"") {
+          field = field + "\"";
+          i = i + 2;
+          continue;
+        }
+        quoted = false;
+        i = i + 1;
+        continue;
+      }
+      field = field + character;
+      i = i + 1;
+      continue;
+    }
+
+    if (character === "\"" && field === "") {
+      quoted = true;
+      fieldWasQuoted = true;
+      i = i + 1;
+      continue;
+    }
+
+    if (character === delimiter) {
+      row.push(finish(field, trim, fieldWasQuoted));
+      field = "";
+      fieldWasQuoted = false;
+      i = i + 1;
+      continue;
+    }
+
+    if (character === "\n" || character === "\r") {
+      row.push(finish(field, trim, fieldWasQuoted));
+      field = "";
+      fieldWasQuoted = false;
+      rows.push(row);
+      row = [];
+      i = character === "\r" && text[i + 1] === "\n" ? i + 2 : i + 1;
+      continue;
+    }
+
+    field = field + character;
+    i = i + 1;
+  }
+
+  if (quoted) return Result.err("a quoted field is never closed");
+
+  /* The last row has no line ending after it, which is not a mistake — but a
+   * file that ends in one should not gain an empty row from it. */
+  if (field !== "" || fieldWasQuoted || row.length > 0) {
+    row.push(finish(field, trim, fieldWasQuoted));
+    rows.push(row);
+  }
+
+  if (!skipEmpty) return Result.ok(rows);
+
+  const kept: any = [];
+  for (const candidate of rows) {
+    if (candidate.length === 1 && candidate[0] === "") continue;
+    kept.push(candidate);
+  }
+  return Result.ok(kept);
+}
+
+/* Trimming is applied to unquoted fields only. A quoted field means exactly
+ * what is inside the quotes — that is what quoting it was for. */
+function finish(field: string, trim: boolean, wasQuoted: boolean): string {
+  return trim && !wasQuoted ? field.trim() : field;
+}
+
+/* The first row as names, every other row as an object.
+ *
+ * A row whose length does not match the header is refused rather than padded:
+ * a short row means the file is not what the caller thinks it is, and filling
+ * the gap with an empty string hides that.
+ */
+export function parseObjects(text: string, options: any = null): any {
+  return parse(text, options).andThen((rows: any) => {
+    if (rows.length === 0) return Result.ok([]);
+
+    const header = rows[0];
+    const out: any = [];
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.length !== header.length) {
+        return Result.err("row " + String(i + 1) + " has " + String(row.length) +
+                          " fields, and the header has " + String(header.length));
+      }
+      const record: any = {};
+      for (let column = 0; column < header.length; column++) {
+        record[header[column]] = row[column];
+      }
+      out.push(record);
+    }
+    return Result.ok(out);
+  });
+}
+
+/* --- writing -------------------------------------------------------------- */
+
+/* Rows of anything, as CSV text with a trailing newline.
+ *
+ * A field is quoted when it has to be — when it contains the delimiter, a
+ * quote, or a line ending — and left alone otherwise, because a file where
+ * every field is quoted is harder for a person to read and no easier for a
+ * program.
+ */
+export function format(rows: any, options: any = null): string {
+  const delimiter = options?.delimiter ?? ",";
+  const always = options?.quoteAll ?? false;
+
+  const lines: any = [];
+  for (const row of rows) {
+    const fields: any = [];
+    for (const value of row) fields.push(quote(value, delimiter, always));
+    lines.push(fields.join(delimiter));
+  }
+  return lines.length === 0 ? "" : lines.join("\n") + "\n";
+}
+
+/* Objects, with the header taken from `columns` or from the first object's
+ * keys. Given explicitly when the order matters, which it usually does. */
+export function formatObjects(records: any, options: any = null): string {
+  const all: any = [];
+  for (const record of records) all.push(record);
+  if (all.length === 0) return "";
+
+  const columns = options?.columns ?? Object.keys(all[0]);
+  const rows: any = [columns];
+  for (const record of all) {
+    const row: any = [];
+    for (const column of columns) {
+      const value = record?.[column];
+      row.push(value === undefined ? "" : value);
+    }
+    rows.push(row);
+  }
+  return format(rows, options);
+}
+
+function quote(value: any, delimiter: string, always: boolean): string {
+  const text = value === null || value === undefined ? "" : String(value);
+  const needs = always || text.includes(delimiter) || text.includes("\"") ||
+                text.includes("\n") || text.includes("\r");
+  if (!needs) return text;
+  return "\"" + text.replaceAll("\"", "\"\"") + "\"";
+}

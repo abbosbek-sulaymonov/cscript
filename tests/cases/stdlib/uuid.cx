@@ -1,0 +1,51 @@
+import { v4, v7, format, isValid, versionOf, timeOf, nil } from "std:uuid";
+import { seeded } from "std:random";
+import { equal, deepEqual, ok, notOk, messageOf, throws } from "std:assert";
+
+/* The random source is injectable, which is the only way a test of something
+ * that makes identifiers can be a golden test at all. */
+const random = seeded(7);
+const source = () => random.next();
+
+const four = v4(source);
+equal(four.length, 36);
+ok(isValid(four));
+equal(versionOf(four), 4);
+equal(four[14], "4", "the version digit");
+ok("89ab".includes(four[19]), "and the variant");
+notOk(v4(source) === v4(source), "two are not the same");
+
+/* v7 puts the millisecond first, so a column of them sorts into the order they
+ * were made — which is the reason to prefer it for a database key. */
+const seven = v7(source, 1700000000000);
+ok(isValid(seven));
+equal(versionOf(seven), 7);
+equal(timeOf(seven), 1700000000000);
+equal(timeOf(four), -1, "a v4 carries no time");
+
+const ordered: any = [];
+for (let i = 0; i < 20; i++) ordered.push(v7(source, 1700000000000 + i * 1000));
+deepEqual(ordered.slice(0).sort(), ordered, "and they sort into that order");
+
+ok(isValid(nil()));
+equal(versionOf(nil()), 0);
+equal(nil(), "00000000-0000-0000-0000-000000000000");
+
+notOk(isValid("nope"));
+notOk(isValid(""));
+notOk(isValid("00000000-0000-0000-0000-00000000000"), "one digit short");
+notOk(isValid("00000000-0000-0000-0000-0000000000zz"));
+notOk(isValid("000000000000-0000-0000-000000000000"), "dashes in the wrong place");
+ok(isValid(four.toUpperCase()), "case is ignored");
+equal(versionOf("nope"), -1);
+
+deepEqual(format([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]),
+          "00010203-0405-0607-0809-0a0b0c0d0e0f");
+equal(messageOf(throws(() => format([1, 2]))), "a UUID is sixteen bytes, got 2");
+
+/* Seeded, so these are the same on every machine and every run. */
+const fixed = seeded(2024);
+console.log(v4(() => fixed.next()));
+console.log(v7(() => fixed.next(), 1700000000000));
+console.log(nil(), versionOf(nil()));
+console.log("uuid ok");

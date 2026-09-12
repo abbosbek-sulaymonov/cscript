@@ -1,0 +1,270 @@
+/* bytes.cx — a sequence of bytes, and the numbers hidden inside one.
+ *
+ * CScript has no typed arrays: no `Uint8Array`, no `ArrayBuffer`, no
+ * `DataView`. So a byte sequence here is a plain array of numbers, each 0 to
+ * 255, and this module is the operations that make that a usable type — the
+ * conversions, the comparisons, and the reading and writing of wider numbers
+ * at an offset.
+ *
+ * **The cost is real and worth stating.** Every byte occupies a full Value —
+ * eight bytes of memory rather than one — and every read goes through an array
+ * index rather than a load. That is fine for a hash of a few kilobytes, a
+ * base64 of a line, or a binary header; it is not a buffer for a video. A
+ * native byte array is the obvious future optimisation, and the interface here
+ * is deliberately the one such a type would have.
+ *
+ * The other half of the story is that **a CScript string is already bytes**.
+ * `text.charCodeAt(i)` is the byte at `i`, and `String.fromCharCode` builds one
+ * back. So `fromString` and `toString` are exact and lossless in both
+ * directions, whatever the bytes are — there is no encoding step hiding in
+ * them, and text that happens to be UTF-8 stays UTF-8.
+ */
+
+/* --- making one ----------------------------------------------------------- */
+
+/* The bytes of a string, exactly as it holds them. */
+export function fromString(text: string): any {
+  const out: any = [];
+  for (let i = 0; i < text.length; i++) out.push(text.charCodeAt(i));
+  return out;
+}
+
+/* And back. Written in blocks rather than one character at a time because a
+ * string built by repeated concatenation is quadratic, and a megabyte of bytes
+ * is a real thing to convert. */
+export function toString(bytes: any): string {
+  const parts: any = [];
+  let block = "";
+  for (let i = 0; i < bytes.length; i++) {
+    block = block + String.fromCharCode(check(bytes[i], i));
+    if (block.length >= 1024) {
+      parts.push(block);
+      block = "";
+    }
+  }
+  parts.push(block);
+  return parts.join("");
+}
+
+export function of(...values: any): any {
+  const out: any = [];
+  for (let i = 0; i < values.length; i++) out.push(check(values[i], i));
+  return out;
+}
+
+export function alloc(length: number, fill: number = 0): any {
+  const out: any = [];
+  for (let i = 0; i < length; i++) out.push(fill);
+  return out;
+}
+
+export function concat(...parts: any): any {
+  const out: any = [];
+  for (const part of parts) {
+    for (const byte of part) out.push(byte);
+  }
+  return out;
+}
+
+/* A byte that is not a whole number from 0 to 255 is a mistake worth stopping
+ * on: writing its low eight bits instead would be a wrong answer that looks
+ * like a right one. */
+function check(value: any, at: number): number {
+  if (typeof value !== "number" || value < 0 || value > 255 ||
+      value !== Math.floor(value)) {
+    throw new Error("byte " + String(at) + " is not a whole number from 0 to 255: " +
+                    String(value));
+  }
+  return value;
+}
+
+/* Whether every element really is a byte — for validating something that
+ * arrived from outside before treating it as one. */
+export function isBytes(value: any): boolean {
+  if (!Array.isArray(value)) return false;
+  for (const byte of value) {
+    if (typeof byte !== "number" || byte < 0 || byte > 255 ||
+        byte !== Math.floor(byte)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/* --- comparing ------------------------------------------------------------ */
+
+export function equals(a: any, b: any): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+/* Lexicographic, like `memcmp`: -1, 0 or 1, with the shorter first when one is
+ * a prefix of the other. */
+export function compare(a: any, b: any): number {
+  const shorter = a.length < b.length ? a.length : b.length;
+  for (let i = 0; i < shorter; i++) {
+    if (a[i] < b[i]) return -1;
+    if (a[i] > b[i]) return 1;
+  }
+  if (a.length === b.length) return 0;
+  return a.length < b.length ? -1 : 1;
+}
+
+/* Constant-time equality, for comparing a signature or a token.
+ *
+ * `equals` stops at the first difference, so how long it takes says where the
+ * difference was — which is enough to recover a secret one byte at a time.
+ * This looks at every byte whatever happens. It is the right shape; note that
+ * nothing else in CScript is written with timing in mind, so treat it as a
+ * good habit rather than a guarantee. */
+export function equalsConstantTime(a: any, b: any): boolean {
+  if (a.length !== b.length) return false;
+  let difference = 0;
+  for (let i = 0; i < a.length; i++) {
+    /* Accumulated arithmetically, because there is no bitwise OR in the
+     * language and a branch here would defeat the purpose. */
+    difference = difference + (a[i] === b[i] ? 0 : 1);
+  }
+  return difference === 0;
+}
+
+/* --- slicing and searching ------------------------------------------------ */
+
+export function slice(bytes: any, start: number = 0, end: any = undefined): any {
+  return bytes.slice(start, end === undefined ? bytes.length : end);
+}
+
+export function indexOf(haystack: any, needle: any, from: number = 0): number {
+  if (needle.length === 0) return from <= haystack.length ? from : -1;
+  const last = haystack.length - needle.length;
+  for (let at = from < 0 ? 0 : from; at <= last; at++) {
+    let same = true;
+    for (let i = 0; i < needle.length; i++) {
+      if (haystack[at + i] !== needle[i]) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return at;
+  }
+  return -1;
+}
+
+export function includes(haystack: any, needle: any): boolean {
+  return indexOf(haystack, needle) >= 0;
+}
+
+export function startsWith(bytes: any, prefix: any): boolean {
+  if (prefix.length > bytes.length) return false;
+  for (let i = 0; i < prefix.length; i++) {
+    if (bytes[i] !== prefix[i]) return false;
+  }
+  return true;
+}
+
+export function endsWith(bytes: any, suffix: any): boolean {
+  if (suffix.length > bytes.length) return false;
+  const offset = bytes.length - suffix.length;
+  for (let i = 0; i < suffix.length; i++) {
+    if (bytes[offset + i] !== suffix[i]) return false;
+  }
+  return true;
+}
+
+/* --- numbers inside bytes ------------------------------------------------- */
+
+/* Reading a wider number out of a byte sequence, big-endian and little-endian.
+ *
+ * This is what a `DataView` is for, and why the module exists at all: a binary
+ * format is a sequence of numbers at offsets, and working them out with
+ * multiplication at every call site is how the endianness ends up wrong in one
+ * of them. */
+export function readUint8(bytes: any, at: number): number {
+  return bounded(bytes, at, 1)[0];
+}
+
+export function readUint16BE(bytes: any, at: number): number {
+  const part = bounded(bytes, at, 2);
+  return part[0] * 256 + part[1];
+}
+
+export function readUint16LE(bytes: any, at: number): number {
+  const part = bounded(bytes, at, 2);
+  return part[1] * 256 + part[0];
+}
+
+export function readUint32BE(bytes: any, at: number): number {
+  const part = bounded(bytes, at, 4);
+  return ((part[0] * 256 + part[1]) * 256 + part[2]) * 256 + part[3];
+}
+
+export function readUint32LE(bytes: any, at: number): number {
+  const part = bounded(bytes, at, 4);
+  return ((part[3] * 256 + part[2]) * 256 + part[1]) * 256 + part[0];
+}
+
+/* The same four bytes read as signed, two's complement. */
+export function readInt32BE(bytes: any, at: number): number {
+  const value = readUint32BE(bytes, at);
+  return value >= 2147483648 ? value - 4294967296 : value;
+}
+
+export function readInt32LE(bytes: any, at: number): number {
+  const value = readUint32LE(bytes, at);
+  return value >= 2147483648 ? value - 4294967296 : value;
+}
+
+export function writeUint8(bytes: any, at: number, value: number) {
+  bytes[at] = check(value, at);
+}
+
+export function writeUint16BE(bytes: any, at: number, value: number) {
+  const whole = wide(value, 65535);
+  bytes[at] = Math.floor(whole / 256);
+  bytes[at + 1] = whole % 256;
+}
+
+export function writeUint16LE(bytes: any, at: number, value: number) {
+  const whole = wide(value, 65535);
+  bytes[at] = whole % 256;
+  bytes[at + 1] = Math.floor(whole / 256);
+}
+
+export function writeUint32BE(bytes: any, at: number, value: number) {
+  const whole = wide(value, 4294967295);
+  bytes[at] = Math.floor(whole / 16777216) % 256;
+  bytes[at + 1] = Math.floor(whole / 65536) % 256;
+  bytes[at + 2] = Math.floor(whole / 256) % 256;
+  bytes[at + 3] = whole % 256;
+}
+
+export function writeUint32LE(bytes: any, at: number, value: number) {
+  const whole = wide(value, 4294967295);
+  bytes[at] = whole % 256;
+  bytes[at + 1] = Math.floor(whole / 256) % 256;
+  bytes[at + 2] = Math.floor(whole / 65536) % 256;
+  bytes[at + 3] = Math.floor(whole / 16777216) % 256;
+}
+
+function wide(value: any, highest: number): number {
+  if (typeof value !== "number" || value < 0 || value > highest ||
+      value !== Math.floor(value)) {
+    throw new Error("value is not a whole number from 0 to " + String(highest) +
+                    ": " + String(value));
+  }
+  return value;
+}
+
+/* Reading past the end is a mistake rather than an answer full of undefined,
+ * which is what an array index would give — and `undefined` in arithmetic is
+ * NaN, which would travel a long way before anyone noticed. */
+function bounded(bytes: any, at: number, width: number): any {
+  if (at < 0 || at + width > bytes.length) {
+    throw new Error("reading " + String(width) + " bytes at " + String(at) +
+                    " is outside a sequence of " + String(bytes.length));
+  }
+  return bytes.slice(at, at + width);
+}

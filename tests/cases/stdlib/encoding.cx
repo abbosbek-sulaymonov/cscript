@@ -1,0 +1,77 @@
+/* Node cannot be the oracle for this case, and the reason is the module's whole
+ * subject: a CScript string is **bytes** and a Node string is UTF-16 code
+ * units, so `"é".charCodeAt(0)` is 195 here and 233 there. Every assertion
+ * involving anything outside ASCII therefore disagrees by design. The expected
+ * output was produced by CScript and checked against the module README.
+ */
+import { toBase64, toBase64Url, fromBase64, encodeBase64, decodeBase64, toHex,
+         fromHex, percentEncode, percentDecode, encodeUtf8, decodeUtf8,
+         characters, characterLength, isValidUtf8 } from "std:encoding";
+import { fromString } from "std:bytes";
+import { equal, deepEqual, ok, notOk } from "std:assert";
+
+/* The values are the ones every other implementation produces. */
+equal(toBase64(fromString("Man")), "TWFu");
+equal(toBase64(fromString("Ma")), "TWE=");
+equal(toBase64(fromString("M")), "TQ==");
+equal(encodeBase64("hello world"), "aGVsbG8gd29ybGQ=");
+equal(encodeBase64(""), "");
+equal(decodeBase64("aGVsbG8gd29ybGQ=").value, "hello world");
+
+/* Every length, so every tail case is covered rather than the one that was
+ * tried by hand. */
+let wrong = 0;
+for (let n = 0; n < 40; n++) {
+  let text = "";
+  for (let i = 0; i < n; i++) text = text + String.fromCharCode(32 + (i * 7) % 95);
+  if (decodeBase64(encodeBase64(text)).value !== text) wrong = wrong + 1;
+}
+equal(wrong, 0, "base64 round-trips at every length");
+
+/* The URL-safe alphabet, and a decoder that accepts both. */
+equal(toBase64Url(fromString("~~~?~~~")), "fn5-P35-fg");
+deepEqual(fromBase64("fn5-P35-fg").value, fromBase64("fn5+P35+fg==").value);
+equal(fromBase64("!!").error, "'!' at 0 is not a base64 character");
+equal(fromBase64("Y").error, "base64 ends in a single character");
+deepEqual(fromBase64("aGVs bG8=\n").value, fromString("hello"), "space and newline skipped");
+
+equal(toHex(fromString("Hi")), "4869");
+equal(toHex(fromString("Hi"), true), "4869");
+equal(toHex([255, 0]), "ff00");
+equal(toHex([255, 0], true), "FF00");
+deepEqual(fromHex("4869").value, [72, 105]);
+deepEqual(fromHex("0x4869").value, [72, 105]);
+deepEqual(fromHex("FF").value, [255]);
+equal(fromHex("abc").error, "hex has an odd number of digits");
+equal(fromHex("zz").error, "'zz' at 0 is not a hex pair");
+
+equal(percentEncode("a b&c=d/"), "a%20b%26c%3Dd%2F");
+equal(percentEncode("safe-._~"), "safe-._~", "the unreserved set is left alone");
+equal(percentEncode("é"), "%C3%A9", "two bytes, two escapes");
+equal(percentDecode("a%20b%26c").value, "a b&c");
+equal(percentDecode("a+b").value, "a b", "which is what a form body means by +");
+equal(percentDecode("%C3%A9").value, "é");
+equal(percentDecode("%zz").error, "'%zz' at 0 is not a percent escape");
+equal(percentDecode("%4").error, "a % at 0 with no digits after it");
+
+/* The gap between bytes and characters, which is the reason this module
+ * matters more here than elsewhere: a CScript string is bytes. */
+equal("café".length, 5, "five bytes");
+equal(characterLength("café").value, 4, "four characters");
+deepEqual(decodeUtf8("café").value, [99, 97, 102, 233]);
+deepEqual(characters("café").value, ["c", "a", "f", "é"]);
+equal(encodeUtf8(233), "é");
+equal(encodeUtf8(65), "A");
+equal(encodeUtf8(8364), "€");
+equal(encodeUtf8(128512).length, 4, "an emoji is four bytes");
+deepEqual(decodeUtf8(encodeUtf8(128512)).value, [128512]);
+ok(isValidUtf8("plain"));
+ok(isValidUtf8("café"));
+notOk(isValidUtf8(String.fromCharCode(255)), "a lone high byte starts nothing");
+notOk(isValidUtf8(String.fromCharCode(195)), "and a sequence that stops short");
+equal(decodeUtf8(String.fromCharCode(195)).error,
+      "a 2-byte sequence at 0 runs past the end");
+
+console.log(encodeBase64("hello world"), toHex(fromString("Hi")), percentEncode("a b"));
+console.log(characters("café").value, characterLength("naïve").value);
+console.log("encoding ok");
