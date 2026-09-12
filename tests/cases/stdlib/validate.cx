@@ -1,0 +1,81 @@
+import { string, number, boolean, array, object, optional, anything,
+         literal } from "std:validate";
+import { equal, deepEqual, ok, notOk } from "std:assert";
+
+const user = object({
+  name: string().min(1).max(20),
+  age: number().integer().min(0),
+  role: string().oneOf(["admin", "user"]),
+  tags: optional(array(string()).max(3), []),
+  active: boolean(),
+});
+
+const good = user.check({ name: "Ada", age: 36, role: "admin", active: true });
+ok(good.isOk);
+deepEqual(good.value, { name: "Ada", age: 36, role: "admin", tags: [], active: true });
+
+/* Every error, not the first: one at a time is what makes filling in a form
+ * take six attempts. */
+const bad = user.check({ name: "", age: 1.5, role: "root",
+                         tags: ["a", "b", "c", "d"], active: "yes" });
+ok(bad.isErr);
+equal(bad.error.length, 5);
+deepEqual(bad.error[0], { path: "name", message: "must have at least 1 of them" });
+deepEqual(bad.error[1], { path: "age", message: "must be a whole number" });
+deepEqual(bad.error[2], { path: "role", message: "must be one of admin, user" });
+deepEqual(bad.error[3], { path: "tags", message: "must have at most 3 of them" });
+deepEqual(bad.error[4], { path: "active", message: "must be a boolean, got string" });
+
+deepEqual(user.explain({ age: 1 }).error,
+          ["name: is required", "role: is required", "active: is required"]);
+
+/* The path says where, however deep. */
+deepEqual(object({ a: object({ b: string() }) }).check({ a: { b: 1 } }).error,
+          [{ path: "a.b", message: "must be a string, got number" }]);
+deepEqual(array(number()).check([1, "x"]).error,
+          [{ path: "[1]", message: "must be a number, got string" }]);
+deepEqual(object({ xs: array(object({ n: number() })) })
+              .check({ xs: [{ n: 1 }, { n: "no" }] }).error,
+          [{ path: "xs[1].n", message: "must be a number, got string" }]);
+
+/* An unknown key is dropped rather than refused: a body with an extra field is
+ * the normal way an API grows. */
+deepEqual(user.check({ name: "x", age: 1, role: "user", active: false, extra: 9 }).value,
+          { name: "x", age: 1, role: "user", tags: [], active: false });
+
+/* Optional means absent is fine; present still has to be right. */
+const settings = object({ theme: optional(string().oneOf(["light", "dark"]), "light") });
+equal(settings.check({}).value.theme, "light");
+equal(settings.check({ theme: "dark" }).value.theme, "dark");
+ok(settings.check({ theme: "neon" }).isErr);
+equal(settings.check({ theme: null }).value.theme, "light", "null counts as absent");
+
+equal(string().length(3).check("abc").value, "abc");
+ok(string().length(3).check("ab").isErr);
+ok(number().min(1).max(10).check(11).isErr);
+ok(number().check("5").isErr, "a string that looks like a number is not one");
+equal(string().matches(/^[a-z]+$/, "lower-case letters").check("AB").error[0].message,
+      "must be lower-case letters");
+equal(string().matches("@").check("no-at").error[0].message, "does not match @");
+ok(string().check_( (v: string) => v.startsWith("x"), "must start with x")
+           .check("no").isErr);
+
+equal(literal([1, 2]).check(3).error[0].message, "must be one of 1, 2");
+ok(literal(["a"]).check("a").isOk);
+ok(anything().check({ any: "thing" }).isOk);
+ok(anything().check(0).isOk);
+ok(anything().check(undefined).isErr, "still required unless made optional");
+ok(optional(anything()).check(undefined).isOk);
+
+/* A schema is a value, and a builder answers a new one — so one shared between
+ * two shapes cannot be altered by either. */
+const base = string();
+const long = base.min(5);
+ok(base.check("ab").isOk);
+ok(long.check("ab").isErr);
+
+console.log(JSON.stringify(user.check({ name: "Ada", age: 36, role: "user", active: true }).value));
+/* Joined rather than printed as an array: Node breaks a wide one across lines
+ * and CScript keeps it on one, which is the printer rather than the module. */
+console.log(user.explain({ name: "", age: -1, role: "x", active: 1 }).error.join("\n"));
+console.log("validate ok");

@@ -1,6 +1,6 @@
 # `library/` — the standard library
 
-Thirty-four modules, written in CScript, imported by name:
+Thirty-nine modules, written in CScript, imported by name:
 
 ```ts
 import { range, zip } from "std:iter";
@@ -60,6 +60,9 @@ the layer above: the things you would otherwise write again in every program.
 | [`std:clone`](clone) | `shallow`, `deep`, `deepReport`, `withFields` | [README](clone/README.md) |
 | [`std:cell`](cell) | A value in a box, and one computed once — `Cell`, `Lazy`, `Once` | [README](cell/README.md) |
 | [`std:bits`](bits) | The bitwise operations the language does not have, and a `Bitset` | [README](bits/README.md) |
+| [`std:cache`](cache) | An LRU cache with an optional age limit, and a bounded memoize | [README](cache/README.md) |
+| [`std:graph`](graph) | Nodes and edges — shortest path, topological order, union-find | [README](graph/README.md) |
+| [`std:validate`](validate) | Checking that data from outside is the shape it claims | [README](validate/README.md) |
 
 ### Bytes and formats
 
@@ -83,6 +86,8 @@ the layer above: the things you would otherwise write again in every program.
 | [`std:random`](random) | Randomness you can seed, and therefore repeat | [README](random/README.md) |
 | [`std:time`](time) | Durations, formatting, and a `Stopwatch` | [README](time/README.md) |
 | [`std:path`](path) | File paths as pure text — `join`, `dirname`, `relative` | [README](path/README.md) |
+| [`std:decimal`](decimal) | Money — exact arithmetic, because `0.1 + 0.2` is not `0.3` | [README](decimal/README.md) |
+| [`std:text`](text) | Two strings compared — edit distance, diff, and terminal columns | [README](text/README.md) |
 
 ### The world outside
 

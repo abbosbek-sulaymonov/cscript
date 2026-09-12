@@ -1,0 +1,367 @@
+/* text.cx — comparing text, and putting it on a terminal.
+ *
+ * [`std:strings`](../strings) is the operations on one string. This is the
+ * ones that involve two — how far apart they are, and what changed between
+ * them — and the ones that involve a terminal: colour, and columns that line
+ * up.
+ *
+ * Everything works on bytes, like the rest of the library. For ASCII that is
+ * exact; for text with accents in it, a "character" is
+ * [`encoding.characters`](../encoding) and the widths here will count the
+ * bytes instead.
+ */
+import { compareStrings } from "std:cmp";
+
+/* --- how far apart ------------------------------------------------------- */
+
+/* The edit distance: how many single-character insertions, deletions or
+ * substitutions turn one string into the other.
+ *
+ * Two rows rather than a full table — the algorithm only ever looks at the
+ * previous one, and a full table for two thousand-character strings is a
+ * million entries for no benefit. */
+export function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+
+  let previous: any = [];
+  for (let i = 0; i <= b.length; i++) previous.push(i);
+
+  for (let i = 0; i < a.length; i++) {
+    const current: any = [i + 1];
+    for (let j = 0; j < b.length; j++) {
+      const substitute = previous[j] + (a[i] === b[j] ? 0 : 1);
+      const insert = current[j] + 1;
+      const remove = previous[j + 1] + 1;
+      let best = substitute;
+      if (insert < best) best = insert;
+      if (remove < best) best = remove;
+      current.push(best);
+    }
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+/* 1 for identical, 0 for nothing in common. The distance divided by the longer
+ * length, subtracted from one — which is the shape a "did you mean" threshold
+ * wants, since a distance of 3 means something different for a word and for a
+ * sentence. */
+export function similarity(a: string, b: string): number {
+  if (a === b) return 1;
+  const longest = a.length > b.length ? a.length : b.length;
+  if (longest === 0) return 1;
+  return 1 - levenshtein(a, b) / longest;
+}
+
+/* The closest of `candidates`, or `undefined` when none is close enough.
+ *
+ * This is the "did you mean" behind a good error message: an unknown command
+ * or an unknown field is far more useful with a suggestion attached. */
+export function closest(text: string, candidates: any, threshold: number = 0.6): any {
+  let best: any = undefined;
+  let bestScore = threshold;
+  for (const candidate of candidates) {
+    const score = similarity(text, candidate);
+    if (score < bestScore) continue;
+    best = candidate;
+    bestScore = score;
+  }
+  return best;
+}
+
+/* --- what changed -------------------------------------------------------- */
+
+/* Line by line, as `{ kind, text }` with `kind` one of "same", "added" or
+ * "removed".
+ *
+ * The longest common subsequence, which is what makes the answer *minimal*:
+ * a line-by-line comparison would call every line after an inserted one
+ * changed, which is the diff everybody has seen and nobody can read. The table
+ * is O(n × m), so this is for files rather than for logs. */
+export function diffLines(before: string, after: string): any {
+  const from = before === "" ? [] : before.split("\n");
+  const to = after === "" ? [] : after.split("\n");
+
+  /* lengths[i][j] is the longest common subsequence of the first i and j. */
+  const lengths: any = [];
+  for (let i = 0; i <= from.length; i++) {
+    const row: any = [];
+    for (let j = 0; j <= to.length; j++) row.push(0);
+    lengths.push(row);
+  }
+  for (let i = from.length - 1; i >= 0; i--) {
+    for (let j = to.length - 1; j >= 0; j--) {
+      if (from[i] === to[j]) {
+        lengths[i][j] = lengths[i + 1][j + 1] + 1;
+      } else {
+        const down = lengths[i + 1][j];
+        const right = lengths[i][j + 1];
+        lengths[i][j] = down > right ? down : right;
+      }
+    }
+  }
+
+  const out: any = [];
+  let i = 0;
+  let j = 0;
+  while (i < from.length && j < to.length) {
+    if (from[i] === to[j]) {
+      out.push({ kind: "same", text: from[i] });
+      i = i + 1;
+      j = j + 1;
+      continue;
+    }
+    if (lengths[i + 1][j] >= lengths[i][j + 1]) {
+      out.push({ kind: "removed", text: from[i] });
+      i = i + 1;
+      continue;
+    }
+    out.push({ kind: "added", text: to[j] });
+    j = j + 1;
+  }
+  while (i < from.length) {
+    out.push({ kind: "removed", text: from[i] });
+    i = i + 1;
+  }
+  while (j < to.length) {
+    out.push({ kind: "added", text: to[j] });
+    j = j + 1;
+  }
+  return out;
+}
+
+/* The same diff as text, in the `-`/`+` form every reviewer already reads. */
+export function formatDiff(changes: any, context: any = null): string {
+  const lines: any = [];
+  for (const change of changes) {
+    if (change.kind === "same") {
+      if (context === 0) continue;
+      lines.push("  " + change.text);
+      continue;
+    }
+    lines.push((change.kind === "added" ? "+ " : "- ") + change.text);
+  }
+  return lines.join("\n");
+}
+
+/* --- names --------------------------------------------------------------- */
+
+/* A string as something safe for a URL or a filename: lower case, words joined
+ * by one dash, nothing else kept.
+ *
+ * Bytes above 127 are dropped rather than transliterated. Turning "é" into "e"
+ * needs a table per language — in some, "ö" sorts and transliterates as "oe" —
+ * and a wrong transliteration is worse than an honest omission. */
+export function slugify(text: string, separator: string = "-"): string {
+  const parts: any = [];
+  let current = "";
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    const isDigit = code >= 48 && code <= 57;
+    const isLower = code >= 97 && code <= 122;
+    const isUpper = code >= 65 && code <= 90;
+    if (isDigit || isLower) {
+      current = current + text[i];
+      continue;
+    }
+    if (isUpper) {
+      current = current + text[i].toLowerCase();
+      continue;
+    }
+    if (current !== "") parts.push(current);
+    current = "";
+  }
+  if (current !== "") parts.push(current);
+  return parts.join(separator);
+}
+
+/* --- a terminal ---------------------------------------------------------- */
+
+/* The escape character, built from its code rather than written literally: a
+ * literal ESC byte in a source file is invisible in every editor and survives
+ * exactly one careless copy. */
+const ESCAPE: string = String.fromCharCode(27);
+
+const CODES: any = new Map([
+  ["reset", 0], ["bold", 1], ["dim", 2], ["italic", 3], ["underline", 4],
+  ["black", 30], ["red", 31], ["green", 32], ["yellow", 33], ["blue", 34],
+  ["magenta", 35], ["cyan", 36], ["white", 37], ["grey", 90],
+]);
+
+/* Whether colour is written at all. A program should turn this off when its
+ * output is not a terminal — which it cannot ask here, since the runtime has
+ * no way to tell, so it is a decision the program makes and this remembers. */
+let coloured = true;
+
+export function setColour(on: boolean) {
+  coloured = on;
+}
+
+export function isColoured(): boolean {
+  return coloured;
+}
+
+/* `style(text, "red")`, or several: `style(text, "bold", "red")`. */
+export function style(text: string, ...names: any): string {
+  if (!coloured || names.length === 0) return text;
+  const opening: any = [];
+  for (const name of names) {
+    if (!CODES.has(name)) throw new Error("unknown style '" + String(name) + "'");
+    opening.push(String(CODES.get(name)));
+  }
+  return ESCAPE + "[" + opening.join(";") + "m" + text + ESCAPE + "[0m";
+}
+
+export function bold(text: string): string { return style(text, "bold"); }
+export function dim(text: string): string { return style(text, "dim"); }
+export function red(text: string): string { return style(text, "red"); }
+export function green(text: string): string { return style(text, "green"); }
+export function yellow(text: string): string { return style(text, "yellow"); }
+export function blue(text: string): string { return style(text, "blue"); }
+
+/* Every escape sequence removed. Needed to measure a styled string: its
+ * `length` counts the escapes, which is why a coloured column never lines up
+ * in the version written by hand. */
+export function stripStyle(text: string): string {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text.charCodeAt(i) === 27 && text[i + 1] === "[") {
+      i = i + 2;
+      while (i < text.length && text[i] !== "m") i = i + 1;
+      i = i + 1;
+      continue;
+    }
+    out = out + text[i];
+    i = i + 1;
+  }
+  return out;
+}
+
+/* How wide a string is on screen: its length without the escapes. */
+export function width(text: string): number {
+  return stripStyle(text).length;
+}
+
+/* --- columns -------------------------------------------------------------- */
+
+/* Rows as an aligned table.
+ *
+ * `{ head, align, separator }` — `align` is an array of "left" or "right", one
+ * per column. Widths are measured with the escapes stripped, so a coloured
+ * cell lines up with a plain one. */
+export function table(rows: any, options: any = null): string {
+  const head = options?.head ?? null;
+  const align = options?.align ?? [];
+  const separator = options?.separator ?? "  ";
+
+  const all: any = [];
+  if (head !== null) all.push(head);
+  for (const row of rows) all.push(row);
+  if (all.length === 0) return "";
+
+  let columns = 0;
+  for (const row of all) {
+    if (row.length > columns) columns = row.length;
+  }
+
+  const widths: any = [];
+  for (let c = 0; c < columns; c++) {
+    let widest = 0;
+    for (const row of all) {
+      const cell = c < row.length ? String(row[c]) : "";
+      const size = width(cell);
+      if (size > widest) widest = size;
+    }
+    widths.push(widest);
+  }
+
+  const lines: any = [];
+  for (let r = 0; r < all.length; r++) {
+    const cells: any = [];
+    for (let c = 0; c < columns; c++) {
+      const cell = c < all[r].length ? String(all[r][c]) : "";
+      const padding = widths[c] - width(cell);
+      const pad = padding > 0 ? " ".repeat(padding) : "";
+      cells.push(align[c] === "right" ? pad + cell : cell + pad);
+    }
+    /* Trailing space on the last column is invisible and still wrong: it makes
+     * a diff of the output noisy and a copied line carry space. */
+    lines.push(cells.join(separator).trimEnd());
+
+    if (head !== null && r === 0) {
+      const rule: any = [];
+      for (let c = 0; c < columns; c++) rule.push("-".repeat(widths[c]));
+      lines.push(rule.join(separator).trimEnd());
+    }
+  }
+  return lines.join("\n");
+}
+
+/* Names in columns, down then across, the way `ls` lays them out. */
+export function columns(items: any, options: any = null): string {
+  const total = options?.width ?? 80;
+  const gap = options?.gap ?? 2;
+
+  const all: any = [];
+  for (const item of items) all.push(String(item));
+  if (all.length === 0) return "";
+
+  let widest = 0;
+  for (const item of all) {
+    if (width(item) > widest) widest = width(item);
+  }
+
+  const perLine = Math.max(1, Math.floor((total + gap) / (widest + gap)));
+  const rows = Math.ceil(all.length / perLine);
+
+  const lines: any = [];
+  for (let r = 0; r < rows; r++) {
+    const cells: any = [];
+    for (let c = 0; c < perLine; c++) {
+      const at = c * rows + r;
+      if (at >= all.length) continue;
+      const padding = widest - width(all[at]);
+      cells.push(all[at] + (padding > 0 ? " ".repeat(padding) : ""));
+    }
+    lines.push(cells.join(" ".repeat(gap)).trimEnd());
+  }
+  return lines.join("\n");
+}
+
+/* Sorted the way a person reads a list of files: `item2` before `item10`,
+ * because the digits are compared as numbers rather than as text. */
+export function naturalCompare(a: string, b: string): number {
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    const aDigit = isDigitAt(a, i);
+    const bDigit = isDigitAt(b, j);
+
+    if (aDigit && bDigit) {
+      let aEnd = i;
+      while (aEnd < a.length && isDigitAt(a, aEnd)) aEnd = aEnd + 1;
+      let bEnd = j;
+      while (bEnd < b.length && isDigitAt(b, bEnd)) bEnd = bEnd + 1;
+
+      const aValue = Number(a.slice(i, aEnd));
+      const bValue = Number(b.slice(j, bEnd));
+      if (aValue !== bValue) return aValue < bValue ? -1 : 1;
+      i = aEnd;
+      j = bEnd;
+      continue;
+    }
+
+    if (a[i] !== b[j]) return compareStrings(a[i], b[j]);
+    i = i + 1;
+    j = j + 1;
+  }
+  return compareStrings(a.slice(i), b.slice(j));
+}
+
+function isDigitAt(text: string, index: number): boolean {
+  const code = text.charCodeAt(index);
+  return code >= 48 && code <= 57;
+}

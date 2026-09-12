@@ -1,0 +1,168 @@
+/* cache.cx — remembering a value, and forgetting it on purpose.
+ *
+ * A Map remembers everything, which is the same as leaking when the keys keep
+ * coming. A cache is a Map with a rule for what to throw away: the one used
+ * longest ago, or anything older than a given age.
+ *
+ * [`func.memoize`](../func) is the version with no rule at all — right for a
+ * pure function over a small domain, wrong for anything keyed by a request or
+ * a filename. This is the same idea with a bound on it.
+ *
+ * The clock is injectable throughout, for the same reason it is in
+ * [`std:log`](../log): a cache whose expiry cannot be reproduced cannot be
+ * tested.
+ */
+
+/* Least-recently-used, over an insertion-ordered Map.
+ *
+ * A Map in this language keeps its insertion order and `delete` plus `set`
+ * moves a key to the end — so "the one used longest ago" is the first key the
+ * Map hands back, and no separate list is needed. That is the whole trick, and
+ * it is why this is thirty lines rather than a hundred and thirty. */
+export class LruCache {
+  #capacity: number;
+  #entries: any = new Map();
+  #ttl: number;
+  #clock: any;
+  #hits: number = 0;
+  #misses: number = 0;
+  #evictions: number = 0;
+
+  /* `{ ttl, clock }` — `ttl` in milliseconds, zero meaning no expiry. */
+  constructor(capacity: number, options: any = null) {
+    if (capacity < 1) throw new Error("a cache needs room for at least one entry");
+    this.#capacity = capacity;
+    this.#ttl = options?.ttl ?? 0;
+    this.#clock = options?.clock ?? null;
+  }
+
+  get size(): number {
+    return this.#entries.size;
+  }
+
+  get capacity(): number {
+    return this.#capacity;
+  }
+
+  /* What the cache has been doing, which is the only way to know whether it is
+   * worth having: a hit rate near zero is a cache that costs memory and buys
+   * nothing. */
+  get stats(): any {
+    const looks = this.#hits + this.#misses;
+    return {
+      hits: this.#hits,
+      misses: this.#misses,
+      evictions: this.#evictions,
+      hitRate: looks === 0 ? 0 : this.#hits / looks,
+    };
+  }
+
+  #now(): number {
+    return this.#clock === null ? Date.now() : this.#clock();
+  }
+
+  #expired(entry: any): boolean {
+    return this.#ttl > 0 && this.#now() - entry.storedAt >= this.#ttl;
+  }
+
+  /* Reading marks the entry as used, which is what makes it least-recently-*used*
+   * rather than least-recently-added. */
+  get(key: any): any {
+    if (!this.#entries.has(key)) {
+      this.#misses = this.#misses + 1;
+      return undefined;
+    }
+    const entry = this.#entries.get(key);
+    if (this.#expired(entry)) {
+      this.#entries.delete(key);
+      this.#misses = this.#misses + 1;
+      return undefined;
+    }
+    this.#entries.delete(key);
+    this.#entries.set(key, entry);
+    this.#hits = this.#hits + 1;
+    return entry.value;
+  }
+
+  /* Deliberately does not count as a use, and does not count as a hit: asking
+   * whether something is cached is not the same as wanting it. */
+  has(key: any): boolean {
+    if (!this.#entries.has(key)) return false;
+    if (!this.#expired(this.#entries.get(key))) return true;
+    this.#entries.delete(key);
+    return false;
+  }
+
+  set(key: any, value: any): any {
+    if (this.#entries.has(key)) this.#entries.delete(key);
+    this.#entries.set(key, { value: value, storedAt: this.#now() });
+
+    while (this.#entries.size > this.#capacity) {
+      /* The first key is the one used longest ago. */
+      for (const oldest of this.#entries.keys()) {
+        this.#entries.delete(oldest);
+        this.#evictions = this.#evictions + 1;
+        break;
+      }
+    }
+    return this;
+  }
+
+  /* The shape almost every use takes: answer what is cached, or work it out
+   * and cache that. One call, so the two halves cannot drift. */
+  fetch(key: any, build: any): any {
+    if (this.has(key)) return this.get(key);
+    const value = build.length >= 1 ? build(key) : build();
+    this.set(key, value);
+    return value;
+  }
+
+  delete(key: any): boolean {
+    return this.#entries.delete(key);
+  }
+
+  clear(): any {
+    this.#entries = new Map();
+    return this;
+  }
+
+  /* Drops everything expired, for a cache that is read rarely and would
+   * otherwise hold its dead entries until something asked for them. */
+  prune(): number {
+    const dead: any = [];
+    for (const [key, entry] of this.#entries) {
+      if (this.#expired(entry)) dead.push(key);
+    }
+    for (const key of dead) this.#entries.delete(key);
+    return dead.length;
+  }
+
+  keys(): any {
+    const out: any = [];
+    for (const key of this.#entries.keys()) out.push(key);
+    return out;
+  }
+
+  *[Symbol.iterator]() {
+    for (const [key, entry] of this.#entries) {
+      if (!this.#expired(entry)) yield [key, entry.value];
+    }
+  }
+}
+
+/* A function that remembers its answers, with a bound.
+ *
+ * `func.memoize` keys on JSON and never forgets; this takes the same shape and
+ * a capacity, which is what makes it safe for something keyed by user input.
+ */
+export function memoize(fn: any, options: any = null): any {
+  const cache = new LruCache(options?.capacity ?? 128, options);
+  const keyOf = options?.keyOf ?? null;
+  return (...args: any) => {
+    const key = keyOf === null ? JSON.stringify(args) : keyOf(...args);
+    if (cache.has(key)) return cache.get(key);
+    const value = fn(...args);
+    cache.set(key, value);
+    return value;
+  };
+}

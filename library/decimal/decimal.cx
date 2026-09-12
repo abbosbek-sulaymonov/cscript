@@ -1,0 +1,288 @@
+/* decimal.cx — money, and everything else that must add up exactly.
+ *
+ * `0.1 + 0.2` is not `0.3` in any binary floating-point format, including
+ * CScript's numbers. That is arithmetic rather than a bug, and it is fatal for
+ * anything counted in cents: a thousand additions of 0.1 drift far enough to
+ * be visible in a total, and a comparison against an expected value fails for
+ * reasons nobody can see in the printout.
+ *
+ * A Decimal here is an **integer number of units and a scale**: 12.34 is 1234
+ * units at scale 2. Every operation is integer arithmetic, so addition,
+ * subtraction and multiplication are exact, and division says what to do about
+ * the remainder rather than guessing.
+ *
+ * The bound is the one doubles give: an integer is exact to 2^53, so at scale
+ * 2 the largest amount is about 90 trillion. Past that, operations throw
+ * rather than quietly losing the last digits — which is the behaviour that
+ * makes this worth using at all.
+ */
+
+const SAFE = 9007199254740991; /* 2^53 - 1 */
+
+export class Decimal {
+  #units: number;
+  #scale: number;
+
+  /* Not the interface — `Decimal.of` and `Decimal.parse` are. A caller writing
+   * `new Decimal(1234, 2)` has already had to think about units, which is the
+   * thing this type exists to think about for them. */
+  constructor(units: number, scale: number) {
+    if (units !== Math.floor(units) || scale !== Math.floor(scale) || scale < 0) {
+      throw new Error("a Decimal is a whole number of units at a whole scale");
+    }
+    guard(units);
+    this.#units = units;
+    this.#scale = scale;
+  }
+
+  /* From a number or a string. **Prefer the string.** `Decimal.of(0.1)` has
+   * already lost the exactness this type is for — it can only recover what the
+   * double actually holds — while `Decimal.parse("0.1")` is exact by
+   * construction. */
+  static of(value: any, scale: number = 2): any {
+    if (typeof value === "string") return Decimal.parse(value);
+    if (typeof value !== "number" || value !== value) {
+      throw new Error("Decimal.of needs a number or a string, got " + String(value));
+    }
+    const factor = Math.pow(10, scale);
+    return new Decimal(Math.round(value * factor), scale);
+  }
+
+  /* `"12.34"` is 1234 at scale 2; the scale comes from the text, so
+   * `"1.500"` keeps its three places. Answers a Decimal or throws — a value
+   * from outside should go through [`std:validate`](../validate) first. */
+  static parse(text: string): any {
+    const trimmed = String(text).trim();
+    const negative = trimmed.startsWith("-");
+    const body = negative || trimmed.startsWith("+") ? trimmed.slice(1) : trimmed;
+    if (body === "") throw new Error("'" + text + "' is not a decimal");
+
+    const point = body.indexOf(".");
+    const whole = point < 0 ? body : body.slice(0, point);
+    const fraction = point < 0 ? "" : body.slice(point + 1);
+
+    if (!isDigits(whole) && whole !== "") throw new Error("'" + text + "' is not a decimal");
+    if (fraction !== "" && !isDigits(fraction)) {
+      throw new Error("'" + text + "' is not a decimal");
+    }
+
+    const digits = (whole === "" ? "0" : whole) + fraction;
+    let units = 0;
+    for (let i = 0; i < digits.length; i++) {
+      units = units * 10 + (digits.charCodeAt(i) - 48);
+      guard(units);
+    }
+    return new Decimal(negative ? -units : units, fraction.length);
+  }
+
+  static zero(scale: number = 2): any {
+    return new Decimal(0, scale);
+  }
+
+  get units(): number {
+    return this.#units;
+  }
+
+  get scale(): number {
+    return this.#scale;
+  }
+
+  /* --- arithmetic ------------------------------------------------------- */
+
+  /* Both sides are brought to the wider scale first, so `1.5 + 0.25` is 1.75
+   * rather than either operand's idea of the answer. */
+  add(other: any): any {
+    const [left, right, scale] = align(this, other);
+    return new Decimal(left + right, scale);
+  }
+
+  subtract(other: any): any {
+    const [left, right, scale] = align(this, other);
+    return new Decimal(left - right, scale);
+  }
+
+  /* The scales add, exactly as they do on paper: 1.5 × 1.5 is 2.25. Rounding
+   * back is a separate decision, which is why it is a separate call. */
+  multiply(other: any): any {
+    const right = asDecimal(other, this.#scale);
+    const product = this.#units * right.units;
+    guard(product);
+    return new Decimal(product, this.#scale + right.scale);
+  }
+
+  /* Division has to be told how many places to keep, because most divisions
+   * have no exact answer — and a default would be a guess that is wrong in
+   * exactly the cases this type exists for. */
+  divide(other: any, scale: any = null, mode: string = "half-up"): any {
+    const right = asDecimal(other, this.#scale);
+    if (right.units === 0) throw new Error("division by zero");
+
+    const places = scale === null ? this.#scale : scale;
+    /* Scaled up by two extra places so the rounding decision has digits to
+     * look at, then rounded down to what was asked for. */
+    const factor = Math.pow(10, places - this.#scale + right.scale + 2);
+    const scaled = this.#units * factor;
+    guard(scaled);
+    const quotient = scaled / right.units;
+    return new Decimal(roundUnits(quotient, 100, mode), places);
+  }
+
+  negate(): any {
+    return new Decimal(-this.#units, this.#scale);
+  }
+
+  abs(): any {
+    return this.#units < 0 ? this.negate() : this;
+  }
+
+  /* Percentages, which are the other half of what money arithmetic is:
+   * `price.percent(20)` is a fifth of it, at the price's own scale. */
+  percent(amount: number, mode: string = "half-up"): any {
+    return this.multiply(new Decimal(Math.round(amount * 100), 4))
+               .round(this.#scale, mode);
+  }
+
+  /* --- rounding --------------------------------------------------------- */
+
+  /* `"half-up"` (the commercial default), `"half-even"` (banker's, which does
+   * not drift upwards over many roundings), `"down"`, `"up"`, `"floor"`,
+   * `"ceil"`. */
+  round(scale: number, mode: string = "half-up"): any {
+    if (scale >= this.#scale) return this.rescale(scale);
+    const divisor = Math.pow(10, this.#scale - scale);
+    return new Decimal(roundUnits(this.#units, divisor, mode), scale);
+  }
+
+  /* The same number at a different scale, exactly — so only upwards. */
+  rescale(scale: number): any {
+    if (scale < this.#scale) {
+      throw new Error("rescale cannot lose digits: use round(" + String(scale) + ")");
+    }
+    const factor = Math.pow(10, scale - this.#scale);
+    const units = this.#units * factor;
+    guard(units);
+    return new Decimal(units, scale);
+  }
+
+  /* --- comparing -------------------------------------------------------- */
+
+  compare(other: any): number {
+    const [left, right] = align(this, other);
+    if (left < right) return -1;
+    if (left > right) return 1;
+    return 0;
+  }
+
+  equals(other: any): boolean {
+    return this.compare(other) === 0;
+  }
+
+  get isZero(): boolean {
+    return this.#units === 0;
+  }
+
+  get isNegative(): boolean {
+    return this.#units < 0;
+  }
+
+  /* --- reading ---------------------------------------------------------- */
+
+  /* The exact text, with every place the scale claims — `"1.50"` rather than
+   * `"1.5"`, because a price with a scale of 2 is written with two places. */
+  toString(): string {
+    const negative = this.#units < 0;
+    const digits = String(negative ? -this.#units : this.#units);
+    if (this.#scale === 0) return (negative ? "-" : "") + digits;
+
+    const padded = digits.padStart(this.#scale + 1, "0");
+    const whole = padded.slice(0, padded.length - this.#scale);
+    const fraction = padded.slice(padded.length - this.#scale);
+    return (negative ? "-" : "") + whole + "." + fraction;
+  }
+
+  /* A double again, which is lossy by definition — for printing a chart or
+   * handing to something that only takes numbers, never for arithmetic that
+   * has to add up. */
+  toNumber(): number {
+    return this.#units / Math.pow(10, this.#scale);
+  }
+}
+
+/* --- the parts everything above rests on ---------------------------------- */
+
+function guard(units: number) {
+  if (units > SAFE || units < -SAFE) {
+    throw new Error("a Decimal has gone past the exact range of a number (2^53): " +
+                    "the result would quietly lose its last digits");
+  }
+}
+
+function isDigits(text: string): boolean {
+  if (text.length === 0) return false;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 48 || code > 57) return false;
+  }
+  return true;
+}
+
+/* A plain number or string as a Decimal.
+ *
+ * A **whole** number converts at scale 0, not at the receiver's scale, which is
+ * what makes `price.multiply(2)` answer two places rather than four: the scales
+ * add, and 2 genuinely has no fractional part. A fractional number converts at
+ * the receiver's scale, since that is the only scale on offer — and a caller
+ * who cares should pass a string, which carries its own. */
+function asDecimal(value: any, scale: number): any {
+  if (typeof value === "string") return Decimal.parse(value);
+  if (typeof value === "number") {
+    return value === Math.floor(value) ? new Decimal(value, 0)
+                                       : Decimal.of(value, scale);
+  }
+  return value;
+}
+
+/* Both operands as units at the wider of the two scales. */
+function align(left: any, right: any): any {
+  const other = asDecimal(right, left.scale);
+  const scale = left.scale > other.scale ? left.scale : other.scale;
+  const leftUnits = left.units * Math.pow(10, scale - left.scale);
+  const rightUnits = other.units * Math.pow(10, scale - other.scale);
+  guard(leftUnits);
+  guard(rightUnits);
+  return [leftUnits, rightUnits, scale];
+}
+
+/* `units / divisor`, rounded by name. Written out rather than deferring to
+ * Math.round, which is half-up for positives and half-*down* for negatives —
+ * so -0.5 rounds to -0 and 0.5 to 1, which is not symmetric and is not what
+ * any accountant means. */
+function roundUnits(units: number, divisor: number, mode: string): number {
+  const negative = units < 0;
+  const size = negative ? -units : units;
+  const whole = Math.floor(size / divisor);
+  const remainder = size - whole * divisor;
+  const twice = remainder * 2;
+
+  let rounded = whole;
+  if (mode === "down") {
+    rounded = whole;
+  } else if (mode === "up") {
+    rounded = remainder === 0 ? whole : whole + 1;
+  } else if (mode === "floor") {
+    rounded = negative && remainder !== 0 ? whole + 1 : whole;
+  } else if (mode === "ceil") {
+    rounded = negative || remainder === 0 ? whole : whole + 1;
+  } else if (mode === "half-even") {
+    if (twice > divisor) {
+      rounded = whole + 1;
+    } else if (twice === divisor) {
+      rounded = whole % 2 === 0 ? whole : whole + 1;
+    }
+  } else if (mode === "half-up") {
+    rounded = twice >= divisor ? whole + 1 : whole;
+  } else {
+    throw new Error("unknown rounding mode '" + mode + "'");
+  }
+  return negative ? -rounded : rounded;
+}

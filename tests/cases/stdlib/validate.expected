@@ -1,0 +1,6 @@
+{"name":"Ada","age":36,"role":"user","tags":[],"active":true}
+name: must have at least 1 of them
+age: must be at least 0
+role: must be one of admin, user
+active: must be a boolean, got number
+validate ok

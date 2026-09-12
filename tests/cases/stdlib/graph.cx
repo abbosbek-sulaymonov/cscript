@@ -1,0 +1,79 @@
+import { Graph, DisjointSet } from "std:graph";
+import { equal, deepEqual, ok, notOk, messageOf, throws } from "std:assert";
+
+const roads = new Graph(true);
+roads.addEdge("a", "b", 1).addEdge("b", "c", 2).addEdge("a", "c", 5).addEdge("c", "d", 1);
+deepEqual(roads.nodes(), ["a", "b", "c", "d"]);
+equal(roads.size, 4);
+equal(roads.edgeCount, 4);
+ok(roads.isDirected);
+deepEqual(roads.neighbours("a"), ["b", "c"]);
+equal(roads.weight("a", "c"), 5);
+equal(roads.weight("c", "a"), undefined, "which a directed graph does not have");
+ok(roads.hasEdge("a", "b"));
+notOk(roads.hasEdge("b", "a"));
+equal(roads.degree("a"), 2);
+
+deepEqual([...roads.breadthFirst("a")], ["a", "b", "c", "d"]);
+deepEqual([...roads.depthFirst("a")], ["a", "b", "c", "d"]);
+deepEqual([...roads.breadthFirst("nowhere")], []);
+deepEqual(roads.reachableFrom("c"), ["c", "d"]);
+
+/* The cheapest route, not the one with fewest steps: a→b→c→d is 4 and the
+ * direct a→c is 5. */
+const route = roads.shortestPath("a", "d");
+deepEqual(route.path, ["a", "b", "c", "d"]);
+equal(route.distance, 4);
+equal(roads.shortestPath("d", "a"), undefined, "nothing leads back");
+equal(roads.shortestPath("a", "nowhere"), undefined);
+deepEqual(roads.shortestPath("a", "a").path, ["a"]);
+
+deepEqual(roads.topologicalOrder().value, ["a", "b", "c", "d"]);
+notOk(roads.hasCycle());
+roads.addEdge("d", "a");
+ok(roads.hasCycle());
+equal(roads.topologicalOrder().error, "there is a cycle among: a, b, c, d");
+
+const negative = new Graph(true);
+negative.addEdge("a", "b", -1);
+ok(messageOf(throws(() => negative.shortestPath("a", "b"))).includes("negative"));
+
+/* An undirected edge goes both ways, and appears once when listed. */
+const friends = new Graph();
+friends.addEdge(1, 2).addEdge(3, 4);
+ok(friends.hasEdge(2, 1));
+equal(friends.edgeCount, 2);
+deepEqual(friends.edges(), [[1, 2, 1], [3, 4, 1]]);
+deepEqual(friends.components(), [[1, 2], [3, 4]]);
+notOk(friends.hasCycle());
+friends.addEdge(2, 3);
+deepEqual(friends.components(), [[1, 2, 3, 4]]);
+friends.addEdge(4, 1);
+ok(friends.hasCycle());
+
+/* Removing a node removes every edge that mentioned it. */
+const removing = new Graph();
+removing.addEdge("x", "y").addEdge("y", "z");
+ok(removing.removeNode("y"));
+notOk(removing.hasEdge("x", "y"));
+deepEqual(removing.neighbours("x"), []);
+notOk(removing.removeNode("y"));
+ok(removing.removeEdge === undefined ? false : true);
+
+const groups = new DisjointSet([1, 2, 3, 4, 5]);
+equal(groups.groupCount, 5);
+ok(groups.union(1, 2));
+notOk(groups.union(1, 2), "already together, which is what closes a cycle");
+ok(groups.union(3, 4));
+ok(groups.connected(1, 2));
+notOk(groups.connected(1, 3));
+equal(groups.groupCount, 3);
+equal(groups.groupSize(1), 2);
+groups.union(2, 3);
+equal(groups.groupSize(4), 4);
+equal(groups.groups().length, 2);
+equal(groups.size, 5);
+
+console.log(roads.nodes(), friends.components());
+console.log(route.path, route.distance);
+console.log("graph ok");

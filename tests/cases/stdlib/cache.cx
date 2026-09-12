@@ -1,0 +1,76 @@
+import { LruCache, memoize } from "std:cache";
+import { equal, deepEqual, ok, notOk, messageOf, throws } from "std:assert";
+
+const cache = new LruCache(2);
+cache.set("a", 1).set("b", 2);
+equal(cache.size, 2);
+equal(cache.get("a"), 1);
+cache.set("c", 3);
+deepEqual(cache.keys(), ["a", "c"], "b went, because a had just been used");
+notOk(cache.has("b"));
+equal(cache.get("b"), undefined);
+equal(cache.capacity, 2);
+
+/* Reading marks an entry as used; asking whether it is there does not. */
+const order = new LruCache(2);
+order.set("x", 1).set("y", 2);
+order.has("x");
+order.set("z", 3);
+deepEqual(order.keys(), ["y", "z"], "has() did not save x");
+
+const stats = new LruCache(1);
+stats.set("k", 1);
+stats.get("k"); stats.get("k"); stats.get("missing");
+stats.set("other", 2);
+equal(stats.stats.hits, 2);
+equal(stats.stats.misses, 1);
+equal(stats.stats.evictions, 1);
+equal(stats.stats.hitRate, 2 / 3);
+
+/* The shape almost every use takes, in one call. */
+let built = 0;
+const fetching = new LruCache(4);
+const first = fetching.fetch("k", () => { built = built + 1; return "value"; });
+const second = fetching.fetch("k", () => { built = built + 1; return "other"; });
+equal(first, "value");
+equal(second, "value");
+equal(built, 1);
+equal(fetching.fetch("keyed", (key: string) => key + "!"), "keyed!");
+
+/* The clock is injectable, so expiry can be tested at all. */
+let now = 1000;
+const expiring = new LruCache(4, { ttl: 100, clock: () => now });
+expiring.set("k", "v");
+equal(expiring.get("k"), "v");
+now = 1099;
+equal(expiring.get("k"), "v", "not yet");
+now = 1100;
+equal(expiring.get("k"), undefined, "and now it is gone");
+equal(expiring.size, 0, "removed rather than merely hidden");
+
+now = 2000;
+expiring.set("a", 1).set("b", 2);
+now = 2050;
+expiring.set("c", 3);
+now = 2120;
+equal(expiring.prune(), 2, "a and b are old, c is not");
+deepEqual(expiring.keys(), ["c"]);
+deepEqual([...expiring], [["c", 3]]);
+
+equal(cache.delete("a"), true);
+equal(cache.delete("a"), false);
+cache.clear();
+equal(cache.size, 0);
+equal(messageOf(throws(() => new LruCache(0))),
+      "a cache needs room for at least one entry");
+
+/* A memoized function with a bound, unlike func.memoize which never forgets. */
+let calls = 0;
+const square = memoize((n: number) => { calls = calls + 1; return n * n; },
+                       { capacity: 2 });
+square(2); square(2); square(3); square(4); square(2);
+equal(calls, 4, "2 was evicted and had to be worked out again");
+equal(square(5), 25);
+
+console.log(cache.size, stats.stats.hits, expiring.keys());
+console.log("cache ok");
