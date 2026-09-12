@@ -1,0 +1,43 @@
+Keep short notes.
+
+usage: notes [options] [file...]
+
+options:
+  -o, --output <value>  where to write (default -)
+  -n, --count <n>       how many to show (default 10)
+  -V, --verbose         say more
+      --colour          use colour
+  -t, --tag <value>...  filter by tag
+      --format <value>  how to print (default text)
+  -h, --help            show this help
+  -v, --version         show the version
+
+Keep short notes.
+
+usage: notes <command> [options]
+
+commands:
+  add   add a note
+  list  list notes
+
+options:
+  -o, --output <value>  where to write (default -)
+  -n, --count <n>       how many to show (default 10)
+  -V, --verbose         say more
+      --colour          use colour
+  -t, --tag <value>...  filter by tag
+      --format <value>  how to print (default text)
+  -h, --help            show this help
+  -v, --version         show the version
+
+add a note
+
+usage: notes add [options]
+
+options:
+      --pin      keep it at the top
+  -h, --help     show this help
+  -v, --version  show the version
+
+notes 1.2.0
+cli ok

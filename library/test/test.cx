@@ -1,0 +1,167 @@
+/* test.cx — running the checks that std:assert makes.
+ *
+ * [`std:assert`](../assert) is the assertions; this is the part that collects
+ * them, runs them, catches what they throw, and reports. Without it every test
+ * file is a script that stops at the first failure and says nothing about the
+ * twelve cases after it.
+ *
+ * A test body may be async, and is awaited. `run` is therefore async too, and
+ * answers the summary rather than exiting — a runner that called `exit` could
+ * not be tested by itself, and the program may have more to do.
+ *
+ * ## What a failure can and cannot be
+ *
+ * A failing assertion throws, and that is caught here. A **runtime error** —
+ * reading a property that is not there, adding a number to an object — is not
+ * catchable in CScript, so it ends the whole run rather than failing one test.
+ * That is worth knowing when a run stops with output missing: the last test
+ * named is the one that did it.
+ */
+import { messageOf, kindOf } from "std:errors";
+
+/* The registry is module-level, which is what lets a test file be a file of
+ * `test(...)` calls with no ceremony — importing it is the registration. */
+let registered: any = [];
+let suiteStack: any = [];
+let onlyUsed: boolean = false;
+
+/* `test("adds", () => { ... })`, inside an optional `suite`. */
+export function test(name: string, body: any) {
+  registered.push({
+    name: fullName(name),
+    body: body,
+    skip: false,
+    only: false,
+  });
+}
+
+/* Registered, reported, and not run. A skipped test is a decision that shows
+ * up in the summary; a commented-out one is a decision nobody can see. */
+export function skip(name: string, body: any) {
+  registered.push({ name: fullName(name), body: body, skip: true, only: false });
+}
+
+/* When any test is `only`, every other one is skipped. For narrowing a run to
+ * the thing being worked on, without deleting the rest. */
+export function only(name: string, body: any) {
+  onlyUsed = true;
+  registered.push({ name: fullName(name), body: body, skip: false, only: true });
+}
+
+/* Groups names, and nothing else: `suite("Deque", () => { test(...) })` runs
+ * its body immediately to register what is inside it. There is no setup or
+ * teardown here on purpose — a test that needs fixtures can build them in its
+ * own body, where what it did is visible. */
+export function suite(name: string, body: any) {
+  suiteStack.push(name);
+  body();
+  suiteStack.pop();
+}
+
+function fullName(name: string): string {
+  if (suiteStack.length === 0) return name;
+  return suiteStack.join(" › ") + " › " + name;
+}
+
+/* --- running --------------------------------------------------------------- */
+
+/* Runs everything registered and answers
+ * `{ passed, failed, skipped, total, failures, ok }`.
+ *
+ * `report` is where each line goes — `console.log` by default, and any
+ * one-argument function otherwise, which is how the output is captured in a
+ * test of the runner itself.
+ */
+export async function run(options: any = null): any {
+  const report = options?.report ?? ((line: string) => console.log(line));
+  const quiet = options?.quiet ?? false;
+
+  const summary = {
+    passed: 0,
+    failed: 0,
+    skipped: 0,
+    total: registered.length,
+    failures: [],
+    ok: true,
+  };
+
+  for (const entry of registered) {
+    if (entry.skip || (onlyUsed && !entry.only)) {
+      summary.skipped = summary.skipped + 1;
+      if (!quiet) report("skip  " + entry.name);
+      continue;
+    }
+
+    /* Awaited whether or not it is async: awaiting a plain value answers it,
+     * so one path covers both. */
+    try {
+      await entry.body();
+      summary.passed = summary.passed + 1;
+      if (!quiet) report("ok    " + entry.name);
+    } catch (failure) {
+      summary.failed = summary.failed + 1;
+      const reason = describeFailure(failure);
+      summary.failures.push({ name: entry.name, reason: reason });
+      if (!quiet) report("FAIL  " + entry.name);
+      if (!quiet) report("        " + reason);
+    }
+  }
+
+  summary.ok = summary.failed === 0;
+
+  if (!quiet) {
+    report("");
+    report(line(summary));
+  }
+  return summary;
+}
+
+/* An assertion failure prints its message alone — the kind adds nothing, since
+ * "AssertionError" is what a failing test is. Anything else is named, because
+ * a test that threw something unexpected failed differently from one whose
+ * check did not hold. */
+function describeFailure(failure: any): string {
+  const kind = kindOf(failure);
+  const message = messageOf(failure);
+  return kind === "AssertionError" ? message : kind + ": " + message;
+}
+
+export function line(summary: any): string {
+  const parts: any = [String(summary.passed) + " passed"];
+  if (summary.failed > 0) parts.push(String(summary.failed) + " failed");
+  if (summary.skipped > 0) parts.push(String(summary.skipped) + " skipped");
+  return parts.join(", ");
+}
+
+/* Forgets every registration, so one process can run more than one suite —
+ * and so a test *of* this module does not inherit the tests above it. */
+export function reset() {
+  registered = [];
+  suiteStack = [];
+  onlyUsed = false;
+}
+
+/* What has been registered, without running any of it: for a runner that wants
+ * to list or filter before deciding. */
+export function names(): any {
+  const out: any = [];
+  for (const entry of registered) out.push(entry.name);
+  return out;
+}
+
+/* Keeps only the tests whose name contains `text`. The filter a command line
+ * passes down, applied before `run` rather than inside it, so the summary
+ * counts what was actually asked for. */
+export function filter(text: string) {
+  const kept: any = [];
+  for (const entry of registered) {
+    if (entry.name.includes(text)) kept.push(entry);
+  }
+  registered = kept;
+}
+
+/* The exit code a runner should use: 0 when everything passed, 1 otherwise.
+ * Answered rather than acted on, for the same reason `run` does not exit. */
+export function exitCode(summary: any): number {
+  return summary.ok ? 0 : 1;
+}

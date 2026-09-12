@@ -1,0 +1,73 @@
+import { make, kind, wrap, kindOf, messageOf, detailsOf, isKind, find, chain,
+         rootCause, describe, format, catching } from "std:errors";
+import { equal, deepEqual, ok, notOk, throws } from "std:assert";
+
+/* CScript cannot subclass Error, so a kind is a name carried on it. */
+const NotFound = kind("NotFound");
+const failure = NotFound("no user 7", { id: 7 });
+equal(kindOf(failure), "NotFound");
+equal(messageOf(failure), "no user 7");
+deepEqual(detailsOf(failure), { id: 7 });
+equal(describe(failure), "NotFound: no user 7");
+equal(describe(make("Error", "plain")), "plain", "Error: x says nothing x did not");
+
+/* Wrapping keeps the original, and keeps its kind findable. */
+const middle = wrap(failure, "cannot load the profile");
+const outer = wrap(middle, "cannot start");
+equal(messageOf(outer), "cannot start");
+equal(kindOf(outer), "NotFound", "the kind travels up with the cause");
+ok(isKind(outer, "NotFound"), "through three layers");
+notOk(isKind(outer, "Permission"));
+equal(chain(outer).length, 3);
+equal(messageOf(rootCause(outer)), "no user 7");
+deepEqual(detailsOf(find(outer, "NotFound")), { id: 7 });
+equal(find(outer, "Nothing"), undefined);
+
+equal(format(outer), "NotFound: cannot start\n" +
+                     "  caused by NotFound: cannot load the profile\n" +
+                     "  caused by NotFound: no user 7");
+
+/* A wrapper may rename the kind when it means something different. */
+const renamed = wrap(failure, "the request failed", "BadRequest");
+equal(kindOf(renamed), "BadRequest");
+ok(isKind(renamed, "NotFound"), "and the original is still underneath");
+
+/* A cycle is stopped rather than followed. */
+const first: any = make("A", "first");
+const second: any = make("B", "second");
+first.cause = second;
+second.cause = first;
+equal(chain(first).length, 2);
+
+/* Anything can be thrown, so anything can be asked about. */
+equal(kindOf("just text"), "Error");
+equal(messageOf("just text"), "just text");
+equal(kindOf({ name: "Odd" }), "Odd");
+equal(kindOf(null), "Error");
+equal(detailsOf("text"), undefined);
+
+/* Handling by kind, rather than a switch that forgot it was one. */
+const handled = catching(() => { throw NotFound("missing"); }, {
+  NotFound: () => "used the default",
+});
+equal(handled, "used the default");
+
+const passedDetails = catching(() => { throw NotFound("missing", { id: 1 }); }, {
+  NotFound: (e: any) => detailsOf(e).id,
+});
+equal(passedDetails, 1);
+
+equal(catching(() => "fine", { NotFound: () => "no" }), "fine");
+
+const fellThrough = catching(() => { throw make("Other", "x"); }, {
+  NotFound: () => "no",
+}, () => "otherwise");
+equal(fellThrough, "otherwise");
+
+/* With no branch and no otherwise, it travels on. */
+ok(throws(() => catching(() => { throw make("Other", "x"); }, { NotFound: () => "no" })));
+
+console.log(describe(failure));
+console.log(format(outer));
+console.log(kindOf(wrap(failure, "outer")), isKind(outer, "NotFound"));
+console.log("errors ok");

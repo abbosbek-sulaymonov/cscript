@@ -1,0 +1,5 @@
+2023-11-14T22:13:20.000Z info  started
+2023-11-14T22:13:20.000Z warn  slow ms=1200
+2023-11-14T22:13:20.000Z error failed path=/tmp/x message="two words"
+{"time":"2023-11-14T22:13:20.000Z","level":"info","message":"saved","bytes":12,"ok":true,"note":null,"quoted":"a \"b\""}
+log ok

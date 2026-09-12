@@ -1,0 +1,112 @@
+import { parse, help, version } from "std:cli";
+import { equal, deepEqual, ok, notOk } from "std:assert";
+
+/* A program takes a command or takes files, not both: with commands in the
+ * description, a bare word is a command, and an unknown one is an error rather
+ * than a filename nobody noticed. So there are two descriptions here. */
+const spec: any = {
+  name: "notes",
+  version: "1.2.0",
+  description: "Keep short notes.",
+  flags: [
+    { name: "output", short: "o", type: "string", fallback: "-",
+      description: "where to write" },
+    { name: "count", short: "n", type: "number", fallback: 10,
+      description: "how many to show" },
+    { name: "verbose", short: "V", type: "boolean", description: "say more" },
+    { name: "colour", type: "boolean", fallback: true, description: "use colour" },
+    { name: "tag", short: "t", type: "list", description: "filter by tag" },
+    { name: "format", type: "string", fallback: "text", oneOf: ["text", "json"],
+      description: "how to print" },
+  ],
+  commands: [
+    { name: "add", description: "add a note",
+      flags: [{ name: "pin", type: "boolean", description: "keep it at the top" }] },
+    { name: "list", description: "list notes",
+      flags: [{ name: "since", type: "string", required: true,
+               description: "only after this date" }] },
+  ],
+};
+
+/* Every flag is present at its fallback, so a caller never reads a key that is
+ * not there — which in CScript is a runtime error rather than undefined. */
+const bare = parse([], spec).value;
+equal(bare.options.output, "-");
+equal(bare.options.count, 10);
+equal(bare.options.verbose, false);
+equal(bare.options.colour, true);
+deepEqual(bare.options.tag, []);
+deepEqual(bare.positional, []);
+equal(bare.command, undefined);
+
+/* The same flags, without commands, so bare words are files. */
+const fileSpec: any = {
+  name: "notes",
+  version: "1.2.0",
+  description: "Keep short notes.",
+  positional: "[file...]",
+  flags: spec.flags,
+};
+
+/* Long, attached, short, bundled, and a list that collects. */
+const full = parse(["--output", "out.txt", "--count=3", "-V", "-t", "work",
+                    "--tag", "home", "notes.md"], fileSpec).value;
+equal(full.options.output, "out.txt");
+equal(full.options.count, 3);
+equal(full.options.verbose, true);
+deepEqual(full.options.tag, ["work", "home"]);
+deepEqual(full.positional, ["notes.md"]);
+
+equal(parse(["-oout.txt"], fileSpec).value.options.output, "out.txt", "attached to a short");
+equal(parse(["-n5"], fileSpec).value.options.count, 5);
+
+const bundled = parse(["-Vt", "x"], fileSpec).value;
+equal(bundled.options.verbose, true);
+deepEqual(bundled.options.tag, ["x"], "a value flag ends the bundle");
+
+/* --no-x turns off a boolean that defaults to true. */
+equal(parse(["--no-colour"], spec).value.options.colour, false);
+equal(parse(["--colour"], spec).value.options.colour, true);
+
+/* Everything after -- is positional, whatever it looks like. */
+deepEqual(parse(["--", "--output", "-V"], fileSpec).value.positional, ["--output", "-V"]);
+deepEqual(parse(["-"], fileSpec).value.positional, ["-"], "a lone dash is a file");
+
+/* A command takes its own flags, parsed from its own description. */
+const added = parse(["add", "--pin", "todo"], spec).value;
+equal(added.command, "add");
+equal(added.commandOptions.pin, true);
+deepEqual(added.commandPositional, ["todo"]);
+
+const listed = parse(["--verbose", "list", "--since", "monday"], spec).value;
+equal(listed.command, "list");
+equal(listed.options.verbose, true, "a flag before the command is the program's");
+equal(listed.commandOptions.since, "monday");
+
+/* Help and version are answered, not acted on: printing and exiting is the
+ * program's decision, and a parser that called exit could not be tested. */
+ok(parse(["--help"], spec).value.wantsHelp);
+ok(parse(["-h"], spec).value.wantsHelp);
+ok(parse(["--version"], spec).value.wantsVersion);
+ok(parse(["list", "--help"], spec).value.wantsHelp, "even without the required flag");
+
+/* Everything wrong with a command line is a value, not a crash. */
+equal(parse(["--nope"], spec).error, "unknown option '--nope'");
+equal(parse(["-z"], spec).error, "unknown option '-z'");
+equal(parse(["--output"], spec).error, "--output needs a value");
+equal(parse(["--count", "x"], spec).error, "--count needs a number, got 'x'");
+equal(parse(["--verbose=1"], spec).error, "--verbose takes no value");
+equal(parse(["--format", "yaml"], spec).error,
+      "--format must be one of text, json, got 'yaml'");
+equal(parse(["nope"], spec).error, "unknown command 'nope'");
+equal(parse(["list"], spec).error, "--since is required");
+ok(parse(["list", "--since", "x"], spec).isOk);
+
+console.log(help(fileSpec));
+console.log("");
+console.log(help(spec));
+console.log("");
+console.log(help(spec, "add"));
+console.log("");
+console.log(version(spec));
+console.log("cli ok");

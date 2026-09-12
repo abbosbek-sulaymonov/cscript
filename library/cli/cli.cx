@@ -1,0 +1,373 @@
+/* cli.cx — a command line, described once and parsed from that description.
+ *
+ * `os.args()` hands back an array of strings. Everything after that — long
+ * flags, short ones, `--flag=value`, bundled booleans, `--`, the difference
+ * between a missing value and an empty one, and a help text that matches what
+ * the program actually accepts — is the same two hundred lines in every
+ * program that has ever been written.
+ *
+ * The description is data: a name, some flags, maybe some commands. `parse`
+ * answers a [`Result`](../result), because a command line is input from
+ * outside and a program should print what was wrong with it rather than
+ * stopping at a runtime error. `help` is generated from the same description,
+ * so the two cannot drift.
+ *
+ * What it deliberately does not do: no environment-variable fallbacks, no
+ * config-file merging, no coloured output. Each belongs to the program rather
+ * than to the parser, and each is what turns an argument parser into a
+ * framework.
+ */
+import { Result } from "std:result";
+
+/* --- describing ----------------------------------------------------------- */
+
+/* A flag:
+ *
+ *   { name: "output", short: "o", type: "string", fallback: "-",
+ *     description: "where to write", required: false }
+ *
+ * `type` is "boolean", "string", "number" or "list"; a list may be given more
+ * than once and collects. A boolean needs no value and defaults to false.
+ */
+function flagFallback(flag: any): any {
+  if (flag?.fallback !== undefined) return flag.fallback;
+  if (flag.type === "boolean") return false;
+  if (flag.type === "list") return [];
+  return undefined;
+}
+
+function flagNamed(spec: any, name: string): any {
+  for (const flag of spec?.flags ?? []) {
+    if (flag.name === name) return flag;
+  }
+  return undefined;
+}
+
+function flagShort(spec: any, letter: string): any {
+  for (const flag of spec?.flags ?? []) {
+    if (flag?.short === letter) return flag;
+  }
+  return undefined;
+}
+
+function commandNamed(spec: any, name: string): any {
+  for (const command of spec?.commands ?? []) {
+    if (command.name === name) return command;
+  }
+  return undefined;
+}
+
+/* --- parsing --------------------------------------------------------------- */
+
+/* `Result.ok({ options, positional, command, commandOptions, commandPositional,
+ * wantsHelp, wantsVersion })`.
+ *
+ * `wantsHelp` and `wantsVersion` are answered rather than acted on: printing
+ * and exiting is the program's decision, and a parser that called `exit` could
+ * not be tested.
+ */
+export function parse(args: any, spec: any): any {
+  const state = {
+    options: {},
+    positional: [],
+    command: undefined,
+    commandOptions: {},
+    commandPositional: [],
+    wantsHelp: false,
+    wantsVersion: false,
+  };
+
+  /* Every flag starts at its fallback, so a caller never reads a key that is
+   * not there — which in CScript is a runtime error rather than undefined. */
+  for (const flag of spec?.flags ?? []) state.options[flag.name] = flagFallback(flag);
+
+  const outcome = walk(args, spec, state, false);
+  if (outcome !== null) return Result.err(outcome);
+
+  if (state.wantsHelp || state.wantsVersion) return Result.ok(state);
+
+  const missing = checkRequired(spec, state.options);
+  if (missing !== null) return Result.err(missing);
+  if (state.command !== undefined) {
+    const command = commandNamed(spec, state.command);
+    const missingInCommand = checkRequired(command, state.commandOptions);
+    if (missingInCommand !== null) return Result.err(missingInCommand);
+  }
+
+  return Result.ok(state);
+}
+
+function checkRequired(spec: any, options: any): any {
+  for (const flag of spec?.flags ?? []) {
+    if (flag?.required !== true) continue;
+    const value = options[flag.name];
+    if (value === undefined) return "--" + flag.name + " is required";
+  }
+  return null;
+}
+
+/* One pass over the arguments. Answers an error message, or null.
+ *
+ * `inCommand` says which half of the state is being filled: a command's flags
+ * are parsed from its own description, because `serve --port` and
+ * `build --port` need not mean the same thing.
+ */
+function walk(args: any, spec: any, state: any, inCommand: boolean): any {
+  const options = inCommand ? state.commandOptions : state.options;
+  let at = 0;
+
+  while (at < args.length) {
+    const argument = args[at];
+
+    /* Everything after `--` is positional, whatever it looks like. That is how
+     * a file called `--weird` is passed at all. */
+    if (argument === "--") {
+      for (let i = at + 1; i < args.length; i++) {
+        addPositional(state, inCommand, args[i]);
+      }
+      return null;
+    }
+
+    if (argument === "--help" || argument === "-h") {
+      state.wantsHelp = true;
+      at = at + 1;
+      continue;
+    }
+    if (argument === "--version" || argument === "-v") {
+      state.wantsVersion = true;
+      at = at + 1;
+      continue;
+    }
+
+    if (argument.startsWith("--")) {
+      const taken = takeLong(args, at, spec, options);
+      if (typeof taken === "string") return taken;
+      at = taken;
+      continue;
+    }
+
+    /* A single dash on its own is a positional, by long convention: it means
+     * standard input. */
+    if (argument.startsWith("-") && argument.length > 1) {
+      const taken = takeShort(args, at, spec, options);
+      if (typeof taken === "string") return taken;
+      at = taken;
+      continue;
+    }
+
+    /* The first bare word is the command, when the description has any and one
+     * has not been chosen yet. Everything after it belongs to that command. */
+    if (!inCommand && state.command === undefined &&
+        (spec?.commands ?? []).length > 0) {
+      const command = commandNamed(spec, argument);
+      if (command === undefined) {
+        return "unknown command '" + argument + "'";
+      }
+      state.command = argument;
+      for (const flag of command?.flags ?? []) {
+        state.commandOptions[flag.name] = flagFallback(flag);
+      }
+      return walk(args.slice(at + 1), command, state, true);
+    }
+
+    addPositional(state, inCommand, argument);
+    at = at + 1;
+  }
+  return null;
+}
+
+function addPositional(state: any, inCommand: boolean, value: string) {
+  if (inCommand) {
+    state.commandPositional.push(value);
+  } else {
+    state.positional.push(value);
+  }
+}
+
+/* `--name`, `--name value` or `--name=value`. Answers the next index, or an
+ * error message. */
+function takeLong(args: any, at: number, spec: any, options: any): any {
+  const argument = args[at];
+  const equals = argument.indexOf("=");
+  const name = equals < 0 ? argument.slice(2) : argument.slice(2, equals);
+  const attached = equals < 0 ? undefined : argument.slice(equals + 1);
+
+  /* `--no-colour` turns off `--colour`, which is the one negation worth
+   * having: a boolean with a default of true has no other way to be unset. */
+  if (name.startsWith("no-")) {
+    const positive = flagNamed(spec, name.slice(3));
+    if (positive !== undefined && positive.type === "boolean") {
+      options[positive.name] = false;
+      return at + 1;
+    }
+  }
+
+  const flag = flagNamed(spec, name);
+  if (flag === undefined) return "unknown option '--" + name + "'";
+
+  if (flag.type === "boolean") {
+    if (attached !== undefined) {
+      return "--" + name + " takes no value";
+    }
+    options[name] = true;
+    return at + 1;
+  }
+
+  if (attached !== undefined) {
+    return storeValue(flag, options, attached) ?? (at + 1);
+  }
+  if (at + 1 >= args.length) return "--" + name + " needs a value";
+  return storeValue(flag, options, args[at + 1]) ?? (at + 2);
+}
+
+/* `-o`, `-o value`, `-ovalue`, and `-abc` for three booleans at once. */
+function takeShort(args: any, at: number, spec: any, options: any): any {
+  const letters = args[at].slice(1);
+
+  for (let i = 0; i < letters.length; i++) {
+    const letter = letters[i];
+    const flag = flagShort(spec, letter);
+    if (flag === undefined) return "unknown option '-" + letter + "'";
+
+    if (flag.type === "boolean") {
+      options[flag.name] = true;
+      continue;
+    }
+
+    /* A flag that takes a value ends the bundle: what follows is its value,
+     * either attached or as the next argument. */
+    const attached = letters.slice(i + 1);
+    if (attached !== "") {
+      const failed = storeValue(flag, options, attached);
+      return failed ?? (at + 1);
+    }
+    if (at + 1 >= args.length) return "-" + letter + " needs a value";
+    const failed = storeValue(flag, options, args[at + 1]);
+    return failed ?? (at + 2);
+  }
+  return at + 1;
+}
+
+/* Answers an error message, or null when it stored. */
+function storeValue(flag: any, options: any, text: string): any {
+  if (flag.type === "number") {
+    const value = Number(text);
+    if (value !== value) {
+      return "--" + flag.name + " needs a number, got '" + text + "'";
+    }
+    options[flag.name] = value;
+    return null;
+  }
+
+  if (flag.type === "list") {
+    options[flag.name].push(text);
+    return null;
+  }
+
+  /* A value from a fixed set, when the description gives one. */
+  const allowed = flag?.oneOf;
+  if (allowed !== undefined) {
+    let found = false;
+    for (const candidate of allowed) {
+      if (candidate === text) found = true;
+    }
+    if (!found) {
+      return "--" + flag.name + " must be one of " + allowed.join(", ") +
+             ", got '" + text + "'";
+    }
+  }
+
+  options[flag.name] = text;
+  return null;
+}
+
+/* --- help ------------------------------------------------------------------ */
+
+/* Generated from the same description the parser uses, so the two cannot
+ * drift. That is the whole reason the description is data. */
+export function help(spec: any, forCommand: any = null): string {
+  const target = forCommand === null ? spec : commandNamed(spec, forCommand);
+  if (target === undefined) return "unknown command '" + String(forCommand) + "'";
+
+  const lines: any = [];
+  const name = spec?.name ?? "program";
+
+  if (target?.description !== undefined) {
+    lines.push(target.description);
+    lines.push("");
+  }
+
+  const usage = forCommand === null
+                    ? name + usageTail(spec)
+                    : name + " " + forCommand + usageTail(target);
+  lines.push("usage: " + usage);
+
+  const commands = spec?.commands ?? [];
+  if (forCommand === null && commands.length > 0) {
+    lines.push("");
+    lines.push("commands:");
+    let widest = 0;
+    for (const command of commands) {
+      if (command.name.length > widest) widest = command.name.length;
+    }
+    for (const command of commands) {
+      lines.push("  " + command.name.padEnd(widest + 2) +
+                 (command?.description ?? ""));
+    }
+  }
+
+  const flags = target?.flags ?? [];
+  lines.push("");
+  lines.push("options:");
+  const rendered: any = [];
+  let widest = 0;
+  for (const flag of flags) {
+    const left = flagUsage(flag);
+    if (left.length > widest) widest = left.length;
+    rendered.push([left, flag]);
+  }
+  /* The two built-in rows are measured with the rest, or a long one pushes its
+   * description flush against it. */
+  const helpLeft = "  -h, --help";
+  const versionLeft = "  -v, --version";
+  if (helpLeft.length > widest) widest = helpLeft.length;
+  if (spec?.version !== undefined && versionLeft.length > widest) {
+    widest = versionLeft.length;
+  }
+
+  for (const [left, flag] of rendered) {
+    let text = left.padEnd(widest + 2) + (flag?.description ?? "");
+    const fallback = flag?.fallback;
+    if (fallback !== undefined && flag.type !== "boolean") {
+      text = text + " (default " + String(fallback) + ")";
+    }
+    if (flag?.required === true) text = text + " (required)";
+    lines.push(text);
+  }
+  lines.push(helpLeft.padEnd(widest + 2) + "show this help");
+  if (spec?.version !== undefined) {
+    lines.push(versionLeft.padEnd(widest + 2) + "show the version");
+  }
+
+  return lines.join("\n");
+}
+
+function usageTail(spec: any): string {
+  let tail = "";
+  if ((spec?.commands ?? []).length > 0) tail = tail + " <command>";
+  if ((spec?.flags ?? []).length > 0) tail = tail + " [options]";
+  if (spec?.positional !== undefined) tail = tail + " " + spec.positional;
+  return tail;
+}
+
+function flagUsage(flag: any): string {
+  const short = flag?.short === undefined ? "    " : "-" + flag.short + ", ";
+  const value = flag.type === "boolean" ? ""
+                : (flag.type === "number" ? " <n>"
+                   : (flag.type === "list" ? " <value>..." : " <value>"));
+  return "  " + short + "--" + flag.name + value;
+}
+
+export function version(spec: any): string {
+  return String(spec?.name ?? "program") + " " + String(spec?.version ?? "0");
+}
