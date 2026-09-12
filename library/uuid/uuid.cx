@@ -1,0 +1,124 @@
+/* uuid.cx — identifiers that do not need a central authority.
+ *
+ * **Not cryptographically random.** CScript has no secure source of
+ * randomness — no `crypto.getRandomValues`, and no way to build one in the
+ * language — so these are built on `Math.random` or on a seeded generator from
+ * [`std:random`](../random). They are fine for a database key, a request id or
+ * a filename; they are not fine for a session token, a password reset link, or
+ * anything an attacker benefits from guessing.
+ *
+ * Two versions. **v4** is sixteen random bytes, the one everybody means by
+ * "a UUID". **v7** puts the millisecond first, so a column of them sorts into
+ * the order they were made — which is what makes them a far better database
+ * key than v4, whose randomness scatters every insert across the index.
+ */
+import { toHex } from "std:encoding";
+
+/* The random source is injectable, which is what lets a test of something
+ * that makes ids be a golden test at all. It answers a float in [0, 1), the
+ * same contract as Math.random and std:random's `next`. */
+function randomBytes(count: number, source: any): any {
+  const next = source === null ? (() => Math.random()) : source;
+  const out: any = [];
+  for (let i = 0; i < count; i++) out.push(Math.floor(next() * 256) % 256);
+  return out;
+}
+
+/* The version and variant bits, which are what make a UUID a UUID rather than
+ * sixteen arbitrary bytes: the 13th hex digit is the version, and the 17th is
+ * 8, 9, a or b. */
+function stamp(bytes: any, version: number): any {
+  bytes[6] = version * 16 + (bytes[6] % 16);
+  bytes[8] = 128 + (bytes[8] % 64);
+  return bytes;
+}
+
+export function v4(source: any = null): string {
+  return format(stamp(randomBytes(16, source), 4));
+}
+
+/* Time-ordered: 48 bits of milliseconds, then the version, then randomness.
+ *
+ * `at` is injectable for the same reason the random source is — and because a
+ * v7 made at a known instant is the only kind that can be checked. */
+export function v7(source: any = null, at: any = null): string {
+  const when = at === null ? Date.now() : at;
+  const bytes = randomBytes(16, source);
+
+  /* Six bytes of milliseconds, most significant first. Written by division
+   * rather than shifting, since 48 bits is past what the 32-bit operations in
+   * std:bits can hold. */
+  let left = Math.floor(when);
+  for (let i = 5; i >= 0; i--) {
+    bytes[i] = left % 256;
+    left = Math.floor(left / 256);
+  }
+  return format(stamp(bytes, 7));
+}
+
+/* Sixteen bytes as the canonical 8-4-4-4-12. */
+export function format(bytes: any): string {
+  if (bytes.length !== 16) {
+    throw new Error("a UUID is sixteen bytes, got " + String(bytes.length));
+  }
+  const hex = toHex(bytes);
+  return hex.slice(0, 8) + "-" + hex.slice(8, 12) + "-" + hex.slice(12, 16) + "-" +
+         hex.slice(16, 20) + "-" + hex.slice(20);
+}
+
+/* Whether text is a UUID: eight, four, four, four, twelve hex digits. Case is
+ * ignored, because the canonical form is lower case and half the world writes
+ * upper. */
+export function isValid(text: string): boolean {
+  if (typeof text !== "string" || text.length !== 36) return false;
+  const shape: any = [8, 4, 4, 4, 12];
+  let at = 0;
+  for (let part = 0; part < shape.length; part++) {
+    if (part > 0) {
+      if (text[at] !== "-") return false;
+      at = at + 1;
+    }
+    for (let i = 0; i < shape[part]; i++) {
+      if (!isHexDigit(text.charCodeAt(at))) return false;
+      at = at + 1;
+    }
+  }
+  return true;
+}
+
+function isHexDigit(code: number): boolean {
+  if (code >= 48 && code <= 57) return true;
+  if (code >= 97 && code <= 102) return true;
+  return code >= 65 && code <= 70;
+}
+
+/* The version digit, or -1 for something that is not a UUID — so a caller can
+ * tell a v4 from a v7 without parsing it. */
+export function versionOf(text: string): number {
+  if (!isValid(text)) return -1;
+  const digit = text.charCodeAt(14);
+  if (digit >= 48 && digit <= 57) return digit - 48;
+  return -1;
+}
+
+/* The millisecond a v7 was made at, or -1 for anything else. The reason to
+ * choose v7: the id carries when, and a sort by id is a sort by time. */
+export function timeOf(text: string): number {
+  if (versionOf(text) !== 7) return -1;
+  const digits = text.slice(0, 8) + text.slice(9, 13);
+  let value = 0;
+  for (let i = 0; i < digits.length; i++) {
+    const code = digits.charCodeAt(i);
+    let digit = 0;
+    if (code >= 48 && code <= 57) digit = code - 48;
+    else if (code >= 97 && code <= 102) digit = code - 87;
+    else digit = code - 55;
+    value = value * 16 + digit;
+  }
+  return value;
+}
+
+/* All zeros: the UUID that means "none", for a column that cannot be null. */
+export function nil(): string {
+  return "00000000-0000-0000-0000-000000000000";
+}

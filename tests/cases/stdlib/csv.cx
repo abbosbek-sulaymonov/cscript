@@ -1,0 +1,52 @@
+import { parse, parseObjects, format, formatObjects } from "std:csv";
+import { equal, deepEqual, ok } from "std:assert";
+
+deepEqual(parse("a,b\n1,2\n").value, [["a", "b"], ["1", "2"]]);
+deepEqual(parse("a,b").value, [["a", "b"]], "a last row needs no newline");
+deepEqual(parse("").value, []);
+deepEqual(parse("a\r\nb").value, [["a"], ["b"]], "and \\r\\n is a line ending");
+deepEqual(parse("a\rb").value, [["a"], ["b"]], "as is a bare \\r");
+
+/* The part that `split(",")` gets wrong. */
+deepEqual(parse('"Smith, J",2').value, [["Smith, J", "2"]]);
+deepEqual(parse('"said ""hi""",2').value, [['said "hi"', "2"]]);
+deepEqual(parse('"two\nlines",x').value, [["two\nlines", "x"]]);
+deepEqual(parse('"",x').value, [["", "x"]], "an empty quoted field is a field");
+equal(parse('"open').error, "a quoted field is never closed");
+
+deepEqual(parse("a\tb\n1\t2", { delimiter: "\t" }).value, [["a", "b"], ["1", "2"]]);
+deepEqual(parse(" a , b ", { trim: true }).value, [["a", "b"]]);
+deepEqual(parse('" a ",b', { trim: true }).value, [[" a ", "b"]],
+          "a quoted field means what is inside the quotes");
+
+deepEqual(parseObjects("name,age\nada,36\nbob,24\n").value,
+          [{ name: "ada", age: "36" }, { name: "bob", age: "24" }]);
+deepEqual(parseObjects("name,age\n").value, [], "a header with no rows");
+deepEqual(parseObjects("").value, []);
+equal(parseObjects("a,b\n1\n").error, "row 2 has 1 fields, and the header has 2");
+
+/* Writing quotes only what has to be quoted. */
+equal(format([["a", "b"]]), "a,b\n");
+equal(format([["a,b"]]), '"a,b"\n');
+equal(format([['say "hi"']]), '"say ""hi"""\n');
+equal(format([["two\nlines"]]), '"two\nlines"\n');
+equal(format([[1, true, null]]), "1,true,\n", "and converts what it is given");
+equal(format([]), "");
+equal(format([["a"]], { quoteAll: true }), '"a"\n');
+equal(format([["a", "b"]], { delimiter: "\t" }), "a\tb\n");
+
+equal(formatObjects([{ a: 1, b: "x,y" }]), 'a,b\n1,"x,y"\n');
+equal(formatObjects([{ b: 2, a: 1 }], { columns: ["a", "b"] }), "a,b\n1,2\n",
+      "the column order is given, because it usually matters");
+equal(formatObjects([{ a: 1 }, { a: 2, b: 3 }], { columns: ["a", "b"] }),
+      "a,b\n1,\n2,3\n", "a missing field is empty");
+equal(formatObjects([]), "");
+
+/* What goes out comes back. */
+const rows: any = [["name", "note"], ["Smith, J", 'said "hi"\nagain'], ["", "x"]];
+deepEqual(parse(format(rows)).value, [["name", "note"], ["Smith, J", 'said "hi"\nagain'],
+                                      ["", "x"]]);
+
+console.log(JSON.stringify(parse('a,"b,c"\n1,2').value));
+console.log(JSON.stringify(format([["x", 'a "quoted" value'], ["y", "line\nbreak"]])));
+console.log("csv ok");

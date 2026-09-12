@@ -815,7 +815,7 @@ its interpreter loop is about 25× slower.
 The same rule applies to correctness harnesses. `make test-jit` reports how
 many calls, loops and exits the compiler actually took, because a sweep that
 agrees on 121 programs the compiler declined to touch is not evidence of
-anything — see [Stage 5](#five-soundness-bugs-and-the-harness-that-found-them).
+anything — see [Stage 5](#six-soundness-bugs-and-the-harness-that-found-them).
 
 ## Tiering: what a JIT would compile
 
@@ -1207,7 +1207,7 @@ not. Exactness decides, not a guess: zero on either side goes to `fmod` too, so
 that `0 % n` keeps its sign and `n % 0` still gets its NaN. Both benchmarks
 moved past 10×, and they are no longer the two slowest things in the table.
 
-### Five soundness bugs, and the harness that found them
+### Six soundness bugs, and the harness that found them
 
 The first three were older than side exits. Side exits made them reachable.
 
@@ -1234,6 +1234,25 @@ type. This one arrived *with* the reconciliation that fixed the first bug, and
 was not noticed for two commits, because the differential harness proves the
 two paths agree and says nothing about how much the compiler took. It now
 reports how many programs it took part in, where losing one is visible.
+
+**The branch condition of a short-circuit came from the wrong path.**
+`a || b || c` compiles to a chain of jump-if-true, and the jump ending each arm
+lands on the next one — so each of those instructions *begins a block with two
+predecessors*. The lowering read the condition out of its own model of the
+operand stack, which holds the register the **linear** walk last pushed there;
+on the path that arrived by jumping, that register was produced by an
+instruction which never ran. The answer was wrong rather than absent: a
+four-term chain after an early return answered false for its second term, which
+is how `std:encoding` came to escape a `.` that RFC 3986 says to leave alone.
+
+The condition is now loaded from the slot, which is the one thing both paths
+agree on, and the abstract stack is forgotten at every block boundary so that
+no other site can make the same assumption — the five places that read it all
+refuse a forgotten entry rather than guessing, so the cost is a function left
+uncompiled rather than one compiled wrongly. Coverage did not move: 43 of 217
+programs before and after. Found by `make test-ir` on a library module, not by
+a test written for the compiler, which is the argument for running the whole
+suite through the IR rather than a suite of its own.
 
 **Three passes each mis-read an instruction's operands.** The same two fields,
 `a` and `b`, hold a virtual register, a slot number, a block index, a

@@ -1,6 +1,6 @@
 # `library/` — the standard library
 
-Twenty-eight modules, written in CScript, imported by name:
+Thirty-four modules, written in CScript, imported by name:
 
 ```ts
 import { range, zip } from "std:iter";
@@ -60,6 +60,17 @@ the layer above: the things you would otherwise write again in every program.
 | [`std:clone`](clone) | `shallow`, `deep`, `deepReport`, `withFields` | [README](clone/README.md) |
 | [`std:cell`](cell) | A value in a box, and one computed once — `Cell`, `Lazy`, `Once` | [README](cell/README.md) |
 | [`std:bits`](bits) | The bitwise operations the language does not have, and a `Bitset` | [README](bits/README.md) |
+
+### Bytes and formats
+
+| Module | Holds | Reference |
+| --- | --- | --- |
+| [`std:bytes`](bytes) | A byte sequence, and the numbers inside one — there are no typed arrays | [README](bytes/README.md) |
+| [`std:encoding`](encoding) | base64, hex, percent-encoding, and UTF-8 code points | [README](encoding/README.md) |
+| [`std:hash`](hash) | FNV, CRC-32, MurmurHash3 — for bucketing, **not** for security | [README](hash/README.md) |
+| [`std:uuid`](uuid) | v4 and time-ordered v7, with the randomness caveat stated | [README](uuid/README.md) |
+| [`std:csv`](csv) | RFC 4180, including the quoted commas and newlines | [README](csv/README.md) |
+| [`std:url`](url) | A URL apart and back together, and query strings | [README](url/README.md) |
 
 ### Text, numbers and time
 
@@ -156,10 +167,15 @@ a width counted in characters.
 4. Add a row to the table above.
 
 Every case in that group came out of Node byte-for-byte identical to CScript,
-seeded random sequences included — **except `io` and `os`**, which Node cannot
-run: `fs` is a CScript built-in with no Node counterpart, and `process.env` is
-a function here and an object there. Those two expected files were produced by
-CScript and checked against their module READMEs, and each README says so.
+seeded random sequences included — with four exceptions, each of which says so
+in its own README:
+
+| Case | Why Node cannot run it |
+| --- | --- |
+| `io` | `fs` is a CScript built-in with no Node counterpart |
+| `os` | `process.env` is a function here and an object there |
+| `bytes` | a Node string is UTF-16, so `"é".charCodeAt(0)` is 233 there and 195 here |
+| `encoding` | the same string model, which is the very thing the module is about |
 
 ## Related
 

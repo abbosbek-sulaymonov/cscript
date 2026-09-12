@@ -369,16 +369,52 @@ static bool mapForEach(Value receiver, int argCount, Value *args, Value *result)
 
 /* ---- construction ------------------------------------------------------ */
 
-/* `new Map([[k, v], ...])` and `new Set([...])`. Both accept nothing, and both
- * accept an array — which is how one is copied. */
+/* `new Map([[k, v], ...])`, `new Set([...])`, and either from another one.
+ *
+ * Copying is the case worth naming: `new Map(other)` is how JavaScript clones
+ * a Map, and refusing it meant `new Map([...other])` — which builds an array
+ * of pairs on the way through for no reason, and which a program written
+ * against Node would not say. A Set copied into a Map takes each element as a
+ * key, and a Map copied into a Set takes each *entry* as an element, which is
+ * what iterating either one gives. */
 static bool construct(int argCount, Value *args, Value *result, bool isSet) {
   ObjMap *map = csMapNew(isSet);
   csPushTempRoot((Obj *)map);
 
   if (argCount > 0 && !IS_NULL(args[0]) && !IS_UNDEFINED(args[0])) {
+    if (IS_MAP(args[0])) {
+      ObjMap *from = AS_MAP(args[0]);
+      if (from->isWeak) {
+        csPopTempRoot();
+        csVMRuntimeError("a weak collection cannot be copied: what is left in it "
+                         "depends on when the collector last ran");
+        return false;
+      }
+      for (int i = 0; i < from->count; i++) {
+        if (!from->entries[i].present) continue;
+        if (isSet && !from->isSet) {
+          /* Each entry of a Map is a [key, value] pair when iterated, and that
+           * pair is what lands in the Set. */
+          ObjArray *pair = csArrayNew();
+          csPushTempRoot((Obj *)pair);
+          csValueArrayWrite(&pair->elements, from->entries[i].key);
+          csValueArrayWrite(&pair->elements, from->entries[i].value);
+          csMapSet(map, OBJ_VAL(pair), OBJ_VAL(pair));
+          csPopTempRoot();
+          continue;
+        }
+        csMapSet(map, from->entries[i].key,
+                 isSet ? from->entries[i].key : from->entries[i].value);
+      }
+      csPopTempRoot();
+      *result = OBJ_VAL(map);
+      return true;
+    }
+
     if (!IS_ARRAY(args[0])) {
       csPopTempRoot();
-      csVMRuntimeError("%s expects an array", isSet ? "Set" : "Map");
+      csVMRuntimeError("%s expects an array or another %s",
+                       isSet ? "Set" : "Map", isSet ? "Set" : "Map");
       return false;
     }
     ObjArray *source = AS_ARRAY(args[0]);

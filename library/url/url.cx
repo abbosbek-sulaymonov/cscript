@@ -1,0 +1,264 @@
+/* url.cx — a URL taken apart, and put back together.
+ *
+ * Pure text, like [`std:path`](../path): nothing here resolves a name or opens
+ * a connection, because the runtime cannot do either. What it does is the part
+ * every program writing a URL gets slightly wrong — which characters have to
+ * be escaped in a query value, what happens to a `+`, and where the `?` goes
+ * when there is nothing after it.
+ *
+ * `parse` answers a [`Result`](../result), since a URL usually arrives from
+ * outside. The parts are plain fields, so building one is an object literal
+ * rather than six setter calls.
+ */
+import { Result } from "std:result";
+import { percentEncode, percentDecode } from "std:encoding";
+import { isMap } from "std:kind";
+
+/* --- taking one apart ----------------------------------------------------- */
+
+/* `{ scheme, user, password, host, port, path, query, fragment }`.
+ *
+ * `query` is a **Map** of name to value, because a query string is a mapping
+ * and an object would make a parameter called `toString` a surprise. A name
+ * given twice keeps the last, which is what every server does; `queryAll` is
+ * there for the case where both are wanted.
+ */
+export function parse(text: string): any {
+  let rest = String(text);
+
+  const schemeEnd = rest.indexOf("://");
+  if (schemeEnd < 0) {
+    return Result.err("no scheme in '" + text + "' — a URL needs one, as in https://");
+  }
+  const scheme = rest.slice(0, schemeEnd).toLowerCase();
+  if (scheme === "") return Result.err("the scheme is empty");
+  rest = rest.slice(schemeEnd + 3);
+
+  /* The fragment comes off first: it may contain anything at all, `?` and `/`
+   * included, and belongs to none of the parts before it. */
+  let fragment = "";
+  const hash = rest.indexOf("#");
+  if (hash >= 0) {
+    fragment = rest.slice(hash + 1);
+    rest = rest.slice(0, hash);
+  }
+
+  let queryText = "";
+  const question = rest.indexOf("?");
+  if (question >= 0) {
+    queryText = rest.slice(question + 1);
+    rest = rest.slice(0, question);
+  }
+
+  let path = "";
+  const slash = rest.indexOf("/");
+  if (slash >= 0) {
+    path = rest.slice(slash);
+    rest = rest.slice(0, slash);
+  }
+
+  let user = "";
+  let password = "";
+  const at = rest.lastIndexOf("@");
+  if (at >= 0) {
+    const credentials = rest.slice(0, at);
+    rest = rest.slice(at + 1);
+    const colon = credentials.indexOf(":");
+    if (colon < 0) {
+      user = credentials;
+    } else {
+      user = credentials.slice(0, colon);
+      password = credentials.slice(colon + 1);
+    }
+  }
+
+  let host = rest;
+  let port = -1;
+  /* The last colon, and only when what follows is digits — otherwise an IPv6
+   * host, which is full of colons, would lose its tail. */
+  const colon = rest.lastIndexOf(":");
+  if (colon >= 0 && !rest.endsWith("]")) {
+    const tail = rest.slice(colon + 1);
+    if (tail !== "" && isDigits(tail)) {
+      host = rest.slice(0, colon);
+      port = Number(tail);
+      if (port > 65535) return Result.err("port " + tail + " is out of range");
+    }
+  }
+  if (host === "") return Result.err("no host in '" + text + "'");
+
+  const query = parseQuery(queryText);
+  if (query.isErr) return query;
+
+  return Result.ok({
+    scheme: scheme,
+    user: user,
+    password: password,
+    host: host.toLowerCase(),
+    port: port,
+    path: path === "" ? "/" : path,
+    query: query.value,
+    fragment: fragment,
+  });
+}
+
+function isDigits(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 48 || code > 57) return false;
+  }
+  return true;
+}
+
+/* --- the query string ----------------------------------------------------- */
+
+/* `a=1&b=two+words` as a Map. A name with no `=` is present with an empty
+ * value, which is how a flag-shaped parameter is written. */
+export function parseQuery(text: string): any {
+  const out = new Map();
+  if (text === "") return Result.ok(out);
+
+  for (const pair of text.split("&")) {
+    if (pair === "") continue;
+    const equals = pair.indexOf("=");
+    const rawName = equals < 0 ? pair : pair.slice(0, equals);
+    const rawValue = equals < 0 ? "" : pair.slice(equals + 1);
+
+    const name = percentDecode(rawName);
+    if (name.isErr) return name;
+    const value = percentDecode(rawValue);
+    if (value.isErr) return value;
+
+    out.set(name.value, value.value);
+  }
+  return Result.ok(out);
+}
+
+/* Every value for every name, for the `?tag=a&tag=b` shape that `parseQuery`
+ * collapses. A Map of name to array. */
+export function parseQueryAll(text: string): any {
+  const out = new Map();
+  if (text === "") return Result.ok(out);
+
+  for (const pair of text.split("&")) {
+    if (pair === "") continue;
+    const equals = pair.indexOf("=");
+    const name = percentDecode(equals < 0 ? pair : pair.slice(0, equals));
+    if (name.isErr) return name;
+    const value = percentDecode(equals < 0 ? "" : pair.slice(equals + 1));
+    if (value.isErr) return value;
+
+    if (!out.has(name.value)) out.set(name.value, []);
+    out.get(name.value).push(value.value);
+  }
+  return Result.ok(out);
+}
+
+/* A Map, or an object, or an array of pairs, as a query string. Every name and
+ * value is percent-encoded, which is the step that is skipped in the version
+ * everybody writes by hand. */
+export function formatQuery(query: any): string {
+  const pairs: any = [];
+
+  /* `instanceof Map` is not available: `Map` is a built-in function rather
+   * than a class, and the right side of `instanceof` must be a class or a
+   * user-defined function. std:kind is how a value's kind is asked for. */
+  if (isMap(query)) {
+    for (const [name, value] of query) addPair(pairs, name, value);
+  } else if (Array.isArray(query)) {
+    for (const [name, value] of query) addPair(pairs, name, value);
+  } else {
+    for (const name of Object.keys(query)) addPair(pairs, name, query[name]);
+  }
+  return pairs.join("&");
+}
+
+function addPair(pairs: any, name: any, value: any) {
+  /* An array value is the same name repeated, which is the convention every
+   * server understands. */
+  if (Array.isArray(value)) {
+    for (const one of value) {
+      pairs.push(percentEncode(String(name)) + "=" + percentEncode(String(one)));
+    }
+    return;
+  }
+  if (value === null || value === undefined) {
+    pairs.push(percentEncode(String(name)));
+    return;
+  }
+  pairs.push(percentEncode(String(name)) + "=" + percentEncode(String(value)));
+}
+
+/* --- putting one together ------------------------------------------------- */
+
+/* The inverse of `parse`. Every part is optional except the scheme and the
+ * host, and a `?` or `#` appears only when there is something after it. */
+export function format(parts: any): string {
+  const scheme = parts?.scheme ?? "https";
+  const host = parts?.host ?? "";
+  if (host === "") throw new Error("a URL needs a host");
+
+  let out = scheme + "://";
+
+  const user = parts?.user ?? "";
+  if (user !== "") {
+    out = out + user;
+    const password = parts?.password ?? "";
+    if (password !== "") out = out + ":" + password;
+    out = out + "@";
+  }
+
+  out = out + host;
+
+  const port = parts?.port ?? -1;
+  if (port >= 0 && !isDefaultPort(scheme, port)) out = out + ":" + String(port);
+
+  const path = parts?.path ?? "/";
+  out = out + (path.startsWith("/") ? path : "/" + path);
+
+  const query = parts?.query;
+  if (query !== undefined && query !== null) {
+    const text = typeof query === "string" ? query : formatQuery(query);
+    if (text !== "") out = out + "?" + text;
+  }
+
+  const fragment = parts?.fragment ?? "";
+  if (fragment !== "") out = out + "#" + fragment;
+  return out;
+}
+
+/* 443 for https and 80 for http are left out, because a URL that writes them
+ * is a different string meaning the same place — which breaks every cache and
+ * every comparison that uses the text as a key. */
+function isDefaultPort(scheme: string, port: number): boolean {
+  if (scheme === "https" && port === 443) return true;
+  if (scheme === "http" && port === 80) return true;
+  return false;
+}
+
+/* --- changing one --------------------------------------------------------- */
+
+/* A copy with some parts replaced: `withParts(url, { path: "/other" })`. The
+ * parsed form is a plain object, so this is a shallow merge — spelled out
+ * because a URL is usually changed one part at a time. */
+export function withParts(parts: any, changes: any): any {
+  const out: any = {};
+  for (const key of Object.keys(parts)) out[key] = parts[key];
+  for (const key of Object.keys(changes)) out[key] = changes[key];
+  return out;
+}
+
+/* A copy with one query parameter set, leaving the rest. */
+export function withParameter(parts: any, name: string, value: any): any {
+  const query = new Map(parts.query);
+  query.set(name, String(value));
+  return withParts(parts, { query: query });
+}
+
+/* The origin: scheme, host and non-default port. What a browser compares when
+ * it decides whether two URLs are the same place. */
+export function origin(parts: any): string {
+  const port = parts?.port ?? -1;
+  const tail = port >= 0 && !isDefaultPort(parts.scheme, port) ? ":" + String(port) : "";
+  return parts.scheme + "://" + parts.host + tail;
+}
