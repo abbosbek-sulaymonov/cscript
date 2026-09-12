@@ -60,8 +60,7 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
     ir->blockCount++;
   }
 
-  ir->blockEntryTypes =
-      (IrType *)calloc((size_t)ir->blockCount * IR_MAX_SLOTS + 1, sizeof(IrType));
+  ir->blockEntryTypes = (IrType *)calloc((size_t)ir->blockCount * IR_MAX_SLOTS + 1, sizeof(IrType));
   ir->blockEntrySeeded = (bool *)calloc((size_t)ir->blockCount + 1, sizeof(bool));
   ir->blockEntryTrusted = true;
 
@@ -90,10 +89,8 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
    * unannotated parameter makes every arithmetic site that touches it
    * untyped, and most parameters are unannotated. */
   for (int i = 0; i < function->arity && i + 1 < IR_MAX_STACK; i++) {
-    bool annotated = function->paramTypes != NULL &&
-                     function->paramTypes[i] == TYPE_NUMBER;
-    bool observed = function->observedParams != NULL &&
-                    function->observedParams[i] == CS_PARAM_NUMBER;
+    bool annotated = function->paramTypes != NULL && function->paramTypes[i] == TYPE_NUMBER;
+    bool observed = function->observedParams != NULL && function->observedParams[i] == CS_PARAM_NUMBER;
     if (annotated || observed) low.slotType[i + 1] = IR_TYPE_NUMBER;
   }
 
@@ -133,14 +130,11 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
        * that is not known, so where no predecessor recorded it, nothing is
        * claimed — the alternative is carrying a stale belief forward and
        * recording it as though it were a path that happened. */
-      if (blockIndex >= 0 && blockIndex < IR_MAX_BLOCKS &&
-          low.entryHeight[blockIndex] >= 0) {
+      if (blockIndex >= 0 && blockIndex < IR_MAX_BLOCKS && low.entryHeight[blockIndex] >= 0) {
         low.stackTop = low.entryHeight[blockIndex];
         if (skipped) {
           if (blockIndex < ir->blockCount && ir->blockEntrySeeded[blockIndex]) {
-            memcpy(low.slotType,
-                   &ir->blockEntryTypes[(size_t)blockIndex * IR_MAX_SLOTS],
-                   sizeof low.slotType);
+            memcpy(low.slotType, &ir->blockEntryTypes[(size_t)blockIndex * IR_MAX_SLOTS], sizeof low.slotType);
           } else {
             for (int s = 0; s < IR_MAX_STACK; s++) low.slotType[s] = IR_TYPE_UNKNOWN;
           }
@@ -153,10 +147,16 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
          * see blockEntryTrusted for why nothing recorded past here counts.
          * up to the next block, which may have a height a jump recorded. */
         int skip = csInstructionLength(chunk, offset);
-        if (skip <= offset) { low.reason = "could not be decoded"; goto failed; }
+        if (skip <= offset) {
+          low.reason = "could not be decoded";
+          goto failed;
+        }
         while (skip < chunk->count && !leader[skip]) {
           int step = csInstructionLength(chunk, skip);
-          if (step <= skip) { low.reason = "could not be decoded"; goto failed; }
+          if (step <= skip) {
+            low.reason = "could not be decoded";
+            goto failed;
+          }
           skip = step;
         }
         offset = skip;
@@ -246,14 +246,17 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
      * wide — an unchecked one read past the end of a stack array, which is
      * undefined behaviour that happened to return a plausible type. */
     switch (opcode) {
-      case OP_GET_LOCAL: case OP_SET_LOCAL: case OP_SET_LOCAL_POP:
-      case OP_INC_LOCAL: case OP_DEC_LOCAL: case OP_GET_LOCAL_CONST:
+      case OP_GET_LOCAL:
+      case OP_SET_LOCAL:
+      case OP_SET_LOCAL_POP:
+      case OP_INC_LOCAL:
+      case OP_DEC_LOCAL:
+      case OP_GET_LOCAL_CONST:
       case OP_GET_LOCAL_PROPERTY:
         if (chunk->code[offset + 1] >= IR_MAX_SLOTS) goto handOver;
         break;
       case OP_GET_LOCAL_LOCAL:
-        if (chunk->code[offset + 1] >= IR_MAX_SLOTS ||
-            chunk->code[offset + 2] >= IR_MAX_SLOTS) {
+        if (chunk->code[offset + 1] >= IR_MAX_SLOTS || chunk->code[offset + 2] >= IR_MAX_SLOTS) {
           goto handOver;
         }
         break;
@@ -263,11 +266,15 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
     int wantsNumbers = 0;
     switch (opcode) {
       case OP_NEGATE: wantsNumbers = 1; break;
-      case OP_ADD: case OP_SUBTRACT: case OP_MULTIPLY: case OP_DIVIDE:
-      case OP_MODULO: case OP_LESS: case OP_LESS_EQUAL: case OP_GREATER:
-      case OP_GREATER_EQUAL:
-        wantsNumbers = 2;
-        break;
+      case OP_ADD:
+      case OP_SUBTRACT:
+      case OP_MULTIPLY:
+      case OP_DIVIDE:
+      case OP_MODULO:
+      case OP_LESS:
+      case OP_LESS_EQUAL:
+      case OP_GREATER:
+      case OP_GREATER_EQUAL: wantsNumbers = 2; break;
       default: break;
     }
     for (int k = 0; k < wantsNumbers; k++) {
@@ -287,8 +294,7 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
      * written for and LOWER_UNHANDLED for the rest, so what happens to an
      * opcode none of them claims is the hand-over below — which is what the
      * switch's `default` did when they were all one function. */
-    LowerAt at = {&low, ir, block, chunk, function, leader,
-                  offset, next, line, jumpTarget};
+    LowerAt at = {&low, ir, block, chunk, function, leader, offset, next, line, jumpTarget};
     LowerResult lowered = csIrLowerData(&at);
     if (lowered == LOWER_UNHANDLED) lowered = csIrLowerArith(&at);
     if (lowered == LOWER_UNHANDLED) lowered = csIrLowerObject(&at);
@@ -301,85 +307,84 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
     continue;
 
   handOver: {
-      /* Something this form cannot express, or arithmetic it cannot prove.
-       * Rather than refuse the whole function, the frame goes back to the
-       * interpreter here — at the last point the operand stack was at this
-       * block's floor, because a value pushed since then lives in a register
-       * the interpreter has no name for. Everything emitted since is dropped:
-       * none of it ran, and the interpreter redoes that statement from its
-       * beginning. */
-      if (blockFloor < 0 || blockFloor >= IR_MAX_STACK ||
-          floorCount > block->count) {
-        low.reason = csOpcodeName((OpCode)opcode);
+    /* Something this form cannot express, or arithmetic it cannot prove.
+     * Rather than refuse the whole function, the frame goes back to the
+     * interpreter here — at the last point the operand stack was at this
+     * block's floor, because a value pushed since then lives in a register
+     * the interpreter has no name for. Everything emitted since is dropped:
+     * none of it ran, and the interpreter redoes that statement from its
+     * beginning. */
+    if (blockFloor < 0 || blockFloor >= IR_MAX_STACK || floorCount > block->count) {
+      low.reason = csOpcodeName((OpCode)opcode);
+      goto failed;
+    }
+    block->count = floorCount;
+    csIrClearPendingCallees(&low);
+
+    IrInst *exit = csIrAppend(block, IR_EXIT, line);
+    exit->a = floorOffset;
+    exit->b = blockFloor;
+    ir->hasExits = true;
+    /* Remembered so the tiering report can say what the compiler gave up on
+     * rather than only that it did. The first one is the interesting one:
+     * everything after it is downstream of the same gap. */
+    if (ir->firstExitOn == NULL) ir->firstExitOn = csOpcodeName((OpCode)opcode);
+
+    /* Everything up to the next jump target is the interpreter's now.
+     * Blocks past it are still lowered: a loop whose body this compiler
+     * understands is usually followed by code it does not. */
+    int skip = next;
+    while (skip < chunk->count && !leader[skip]) {
+      int step = csInstructionLength(chunk, skip);
+      if (step <= skip) {
+        low.reason = "could not be decoded";
         goto failed;
       }
-      block->count = floorCount;
-      csIrClearPendingCallees(&low);
-
-      IrInst *exit = csIrAppend(block, IR_EXIT, line);
-      exit->a = floorOffset;
-      exit->b = blockFloor;
-      ir->hasExits = true;
-      /* Remembered so the tiering report can say what the compiler gave up on
-       * rather than only that it did. The first one is the interesting one:
-       * everything after it is downstream of the same gap. */
-      if (ir->firstExitOn == NULL) ir->firstExitOn = csOpcodeName((OpCode)opcode);
-
-      /* Everything up to the next jump target is the interpreter's now.
-       * Blocks past it are still lowered: a loop whose body this compiler
-       * understands is usually followed by code it does not. */
-      int skip = next;
-      while (skip < chunk->count && !leader[skip]) {
-        int step = csInstructionLength(chunk, skip);
-        if (step <= skip) { low.reason = "could not be decoded"; goto failed; }
-        skip = step;
-      }
-
-      /* Where that leaves the frame is not always a mystery. The interpreter
-       * picks it up at the exit's offset, not at the instruction that forced
-       * one, so the run to replay starts at the floor — and when every
-       * instruction in it has a fixed effect, the height and the slot types at
-       * the other end follow from the bytecode rather than being unknown. That
-       * is what lets a loop below a function declaration still compile. */
-      ReplayJump taken;
-      const char *replayRefusal = NULL;
-      int resumed = csIrReplayHandedOver(chunk, low.slotType, floorOffset, skip,
-                                     blockFloor, &taken, &replayRefusal);
-
-      /* A run that ends in a jump has a second arm, and the block it lands on
-       * has to know about it or every entry type derived for that block comes
-       * from the wrong set of paths. Recording it is what lets a run with a
-       * `break` in it be replayed at all. */
-      if (resumed >= 0 && taken.target >= 0 &&
-          !csIrRecordArrival(ir, &low, csIrBlockAt(ir, taken.target), taken.slotType,
-                         taken.height)) {
-        replayRefusal = "a jump whose arms disagree on the stack height";
-        resumed = -1;
-      }
-
-      if (resumed >= 0) {
-        low.stackTop = resumed;
-        /* Nothing this function computed is in those positions any more: the
-         * interpreter put the values there. Marking them as holding no
-         * register is what stops a later instruction reading a stale one. */
-        for (int s = 0; s < IR_MAX_STACK; s++) low.stack[s] = -1;
-        /* An unconditional jump does not reach the end of the run, so the
-         * height there is not a fact about anything. The block that starts
-         * there is entered by its own predecessors or not at all, and the walk
-         * picks up again wherever one of them recorded a state. */
-        if (!taken.fallsThrough) skipped = true;
-      } else {
-        /* From here the linear state describes a path that did not happen, so
-         * nothing recorded after this point can be believed — and the seeds
-         * already taken are only sound while every one of them is. */
-        skipped = true;
-        ir->blockEntryTrusted = false;
-        if (ir->firstReplayRefusal == NULL) ir->firstReplayRefusal = replayRefusal;
-      }
-
-      offset = skip;
-      continue;
+      skip = step;
     }
+
+    /* Where that leaves the frame is not always a mystery. The interpreter
+     * picks it up at the exit's offset, not at the instruction that forced
+     * one, so the run to replay starts at the floor — and when every
+     * instruction in it has a fixed effect, the height and the slot types at
+     * the other end follow from the bytecode rather than being unknown. That
+     * is what lets a loop below a function declaration still compile. */
+    ReplayJump taken;
+    const char *replayRefusal = NULL;
+    int resumed = csIrReplayHandedOver(chunk, low.slotType, floorOffset, skip, blockFloor, &taken, &replayRefusal);
+
+    /* A run that ends in a jump has a second arm, and the block it lands on
+     * has to know about it or every entry type derived for that block comes
+     * from the wrong set of paths. Recording it is what lets a run with a
+     * `break` in it be replayed at all. */
+    if (resumed >= 0 && taken.target >= 0 && !csIrRecordArrival(ir, &low, csIrBlockAt(ir, taken.target), taken.slotType, taken.height)) {
+      replayRefusal = "a jump whose arms disagree on the stack height";
+      resumed = -1;
+    }
+
+    if (resumed >= 0) {
+      low.stackTop = resumed;
+      /* Nothing this function computed is in those positions any more: the
+       * interpreter put the values there. Marking them as holding no
+       * register is what stops a later instruction reading a stale one. */
+      for (int s = 0; s < IR_MAX_STACK; s++) low.stack[s] = -1;
+      /* An unconditional jump does not reach the end of the run, so the
+       * height there is not a fact about anything. The block that starts
+       * there is entered by its own predecessors or not at all, and the walk
+       * picks up again wherever one of them recorded a state. */
+      if (!taken.fallsThrough) skipped = true;
+    } else {
+      /* From here the linear state describes a path that did not happen, so
+       * nothing recorded after this point can be believed — and the seeds
+       * already taken are only sound while every one of them is. */
+      skipped = true;
+      ir->blockEntryTrusted = false;
+      if (ir->firstReplayRefusal == NULL) ir->firstReplayRefusal = replayRefusal;
+    }
+
+    offset = skip;
+    continue;
+  }
   }
 
   /* The slot types the lowering settled on, kept for the allocator. */
@@ -439,7 +444,10 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
       for (int i = 0; i < ir->blocks[b].count; i++) {
         const IrInst *inst = &ir->blocks[b].instructions[i];
         if (inst->op == IR_JUMP) targets[0] = inst->a;
-        if (inst->op == IR_BRANCH) { targets[0] = inst->b; targets[1] = inst->c; }
+        if (inst->op == IR_BRANCH) {
+          targets[0] = inst->b;
+          targets[1] = inst->c;
+        }
       }
       /* And the edge no instruction names. A block the lowering cut short of a
        * terminator runs into the next one, which the code generator relies on
@@ -451,8 +459,7 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
         targets[2] = b + 1;
       } else {
         IrOp last = ir->blocks[b].instructions[count - 1].op;
-        if (last != IR_JUMP && last != IR_BRANCH && last != IR_RETURN &&
-            last != IR_EXIT) {
+        if (last != IR_JUMP && last != IR_BRANCH && last != IR_RETURN && last != IR_EXIT) {
           targets[2] = b + 1;
         }
       }

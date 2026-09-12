@@ -12,7 +12,6 @@
 #include "cscript/parser.h"
 #include "compiler/parser_internal.h"
 
-
 /* The argument list of a call, after its '(' has been consumed. Shared by the
  * plain and optional forms so the two cannot drift apart. */
 static bool parseCallArguments(Parser *parser, AstNode *call, int line) {
@@ -31,11 +30,9 @@ static bool parseCallArguments(Parser *parser, AstNode *call, int line) {
 
 /* True when a logical operator is being written next to `?\?` without
  * parentheses, which JavaScript rejects outright. */
-static bool rejectMixedNullish(Parser *parser, const AstNode *left,
-                               TokenType operatorType, int line) {
+static bool rejectMixedNullish(Parser *parser, const AstNode *left, TokenType operatorType, int line) {
   bool joiningNullish = operatorType == TOKEN_QUESTION_QUESTION;
-  bool joiningLogical =
-      operatorType == TOKEN_AMP_AMP || operatorType == TOKEN_PIPE_PIPE;
+  bool joiningLogical = operatorType == TOKEN_AMP_AMP || operatorType == TOKEN_PIPE_PIPE;
   if (!joiningNullish && !joiningLogical) return false;
   if (left == NULL || left->type != AST_LOGICAL) return false;
 
@@ -80,8 +77,7 @@ AstNode *parseCallSuffixes(Parser *parser, AstNode *expression) {
 
       if (!consumePropertyName(parser, "expected a property name after '?.'")) return NULL;
       if (parser->diag->panicMode) return NULL;
-      expression = csAstProperty(parser->arena, line, expression,
-                                 parser->previous.start, parser->previous.length);
+      expression = csAstProperty(parser->arena, line, expression, parser->previous.start, parser->previous.length);
       expression->as.property.optional = true;
       continue;
     }
@@ -90,8 +86,7 @@ AstNode *parseCallSuffixes(Parser *parser, AstNode *expression) {
       int line = parser->previous.line;
       if (!consumePropertyName(parser, "expected a property name after '.'")) return NULL;
       if (parser->diag->panicMode) return NULL;
-      expression = csAstProperty(parser->arena, line, expression,
-                                 parser->previous.start, parser->previous.length);
+      expression = csAstProperty(parser->arena, line, expression, parser->previous.start, parser->previous.length);
       continue;
     }
 
@@ -116,9 +111,7 @@ AstNode *parseCallSuffixes(Parser *parser, AstNode *expression) {
      * literal's pieces as the first argument. */
     if (check(parser, TOKEN_TEMPLATE)) {
       advanceToken(parser);
-      expression = parseTaggedTemplate(parser, expression, parser->previous.start,
-                                       parser->previous.length,
-                                       parser->previous.line);
+      expression = parseTaggedTemplate(parser, expression, parser->previous.start, parser->previous.length, parser->previous.line);
       if (expression == NULL) return NULL;
       continue;
     }
@@ -177,7 +170,6 @@ AstNode *parsePrimary(Parser *parser) {
   return NULL;
 }
 
-
 /* Precedence climbing: parse a primary, then keep folding in operators whose
  * precedence is at least `minPrecedence`. Binary operators here are
  * left-associative, so their right side is parsed one level tighter;
@@ -199,8 +191,7 @@ AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence) {
       int line = parser->current.line;
       advanceToken(parser);
 
-      if (left->type != AST_IDENTIFIER && left->type != AST_PROPERTY &&
-          left->type != AST_INDEX) {
+      if (left->type != AST_IDENTIFIER && left->type != AST_PROPERTY && left->type != AST_INDEX) {
         csDiagnosticError(parser->diag, line, NULL, 0,
                           "the left side of an assignment must be a variable, "
                           "a property or an index");
@@ -264,8 +255,7 @@ AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence) {
     /* ** is the one right-associative binary operator, so 2 ** 3 ** 2 groups
      * as 2 ** (3 ** 2). Every other operator parses its right side one level
      * tighter, which is what makes them left-associative. */
-    Precedence rightPrecedence =
-        operatorType == TOKEN_STAR_STAR ? precedence : (Precedence)(precedence + 1);
+    Precedence rightPrecedence = operatorType == TOKEN_STAR_STAR ? precedence : (Precedence)(precedence + 1);
     AstNode *right = parsePrecedence(parser, rightPrecedence);
     if (right == NULL) return NULL;
 

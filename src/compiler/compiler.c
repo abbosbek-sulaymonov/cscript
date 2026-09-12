@@ -27,14 +27,15 @@ Unit *currentUnit = NULL;
 Loop *currentLoop = NULL;
 TryContext *currentTry = NULL;
 
-Chunk *currentChunk(void) { return &current->function->chunk; }
+Chunk *currentChunk(void) {
+  return &current->function->chunk;
+}
 
 /* Every function still being compiled is a root: interning a string constant
  * allocates, and the constants already written must survive that. Nested
  * functions mean walking the whole chain, not just the innermost. */
 void csCompilerMarkRoots(void) {
-  for (Compiler *compiler = current; compiler != NULL;
-       compiler = compiler->enclosing) {
+  for (Compiler *compiler = current; compiler != NULL; compiler = compiler->enclosing) {
     csMarkObject((Obj *)compiler->function);
   }
 }
@@ -153,7 +154,9 @@ void emitLoop(int loopStart, int line) {
 
 /* ---------------- scope handling ---------------- */
 
-void beginScope(void) { current->scopeDepth++; }
+void beginScope(void) {
+  current->scopeDepth++;
+}
 
 void endScope(int line) {
   current->scopeDepth--;
@@ -162,8 +165,7 @@ void endScope(int line) {
    * this scope and still refer to them, so those are moved onto the heap
    * individually. Everything else is discarded in one instruction. */
   int pending = 0;
-  while (current->localCount > 0 &&
-         current->locals[current->localCount - 1].depth > current->scopeDepth) {
+  while (current->localCount > 0 && current->locals[current->localCount - 1].depth > current->scopeDepth) {
     Local *local = &current->locals[current->localCount - 1];
 
     if (local->isCaptured) {
@@ -258,8 +260,7 @@ bool enclosingLocalIsConst(Compiler *compiler, const char *name, int length) {
   return false;
 }
 
-void addLocal(const char *name, int length, bool isConst,
-                     int line) {
+void addLocal(const char *name, int length, bool isConst, int line) {
   if (current->localCount >= MAX_LOCALS) {
     errorAt(line, "too many local variables in scope (limit %d)", MAX_LOCALS);
     return;
@@ -300,8 +301,7 @@ GlobalDecl *findGlobal(const char *name, int length) {
   return NULL;
 }
 
-void addGlobal(const char *name, int length, bool isConst,
-                      int line) {
+void addGlobal(const char *name, int length, bool isConst, int line) {
   if (findGlobal(name, length) != NULL) {
     errorAt(line, "'%.*s' is already declared", length, name);
     return;
@@ -317,7 +317,6 @@ void addGlobal(const char *name, int length, bool isConst,
   global->isConst = isConst;
 }
 
-
 const char *pendingLabel = NULL;
 int pendingLabelLength = 0;
 
@@ -326,20 +325,17 @@ int pendingLabelLength = 0;
  * Without a label that is the innermost one that accepts the jump; with one it
  * is the nearest enclosing construct carrying that label, which is how
  * `break outer` leaves more than one loop at once. */
-Loop *compilerTargetLoop(const char *label, int labelLength, bool needsContinue,
-                        int line) {
+Loop *compilerTargetLoop(const char *label, int labelLength, bool needsContinue, int line) {
   for (Loop *loop = currentLoop; loop != NULL; loop = loop->enclosing) {
     if (label == NULL) {
       if (!needsContinue || loop->allowsContinue) return loop;
       continue;
     }
-    if (loop->label == NULL || loop->labelLength != labelLength ||
-        memcmp(loop->label, label, (size_t)labelLength) != 0) {
+    if (loop->label == NULL || loop->labelLength != labelLength || memcmp(loop->label, label, (size_t)labelLength) != 0) {
       continue;
     }
     if (needsContinue && !loop->allowsContinue) {
-      errorAt(line, "'continue %.*s' names a label that is not on a loop",
-              labelLength, label);
+      errorAt(line, "'continue %.*s' names a label that is not on a loop", labelLength, label);
       return NULL;
     }
     return loop;
@@ -383,17 +379,9 @@ void endLoop(Loop *loop, int line) {
  * which is what a `return` needs; a `break` stops at the loop's own depth. */
 void compileNode(const AstNode *node);
 
-
 /* ---------------- code generation ---------------- */
 
 void compileNode(const AstNode *node);
-
-
-
-
-
-
-
 
 /* `const [a, b] = xs;` and `const { x, y } = o;`
  *
@@ -401,25 +389,13 @@ void compileNode(const AstNode *node);
  * exists at run time. The source is evaluated once into a hidden local, then
  * each binding reads its own piece out of it. */
 
-
-
-
-
-
-
-
-
-
-
-void compileStatements(AstNode *const *statements,
-                              int count) {
+void compileStatements(AstNode *const *statements, int count) {
   for (int i = 0; i < count; i++) compileNode(statements[i]);
 }
 
 /* Pushes a fresh compiler for a nested function and reserves slot 0, which the
  * VM fills with the callee itself. */
-void beginFunction(Compiler *compiler, FunctionKind kind, const char *name,
-                          int nameLength) {
+void beginFunction(Compiler *compiler, FunctionKind kind, const char *name, int nameLength) {
   compiler->enclosing = current;
   compiler->function = NULL;
   compiler->kind = kind;
@@ -483,10 +459,6 @@ void emitClosure(const Compiler *compiler, ObjFunction *function, int line) {
   }
 }
 
-
-
-
-
 /* `this.name = <initialiser>;` for each declared field, in declaration order.
  * Emitted straight into whatever function is being compiled — the constructor,
  * or the hidden initialiser below. */
@@ -505,7 +477,6 @@ void compileNode(const AstNode *node) {
   if (compileValueNode(node, line)) return;
   if (compileStatementNode(node, line)) return;
 }
-
 
 ObjFunction *csCompile(AstNode *program, ObjModule *module, Diagnostics *diag) {
   Unit unit;

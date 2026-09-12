@@ -24,7 +24,6 @@ AstNode **csAstGrowList(AstArena *arena, AstNode **list, int count);
  * A node otherwise points into the source text, which is fine while the source
  * outlives the tree — and it does. A *name* is copied because the compiler
  * hands it to csStringCopy, which wants a run it can measure. */
-const char *csAstInternName(AstArena *arena, const char *name, int length,
-                            int *lengthOut);
+const char *csAstInternName(AstArena *arena, const char *name, int length, int *lengthOut);
 
 #endif /* CSCRIPT_COMPILER_AST_INTERNAL_H */

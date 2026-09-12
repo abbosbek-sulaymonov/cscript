@@ -43,9 +43,8 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
         /* Arms are matched with ===, so an arm that can never match is the
          * same mistake as writing that comparison out by hand. */
         if (csTypeIsKnown(subject) && csTypeIsKnown(test) && subject != test) {
-          csTypeError(checker, node->as.switchStmt.cases[i].test->line,
-                    "this case is %s but the switch subject is %s, so it can never match",
-                    csTypeName(test), csTypeName(subject));
+          csTypeError(checker, node->as.switchStmt.cases[i].test->line, "this case is %s but the switch subject is %s, so it can never match", csTypeName(test),
+                      csTypeName(subject));
         }
         checkNode(checker, node->as.switchStmt.cases[i].body);
       }
@@ -62,39 +61,31 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
     }
 
     case AST_RETURN_STMT: {
-      TypeKind returned = node->as.returnValue != NULL
-                              ? checkNode(checker, node->as.returnValue)
-                              : TYPE_UNDEFINED;
+      TypeKind returned = node->as.returnValue != NULL ? checkNode(checker, node->as.returnValue) : TYPE_UNDEFINED;
       if (checker->functionDepth == 0) {
         /* The compiler reports this with better placement. */
         result = TYPE_UNDEFINED;
         break;
       }
-      if (checker->currentReturnAnnotated &&
-          !csTypeAssignable(returned, checker->currentReturn)) {
-        csTypeError(checker, node->line, "cannot return %s from a function declared %s",
-                  csTypeName(returned), csTypeName(checker->currentReturn));
+      if (checker->currentReturnAnnotated && !csTypeAssignable(returned, checker->currentReturn)) {
+        csTypeError(checker, node->line, "cannot return %s from a function declared %s", csTypeName(returned), csTypeName(checker->currentReturn));
       }
       result = TYPE_UNDEFINED;
       break;
     }
 
     case AST_VAR_DECL: {
-      TypeKind initializer = node->as.varDecl.initializer != NULL
-                                 ? checkNode(checker, node->as.varDecl.initializer)
-                                 : TYPE_UNDEFINED;
+      TypeKind initializer = node->as.varDecl.initializer != NULL ? checkNode(checker, node->as.varDecl.initializer) : TYPE_UNDEFINED;
 
       TypeKind declared;
       bool awaiting = false;
       if (node->as.varDecl.hasAnnotation) {
         declared = node->as.varDecl.declaredType;
         if (!csTypeAssignable(initializer, declared)) {
-          csTypeError(checker, node->line, "cannot assign %s to '%.*s', declared as %s",
-                    csTypeName(initializer), node->as.varDecl.length,
-                    node->as.varDecl.name, csTypeName(declared));
+          csTypeError(checker, node->line, "cannot assign %s to '%.*s', declared as %s", csTypeName(initializer), node->as.varDecl.length, node->as.varDecl.name,
+                      csTypeName(declared));
         }
-      } else if (node->as.varDecl.initializer != NULL &&
-                 initializer != TYPE_NULL && initializer != TYPE_UNDEFINED) {
+      } else if (node->as.varDecl.initializer != NULL && initializer != TYPE_NULL && initializer != TYPE_UNDEFINED) {
         /* Inference: an unannotated declaration takes its initialiser's type,
          * and keeps it. `let total = 0` is a number from here on, and
          * assigning a string to it is an error rather than a surprise. */
@@ -110,8 +101,7 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
       if (awaiting) {
         csTypeDeclareAwaiting(checker, node->as.varDecl.name, node->as.varDecl.length);
       } else {
-        csTypeDeclareVariable(checker, node->as.varDecl.name, node->as.varDecl.length,
-                              declared);
+        csTypeDeclareVariable(checker, node->as.varDecl.name, node->as.varDecl.length, declared);
       }
       result = declared;
       break;
@@ -140,14 +130,12 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
 #define NARROWED_AT_ONCE 8
       Variable *narrowed[NARROWED_AT_ONCE];
       TypeKind saved[NARROWED_AT_ONCE];
-      int count = csTypeNarrowAll(checker, node->as.ifStmt.condition, true,
-                                  narrowed, saved, NARROWED_AT_ONCE);
+      int count = csTypeNarrowAll(checker, node->as.ifStmt.condition, true, narrowed, saved, NARROWED_AT_ONCE);
       checkNode(checker, node->as.ifStmt.thenBranch);
       for (int i = 0; i < count; i++) narrowed[i]->type = saved[i];
 
       /* And `!==` proves it about the other one. */
-      int elseCount = csTypeNarrowAll(checker, node->as.ifStmt.condition, false,
-                                      narrowed, saved, NARROWED_AT_ONCE);
+      int elseCount = csTypeNarrowAll(checker, node->as.ifStmt.condition, false, narrowed, saved, NARROWED_AT_ONCE);
       checkNode(checker, node->as.ifStmt.elseBranch);
 
       /* A guard keeps its proof. `if (typeof x !== "number") return;` means
@@ -176,8 +164,7 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
         csTypeBeginScope(checker);
         if (node->as.tryStmt.catchName != NULL) {
           /* Anything can be thrown, so the binding is dynamic. */
-          csTypeDeclareVariable(checker, node->as.tryStmt.catchName,
-                          node->as.tryStmt.catchNameLength, TYPE_DYNAMIC);
+          csTypeDeclareVariable(checker, node->as.tryStmt.catchName, node->as.tryStmt.catchNameLength, TYPE_DYNAMIC);
         }
         checkNode(checker, node->as.tryStmt.catchBody);
         csTypeEndScope(checker);
@@ -198,8 +185,7 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
      * beyond what its method bodies say on their own. */
     case AST_IMPORT:
       if (node->as.import.namespaceName != NULL) {
-        csTypeDeclareVariable(checker, node->as.import.namespaceName,
-                        node->as.import.namespaceLength, TYPE_OBJECT);
+        csTypeDeclareVariable(checker, node->as.import.namespaceName, node->as.import.namespaceLength, TYPE_OBJECT);
       }
       for (int i = 0; i < node->as.import.nameCount; i++) {
         const AstModuleName *entry = &node->as.import.names[i];
@@ -219,8 +205,7 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
        * `new C()` a call on undefined, which is the declaration's answer
        * rather than the expression's. */
       if (!node->as.classDecl.isExpression) {
-        csTypeDeclareVariable(checker, node->as.classDecl.name,
-                              node->as.classDecl.nameLength, TYPE_DYNAMIC);
+        csTypeDeclareVariable(checker, node->as.classDecl.name, node->as.classDecl.nameLength, TYPE_DYNAMIC);
       }
 
       for (int i = 0; i < node->as.classDecl.fieldCount; i++) {
@@ -240,8 +225,7 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
       csTypeBeginScope(checker);
       checkNode(checker, node->as.forOf.iterable);
       /* Element types are not modelled, so the binding is dynamic. */
-      csTypeDeclareVariable(checker, node->as.forOf.name, node->as.forOf.nameLength,
-                      TYPE_DYNAMIC);
+      csTypeDeclareVariable(checker, node->as.forOf.name, node->as.forOf.nameLength, TYPE_DYNAMIC);
       checkNode(checker, node->as.forOf.body);
       csTypeEndScope(checker);
       result = TYPE_UNDEFINED;
@@ -265,8 +249,7 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
       result = TYPE_UNDEFINED;
       break;
 
-    default:
-      return false;
+    default: return false;
   }
 
   *out = result;

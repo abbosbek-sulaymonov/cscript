@@ -10,47 +10,46 @@
 
 #include "cscript/object.h"
 
-#define OBJ_TYPE(v)   (AS_OBJ(v)->type)
+#define OBJ_TYPE(v) (AS_OBJ(v)->type)
 
-#define IS_STRING(v)   csIsObjType(v, OBJ_STRING)
-#define IS_NATIVE(v)   csIsObjType(v, OBJ_NATIVE)
-#define IS_OBJECT(v)   csIsObjType(v, OBJ_OBJECT)
+#define IS_STRING(v) csIsObjType(v, OBJ_STRING)
+#define IS_NATIVE(v) csIsObjType(v, OBJ_NATIVE)
+#define IS_OBJECT(v) csIsObjType(v, OBJ_OBJECT)
 #define IS_FUNCTION(v) csIsObjType(v, OBJ_FUNCTION)
-#define IS_CLOSURE(v)  csIsObjType(v, OBJ_CLOSURE)
-#define IS_ARRAY(v)    csIsObjType(v, OBJ_ARRAY)
-#define IS_CLASS(v)    csIsObjType(v, OBJ_CLASS)
-#define IS_MODULE(v)   csIsObjType(v, OBJ_MODULE)
-#define IS_PROMISE(v)  csIsObjType(v, OBJ_PROMISE)
-#define IS_MAP(v)      csIsObjType(v, OBJ_MAP)
+#define IS_CLOSURE(v) csIsObjType(v, OBJ_CLOSURE)
+#define IS_ARRAY(v) csIsObjType(v, OBJ_ARRAY)
+#define IS_CLASS(v) csIsObjType(v, OBJ_CLASS)
+#define IS_MODULE(v) csIsObjType(v, OBJ_MODULE)
+#define IS_PROMISE(v) csIsObjType(v, OBJ_PROMISE)
+#define IS_MAP(v) csIsObjType(v, OBJ_MAP)
 #define IS_GENERATOR(v) csIsObjType(v, OBJ_GENERATOR)
-#define IS_DATE(v)     csIsObjType(v, OBJ_DATE)
-#define IS_SYMBOL(v)   csIsObjType(v, OBJ_SYMBOL)
-#define IS_BIGINT(v)   csIsObjType(v, OBJ_BIGINT)
-#define AS_BIGINT(v)   ((ObjBigInt *)AS_OBJ(v))
-#define AS_SYMBOL(v)   ((ObjSymbol *)AS_OBJ(v))
-#define AS_DATE(v)     ((ObjDate *)AS_OBJ(v))
+#define IS_DATE(v) csIsObjType(v, OBJ_DATE)
+#define IS_SYMBOL(v) csIsObjType(v, OBJ_SYMBOL)
+#define IS_BIGINT(v) csIsObjType(v, OBJ_BIGINT)
+#define AS_BIGINT(v) ((ObjBigInt *)AS_OBJ(v))
+#define AS_SYMBOL(v) ((ObjSymbol *)AS_OBJ(v))
+#define AS_DATE(v) ((ObjDate *)AS_OBJ(v))
 #define AS_GENERATOR(v) ((ObjGenerator *)AS_OBJ(v))
-#define IS_REGEX(v)    csIsObjType(v, OBJ_REGEX)
+#define IS_REGEX(v) csIsObjType(v, OBJ_REGEX)
 #define IS_BOUND_METHOD(v) csIsObjType(v, OBJ_BOUND_METHOD)
 
 /* Anything a call expression could name. Not a type in the checker's lattice —
  * a native, a closure and a bound method are three object kinds that happen to
  * share the one thing callers care about. */
-#define csValueIsCallable(v) \
-  (IS_CLOSURE(v) || IS_NATIVE(v) || IS_BOUND_METHOD(v) || IS_CLASS(v))
+#define csValueIsCallable(v) (IS_CLOSURE(v) || IS_NATIVE(v) || IS_BOUND_METHOD(v) || IS_CLASS(v))
 
-#define AS_STRING(v)   ((ObjString *)AS_OBJ(v))
-#define AS_CSTRING(v)  (((ObjString *)AS_OBJ(v))->chars)
-#define AS_NATIVE(v)   ((ObjNative *)AS_OBJ(v))
-#define AS_OBJECT(v)   ((ObjObject *)AS_OBJ(v))
+#define AS_STRING(v) ((ObjString *)AS_OBJ(v))
+#define AS_CSTRING(v) (((ObjString *)AS_OBJ(v))->chars)
+#define AS_NATIVE(v) ((ObjNative *)AS_OBJ(v))
+#define AS_OBJECT(v) ((ObjObject *)AS_OBJ(v))
 #define AS_FUNCTION(v) ((ObjFunction *)AS_OBJ(v))
-#define AS_CLOSURE(v)  ((ObjClosure *)AS_OBJ(v))
-#define AS_ARRAY(v)    ((ObjArray *)AS_OBJ(v))
-#define AS_CLASS(v)    ((ObjClass *)AS_OBJ(v))
-#define AS_MODULE(v)   ((ObjModule *)AS_OBJ(v))
-#define AS_PROMISE(v)  ((ObjPromise *)AS_OBJ(v))
-#define AS_MAP(v)      ((ObjMap *)AS_OBJ(v))
-#define AS_REGEX(v)    ((ObjRegex *)AS_OBJ(v))
+#define AS_CLOSURE(v) ((ObjClosure *)AS_OBJ(v))
+#define AS_ARRAY(v) ((ObjArray *)AS_OBJ(v))
+#define AS_CLASS(v) ((ObjClass *)AS_OBJ(v))
+#define AS_MODULE(v) ((ObjModule *)AS_OBJ(v))
+#define AS_PROMISE(v) ((ObjPromise *)AS_OBJ(v))
+#define AS_MAP(v) ((ObjMap *)AS_OBJ(v))
+#define AS_REGEX(v) ((ObjRegex *)AS_OBJ(v))
 #define AS_BOUND_METHOD(v) ((ObjBoundMethod *)AS_OBJ(v))
 
 static inline bool csIsObjType(Value value, ObjType type) {
@@ -68,8 +67,7 @@ ObjNative *csNativeNew(NativeFn function, const char *name, int arity);
 #define CS_PROP_WRITABLE 1u
 #define CS_PROP_ENUMERABLE 2u
 #define CS_PROP_CONFIGURABLE 4u
-#define CS_PROP_DEFAULT \
-  (CS_PROP_WRITABLE | CS_PROP_ENUMERABLE | CS_PROP_CONFIGURABLE)
+#define CS_PROP_DEFAULT (CS_PROP_WRITABLE | CS_PROP_ENUMERABLE | CS_PROP_CONFIGURABLE)
 
 ObjObject *csObjectNew(const char *name);
 
@@ -172,8 +170,7 @@ void csPromiseReject(ObjPromise *promise, Value reason);
 
 /* Registers a reaction, running it as a microtask straight away when the
  * promise has already settled. */
-void csPromiseAddReaction(ObjPromise *promise, Value onFulfilled, Value onRejected,
-                          ObjPromise *result);
+void csPromiseAddReaction(ObjPromise *promise, Value onFulfilled, Value onRejected, ObjPromise *result);
 ObjObject *csInstanceNew(ObjClass *klass);
 ObjBoundMethod *csBoundMethodNew(Value receiver, Obj *method);
 

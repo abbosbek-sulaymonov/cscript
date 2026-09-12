@@ -67,9 +67,7 @@ static bool booleanConvert(Value receiver, int argCount, Value *args, Value *res
 static bool globalParseInt(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   if (argCount < 1 || !IS_STRING(args[0])) {
-    *result = NUMBER_VAL(argCount >= 1 && IS_NUMBER(args[0])
-                             ? trunc(AS_NUMBER(args[0]))
-                             : NAN);
+    *result = NUMBER_VAL(argCount >= 1 && IS_NUMBER(args[0]) ? trunc(AS_NUMBER(args[0])) : NAN);
     return true;
   }
 
@@ -140,8 +138,7 @@ static bool numberIsFinite(Value receiver, int argCount, Value *args, Value *res
  * `charCodeAt` answers one, so this is that operation inverted. A code above
  * 255 is refused rather than truncated — silently writing the low byte of a
  * character someone asked for is the kind of wrong answer that looks right. */
-static bool stringFromCharCode(Value receiver, int argCount, Value *args,
-                               Value *result) {
+static bool stringFromCharCode(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   char *buffer = CS_ALLOCATE(char, argCount + 1);
   for (int i = 0; i < argCount; i++) {
@@ -153,9 +150,10 @@ static bool stringFromCharCode(Value receiver, int argCount, Value *args,
     double code = AS_NUMBER(args[i]);
     if (code < 0 || code > 255 || code != (double)(int)code) {
       CS_FREE_ARRAY(char, buffer, argCount + 1);
-      csVMRuntimeError("String.fromCharCode expects whole numbers from 0 to 255, "
-                       "got %g",
-                       code);
+      csVMRuntimeError(
+          "String.fromCharCode expects whole numbers from 0 to 255, "
+          "got %g",
+          code);
       return false;
     }
     buffer[i] = (char)(unsigned char)(int)code;

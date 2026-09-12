@@ -30,8 +30,7 @@ AstNode *parsePattern(Parser *parser, bool isObject, bool isConst) {
 
       /* An array pattern may hold a pattern directly; an object pattern gets
        * to one through a key, as in `{ a: { b } }`. */
-      if (!isObject && (check(parser, TOKEN_LEFT_BRACKET) ||
-                        check(parser, TOKEN_LEFT_BRACE))) {
+      if (!isObject && (check(parser, TOKEN_LEFT_BRACKET) || check(parser, TOKEN_LEFT_BRACE))) {
         if (isRest) {
           errorAtCurrent(parser, "a rest element must be a plain name");
           return NULL;
@@ -80,16 +79,14 @@ AstNode *parsePattern(Parser *parser, bool isObject, bool isConst) {
         if (defaultValue == NULL) return NULL;
       }
 
-      csAstDestructureAdd(parser->arena, pattern, isObject ? key : NULL, keyLength,
-                          name, nameLength, defaultValue, isRest);
+      csAstDestructureAdd(parser->arena, pattern, isObject ? key : NULL, keyLength, name, nameLength, defaultValue, isRest);
       if (nested != NULL) csAstDestructureNest(pattern, nested);
 
       if (isRest) break; /* nothing may follow a rest element */
     } while (matchToken(parser, TOKEN_COMMA));
   }
 
-  consume(parser, closer, isObject ? "expected '}' to close the pattern"
-                                   : "expected ']' to close the pattern");
+  consume(parser, closer, isObject ? "expected '}' to close the pattern" : "expected ']' to close the pattern");
   return parser->diag->panicMode ? NULL : pattern;
 }
 
@@ -143,8 +140,7 @@ AstNode *parseDeclaratorList(Parser *parser, int line, bool isConst) {
     consume(parser, TOKEN_IDENTIFIER, "expected a variable name");
     if (parser->diag->panicMode) return NULL;
 
-    AstNode *declaration = finishVarDeclaration(parser, line, parser->previous.start,
-                                                parser->previous.length, isConst);
+    AstNode *declaration = finishVarDeclaration(parser, line, parser->previous.start, parser->previous.length, isConst);
     if (declaration == NULL) return NULL;
 
     if (first == NULL) {

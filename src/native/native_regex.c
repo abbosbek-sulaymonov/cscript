@@ -22,13 +22,11 @@ static bool requireRegex(Value receiver, const char *method) {
 }
 
 /* Runs the pattern, reporting a pathological one rather than hanging. */
-static bool search(ObjRegex *regex, const char *subject, int length, int from,
-                   RegexMatch *match, bool *found) {
+static bool search(ObjRegex *regex, const char *subject, int length, int from, RegexMatch *match, bool *found) {
   bool outOfSteps = false;
   *found = csRegexSearch(regex->program, subject, length, from, match, &outOfSteps);
   if (outOfSteps) {
-    csVMRuntimeError("regular expression /%s/ took too long on this input",
-                     regex->source->chars);
+    csVMRuntimeError("regular expression /%s/ took too long on this input", regex->source->chars);
     return false;
   }
   return true;
@@ -44,8 +42,7 @@ static ObjArray *buildMatchArray(const RegexMatch *match, const char *subject) {
   for (int g = 0; g < match->groupCount; g++) {
     Value element = UNDEFINED_VAL;
     if (match->groups[g].start >= 0) {
-      ObjString *text = csStringCopy(subject + match->groups[g].start,
-                                     match->groups[g].end - match->groups[g].start);
+      ObjString *text = csStringCopy(subject + match->groups[g].start, match->groups[g].end - match->groups[g].start);
       element = OBJ_VAL(text);
     }
     if (IS_OBJ(element)) csPushTempRoot(AS_OBJ(element));
@@ -60,8 +57,7 @@ static ObjArray *buildMatchArray(const RegexMatch *match, const char *subject) {
 /* `.groups` — the named captures, or undefined when the pattern has no names.
  * JavaScript gives an object with no prototype here; there is no root prototype
  * to leave off, so an ordinary object says the same thing. */
-static void attachGroups(ObjArray *array, const Regex *regex,
-                         const RegexMatch *match, const char *subject) {
+static void attachGroups(ObjArray *array, const Regex *regex, const RegexMatch *match, const char *subject) {
   int count = csRegexNameCount(regex);
   if (count == 0) {
     csArrayPutExtra(array, "groups", 6, UNDEFINED_VAL);
@@ -76,9 +72,7 @@ static void attachGroups(ObjArray *array, const Regex *regex,
 
     Value captured = UNDEFINED_VAL;
     if (group < match->groupCount && match->groups[group].start >= 0) {
-      captured = OBJ_VAL(csStringCopy(
-          subject + match->groups[group].start,
-          match->groups[group].end - match->groups[group].start));
+      captured = OBJ_VAL(csStringCopy(subject + match->groups[group].start, match->groups[group].end - match->groups[group].start));
     }
     csObjectSetProperty(groups, name, captured);
   }
@@ -230,8 +224,7 @@ bool csRegexStringMatch(Value receiver, int argCount, Value *args, Value *result
     }
     if (!found) break;
 
-    ObjString *text = csStringCopy(subject->chars + match.groups[0].start,
-                                   match.groups[0].end - match.groups[0].start);
+    ObjString *text = csStringCopy(subject->chars + match.groups[0].start, match.groups[0].end - match.groups[0].start);
     csPushTempRoot((Obj *)text);
     csValueArrayWrite(&all->elements, OBJ_VAL(text));
     csPopTempRoot();
@@ -253,14 +246,12 @@ bool csRegexStringMatch(Value receiver, int argCount, Value *args, Value *result
  * The callee is user code, so it can allocate and collect. Every string built
  * here is rooted across the call, and the caller's output buffer is plain
  * malloc rather than GC memory, so nothing it holds can move. */
-static bool callReplacer(Value replacer, ObjString *subject,
-                         const RegexMatch *match, ObjString **out) {
+static bool callReplacer(Value replacer, ObjString *subject, const RegexMatch *match, ObjString **out) {
   Value argv[16];
   int argc = 0;
   int rooted = 0;
 
-  ObjString *whole = csStringCopy(subject->chars + match->groups[0].start,
-                                  match->groups[0].end - match->groups[0].start);
+  ObjString *whole = csStringCopy(subject->chars + match->groups[0].start, match->groups[0].end - match->groups[0].start);
   csPushTempRoot((Obj *)whole);
   rooted++;
   argv[argc++] = OBJ_VAL(whole);
@@ -270,8 +261,7 @@ static bool callReplacer(Value replacer, ObjString *subject,
       argv[argc++] = UNDEFINED_VAL;
       continue;
     }
-    ObjString *piece = csStringCopy(subject->chars + match->groups[i].start,
-                                    match->groups[i].end - match->groups[i].start);
+    ObjString *piece = csStringCopy(subject->chars + match->groups[i].start, match->groups[i].end - match->groups[i].start);
     csPushTempRoot((Obj *)piece);
     rooted++;
     argv[argc++] = OBJ_VAL(piece);
@@ -306,8 +296,7 @@ static bool callReplacer(Value replacer, ObjString *subject,
  * The replacement is either a string, in which case `$1`..`$9` and `$&` stand
  * for the groups and the whole match and `$$` is a literal dollar, or a
  * function called once per match with what it matched. */
-bool csRegexStringReplace(Value receiver, int argCount, Value *args, Value *result,
-                          bool all) {
+bool csRegexStringReplace(Value receiver, int argCount, Value *args, Value *result, bool all) {
   ObjString *subject = AS_STRING(receiver);
   ObjRegex *regex = AS_REGEX(args[0]);
 
@@ -336,16 +325,13 @@ bool csRegexStringReplace(Value receiver, int argCount, Value *args, Value *resu
     }
     if (!found) break;
 
-    size_t needed = length + (size_t)(match.groups[0].start - from) +
-                    (size_t)(replacement != NULL ? replacement->length : 0) +
-                    (size_t)subject->length;
+    size_t needed = length + (size_t)(match.groups[0].start - from) + (size_t)(replacement != NULL ? replacement->length : 0) + (size_t)subject->length;
     if (needed > capacity) {
       capacity = needed * 2;
       out = (char *)realloc(out, capacity);
     }
 
-    memcpy(out + length, subject->chars + from,
-           (size_t)(match.groups[0].start - from));
+    memcpy(out + length, subject->chars + from, (size_t)(match.groups[0].start - from));
     length += (size_t)(match.groups[0].start - from);
 
     if (byFunction) {
@@ -400,11 +386,7 @@ bool csRegexStringReplace(Value receiver, int argCount, Value *args, Value *resu
          * JavaScript's, and it is what keeps `$<` usable as text in a pattern
          * that never meant it as a reference. */
         bool named = csRegexNameCount(regex->program) > 0;
-        int group = nameEnd < replacement->length && named
-                        ? csRegexGroupNamed(regex->program,
-                                            replacement->chars + nameStart,
-                                            nameEnd - nameStart)
-                        : -1;
+        int group = nameEnd < replacement->length && named ? csRegexGroupNamed(regex->program, replacement->chars + nameStart, nameEnd - nameStart) : -1;
         if (!named || nameEnd >= replacement->length) {
           out[length++] = c;
           continue;
@@ -480,8 +462,7 @@ bool csRegexStringSplit(Value receiver, int argCount, Value *args, Value *result
       if (match.groups[0].start == pieceStart && pieceStart == 0) continue;
     }
 
-    ObjString *piece = csStringCopy(subject->chars + pieceStart,
-                                    match.groups[0].start - pieceStart);
+    ObjString *piece = csStringCopy(subject->chars + pieceStart, match.groups[0].start - pieceStart);
     csPushTempRoot((Obj *)piece);
     csValueArrayWrite(&parts->elements, OBJ_VAL(piece));
     csPopTempRoot();
@@ -490,8 +471,7 @@ bool csRegexStringSplit(Value receiver, int argCount, Value *args, Value *result
     if (match.groups[0].end > from) from = match.groups[0].end;
   }
 
-  ObjString *tail =
-      csStringCopy(subject->chars + pieceStart, subject->length - pieceStart);
+  ObjString *tail = csStringCopy(subject->chars + pieceStart, subject->length - pieceStart);
   csPushTempRoot((Obj *)tail);
   csValueArrayWrite(&parts->elements, OBJ_VAL(tail));
   csPopTempRoot();

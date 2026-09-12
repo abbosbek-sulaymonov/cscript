@@ -31,7 +31,7 @@
 typedef struct {
   const char *name;
   int length;
-  int depth;    /* scope nesting level it was declared at */
+  int depth; /* scope nesting level it was declared at */
   bool isConst;
   bool isCaptured; /* a nested function closed over it */
 } Local;
@@ -139,14 +139,11 @@ typedef struct TryContext {
   bool handlerActive;
 } TryContext;
 
-
-
 /* Ambient state, defined in compiler.c. */
 extern Compiler *current;
 extern Unit *currentUnit;
 extern Loop *currentLoop;
 extern TryContext *currentTry;
-
 
 /* compiler.c — emit helpers, scopes, locals, and the node dispatcher */
 Chunk *currentChunk(void);
@@ -171,11 +168,9 @@ int resolveLocal(Compiler *compiler, const char *name, int length);
 int addUpvalue(Compiler *compiler, uint8_t index, bool isLocal, int line);
 int resolveUpvalue(Compiler *compiler, const char *name, int length, int line);
 bool enclosingLocalIsConst(Compiler *compiler, const char *name, int length);
-void addLocal(const char *name, int length, bool isConst,
-                     int line);
+void addLocal(const char *name, int length, bool isConst, int line);
 GlobalDecl *findGlobal(const char *name, int length);
-void addGlobal(const char *name, int length, bool isConst,
-                      int line);
+void addGlobal(const char *name, int length, bool isConst, int line);
 void beginLoop(Loop *loop, bool allowsContinue);
 
 /* The label the next beginLoop should adopt, set by AST_LABELED_STMT and
@@ -183,18 +178,15 @@ void beginLoop(Loop *loop, bool allowsContinue);
 extern const char *pendingLabel;
 extern int pendingLabelLength;
 void endLoop(Loop *loop, int line);
-void compileStatements(AstNode *const *statements,
-                              int count);
-void beginFunction(Compiler *compiler, FunctionKind kind, const char *name,
-                          int nameLength);
+void compileStatements(AstNode *const *statements, int count);
+void beginFunction(Compiler *compiler, FunctionKind kind, const char *name, int nameLength);
 ObjFunction *endFunction(int line);
 void emitClosure(const Compiler *compiler, ObjFunction *function, int line);
 void compileNode(const AstNode *node);
 
 /* The innermost loop a `break` or `continue` means, given the label it named
  * or none. NULL when there is no such loop, having said so. */
-Loop *compilerTargetLoop(const char *label, int labelLength, bool needsContinue,
-                         int line);
+Loop *compilerTargetLoop(const char *label, int labelLength, bool needsContinue, int line);
 
 /* The two halves it dispatches to. Each answers false for a node it does not
  * handle, which is how the dispatcher knows to ask the other. */

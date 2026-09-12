@@ -37,8 +37,7 @@ typedef struct {
 /* Compiles `pattern`. Returns NULL and writes a reason into `error` — which
  * must have room for at least 128 bytes — when the pattern is malformed or
  * uses something unsupported. */
-Regex *csRegexCompile(const char *pattern, int length, bool ignoreCase,
-                      bool multiline, bool dotAll, char *error, size_t errorSize);
+Regex *csRegexCompile(const char *pattern, int length, bool ignoreCase, bool multiline, bool dotAll, char *error, size_t errorSize);
 
 void csRegexFree(Regex *regex);
 
@@ -56,7 +55,6 @@ int csRegexGroupNamed(const Regex *regex, const char *name, int length);
  *
  * `outOfSteps` is set when the matcher gave up rather than failing, so a
  * caller can tell "no match" from "this pattern is pathological". */
-bool csRegexSearch(const Regex *regex, const char *subject, int length, int start,
-                   RegexMatch *match, bool *outOfSteps);
+bool csRegexSearch(const Regex *regex, const char *subject, int length, int start, RegexMatch *match, bool *outOfSteps);
 
 #endif /* CSCRIPT_REGEX_H */

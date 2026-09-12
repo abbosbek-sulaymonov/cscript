@@ -16,9 +16,7 @@
 #include "cscript/vm.h"
 #include "runtime/vm_internal.h"
 
-
-void csVMQueueMicrotask(Value callback, Value argument, ObjPromise *result,
-                        bool isRejection) {
+void csVMQueueMicrotask(Value callback, Value argument, ObjPromise *result, bool isRejection) {
   /* Compact before growing: the queue is drained to empty between macrotasks,
    * so the head is almost always reclaimable. */
   if (vm.microtaskHead > 0 && vm.microtaskHead == vm.microtaskCount) {
@@ -29,8 +27,7 @@ void csVMQueueMicrotask(Value callback, Value argument, ObjPromise *result,
   if (vm.microtaskCapacity < vm.microtaskCount + 1) {
     int oldCapacity = vm.microtaskCapacity;
     vm.microtaskCapacity = CS_GROW_CAPACITY(oldCapacity);
-    vm.microtasks =
-        CS_GROW_ARRAY(Microtask, vm.microtasks, oldCapacity, vm.microtaskCapacity);
+    vm.microtasks = CS_GROW_ARRAY(Microtask, vm.microtasks, oldCapacity, vm.microtaskCapacity);
   }
 
   Microtask *task = &vm.microtasks[vm.microtaskCount++];
@@ -45,7 +42,9 @@ void csVMQueueMicrotask(Value callback, Value argument, ObjPromise *result,
   task->extraHops = 0;
 }
 
-Microtask *csVMLastMicrotask(void) { return &vm.microtasks[vm.microtaskCount - 1]; }
+Microtask *csVMLastMicrotask(void) {
+  return &vm.microtasks[vm.microtaskCount - 1];
+}
 
 void csVMQueueCombine(ObjArray *state, int index, Value argument, bool isRejection) {
   csVMQueueMicrotask(UNDEFINED_VAL, argument, NULL, isRejection);
@@ -61,8 +60,7 @@ static Value settlementRecord(Value outcome, bool isRejection) {
   csPushTempRoot((Obj *)record);
   if (IS_OBJ(outcome)) csPushTempRoot(AS_OBJ(outcome));
 
-  ObjString *status = csStringCopy(isRejection ? "rejected" : "fulfilled",
-                                   isRejection ? 8 : 9);
+  ObjString *status = csStringCopy(isRejection ? "rejected" : "fulfilled", isRejection ? 8 : 9);
   csPushTempRoot((Obj *)status);
   csObjectSetProperty(record, "status", OBJ_VAL(status));
   csPopTempRoot();
@@ -112,15 +110,11 @@ void runCombine(const Microtask *task) {
       }
       break;
 
-    case COMBINE_ALL_SETTLED:
-      break;
+    case COMBINE_ALL_SETTLED: break;
   }
 
   ObjArray *results = AS_ARRAY(state->elements.values[0]);
-  results->elements.values[task->combineIndex] =
-      mode == COMBINE_ALL_SETTLED
-          ? settlementRecord(task->argument, task->isRejection)
-          : task->argument;
+  results->elements.values[task->combineIndex] = mode == COMBINE_ALL_SETTLED ? settlementRecord(task->argument, task->isRejection) : task->argument;
 
   double remaining = AS_NUMBER(state->elements.values[1]) - 1;
   state->elements.values[1] = NUMBER_VAL(remaining);
@@ -137,8 +131,7 @@ void csVMNoteRejection(ObjPromise *promise) {
   if (vm.rejectedCapacity < vm.rejectedCount + 1) {
     int oldCapacity = vm.rejectedCapacity;
     vm.rejectedCapacity = CS_GROW_CAPACITY(oldCapacity);
-    vm.rejected =
-        CS_GROW_ARRAY(ObjPromise *, vm.rejected, oldCapacity, vm.rejectedCapacity);
+    vm.rejected = CS_GROW_ARRAY(ObjPromise *, vm.rejected, oldCapacity, vm.rejectedCapacity);
   }
   vm.rejected[vm.rejectedCount++] = promise;
 }
@@ -266,8 +259,7 @@ InterpretResult reportUnhandledRejections(void) {
     fflush(stdout);
     size_t length = 0;
     char *text = csValueInspect(promise->value, &length);
-    fprintf(stderr, "cscript: unhandled promise rejection: %s\n",
-            text != NULL ? text : "<unprintable>");
+    fprintf(stderr, "cscript: unhandled promise rejection: %s\n", text != NULL ? text : "<unprintable>");
     free(text);
     vm.rejectedCount = 0;
     return CS_RUNTIME_ERROR;
@@ -342,9 +334,7 @@ InterpretResult csVMRunEventLoop(void) {
       again.sequence = vm.timerSequence++;
 
       int at = vm.timerCount;
-      while (at > 0 && (vm.timers[at - 1].dueMs > again.dueMs ||
-                        (vm.timers[at - 1].dueMs == again.dueMs &&
-                         vm.timers[at - 1].sequence > again.sequence))) {
+      while (at > 0 && (vm.timers[at - 1].dueMs > again.dueMs || (vm.timers[at - 1].dueMs == again.dueMs && vm.timers[at - 1].sequence > again.sequence))) {
         vm.timers[at] = vm.timers[at - 1];
         at--;
       }

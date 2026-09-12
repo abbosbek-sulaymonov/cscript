@@ -24,8 +24,7 @@
  * csVMCallCallback, which runs a nested interpreter loop. The array itself is
  * passed as the third argument, matching JavaScript, and is what keeps it
  * reachable from the stack while the callback runs. */
-static bool callWithElement(Value callback, Value element, int index, Value array,
-                            Value *out) {
+static bool callWithElement(Value callback, Value element, int index, Value array, Value *out) {
   Value args[3] = {element, NUMBER_VAL(index), array};
   return csVMCallAdapted(callback, args, 3, out);
 }
@@ -118,8 +117,7 @@ static bool arrayReduce(Value receiver, int argCount, Value *args, Value *result
     /* The accumulator is a plain C local, so it is invisible to the collector
      * while the callback runs — push it onto the stack for the duration. */
     csVMPush(accumulator);
-    Value callArgs[4] = {accumulator, array->elements.values[index],
-                         NUMBER_VAL(index), receiver};
+    Value callArgs[4] = {accumulator, array->elements.values[index], NUMBER_VAL(index), receiver};
 
     Value produced;
     if (!csVMCallAdapted(args[0], callArgs, 4, &produced)) return false;
@@ -134,8 +132,7 @@ static bool arrayReduce(Value receiver, int argCount, Value *args, Value *result
 /* The same fold, from the end. Written out rather than sharing a direction
  * flag with reduce: the two loops differ in three places, and a flag threaded
  * through all of them reads worse than the second loop does. */
-static bool arrayReduceRight(Value receiver, int argCount, Value *args,
-                             Value *result) {
+static bool arrayReduceRight(Value receiver, int argCount, Value *args, Value *result) {
   if (!requireCallback(argCount, args, "reduceRight")) return false;
   ObjArray *array = ARRAY_OF(receiver);
 
@@ -153,8 +150,7 @@ static bool arrayReduceRight(Value receiver, int argCount, Value *args,
 
   for (; index >= 0; index--) {
     csVMPush(accumulator);
-    Value callArgs[4] = {accumulator, array->elements.values[index],
-                         NUMBER_VAL(index), receiver};
+    Value callArgs[4] = {accumulator, array->elements.values[index], NUMBER_VAL(index), receiver};
 
     Value produced;
     if (!csVMCallAdapted(args[0], callArgs, 4, &produced)) return false;
@@ -174,8 +170,7 @@ typedef enum {
   SEARCH_EVERY,
 } SearchMode;
 
-static bool arraySearch(Value receiver, int argCount, Value *args, Value *result,
-                        SearchMode mode, const char *method) {
+static bool arraySearch(Value receiver, int argCount, Value *args, Value *result, SearchMode mode, const char *method) {
   if (!requireCallback(argCount, args, method)) return false;
   ObjArray *array = ARRAY_OF(receiver);
 
@@ -195,18 +190,18 @@ static bool arraySearch(Value receiver, int argCount, Value *args, Value *result
     if (!matched) continue;
 
     switch (mode) {
-      case SEARCH_FIND:       *result = element; return true;
+      case SEARCH_FIND: *result = element; return true;
       case SEARCH_FIND_INDEX: *result = NUMBER_VAL(i); return true;
-      case SEARCH_SOME:       *result = BOOL_VAL(true); return true;
-      case SEARCH_EVERY:      break;
+      case SEARCH_SOME: *result = BOOL_VAL(true); return true;
+      case SEARCH_EVERY: break;
     }
   }
 
   switch (mode) {
-    case SEARCH_FIND:       *result = UNDEFINED_VAL; break;
+    case SEARCH_FIND: *result = UNDEFINED_VAL; break;
     case SEARCH_FIND_INDEX: *result = NUMBER_VAL(-1); break;
-    case SEARCH_SOME:       *result = BOOL_VAL(false); break;
-    case SEARCH_EVERY:      *result = BOOL_VAL(true); break;
+    case SEARCH_SOME: *result = BOOL_VAL(false); break;
+    case SEARCH_EVERY: *result = BOOL_VAL(true); break;
   }
   return true;
 }
@@ -289,8 +284,7 @@ static bool arraySort(Value receiver, int argCount, Value *args, Value *result) 
         key = csVMPop();
 
         if (!IS_NUMBER(verdict)) {
-          csVMRuntimeError("sort comparator must return a number, got %s",
-                           csValueTypeName(verdict));
+          csVMRuntimeError("sort comparator must return a number, got %s", csValueTypeName(verdict));
           return false;
         }
         order = AS_NUMBER(verdict) > 0 ? 1 : (AS_NUMBER(verdict) < 0 ? -1 : 0);

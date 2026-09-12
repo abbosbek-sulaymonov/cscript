@@ -15,8 +15,7 @@
 
 static bool requireGenerator(Value receiver, const char *method) {
   if (IS_GENERATOR(receiver)) return true;
-  csVMRuntimeError("'%s' needs a generator, got %s", method,
-                   csValueTypeName(receiver));
+  csVMRuntimeError("'%s' needs a generator, got %s", method, csValueTypeName(receiver));
   return false;
 }
 
@@ -26,16 +25,14 @@ static bool generatorNext(Value receiver, int argCount, Value *args, Value *resu
   /* An async generator answers with a promise, because the body may await any
    * number of times before it reaches the `yield` that has the value. */
   if (AS_GENERATOR(receiver)->isAsync) {
-    ObjPromise *pending = csGeneratorNextAsync(
-        AS_GENERATOR(receiver), argCount > 0 ? args[0] : UNDEFINED_VAL);
+    ObjPromise *pending = csGeneratorNextAsync(AS_GENERATOR(receiver), argCount > 0 ? args[0] : UNDEFINED_VAL);
     *result = OBJ_VAL(pending);
     return true;
   }
 
   Value value;
   bool done;
-  if (!csGeneratorNext(AS_GENERATOR(receiver),
-                       argCount > 0 ? args[0] : UNDEFINED_VAL, &value, &done)) {
+  if (!csGeneratorNext(AS_GENERATOR(receiver), argCount > 0 ? args[0] : UNDEFINED_VAL, &value, &done)) {
     return false;
   }
   *result = csIterationResult(value, done);

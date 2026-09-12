@@ -59,73 +59,65 @@ InterpretResult run(int baseFrame) {
 /* `frame` is cached in a local rather than re-read from vm.frames each time;
  * it is refreshed on every call and return. */
 #define READ_BYTE() (*frame->ip++)
-#define READ_SHORT() \
-  (frame->ip += 2, (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]))
-#define READ_CONSTANT() \
-  (frame->closure->function->chunk.constants.values[READ_SHORT()])
+#define READ_SHORT() (frame->ip += 2, (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]))
+#define READ_CONSTANT() (frame->closure->function->chunk.constants.values[READ_SHORT()])
 #define READ_STRING() AS_STRING(READ_CONSTANT())
-#define READ_PROPERTY_CACHE() \
-  (&frame->closure->function->chunk.propertyCaches[READ_SHORT()])
-#define READ_GLOBAL_CACHE() \
-  (&frame->closure->function->chunk.globalCaches[READ_SHORT()])
+#define READ_PROPERTY_CACHE() (&frame->closure->function->chunk.propertyCaches[READ_SHORT()])
+#define READ_GLOBAL_CACHE() (&frame->closure->function->chunk.globalCaches[READ_SHORT()])
 
 /* Arithmetic and comparison share this shape: both operands must be numbers.
  * JavaScript would coerce and often produce NaN; an error at the mistake is
  * far easier to debug than a NaN that spreads silently. */
-#define BINARY_NUMERIC_OP(valueType, op)                                    \
-  do {                                                                      \
-    if (!IS_NUMBER(peekStack(0)) || !IS_NUMBER(peekStack(1))) {             \
-      csVMRuntimeError("operands of '" #op "' must be numbers, got %s and %s", \
-                       csValueTypeName(peekStack(1)),                       \
-                       csValueTypeName(peekStack(0)));                      \
-      return CS_RUNTIME_ERROR;                                              \
-    }                                                                       \
-    double b = AS_NUMBER(csVMPop());                                        \
-    double a = AS_NUMBER(csVMPop());                                        \
-    csVMPush(valueType(a op b));                                            \
+#define BINARY_NUMERIC_OP(valueType, op)                                                                                                      \
+  do {                                                                                                                                        \
+    if (!IS_NUMBER(peekStack(0)) || !IS_NUMBER(peekStack(1))) {                                                                               \
+      csVMRuntimeError("operands of '" #op "' must be numbers, got %s and %s", csValueTypeName(peekStack(1)), csValueTypeName(peekStack(0))); \
+      return CS_RUNTIME_ERROR;                                                                                                                \
+    }                                                                                                                                         \
+    double b = AS_NUMBER(csVMPop());                                                                                                          \
+    double a = AS_NUMBER(csVMPop());                                                                                                          \
+    csVMPush(valueType(a op b));                                                                                                              \
   } while (false)
 
 /* The same, but a BigInt on either side takes the exact path instead. `code`
  * is what bigintArithmetic() switches on; it differs from the operator only
  * for `**`, which is not a character. */
-#define BINARY_ARITHMETIC_OP(op, code)                                      \
-  do {                                                                      \
-    if (IS_BIGINT(peekStack(0)) || IS_BIGINT(peekStack(1))) {               \
-      if (!bigintArithmetic(code, #op)) return CS_RUNTIME_ERROR;            \
-      break;                                                                \
-    }                                                                       \
-    BINARY_NUMERIC_OP(NUMBER_VAL, op);                                      \
+#define BINARY_ARITHMETIC_OP(op, code)                           \
+  do {                                                           \
+    if (IS_BIGINT(peekStack(0)) || IS_BIGINT(peekStack(1))) {    \
+      if (!bigintArithmetic(code, #op)) return CS_RUNTIME_ERROR; \
+      break;                                                     \
+    }                                                            \
+    BINARY_NUMERIC_OP(NUMBER_VAL, op);                           \
   } while (false)
 
 /* Ordering, where a BigInt and a number do mix. */
-#define BINARY_COMPARE_OP(op)                                               \
-  do {                                                                      \
-    if (IS_BIGINT(peekStack(0)) || IS_BIGINT(peekStack(1))) {               \
-      int order = 0;                                                        \
-      OrderResult ordering = comparingExactly(peekStack(1), peekStack(0),   \
-                                              &order);                      \
-      if (ordering == ORDER_INVALID) return CS_RUNTIME_ERROR;               \
-      vm.stackTop -= 2;                                                     \
-      /* Unordered means NaN, and every comparison with NaN is false —      \
-       * including `>=`, which is why this is not `!(...)`. */              \
-      csVMPush(BOOL_VAL(ordering == ORDER_KNOWN && (order op 0)));          \
-      break;                                                                \
-    }                                                                       \
-    BINARY_NUMERIC_OP(BOOL_VAL, op);                                        \
+#define BINARY_COMPARE_OP(op)                                                      \
+  do {                                                                             \
+    if (IS_BIGINT(peekStack(0)) || IS_BIGINT(peekStack(1))) {                      \
+      int order = 0;                                                               \
+      OrderResult ordering = comparingExactly(peekStack(1), peekStack(0), &order); \
+      if (ordering == ORDER_INVALID) return CS_RUNTIME_ERROR;                      \
+      vm.stackTop -= 2;                                                            \
+      /* Unordered means NaN, and every comparison with NaN is false —           \
+       * including `>=`, which is why this is not `!(...)`. */                     \
+      csVMPush(BOOL_VAL(ordering == ORDER_KNOWN && (order op 0)));                 \
+      break;                                                                       \
+    }                                                                              \
+    BINARY_NUMERIC_OP(BOOL_VAL, op);                                               \
   } while (false)
 
 #ifdef CS_DEBUG_TRACE_EXECUTION
-#define VM_TRACE_STEP()                                        \
-  do {                                                         \
-    printf("          ");                                      \
-    for (Value *slot = vm.stack; slot < vm.stackTop; slot++) { \
-      printf("[ ");                                            \
-      csValuePrint(*slot);                                     \
-      printf(" ]");                                            \
-    }                                                          \
-    printf("\n");                                              \
-    csDisassembleInstruction(&frame->closure->function->chunk,                \
-                             (int)(frame->ip - frame->closure->function->chunk.code)); \
+#define VM_TRACE_STEP()                                                                                                  \
+  do {                                                                                                                   \
+    printf("          ");                                                                                                \
+    for (Value *slot = vm.stack; slot < vm.stackTop; slot++) {                                                           \
+      printf("[ ");                                                                                                      \
+      csValuePrint(*slot);                                                                                               \
+      printf(" ]");                                                                                                      \
+    }                                                                                                                    \
+    printf("\n");                                                                                                        \
+    csDisassembleInstruction(&frame->closure->function->chunk, (int)(frame->ip - frame->closure->function->chunk.code)); \
   } while (false)
 #else
 #define VM_TRACE_STEP() ((void)0)
@@ -149,15 +141,14 @@ InterpretResult run(int baseFrame) {
       CS_OPCODE_LIST(CS_DISPATCH_ENTRY)
 #undef CS_DISPATCH_ENTRY
   };
-  _Static_assert(sizeof(dispatchTable) / sizeof(dispatchTable[0]) == OP_COUNT,
-                 "dispatch table and OpCode enum disagree");
+  _Static_assert(sizeof(dispatchTable) / sizeof(dispatchTable[0]) == OP_COUNT, "dispatch table and OpCode enum disagree");
 
-#define VM_DISPATCH()                            \
-  do {                                           \
-    VM_TRACE_STEP();                             \
-    instruction = READ_BYTE();                   \
-    VM_PROFILE_STEP();                           \
-    goto *dispatchTable[instruction];            \
+#define VM_DISPATCH()                 \
+  do {                                \
+    VM_TRACE_STEP();                  \
+    instruction = READ_BYTE();        \
+    VM_PROFILE_STEP();                \
+    goto *dispatchTable[instruction]; \
   } while (false)
 
 #define VM_BEGIN VM_DISPATCH();
@@ -165,11 +156,11 @@ InterpretResult run(int baseFrame) {
 #define VM_NEXT() VM_DISPATCH()
 #define VM_END
 #else
-#define VM_BEGIN         \
-  for (;;) {             \
-    VM_TRACE_STEP();     \
+#define VM_BEGIN               \
+  for (;;) {                   \
+    VM_TRACE_STEP();           \
     instruction = READ_BYTE(); \
-    VM_PROFILE_STEP();   \
+    VM_PROFILE_STEP();         \
     switch (instruction) {
 #define VM_CASE(name) case name:
 #define VM_NEXT() break
@@ -180,24 +171,23 @@ InterpretResult run(int baseFrame) {
 
 /* A call may have failed because something inside it threw to a handler this
  * loop owns; if so, take the throw here rather than aborting. */
-#define HANDLE_FAILED_CALL()                                            \
-  do {                                                                  \
-    if (!vm.hasPendingException) return CS_RUNTIME_ERROR;               \
-    vm.hasPendingException = false;                                     \
-    Value pending = vm.pendingException;                                \
-    switch (performThrow(pending, baseFrame, &frame)) {                 \
-      case THROW_HANDLED: break;                                        \
-      case THROW_PROPAGATE: return CS_RUNTIME_ERROR;                    \
-      case THROW_UNCAUGHT:                                              \
-        return uncaught(pending);                                       \
-    }                                                                   \
+#define HANDLE_FAILED_CALL()                              \
+  do {                                                    \
+    if (!vm.hasPendingException) return CS_RUNTIME_ERROR; \
+    vm.hasPendingException = false;                       \
+    Value pending = vm.pendingException;                  \
+    switch (performThrow(pending, baseFrame, &frame)) {   \
+      case THROW_HANDLED: break;                          \
+      case THROW_PROPAGATE: return CS_RUNTIME_ERROR;      \
+      case THROW_UNCAUGHT: return uncaught(pending);      \
+    }                                                     \
   } while (false)
 
-      /* The opcode bodies, by role. Included rather than called: each ends in
-       * VM_NEXT(), which under computed-goto dispatch is a jump to a label in
-       * this function — so a case cannot become a function without giving up
-       * the dispatch strategy, and giving that up is a measured loss. What
-       * moved is the text; the loop is exactly as it was. */
+  /* The opcode bodies, by role. Included rather than called: each ends in
+   * VM_NEXT(), which under computed-goto dispatch is a jump to a label in
+   * this function — so a case cannot become a function without giving up
+   * the dispatch strategy, and giving that up is a measured loss. What
+   * moved is the text; the loop is exactly as it was. */
 #include "runtime/vm_ops_value.inc"
 #include "runtime/vm_ops_iterate.inc"
 #include "runtime/vm_ops_object.inc"
@@ -232,8 +222,7 @@ InterpretResult run(int baseFrame) {
 /* Everything up to the bytecode, which is all `--check` wants and the front
  * half of what a run wants. `script` receives the compiled top level, or NULL
  * when the caller only asked whether it compiles. */
-static InterpretResult compileSource(const char *source, const char *sourceName,
-                                     ObjFunction **script) {
+static InterpretResult compileSource(const char *source, const char *sourceName, ObjFunction **script) {
   Diagnostics diag;
   csDiagnosticsInit(&diag, source, sourceName);
   vm.sourceName = sourceName;
@@ -283,8 +272,7 @@ InterpretResult csCheck(const char *source, const char *sourceName) {
   return compileSource(source, sourceName, NULL);
 }
 
-void csVMSetScriptArgs(const char *executable, const char *script,
-                       const char *const *args, int count) {
+void csVMSetScriptArgs(const char *executable, const char *script, const char *const *args, int count) {
   Value holder;
   ObjString *name = csStringCopy("process", 7);
   csPushTempRoot((Obj *)name);
@@ -361,8 +349,7 @@ static InterpretResult runBodyAsync(ObjClosure *closure) {
     fflush(stdout);
     size_t length = 0;
     char *text = csValueInspect(promise->value, &length);
-    fprintf(stderr, "cscript: uncaught error at the top level: %s\n",
-            text != NULL ? text : "<unprintable>");
+    fprintf(stderr, "cscript: uncaught error at the top level: %s\n", text != NULL ? text : "<unprintable>");
     free(text);
     resetStack();
     return CS_RUNTIME_ERROR;
@@ -370,8 +357,9 @@ static InterpretResult runBodyAsync(ObjClosure *closure) {
 
   if (promise->state == PROMISE_PENDING) {
     /* Nothing is left to run and it never settled, so nothing ever will. */
-    csVMRuntimeError("a top-level 'await' is waiting for something that will "
-                     "never happen");
+    csVMRuntimeError(
+        "a top-level 'await' is waiting for something that will "
+        "never happen");
     resetStack();
     return CS_RUNTIME_ERROR;
   }
@@ -398,15 +386,6 @@ InterpretResult csVMRunBody(ObjFunction *body) {
   return result;
 }
 
-
-
-
-
-
-
-
-
-
 InterpretResult csVMRunPendingModules(void) {
   /* Dependency order, so everything a module imports has already run by the
    * time it starts. The list is cleared as it goes rather than at the end, so
@@ -428,10 +407,6 @@ InterpretResult csVMRunPendingModules(void) {
   vm.pendingCount = 0;
   return CS_OK;
 }
-
-
-
-
 
 bool csVMCallAdapted(Value callee, Value *args, int available, Value *result) {
   int wanted = available;
@@ -473,11 +448,8 @@ bool csVMCallCallback(Value callee, int argCount, Value *result) {
     /* The receiver is in place, so re-entering must not blank it. A generator
      * or an async body pushes no frame here, so those take the ordinary path,
      * which puts the receiver where their fiber's slot 0 will be. */
-    ObjClosure *method = bound->method->type == OBJ_CLOSURE
-                             ? (ObjClosure *)bound->method
-                             : NULL;
-    if (method != NULL && !method->function->isGenerator &&
-        !method->function->isAsync) {
+    ObjClosure *method = bound->method->type == OBJ_CLOSURE ? (ObjClosure *)bound->method : NULL;
+    if (method != NULL && !method->function->isGenerator && !method->function->isAsync) {
       return csVMCallCallbackWithReceiver(OBJ_VAL(method), argCount, result);
     }
     return csVMCallCallback(OBJ_VAL(bound->method), argCount, result);

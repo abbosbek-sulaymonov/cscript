@@ -79,11 +79,18 @@ typedef enum {
 } UnaryOp;
 
 typedef enum {
-  BINARY_ADD, BINARY_SUBTRACT, BINARY_MULTIPLY, BINARY_DIVIDE, BINARY_MODULO,
+  BINARY_ADD,
+  BINARY_SUBTRACT,
+  BINARY_MULTIPLY,
+  BINARY_DIVIDE,
+  BINARY_MODULO,
   BINARY_EXPONENT,
-  BINARY_EQUAL, BINARY_NOT_EQUAL, /* === !== — CScript has no coercing equality */
-  BINARY_GREATER, BINARY_GREATER_EQUAL,
-  BINARY_LESS, BINARY_LESS_EQUAL,
+  BINARY_EQUAL,
+  BINARY_NOT_EQUAL, /* === !== — CScript has no coercing equality */
+  BINARY_GREATER,
+  BINARY_GREATER_EQUAL,
+  BINARY_LESS,
+  BINARY_LESS_EQUAL,
   BINARY_INSTANCEOF,
   BINARY_IN,
 } BinaryOp;
@@ -168,7 +175,7 @@ typedef struct AstClassField {
   AstNode *initializer; /* NULL for a bare `x;` */
   TypeKind declaredType;
   bool hasAnnotation;
-  bool isStatic;        /* belongs to the class, not to an instance */
+  bool isStatic; /* belongs to the class, not to an instance */
   /* Where this appeared in the class body, counting fields and members
    * together. Static initialisers and static blocks run in that order, and
    * a block can read a field written before it and not one after. */
@@ -222,196 +229,196 @@ struct AstNode {
    * "not known statically", not "unchecked". */
   TypeKind resolvedType;
   union {
-    double number;                       /* AST_NUMBER_LITERAL */
-    bool boolean;                        /* AST_BOOL_LITERAL */
-    struct {                             /* AST_STRING_LITERAL, AST_BIGINT_LITERAL */
-      const char *chars;                 /*   decoded, arena-owned */
+    double number;       /* AST_NUMBER_LITERAL */
+    bool boolean;        /* AST_BOOL_LITERAL */
+    struct {             /* AST_STRING_LITERAL, AST_BIGINT_LITERAL */
+      const char *chars; /*   decoded, arena-owned */
       int length;
     } string;
-    struct {                             /* AST_UNARY */
+    struct { /* AST_UNARY */
       UnaryOp op;
       AstNode *operand;
     } unary;
-    struct {                             /* AST_BINARY */
+    struct { /* AST_BINARY */
       BinaryOp op;
       AstNode *left;
       AstNode *right;
     } binary;
-    struct {                             /* AST_LOGICAL */
+    struct { /* AST_LOGICAL */
       LogicalOp op;
       AstNode *left;
       AstNode *right;
     } logical;
-    AstNode *grouping;                   /* AST_GROUPING */
-    AstNode *deleteTarget;               /* AST_DELETE — a property or index */
-    struct {                             /* AST_TEMPLATE_STRINGS */
-      AstNode *cooked;                   /*   escapes resolved */
-      AstNode *raw;                      /*   exactly as written */
+    AstNode *grouping;     /* AST_GROUPING */
+    AstNode *deleteTarget; /* AST_DELETE — a property or index */
+    struct {               /* AST_TEMPLATE_STRINGS */
+      AstNode *cooked;     /*   escapes resolved */
+      AstNode *raw;        /*   exactly as written */
     } templateStrings;
-    struct {                             /* AST_SEQUENCE — `a, b` */
-      AstNode *first;                    /*   evaluated and discarded */
-      AstNode *second;                   /*   the value of the whole */
+    struct {           /* AST_SEQUENCE — `a, b` */
+      AstNode *first;  /*   evaluated and discarded */
+      AstNode *second; /*   the value of the whole */
     } sequence;
-    struct {                             /* AST_YIELD */
-      AstNode *value;                    /*   NULL for a bare `yield;` */
-      bool isDelegate;                   /*   `yield*` */
+    struct {           /* AST_YIELD */
+      AstNode *value;  /*   NULL for a bare `yield;` */
+      bool isDelegate; /*   `yield*` */
     } yield;
-    struct {                             /* AST_LABELED_STMT — `outer: for …` */
+    struct { /* AST_LABELED_STMT — `outer: for …` */
       const char *name;
       int length;
       AstNode *body;
     } labeled;
-    struct {                             /* AST_BREAK_STMT, AST_CONTINUE_STMT */
-      const char *label;                 /*   NULL for the innermost */
+    struct {             /* AST_BREAK_STMT, AST_CONTINUE_STMT */
+      const char *label; /*   NULL for the innermost */
       int labelLength;
     } jump;
-    AstNode *expression;                 /* AST_EXPRESSION_STMT */
-    struct {                             /* AST_IDENTIFIER */
-      const char *name;                  /*   arena-owned, NUL-terminated */
+    AstNode *expression; /* AST_EXPRESSION_STMT */
+    struct {             /* AST_IDENTIFIER */
+      const char *name;  /*   arena-owned, NUL-terminated */
       int length;
     } identifier;
-    struct {                             /* AST_ASSIGN */
-      AstNode *target;                   /*   identifier, property or index */
+    struct {           /* AST_ASSIGN */
+      AstNode *target; /*   identifier, property or index */
       AstNode *value;
       AssignKind kind;
-      BinaryOp compoundOp;               /*   ASSIGN_COMPOUND only */
+      BinaryOp compoundOp; /*   ASSIGN_COMPOUND only */
     } assign;
-    struct {                             /* AST_UPDATE — ++x, x++, --x, x-- */
+    struct { /* AST_UPDATE — ++x, x++, --x, x-- */
       AstNode *target;
       bool isIncrement;
-      bool isPrefix;                     /*   prefix yields the new value */
+      bool isPrefix; /*   prefix yields the new value */
     } update;
-    struct {                             /* AST_CALL, and `new C(...)` */
+    struct { /* AST_CALL, and `new C(...)` */
       AstNode *callee;
       AstNode **arguments;
       int argCount;
-      bool isNew;                        /*   construction rather than a call */
-      bool optional;                     /*   written `?.(` */
+      bool isNew;    /*   construction rather than a call */
+      bool optional; /*   written `?.(` */
     } call;
-    struct {                             /* AST_REGEX_LITERAL */
-      const char *source;                /*   the pattern, no slashes */
+    struct {              /* AST_REGEX_LITERAL */
+      const char *source; /*   the pattern, no slashes */
       int sourceLength;
       const char *flags;
       int flagsLength;
     } regex;
-    struct {                             /* AST_SUPER */
-      const char *name;                  /*   NULL for `super(...)` */
+    struct {            /* AST_SUPER */
+      const char *name; /*   NULL for `super(...)` */
       int length;
     } super;
-    struct {                             /* AST_IMPORT */
-      const char *specifier;             /*   the quoted path, decoded */
+    struct {                 /* AST_IMPORT */
+      const char *specifier; /*   the quoted path, decoded */
       int specifierLength;
       struct AstModuleName *names;
       int nameCount;
-      const char *namespaceName;         /*   non-NULL for `import * as ns` */
+      const char *namespaceName; /*   non-NULL for `import * as ns` */
       int namespaceLength;
-      const char *defaultName;           /*   non-NULL for `import d from …` */
+      const char *defaultName; /*   non-NULL for `import d from …` */
       int defaultLength;
     } import;
-    struct {                             /* AST_EXPORT */
-      AstNode *declaration;              /*   NULL for `export { a, b };` */
-      struct AstModuleName *names;       /*   only for the list form */
+    struct {                       /* AST_EXPORT */
+      AstNode *declaration;        /*   NULL for `export { a, b };` */
+      struct AstModuleName *names; /*   only for the list form */
       int nameCount;
       /* `export … from "./m.cx"` re-exports without binding anything here that
        * was not already imported. NULL when the names are this file's own. */
       const char *specifier;
       int specifierLength;
-      bool isStar;                       /*   `export * from …` */
-      bool isDefault;                    /*   `export default …` */
+      bool isStar;    /*   `export * from …` */
+      bool isDefault; /*   `export default …` */
     } export;
-    struct {                             /* AST_CLASS_DECL */
+    struct { /* AST_CLASS_DECL */
       const char *name;
       int nameLength;
-      const char *superName;             /*   NULL without `extends` */
+      const char *superName; /*   NULL without `extends` */
       int superLength;
       struct AstClassField *fields;
       int fieldCount;
       struct AstClassMember *members;
       int memberCount;
-      AstNode *constructor;              /*   an AST_FUNCTION, or NULL */
+      AstNode *constructor; /*   an AST_FUNCTION, or NULL */
       /* `const C = class { … }`. It binds nothing of its own and leaves the
        * class where an expression's value goes. */
       bool isExpression;
     } classDecl;
-    struct {                             /* AST_PROPERTY — obj.name */
+    struct { /* AST_PROPERTY — obj.name */
       AstNode *object;
       const char *name;
       int length;
-      bool optional;                     /*   written `?.` */
+      bool optional; /*   written `?.` */
     } property;
-    struct {                             /* AST_VAR_DECL */
+    struct { /* AST_VAR_DECL */
       const char *name;
       int length;
-      AstNode *initializer;              /*   NULL for `let x;` */
+      AstNode *initializer; /*   NULL for `let x;` */
       bool isConst;
-      TypeKind declaredType;             /*   from `: T`, else TYPE_DYNAMIC */
-      bool hasAnnotation;                /*   distinguishes `: any` from none */
+      TypeKind declaredType; /*   from `: T`, else TYPE_DYNAMIC */
+      bool hasAnnotation;    /*   distinguishes `: any` from none */
     } varDecl;
-    struct {                             /* AST_BLOCK */
+    struct { /* AST_BLOCK */
       AstNode **statements;
       int count;
       int capacity;
     } block;
-    struct {                             /* AST_IF_STMT */
+    struct { /* AST_IF_STMT */
       AstNode *condition;
       AstNode *thenBranch;
-      AstNode *elseBranch;               /*   NULL when there is no else */
+      AstNode *elseBranch; /*   NULL when there is no else */
     } ifStmt;
-    struct {                             /* AST_WHILE_STMT */
+    struct { /* AST_WHILE_STMT */
       AstNode *condition;
       AstNode *body;
-      bool isDoWhile;                    /*   body runs before the first test */
+      bool isDoWhile; /*   body runs before the first test */
     } whileStmt;
-    struct {                             /* AST_FOR_STMT — any clause may be NULL */
+    struct { /* AST_FOR_STMT — any clause may be NULL */
       AstNode *initializer;
       AstNode *condition;
       AstNode *increment;
       AstNode *body;
     } forStmt;
-    AstNode *spread;                     /* AST_SPREAD — ...expr */
-    struct {                             /* AST_DESTRUCTURE */
+    AstNode *spread; /* AST_SPREAD — ...expr */
+    struct {         /* AST_DESTRUCTURE */
       struct AstBinding *bindings;
       int count;
-      bool isObject;                     /*   {a, b} rather than [a, b] */
+      bool isObject; /*   {a, b} rather than [a, b] */
       bool isConst;
       AstNode *initializer;
     } destructure;
-    struct {                             /* AST_CONDITIONAL — c ? a : b */
+    struct { /* AST_CONDITIONAL — c ? a : b */
       AstNode *condition;
       AstNode *thenValue;
       AstNode *elseValue;
     } conditional;
-    struct {                             /* AST_SWITCH_STMT */
+    struct { /* AST_SWITCH_STMT */
       AstNode *subject;
       struct AstSwitchCase *cases;
       int caseCount;
-      AstNode *defaultBody;              /*   an AST_BLOCK, or NULL */
+      AstNode *defaultBody; /*   an AST_BLOCK, or NULL */
     } switchStmt;
-    struct {                             /* AST_INDEX — target[index] */
+    struct { /* AST_INDEX — target[index] */
       AstNode *target;
       AstNode *index;
-      bool optional;                     /*   written `?.[` */
+      bool optional; /*   written `?.[` */
     } index;
-    struct {                             /* AST_OBJECT_LITERAL */
-      AstNode **keys;                    /*   string literal nodes, or NULL
-                                          *   for a `...spread` entry */
+    struct {          /* AST_OBJECT_LITERAL */
+      AstNode **keys; /*   string literal nodes, or NULL
+                       *   for a `...spread` entry */
       AstNode **values;
-      uint8_t *kinds;                    /*   see ObjectEntryKind */
+      uint8_t *kinds; /*   see ObjectEntryKind */
       int count;
     } objectLiteral;
-    struct {                             /* AST_ARRAY_LITERAL */
+    struct { /* AST_ARRAY_LITERAL */
       AstNode **elements;
       int count;
     } arrayLiteral;
-    struct {                             /* AST_FUNCTION */
-      const char *name;                  /*   NULL for a function expression */
+    struct {            /* AST_FUNCTION */
+      const char *name; /*   NULL for a function expression */
       int nameLength;
       struct AstParam *params;
       int paramCount;
-      AstNode *body;                     /*   an AST_BLOCK */
+      AstNode *body; /*   an AST_BLOCK */
       TypeKind returnType;
       bool hasReturnAnnotation;
-      bool isAsync;                      /*   returns a promise, may await */
+      bool isAsync; /*   returns a promise, may await */
       /* `function f(a, ...rest)`. The last parameter collects every argument
        * past the ones before it, as an array — so the call's arity stops
        * being fixed. */
@@ -438,27 +445,27 @@ struct AstNode {
        * arrow and a function expression. */
       bool isArrow;
     } function;
-    AstNode *returnValue;                /* AST_RETURN_STMT, may be NULL */
-    struct {                             /* AST_FOR_OF_STMT */
-      const char *name;                  /*   the loop binding */
+    AstNode *returnValue; /* AST_RETURN_STMT, may be NULL */
+    struct {              /* AST_FOR_OF_STMT */
+      const char *name;   /*   the loop binding */
       int nameLength;
       bool isConst;
       AstNode *iterable;
       AstNode *body;
-      bool isForIn;                      /*   iterate keys rather than values */
+      bool isForIn; /*   iterate keys rather than values */
       /* `for await (…)`. Each element is awaited before the body sees it. */
       bool isAwait;
-      AstNode *pattern;                  /*   `for (const [k, v] of m)` */
+      AstNode *pattern; /*   `for (const [k, v] of m)` */
     } forOf;
-    struct {                             /* AST_TRY_STMT */
-      AstNode *body;                     /*   an AST_BLOCK */
-      const char *catchName;             /*   NULL for `catch { }` */
+    struct {                 /* AST_TRY_STMT */
+      AstNode *body;         /*   an AST_BLOCK */
+      const char *catchName; /*   NULL for `catch { }` */
       int catchNameLength;
-      AstNode *catchBody;                /*   NULL when there is no catch */
-      AstNode *finallyBody;              /*   NULL when there is no finally */
+      AstNode *catchBody;   /*   NULL when there is no catch */
+      AstNode *finallyBody; /*   NULL when there is no finally */
     } tryStmt;
-    AstNode *thrown;                     /* AST_THROW_STMT */
-    struct {                             /* AST_PROGRAM */
+    AstNode *thrown; /* AST_THROW_STMT */
+    struct {         /* AST_PROGRAM */
       AstNode **statements;
       int count;
       int capacity;

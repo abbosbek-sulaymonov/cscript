@@ -128,7 +128,6 @@ void csNativeInstallProcess(void) {
   csNativeDefineMethod(ns, "cwd", processCwd, 0);
   csNativeDefineMethod(ns, "exit", processExit, -1);
 
-  csObjectSetProperty(ns, "platform", OBJ_VAL(csStringCopy(CS_PLATFORM,
-                                                           (int)strlen(CS_PLATFORM))));
+  csObjectSetProperty(ns, "platform", OBJ_VAL(csStringCopy(CS_PLATFORM, (int)strlen(CS_PLATFORM))));
   csObjectSetProperty(ns, "pid", NUMBER_VAL((double)getpid()));
 }

@@ -23,8 +23,7 @@ void csNativeDefineGlobal(const char *name, Value value);
  * because it has no members yet. */
 ObjObject *csNativeDefineNamespace(const char *name);
 
-void csNativeDefineMethod(ObjObject *object, const char *name, NativeFn function,
-                          int arity);
+void csNativeDefineMethod(ObjObject *object, const char *name, NativeFn function, int arity);
 void csNativeDefineFunction(const char *name, NativeFn function, int arity);
 
 /* Each namespace, installed and sealed by the file that owns it. */
@@ -57,8 +56,7 @@ void csNativeAppendRooted(ObjArray *array, Value value);
  * an interned ObjString, and finding a substring from an offset. Shared
  * because the pattern methods need all three and live in a file of their own.
  * */
-bool csNativeStringArg(int argCount, Value *args, int position, const char *method,
-                       ObjString **out);
+bool csNativeStringArg(int argCount, Value *args, int position, const char *method, ObjString **out);
 bool csNativeFinishString(char *buffer, int length, Value *result);
 int csNativeFindFrom(ObjString *haystack, ObjString *needle, int from);
 

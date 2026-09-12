@@ -20,8 +20,7 @@ AstNode *csAstBlock(AstArena *arena, int line) {
   return node;
 }
 
-AstNode *csAstIf(AstArena *arena, int line, AstNode *condition, AstNode *thenBranch,
-                 AstNode *elseBranch) {
+AstNode *csAstIf(AstArena *arena, int line, AstNode *condition, AstNode *thenBranch, AstNode *elseBranch) {
   AstNode *node = csAstNewNode(arena, AST_IF_STMT, line);
   if (node == NULL) return NULL;
   node->as.ifStmt.condition = condition;
@@ -39,8 +38,7 @@ AstNode *csAstWhile(AstArena *arena, int line, AstNode *condition, AstNode *body
   return node;
 }
 
-AstNode *csAstFor(AstArena *arena, int line, AstNode *initializer, AstNode *condition,
-                  AstNode *increment, AstNode *body) {
+AstNode *csAstFor(AstArena *arena, int line, AstNode *initializer, AstNode *condition, AstNode *increment, AstNode *body) {
   AstNode *node = csAstNewNode(arena, AST_FOR_STMT, line);
   if (node == NULL) return NULL;
   node->as.forStmt.initializer = initializer;
@@ -59,9 +57,7 @@ AstNode *csAstExpressionStmt(AstArena *arena, int line, AstNode *expression) {
 AstNode *csAstFunction(AstArena *arena, int line, const char *name, int nameLength) {
   AstNode *node = csAstNewNode(arena, AST_FUNCTION, line);
   if (node == NULL) return NULL;
-  node->as.function.name =
-      name != NULL ? csAstInternName(arena, name, nameLength, &node->as.function.nameLength)
-                   : NULL;
+  node->as.function.name = name != NULL ? csAstInternName(arena, name, nameLength, &node->as.function.nameLength) : NULL;
   if (name == NULL) node->as.function.nameLength = 0;
   node->as.function.params = NULL;
   node->as.function.paramCount = 0;
@@ -83,12 +79,10 @@ AstNode *csAstNew(AstArena *arena, int line, AstNode *callee) {
   return node;
 }
 
-AstNode *csAstRegex(AstArena *arena, int line, const char *source, int sourceLength,
-                    const char *flags, int flagsLength) {
+AstNode *csAstRegex(AstArena *arena, int line, const char *source, int sourceLength, const char *flags, int flagsLength) {
   AstNode *node = csAstNewNode(arena, AST_REGEX_LITERAL, line);
   if (node == NULL) return NULL;
-  node->as.regex.source =
-      csAstInternName(arena, source, sourceLength, &node->as.regex.sourceLength);
+  node->as.regex.source = csAstInternName(arena, source, sourceLength, &node->as.regex.sourceLength);
   node->as.regex.flags = csAstInternName(arena, flags, flagsLength, &node->as.regex.flagsLength);
   return node;
 }
@@ -119,19 +113,15 @@ AstNode *csAstAwait(AstArena *arena, int line, AstNode *operand) {
 AstNode *csAstSuper(AstArena *arena, int line, const char *name, int length) {
   AstNode *node = csAstNewNode(arena, AST_SUPER, line);
   if (node == NULL) return NULL;
-  node->as.super.name =
-      name != NULL ? csAstInternName(arena, name, length, &node->as.super.length) : NULL;
+  node->as.super.name = name != NULL ? csAstInternName(arena, name, length, &node->as.super.length) : NULL;
   if (name == NULL) node->as.super.length = 0;
   return node;
 }
 
 /* Both name lists grow by copying, like the others here: they are short and a
  * capacity field on every node would cost more than the copies do. */
-static AstModuleName *addModuleName(AstArena *arena, AstModuleName *list, int count,
-                                    const char *name, int nameLength,
-                                    const char *alias, int aliasLength) {
-  AstModuleName *grown =
-      (AstModuleName *)csAstArenaAlloc(arena, sizeof(AstModuleName) * (size_t)(count + 1));
+static AstModuleName *addModuleName(AstArena *arena, AstModuleName *list, int count, const char *name, int nameLength, const char *alias, int aliasLength) {
+  AstModuleName *grown = (AstModuleName *)csAstArenaAlloc(arena, sizeof(AstModuleName) * (size_t)(count + 1));
   if (grown == NULL) return NULL;
   if (list != NULL) memcpy(grown, list, sizeof(AstModuleName) * (size_t)count);
 
@@ -143,8 +133,7 @@ static AstModuleName *addModuleName(AstArena *arena, AstModuleName *list, int co
 AstNode *csAstImport(AstArena *arena, int line, const char *specifier, int length) {
   AstNode *node = csAstNewNode(arena, AST_IMPORT, line);
   if (node == NULL) return NULL;
-  node->as.import.specifier =
-      csAstInternName(arena, specifier, length, &node->as.import.specifierLength);
+  node->as.import.specifier = csAstInternName(arena, specifier, length, &node->as.import.specifierLength);
   node->as.import.names = NULL;
   node->as.import.nameCount = 0;
   node->as.import.namespaceName = NULL;
@@ -152,12 +141,9 @@ AstNode *csAstImport(AstArena *arena, int line, const char *specifier, int lengt
   return node;
 }
 
-void csAstImportAddName(AstArena *arena, AstNode *node, const char *name, int nameLength,
-                        const char *alias, int aliasLength) {
+void csAstImportAddName(AstArena *arena, AstNode *node, const char *name, int nameLength, const char *alias, int aliasLength) {
   if (node == NULL) return;
-  AstModuleName *grown = addModuleName(arena, node->as.import.names,
-                                       node->as.import.nameCount, name, nameLength,
-                                       alias, aliasLength);
+  AstModuleName *grown = addModuleName(arena, node->as.import.names, node->as.import.nameCount, name, nameLength, alias, aliasLength);
   if (grown == NULL) return;
   node->as.import.names = grown;
   node->as.import.nameCount++;
@@ -172,26 +158,19 @@ AstNode *csAstExport(AstArena *arena, int line, AstNode *declaration) {
   return node;
 }
 
-void csAstExportAddName(AstArena *arena, AstNode *node, const char *name, int nameLength,
-                        const char *alias, int aliasLength) {
+void csAstExportAddName(AstArena *arena, AstNode *node, const char *name, int nameLength, const char *alias, int aliasLength) {
   if (node == NULL) return;
-  AstModuleName *grown = addModuleName(arena, node->as.export.names,
-                                       node->as.export.nameCount, name, nameLength,
-                                       alias, aliasLength);
+  AstModuleName *grown = addModuleName(arena, node->as.export.names, node->as.export.nameCount, name, nameLength, alias, aliasLength);
   if (grown == NULL) return;
   node->as.export.names = grown;
   node->as.export.nameCount++;
 }
 
-AstNode *csAstClass(AstArena *arena, int line, const char *name, int nameLength,
-                    const char *superName, int superLength) {
+AstNode *csAstClass(AstArena *arena, int line, const char *name, int nameLength, const char *superName, int superLength) {
   AstNode *node = csAstNewNode(arena, AST_CLASS_DECL, line);
   if (node == NULL) return NULL;
   node->as.classDecl.name = csAstInternName(arena, name, nameLength, &node->as.classDecl.nameLength);
-  node->as.classDecl.superName =
-      superName != NULL
-          ? csAstInternName(arena, superName, superLength, &node->as.classDecl.superLength)
-          : NULL;
+  node->as.classDecl.superName = superName != NULL ? csAstInternName(arena, superName, superLength, &node->as.classDecl.superLength) : NULL;
   if (superName == NULL) node->as.classDecl.superLength = 0;
   node->as.classDecl.fields = NULL;
   node->as.classDecl.fieldCount = 0;
@@ -201,19 +180,15 @@ AstNode *csAstClass(AstArena *arena, int line, const char *name, int nameLength,
   return node;
 }
 
-void csAstClassAddField(AstArena *arena, AstNode *node, const char *name, int length,
-                        AstNode *initializer, TypeKind declaredType,
-                        bool hasAnnotation, bool isStatic) {
+void csAstClassAddField(AstArena *arena, AstNode *node, const char *name, int length, AstNode *initializer, TypeKind declaredType, bool hasAnnotation, bool isStatic) {
   if (node == NULL) return;
   int count = node->as.classDecl.fieldCount;
-  AstClassField *grown =
-      (AstClassField *)csAstArenaAlloc(arena, sizeof(AstClassField) * (size_t)(count + 1));
+  AstClassField *grown = (AstClassField *)csAstArenaAlloc(arena, sizeof(AstClassField) * (size_t)(count + 1));
   if (grown == NULL) return;
   if (node->as.classDecl.fields != NULL) {
     memcpy(grown, node->as.classDecl.fields, sizeof(AstClassField) * (size_t)count);
   }
-  grown[count].order =
-      node->as.classDecl.fieldCount + node->as.classDecl.memberCount;
+  grown[count].order = node->as.classDecl.fieldCount + node->as.classDecl.memberCount;
   grown[count].computedKey = NULL;
   int stored = 0;
   grown[count].name = csAstInternName(arena, name, length, &stored);
@@ -226,12 +201,10 @@ void csAstClassAddField(AstArena *arena, AstNode *node, const char *name, int le
   node->as.classDecl.fieldCount = count + 1;
 }
 
-void csAstClassAddMember(AstArena *arena, AstNode *node, AstNode *function,
-                         bool isStatic, ClassMemberKind kind) {
+void csAstClassAddMember(AstArena *arena, AstNode *node, AstNode *function, bool isStatic, ClassMemberKind kind) {
   if (node == NULL) return;
   int count = node->as.classDecl.memberCount;
-  AstClassMember *grown =
-      (AstClassMember *)csAstArenaAlloc(arena, sizeof(AstClassMember) * (size_t)(count + 1));
+  AstClassMember *grown = (AstClassMember *)csAstArenaAlloc(arena, sizeof(AstClassMember) * (size_t)(count + 1));
   if (grown == NULL) return;
   if (node->as.classDecl.members != NULL) {
     memcpy(grown, node->as.classDecl.members, sizeof(AstClassMember) * (size_t)count);
@@ -239,14 +212,12 @@ void csAstClassAddMember(AstArena *arena, AstNode *node, AstNode *function,
   grown[count].function = function;
   grown[count].isStatic = isStatic;
   grown[count].kind = kind;
-  grown[count].order =
-      node->as.classDecl.fieldCount + node->as.classDecl.memberCount;
+  grown[count].order = node->as.classDecl.fieldCount + node->as.classDecl.memberCount;
   node->as.classDecl.members = grown;
   node->as.classDecl.memberCount = count + 1;
 }
 
-void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name,
-                           int length, TypeKind type, bool hasAnnotation) {
+void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name, int length, TypeKind type, bool hasAnnotation) {
   if (function == NULL) return;
 
   /* Parameter lists are short, so growing by copy costs less than carrying a
@@ -273,15 +244,13 @@ void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name,
 /* Grows an arena-backed pointer list by copying. The lists here are short, so
  * this costs less than carrying a capacity field on every node. */
 AstNode **csAstGrowList(AstArena *arena, AstNode **list, int count) {
-  AstNode **grown =
-      (AstNode **)csAstArenaAlloc(arena, sizeof(AstNode *) * (size_t)(count + 1));
+  AstNode **grown = (AstNode **)csAstArenaAlloc(arena, sizeof(AstNode *) * (size_t)(count + 1));
   if (grown == NULL) return NULL;
   if (list != NULL) memcpy(grown, list, sizeof(AstNode *) * (size_t)count);
   return grown;
 }
 
-AstNode *csAstConditional(AstArena *arena, int line, AstNode *condition,
-                          AstNode *thenValue, AstNode *elseValue) {
+AstNode *csAstConditional(AstArena *arena, int line, AstNode *condition, AstNode *thenValue, AstNode *elseValue) {
   AstNode *node = csAstNewNode(arena, AST_CONDITIONAL, line);
   if (node == NULL) return NULL;
   node->as.conditional.condition = condition;
@@ -294,8 +263,7 @@ AstNode *csAstBreak(AstArena *arena, int line) {
   return csAstNewNode(arena, AST_BREAK_STMT, line);
 }
 
-AstNode *csAstLabeled(AstArena *arena, int line, const char *name, int length,
-                      AstNode *body) {
+AstNode *csAstLabeled(AstArena *arena, int line, const char *name, int length, AstNode *body) {
   AstNode *node = csAstNewNode(arena, AST_LABELED_STMT, line);
   if (node == NULL) return NULL;
   node->as.labeled.name = name;
@@ -321,8 +289,7 @@ AstNode *csAstSwitch(AstArena *arena, int line, AstNode *subject) {
 void csAstSwitchAddCase(AstArena *arena, AstNode *node, AstNode *test, AstNode *body) {
   if (node == NULL) return;
   int count = node->as.switchStmt.caseCount;
-  AstSwitchCase *grown = (AstSwitchCase *)csAstArenaAlloc(
-      arena, sizeof(AstSwitchCase) * (size_t)(count + 1));
+  AstSwitchCase *grown = (AstSwitchCase *)csAstArenaAlloc(arena, sizeof(AstSwitchCase) * (size_t)(count + 1));
   if (grown == NULL) return;
   if (node->as.switchStmt.cases != NULL) {
     memcpy(grown, node->as.switchStmt.cases, sizeof(AstSwitchCase) * (size_t)count);
@@ -350,15 +317,13 @@ AstNode *csAstObjectLiteral(AstArena *arena, int line) {
   return node;
 }
 
-void csAstObjectLiteralAddKind(AstArena *arena, AstNode *object, AstNode *key,
-                               AstNode *value, ObjectEntryKind kind) {
+void csAstObjectLiteralAddKind(AstArena *arena, AstNode *object, AstNode *key, AstNode *value, ObjectEntryKind kind) {
   csAstObjectLiteralAdd(arena, object, key, value);
   if (object == NULL || object->as.objectLiteral.count == 0) return;
   object->as.objectLiteral.kinds[object->as.objectLiteral.count - 1] = (uint8_t)kind;
 }
 
-void csAstObjectLiteralAdd(AstArena *arena, AstNode *object, AstNode *key,
-                           AstNode *value) {
+void csAstObjectLiteralAdd(AstArena *arena, AstNode *object, AstNode *key, AstNode *value) {
   /* A NULL key marks `...value`, which has no key by construction. */
   if (object == NULL || value == NULL) return;
   int count = object->as.objectLiteral.count;
@@ -373,8 +338,7 @@ void csAstObjectLiteralAdd(AstArena *arena, AstNode *object, AstNode *key,
 
   keys[count] = key;
   values[count] = value;
-  kinds[count] = key == NULL ? (uint8_t)OBJECT_ENTRY_SPREAD
-                             : (uint8_t)OBJECT_ENTRY_VALUE;
+  kinds[count] = key == NULL ? (uint8_t)OBJECT_ENTRY_SPREAD : (uint8_t)OBJECT_ENTRY_VALUE;
   object->as.objectLiteral.keys = keys;
   object->as.objectLiteral.values = values;
   object->as.objectLiteral.kinds = kinds;
@@ -399,8 +363,7 @@ void csAstArrayLiteralAdd(AstArena *arena, AstNode *array, AstNode *element) {
   array->as.arrayLiteral.count = count + 1;
 }
 
-AstNode *csAstForOf(AstArena *arena, int line, const char *name, int nameLength,
-                    bool isConst, AstNode *iterable, AstNode *body) {
+AstNode *csAstForOf(AstArena *arena, int line, const char *name, int nameLength, bool isConst, AstNode *iterable, AstNode *body) {
   AstNode *node = csAstNewNode(arena, AST_FOR_OF_STMT, line);
   if (node == NULL) return NULL;
   node->as.forOf.name = csAstInternName(arena, name, nameLength, &node->as.forOf.nameLength);
@@ -412,15 +375,11 @@ AstNode *csAstForOf(AstArena *arena, int line, const char *name, int nameLength,
   return node;
 }
 
-AstNode *csAstTry(AstArena *arena, int line, AstNode *body, const char *catchName,
-                  int catchNameLength, AstNode *catchBody, AstNode *finallyBody) {
+AstNode *csAstTry(AstArena *arena, int line, AstNode *body, const char *catchName, int catchNameLength, AstNode *catchBody, AstNode *finallyBody) {
   AstNode *node = csAstNewNode(arena, AST_TRY_STMT, line);
   if (node == NULL) return NULL;
   node->as.tryStmt.body = body;
-  node->as.tryStmt.catchName =
-      catchName != NULL
-          ? csAstInternName(arena, catchName, catchNameLength, &node->as.tryStmt.catchNameLength)
-          : NULL;
+  node->as.tryStmt.catchName = catchName != NULL ? csAstInternName(arena, catchName, catchNameLength, &node->as.tryStmt.catchNameLength) : NULL;
   if (catchName == NULL) node->as.tryStmt.catchNameLength = 0;
   node->as.tryStmt.catchBody = catchBody;
   node->as.tryStmt.finallyBody = finallyBody;
@@ -454,14 +413,11 @@ AstNode *csAstDestructure(AstArena *arena, int line, bool isObject, bool isConst
   return node;
 }
 
-void csAstDestructureAdd(AstArena *arena, AstNode *node, const char *key,
-                         int keyLength, const char *name, int nameLength,
-                         AstNode *defaultValue, bool isRest) {
+void csAstDestructureAdd(AstArena *arena, AstNode *node, const char *key, int keyLength, const char *name, int nameLength, AstNode *defaultValue, bool isRest) {
   if (node == NULL) return;
   int count = node->as.destructure.count;
 
-  AstBinding *grown =
-      (AstBinding *)csAstArenaAlloc(arena, sizeof(AstBinding) * (size_t)(count + 1));
+  AstBinding *grown = (AstBinding *)csAstArenaAlloc(arena, sizeof(AstBinding) * (size_t)(count + 1));
   if (grown == NULL) return;
   if (node->as.destructure.bindings != NULL) {
     memcpy(grown, node->as.destructure.bindings, sizeof(AstBinding) * (size_t)count);
@@ -514,12 +470,10 @@ void csAstProgramAdd(AstArena *arena, AstNode *parent, AstNode *statement) {
 
     /* The arena cannot resize in place, so grow by copying. Statement lists are
      * short and this doubles, so the wasted space stays bounded. */
-    AstNode **grown =
-        (AstNode **)csAstArenaAlloc(arena, sizeof(AstNode *) * (size_t)newCapacity);
+    AstNode **grown = (AstNode **)csAstArenaAlloc(arena, sizeof(AstNode *) * (size_t)newCapacity);
     if (grown == NULL) return;
     if (program->as.program.statements != NULL) {
-      memcpy(grown, program->as.program.statements,
-             sizeof(AstNode *) * (size_t)oldCapacity);
+      memcpy(grown, program->as.program.statements, sizeof(AstNode *) * (size_t)oldCapacity);
     }
     program->as.program.statements = grown;
     program->as.program.capacity = newCapacity;

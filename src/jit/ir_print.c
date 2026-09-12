@@ -18,7 +18,9 @@ static const char *opName(IrOp op);
 
 /* ---- printing ---------------------------------------------------------- */
 
-const char *csIrOpName(IrOp op) { return opName(op); }
+const char *csIrOpName(IrOp op) {
+  return opName(op);
+}
 
 static const char *opName(IrOp op) {
   switch (op) {
@@ -42,8 +44,8 @@ static const char *opName(IrOp op) {
     case IR_RETURN: return "return";
     case IR_LOAD_PROPERTY: return "loadprop";
     case IR_STORE_PROPERTY: return "storeprop";
-    case IR_EXIT:   return "exit";
-    case IR_LOAD_GLOBAL:  return "loadg";
+    case IR_EXIT: return "exit";
+    case IR_LOAD_GLOBAL: return "loadg";
     case IR_STORE_GLOBAL: return "storeg";
   }
   return "?";
@@ -58,10 +60,8 @@ static const char *typeName(IrType type) {
 }
 
 void csIrPrint(const IrFunction *ir) {
-  printf("  ir for %s: %d block%s, %d registers, %d slots\n",
-         ir->source->name != NULL ? ir->source->name->chars : "<top level>",
-         ir->blockCount, ir->blockCount == 1 ? "" : "s", ir->registerCount,
-         ir->slotCount);
+  printf("  ir for %s: %d block%s, %d registers, %d slots\n", ir->source->name != NULL ? ir->source->name->chars : "<top level>", ir->blockCount,
+         ir->blockCount == 1 ? "" : "s", ir->registerCount, ir->slotCount);
 
   for (int b = 0; b < ir->blockCount; b++) {
     printf("    block %d:\n", b);
@@ -88,9 +88,7 @@ void csIrPrint(const IrFunction *ir) {
         case IR_EXIT: printf("  -> bytecode %d, stack %d", inst->a, inst->b); break;
         case IR_LOAD_GLOBAL: printf(" global%d", inst->a); break;
         case IR_STORE_GLOBAL: printf(" global%d, r%d", inst->a, inst->b); break;
-        case IR_STORE_PROPERTY:
-          printf(" slot%d.%d, r%d", inst->a, inst->c, inst->b);
-          break;
+        case IR_STORE_PROPERTY: printf(" slot%d.%d, r%d", inst->a, inst->c, inst->b); break;
         case IR_NEG: printf(" r%d", inst->a); break;
         default: printf(" r%d, r%d", inst->a, inst->b); break;
       }
@@ -104,8 +102,7 @@ void csIrPrint(const IrFunction *ir) {
  * nothing said which value it could not prove. The answer is always a pair —
  * the arithmetic that wanted a number, and the instruction that produced the
  * operand it could not have. */
-bool csIrFirstUntyped(const IrFunction *ir, const char **producer,
-                      const char **consumer) {
+bool csIrFirstUntyped(const IrFunction *ir, const char **producer, const char **consumer) {
   *producer = NULL;
   *consumer = NULL;
 
@@ -113,11 +110,16 @@ bool csIrFirstUntyped(const IrFunction *ir, const char **producer,
     for (int i = 0; i < ir->blocks[b].count; i++) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
       switch (inst->op) {
-        case IR_ADD: case IR_SUB: case IR_MUL: case IR_DIV: case IR_MOD:
-        case IR_LT: case IR_LE: case IR_GT: case IR_GE:
-          break;
-        default:
-          continue;
+        case IR_ADD:
+        case IR_SUB:
+        case IR_MUL:
+        case IR_DIV:
+        case IR_MOD:
+        case IR_LT:
+        case IR_LE:
+        case IR_GT:
+        case IR_GE: break;
+        default: continue;
       }
 
       int wanted[2] = {inst->a, inst->b};

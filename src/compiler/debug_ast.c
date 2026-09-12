@@ -39,21 +39,11 @@ static void printNode(const AstNode *node, int depth) {
       printType(node);
       printf("\n");
       break;
-    case AST_STRING_LITERAL:
-      printf("String \"%.*s\"\n", node->as.string.length, node->as.string.chars);
-      break;
-    case AST_BIGINT_LITERAL:
-      printf("BigInt %.*sn\n", node->as.string.length, node->as.string.chars);
-      break;
-    case AST_BOOL_LITERAL:
-      printf("Bool %s\n", node->as.boolean ? "true" : "false");
-      break;
-    case AST_NULL_LITERAL:
-      printf("Null\n");
-      break;
-    case AST_UNDEFINED_LITERAL:
-      printf("Undefined\n");
-      break;
+    case AST_STRING_LITERAL: printf("String \"%.*s\"\n", node->as.string.length, node->as.string.chars); break;
+    case AST_BIGINT_LITERAL: printf("BigInt %.*sn\n", node->as.string.length, node->as.string.chars); break;
+    case AST_BOOL_LITERAL: printf("Bool %s\n", node->as.boolean ? "true" : "false"); break;
+    case AST_NULL_LITERAL: printf("Null\n"); break;
+    case AST_UNDEFINED_LITERAL: printf("Undefined\n"); break;
     case AST_UNARY:
       printf("Unary %s\n", csUnaryOpName(node->as.unary.op));
       printNode(node->as.unary.operand, depth + 1);
@@ -110,16 +100,12 @@ static void printNode(const AstNode *node, int depth) {
       printNode(node->as.assign.value, depth + 1);
       break;
     case AST_UPDATE:
-      printf("Update %s%s\n", node->as.update.isIncrement ? "++" : "--",
-             node->as.update.isPrefix ? " (prefix)" : " (postfix)");
+      printf("Update %s%s\n", node->as.update.isIncrement ? "++" : "--", node->as.update.isPrefix ? " (prefix)" : " (postfix)");
       printNode(node->as.update.target, depth + 1);
       break;
     case AST_FUNCTION:
-      printf("Function %.*s (%d param%s)\n",
-             node->as.function.name != NULL ? node->as.function.nameLength : 11,
-             node->as.function.name != NULL ? node->as.function.name : "<anonymous>",
-             node->as.function.paramCount,
-             node->as.function.paramCount == 1 ? "" : "s");
+      printf("Function %.*s (%d param%s)\n", node->as.function.name != NULL ? node->as.function.nameLength : 11,
+             node->as.function.name != NULL ? node->as.function.name : "<anonymous>", node->as.function.paramCount, node->as.function.paramCount == 1 ? "" : "s");
       printNode(node->as.function.body, depth + 1);
       break;
     case AST_RETURN_STMT:
@@ -132,15 +118,10 @@ static void printNode(const AstNode *node, int depth) {
       printNode(node->as.conditional.thenValue, depth + 1);
       printNode(node->as.conditional.elseValue, depth + 1);
       break;
-    case AST_BREAK_STMT:
-      printf("Break\n");
-      break;
-    case AST_CONTINUE_STMT:
-      printf("Continue\n");
-      break;
+    case AST_BREAK_STMT: printf("Break\n"); break;
+    case AST_CONTINUE_STMT: printf("Continue\n"); break;
     case AST_SWITCH_STMT:
-      printf("Switch (%d case%s)\n", node->as.switchStmt.caseCount,
-             node->as.switchStmt.caseCount == 1 ? "" : "s");
+      printf("Switch (%d case%s)\n", node->as.switchStmt.caseCount, node->as.switchStmt.caseCount == 1 ? "" : "s");
       printNode(node->as.switchStmt.subject, depth + 1);
       for (int i = 0; i < node->as.switchStmt.caseCount; i++) {
         printNode(node->as.switchStmt.cases[i].test, depth + 1);
@@ -164,10 +145,7 @@ static void printNode(const AstNode *node, int depth) {
       printf("Throw\n");
       printNode(node->as.thrown, depth + 1);
       break;
-    case AST_IMPORT:
-      printf("Import \"%.*s\"\n", node->as.import.specifierLength,
-             node->as.import.specifier);
-      break;
+    case AST_IMPORT: printf("Import \"%.*s\"\n", node->as.import.specifierLength, node->as.import.specifier); break;
     case AST_EXPORT:
       printf("Export\n");
       printNode(node->as.export.declaration, depth + 1);
@@ -176,20 +154,13 @@ static void printNode(const AstNode *node, int depth) {
       printf("Await\n");
       printNode(node->as.unary.operand, depth + 1);
       break;
-    case AST_REGEX_LITERAL:
-      printf("Regex /%.*s/%.*s\n", node->as.regex.sourceLength, node->as.regex.source,
-             node->as.regex.flagsLength, node->as.regex.flags);
-      break;
+    case AST_REGEX_LITERAL: printf("Regex /%.*s/%.*s\n", node->as.regex.sourceLength, node->as.regex.source, node->as.regex.flagsLength, node->as.regex.flags); break;
     case AST_DYNAMIC_IMPORT:
       printf("DynamicImport\n");
       printNode(node->as.unary.operand, depth + 1);
       break;
-    case AST_NEW_TARGET:
-      printf("NewTarget\n");
-      break;
-    case AST_THIS:
-      printf("This\n");
-      break;
+    case AST_NEW_TARGET: printf("NewTarget\n"); break;
+    case AST_THIS: printf("This\n"); break;
     case AST_SUPER:
       if (node->as.super.name != NULL) {
         printf("Super .%.*s\n", node->as.super.length, node->as.super.name);
@@ -200,14 +171,12 @@ static void printNode(const AstNode *node, int depth) {
     case AST_CLASS_DECL:
       printf("Class %.*s", node->as.classDecl.nameLength, node->as.classDecl.name);
       if (node->as.classDecl.superName != NULL) {
-        printf(" extends %.*s", node->as.classDecl.superLength,
-               node->as.classDecl.superName);
+        printf(" extends %.*s", node->as.classDecl.superLength, node->as.classDecl.superName);
       }
       printf("\n");
       for (int i = 0; i < node->as.classDecl.fieldCount; i++) {
         indent(depth + 1);
-        printf("Field %.*s\n", node->as.classDecl.fields[i].length,
-               node->as.classDecl.fields[i].name);
+        printf("Field %.*s\n", node->as.classDecl.fields[i].length, node->as.classDecl.fields[i].name);
         printNode(node->as.classDecl.fields[i].initializer, depth + 2);
       }
       printNode(node->as.classDecl.constructor, depth + 1);
@@ -220,9 +189,7 @@ static void printNode(const AstNode *node, int depth) {
       printNode(node->as.spread, depth + 1);
       break;
     case AST_DESTRUCTURE:
-      printf("Destructure %s (%d binding%s)\n",
-             node->as.destructure.isObject ? "object" : "array",
-             node->as.destructure.count,
+      printf("Destructure %s (%d binding%s)\n", node->as.destructure.isObject ? "object" : "array", node->as.destructure.count,
              node->as.destructure.count == 1 ? "" : "s");
       printNode(node->as.destructure.initializer, depth + 1);
       break;
@@ -249,8 +216,7 @@ static void printNode(const AstNode *node, int depth) {
       printNode(node->as.property.object, depth + 1);
       break;
     case AST_CALL:
-      printf("Call (%d argument%s)\n", node->as.call.argCount,
-             node->as.call.argCount == 1 ? "" : "s");
+      printf("Call (%d argument%s)\n", node->as.call.argCount, node->as.call.argCount == 1 ? "" : "s");
       printNode(node->as.call.callee, depth + 1);
       for (int i = 0; i < node->as.call.argCount; i++) {
         printNode(node->as.call.arguments[i], depth + 1);
@@ -261,15 +227,13 @@ static void printNode(const AstNode *node, int depth) {
       printNode(node->as.expression, depth + 1);
       break;
     case AST_VAR_DECL:
-      printf("%s %.*s\n", node->as.varDecl.isConst ? "Const" : "Let",
-             node->as.varDecl.length, node->as.varDecl.name);
+      printf("%s %.*s\n", node->as.varDecl.isConst ? "Const" : "Let", node->as.varDecl.length, node->as.varDecl.name);
       if (node->as.varDecl.initializer != NULL) {
         printNode(node->as.varDecl.initializer, depth + 1);
       }
       break;
     case AST_BLOCK:
-      printf("Block (%d statement%s)\n", node->as.block.count,
-             node->as.block.count == 1 ? "" : "s");
+      printf("Block (%d statement%s)\n", node->as.block.count, node->as.block.count == 1 ? "" : "s");
       for (int i = 0; i < node->as.block.count; i++) {
         printNode(node->as.block.statements[i], depth + 1);
       }
@@ -300,8 +264,7 @@ static void printNode(const AstNode *node, int depth) {
       printNode(node->as.forStmt.body, depth + 1);
       break;
     case AST_PROGRAM:
-      printf("Program (%d statement%s)\n", node->as.program.count,
-             node->as.program.count == 1 ? "" : "s");
+      printf("Program (%d statement%s)\n", node->as.program.count, node->as.program.count == 1 ? "" : "s");
       for (int i = 0; i < node->as.program.count; i++) {
         printNode(node->as.program.statements[i], depth + 1);
       }

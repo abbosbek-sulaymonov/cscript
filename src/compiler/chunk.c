@@ -63,8 +63,7 @@ int csChunkAddConstant(Chunk *chunk, Value value) {
  * never describe more entries than the array actually holds. */
 int csChunkAddPropertyCache(Chunk *chunk) {
   int index = chunk->propertyCacheCount;
-  chunk->propertyCaches =
-      CS_GROW_ARRAY(PropertyCache, chunk->propertyCaches, index, index + 1);
+  chunk->propertyCaches = CS_GROW_ARRAY(PropertyCache, chunk->propertyCaches, index, index + 1);
   chunk->propertyCaches[index].shape = vm.absentShape;
   chunk->propertyCaches[index].slot = 0;
   chunk->propertyCacheCount = index + 1;
@@ -73,8 +72,7 @@ int csChunkAddPropertyCache(Chunk *chunk) {
 
 int csChunkAddGlobalCache(Chunk *chunk) {
   int index = chunk->globalCacheCount;
-  chunk->globalCaches =
-      CS_GROW_ARRAY(GlobalCache, chunk->globalCaches, index, index + 1);
+  chunk->globalCaches = CS_GROW_ARRAY(GlobalCache, chunk->globalCaches, index, index + 1);
   chunk->globalCaches[index].table = NULL;
   chunk->globalCaches[index].entry = NULL;
   chunk->globalCaches[index].version = 0;

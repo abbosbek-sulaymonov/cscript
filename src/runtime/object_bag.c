@@ -50,8 +50,7 @@ static void ensureSlots(ObjObject *object, int needed) {
   int oldCapacity = object->as.slots.capacity;
   int capacity = oldCapacity < 4 ? 4 : oldCapacity;
   while (capacity < needed) capacity *= 2;
-  object->as.slots.values =
-      CS_GROW_ARRAY(Value, object->as.slots.values, oldCapacity, capacity);
+  object->as.slots.values = CS_GROW_ARRAY(Value, object->as.slots.values, oldCapacity, capacity);
   object->as.slots.capacity = capacity;
 }
 
@@ -96,9 +95,7 @@ static void dictionaryPut(ObjObject *object, ObjString *key, Value value) {
   if (object->as.dictionary.capacity < object->as.dictionary.count + 1) {
     int oldCapacity = object->as.dictionary.capacity;
     object->as.dictionary.capacity = CS_GROW_CAPACITY(oldCapacity);
-    object->as.dictionary.keys =
-        CS_GROW_ARRAY(ObjString *, object->as.dictionary.keys, oldCapacity,
-                      object->as.dictionary.capacity);
+    object->as.dictionary.keys = CS_GROW_ARRAY(ObjString *, object->as.dictionary.keys, oldCapacity, object->as.dictionary.capacity);
   }
   object->as.dictionary.keys[object->as.dictionary.count++] = key;
 }
@@ -276,20 +273,15 @@ bool csObjectIsEnumerable(ObjObject *object, ObjString *key) {
 }
 
 int csObjectCount(const ObjObject *object) {
-  return object->shape != NULL ? object->shape->slotCount
-                               : object->as.dictionary.count;
+  return object->shape != NULL ? object->shape->slotCount : object->as.dictionary.count;
 }
 
 ObjString *csObjectKeyAt(const ObjObject *object, int index) {
-  return object->shape != NULL ? object->shape->keys[index]
-                               : object->as.dictionary.keys[index];
+  return object->shape != NULL ? object->shape->keys[index] : object->as.dictionary.keys[index];
 }
 
 Value csObjectValueAt(ObjObject *object, int index) {
   if (object->shape != NULL) return object->as.slots.values[index];
   Value value;
-  return csTableGet(&object->as.dictionary.table,
-                    object->as.dictionary.keys[index], &value)
-             ? value
-             : UNDEFINED_VAL;
+  return csTableGet(&object->as.dictionary.table, object->as.dictionary.keys[index], &value) ? value : UNDEFINED_VAL;
 }

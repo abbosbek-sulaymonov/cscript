@@ -30,8 +30,7 @@ void csIrRegisterOperands(const IrInst *inst, int *a, int *b) {
     /* `a` is a frame slot and `b` a storage index; neither is a register. */
     case IR_LOAD_PROPERTY:
     case IR_LOAD_LOCAL:
-    case IR_LOAD_GLOBAL:
-      break; /* neither field is a register */
+    case IR_LOAD_GLOBAL: break; /* neither field is a register */
 
     case IR_STORE_LOCAL:
     case IR_STORE_GLOBAL:
@@ -47,8 +46,17 @@ void csIrRegisterOperands(const IrInst *inst, int *a, int *b) {
       *a = inst->a; /* a branch's `b` and `c` are blocks */
       break;
 
-    case IR_ADD: case IR_SUB: case IR_MUL: case IR_DIV: case IR_MOD:
-    case IR_LT: case IR_LE: case IR_GT: case IR_GE: case IR_EQ: case IR_NE:
+    case IR_ADD:
+    case IR_SUB:
+    case IR_MUL:
+    case IR_DIV:
+    case IR_MOD:
+    case IR_LT:
+    case IR_LE:
+    case IR_GT:
+    case IR_GE:
+    case IR_EQ:
+    case IR_NE:
       *a = inst->a;
       *b = inst->b;
       break;
@@ -80,8 +88,7 @@ void csIrForwardSlots(IrFunction *ir) {
       if (operandA >= 0 && operandA < ir->registerCount) inst.a = rename[operandA];
       if (operandB >= 0 && operandB < ir->registerCount) inst.b = rename[operandB];
 
-      if (inst.op == IR_LOAD_LOCAL && inst.a >= 0 && inst.a < IR_MAX_STACK &&
-          slotHolder[inst.a] >= 0) {
+      if (inst.op == IR_LOAD_LOCAL && inst.a >= 0 && inst.a < IR_MAX_STACK && slotHolder[inst.a] >= 0) {
         /* The value is already in a register: rename and drop the load. */
         rename[inst.result] = slotHolder[inst.a];
         continue;
@@ -116,8 +123,7 @@ void csIrRemoveDeadStores(IrFunction *ir) {
        * lowered against a slot the function never writes, so there is no store
        * to remove — but relying on that coincidence is how the next change
        * breaks something quietly. */
-      if ((inst->op == IR_LOAD_PROPERTY || inst->op == IR_STORE_PROPERTY) &&
-          inst->a >= 0 && inst->a <= ir->slotCount) {
+      if ((inst->op == IR_LOAD_PROPERTY || inst->op == IR_STORE_PROPERTY) && inst->a >= 0 && inst->a <= ir->slotCount) {
         isRead[inst->a] = true;
       }
 
@@ -137,8 +143,7 @@ void csIrRemoveDeadStores(IrFunction *ir) {
     int kept = 0;
     for (int i = 0; i < block->count; i++) {
       const IrInst *inst = &block->instructions[i];
-      if (inst->op == IR_STORE_LOCAL && inst->a >= 0 && inst->a <= ir->slotCount &&
-          !isRead[inst->a]) {
+      if (inst->op == IR_STORE_LOCAL && inst->a >= 0 && inst->a <= ir->slotCount && !isRead[inst->a]) {
         continue;
       }
       block->instructions[kept++] = block->instructions[i];
@@ -210,8 +215,7 @@ static bool walkBlockSlots(IrFunction *ir, int b, int *state, int slots, bool re
       continue;
     }
 
-    if (inst->op == IR_STORE_LOCAL && inst->a >= 0 && inst->a < slots &&
-        inst->b >= 0 && inst->b <= ir->registerCount) {
+    if (inst->op == IR_STORE_LOCAL && inst->a >= 0 && inst->a < slots && inst->b >= 0 && inst->b <= ir->registerCount) {
       state[inst->a] = (int)ir->registerTypes[inst->b];
     }
   }
@@ -272,7 +276,10 @@ void csIrReconcileSlotTypes(IrFunction *ir) {
     for (int i = 0; i < ir->blocks[b].count; i++) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
       if (inst->op == IR_JUMP) targets[0] = inst->a;
-      if (inst->op == IR_BRANCH) { targets[0] = inst->b; targets[1] = inst->c; }
+      if (inst->op == IR_BRANCH) {
+        targets[0] = inst->b;
+        targets[1] = inst->c;
+      }
     }
     if (blockFallsThrough(&ir->blocks[b])) targets[2] = b + 1;
 
@@ -290,8 +297,7 @@ void csIrReconcileSlotTypes(IrFunction *ir) {
   int *state = (int *)malloc(sizeof(int) * (size_t)slots);
   bool *have = (bool *)malloc(sizeof(bool) * (size_t)blocks);
 
-  bool perBlock = ir->blockEntryTrusted && ir->blockEntryTypes != NULL &&
-                  ir->blockEntrySeeded != NULL && blocks > 0;
+  bool perBlock = ir->blockEntryTrusted && ir->blockEntryTypes != NULL && ir->blockEntrySeeded != NULL && blocks > 0;
 
   /* Iterated because retyping a load retypes what is computed from it, which
    * can retype the slot the result is stored to in turn. It settles quickly:
@@ -319,16 +325,13 @@ void csIrReconcileSlotTypes(IrFunction *ir) {
         for (int b = 0; b < blocks; b++) {
           have[b] = ir->blockEntrySeeded[b];
           for (int s = 0; s < slots; s++) {
-            entry[b * slots + s] =
-                have[b] ? (int)ir->blockEntryTypes[(size_t)b * IR_MAX_SLOTS + s]
-                        : SLOT_TOP;
+            entry[b * slots + s] = have[b] ? (int)ir->blockEntryTypes[(size_t)b * IR_MAX_SLOTS + s] : SLOT_TOP;
           }
         }
         for (int e = 0; e < edgeCount; e++) {
           int from = edgeFrom[e], to = edgeTo[e];
           for (int s = 0; s < slots; s++) {
-            entry[to * slots + s] =
-                meetSlot(entry[to * slots + s], exit[from * slots + s]);
+            entry[to * slots + s] = meetSlot(entry[to * slots + s], exit[from * slots + s]);
           }
           have[to] = true;
         }
@@ -389,8 +392,15 @@ bool csIrIsFullyTyped(const IrFunction *ir) {
     for (int i = 0; i < ir->blocks[b].count; i++) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
       switch (inst->op) {
-        case IR_ADD: case IR_SUB: case IR_MUL: case IR_DIV: case IR_MOD:
-        case IR_LT: case IR_LE: case IR_GT: case IR_GE:
+        case IR_ADD:
+        case IR_SUB:
+        case IR_MUL:
+        case IR_DIV:
+        case IR_MOD:
+        case IR_LT:
+        case IR_LE:
+        case IR_GT:
+        case IR_GE:
           if (ir->registerTypes[inst->a] != IR_TYPE_NUMBER) return false;
           if (ir->registerTypes[inst->b] != IR_TYPE_NUMBER) return false;
           sawArithmetic = true;

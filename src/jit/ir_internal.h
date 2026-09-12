@@ -94,8 +94,8 @@ typedef struct {
   const Chunk *chunk;
   const ObjFunction *function;
   const bool *leader;
-  int offset;     /* of this instruction */
-  int next;       /* of the one after it */
+  int offset; /* of this instruction */
+  int next;   /* of the one after it */
   int line;
   int jumpTarget; /* where a jump here would land; meaningless otherwise */
 } LowerAt;
@@ -128,16 +128,13 @@ bool csIrReachBlock(Lowering *low, int target, int height);
 
 /* The same, for a path the walk did not take: the taken arm of a jump inside a
  * run handed over to the interpreter. False when the heights disagree. */
-bool csIrRecordArrival(IrFunction *ir, Lowering *low, int block,
-                       const IrType *slotType, int height);
+bool csIrRecordArrival(IrFunction *ir, Lowering *low, int block, const IrType *slotType, int height);
 
 /* What the module holds under that name, asked at the moment the function
  * turns hot — which is the only moment the lowering has a running program to
  * ask. What keeps the answer true afterwards is checked again at every entry. */
-bool csIrGlobalHoldsNumber(const ObjFunction *function, const Chunk *chunk,
-                           int nameIndex);
-ObjClosure *csIrGlobalCallable(const ObjFunction *function, const Chunk *chunk,
-                               int nameIndex);
+bool csIrGlobalHoldsNumber(const ObjFunction *function, const Chunk *chunk, int nameIndex);
+ObjClosure *csIrGlobalCallable(const ObjFunction *function, const Chunk *chunk, int nameIndex);
 
 /* The IR's view of what a constant holds. */
 IrType csIrTypeOfConstant(Value constant);
@@ -148,18 +145,15 @@ IrType csIrTypeOfConstant(Value constant);
 bool csIrCalleeIsInlinable(const ObjFunction *callee, int argCount);
 
 /* Where the call a callee load feeds is, or -1. */
-int csIrCallSiteFor(const Chunk *chunk, const bool *leader, int calleeOffset,
-                    int *argCountOut);
+int csIrCallSiteFor(const Chunk *chunk, const bool *leader, int calleeOffset, int *argCountOut);
 
 /* Splices a callee's body into the block the call was being lowered into, and
  * answers the register holding the result — or -1, having emitted instructions
  * the caller must throw away. */
-int csIrInlineCallee(IrFunction *ir, IrBlock *block, const ObjFunction *callee,
-                     const int *args, int argCount, int line);
+int csIrInlineCallee(IrFunction *ir, IrBlock *block, const ObjFunction *callee, const int *args, int argCount, int line);
 
 /* Records the binding an inlined callee was read from, once per callee. */
-bool csIrRememberInlinedCall(IrFunction *ir, Table *globals, ObjString *name,
-                             ObjClosure *callee);
+bool csIrRememberInlinedCall(IrFunction *ir, Table *globals, ObjString *name, ObjClosure *callee);
 
 /* ---- replaying a hand-over ---------------------------------------------- */
 
@@ -175,7 +169,6 @@ typedef struct {
 
 /* The operand-stack height at `to`, or -1 when the run holds something this
  * does not model. `slotType` is written only on success. */
-int csIrReplayHandedOver(const Chunk *chunk, IrType *slotType, int from, int to,
-                         int height, ReplayJump *jump, const char **refusal);
+int csIrReplayHandedOver(const Chunk *chunk, IrType *slotType, int from, int to, int height, ReplayJump *jump, const char **refusal);
 
 #endif /* CSCRIPT_JIT_IR_INTERNAL_H */

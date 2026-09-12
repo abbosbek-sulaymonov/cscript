@@ -10,7 +10,6 @@
 #include "cscript/parser.h"
 #include "compiler/parser_internal.h"
 
-
 /* `try { } catch (e) { } finally { }`
  *
  * At least one of catch and finally must be present, since `try` alone does
@@ -52,13 +51,11 @@ AstNode *parseTry(Parser *parser) {
   }
 
   if (catchBody == NULL && finallyBody == NULL) {
-    csDiagnosticError(parser->diag, line, NULL, 0,
-                      "a 'try' needs a 'catch' or a 'finally'");
+    csDiagnosticError(parser->diag, line, NULL, 0, "a 'try' needs a 'catch' or a 'finally'");
     return NULL;
   }
 
-  return csAstTry(parser->arena, line, body, catchName, catchNameLength, catchBody,
-                  finallyBody);
+  return csAstTry(parser->arena, line, body, catchName, catchNameLength, catchBody, finallyBody);
 }
 
 /* `switch (subject) { case a: ... default: ... }`
@@ -93,8 +90,7 @@ AstNode *parseSwitch(Parser *parser) {
 
     /* Statements run until the next label or the closing brace. */
     AstNode *body = csAstBlock(parser->arena, parser->current.line);
-    while (!check(parser, TOKEN_CASE) && !check(parser, TOKEN_DEFAULT) &&
-           !check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
+    while (!check(parser, TOKEN_CASE) && !check(parser, TOKEN_DEFAULT) && !check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
       AstNode *statement = parseStatement(parser);
       if (statement != NULL) csAstProgramAdd(parser->arena, body, statement);
       if (parser->diag->panicMode) synchronize(parser);
@@ -102,8 +98,7 @@ AstNode *parseSwitch(Parser *parser) {
 
     if (isDefault) {
       if (node->as.switchStmt.defaultBody != NULL) {
-        csDiagnosticError(parser->diag, line, NULL, 0,
-                          "a switch can only have one 'default'");
+        csDiagnosticError(parser->diag, line, NULL, 0, "a switch can only have one 'default'");
         return NULL;
       }
       node->as.switchStmt.defaultBody = body;
@@ -226,9 +221,7 @@ AstNode *parseFor(Parser *parser) {
       if (pattern == NULL) return NULL;
 
       bool patternForIn = check(parser, TOKEN_IN);
-      bool patternForOf = check(parser, TOKEN_IDENTIFIER) &&
-                          parser->current.length == 2 &&
-                          memcmp(parser->current.start, "of", 2) == 0;
+      bool patternForOf = check(parser, TOKEN_IDENTIFIER) && parser->current.length == 2 && memcmp(parser->current.start, "of", 2) == 0;
       if (!patternForOf && !patternForIn) {
         errorAtCurrent(parser, "a pattern here needs 'of' or 'in'");
         return NULL;
@@ -244,8 +237,7 @@ AstNode *parseFor(Parser *parser) {
 
       /* The binding takes a name no source can write; the pattern unpacks it
        * on each iteration, exactly as a destructured parameter does. */
-      AstNode *loop = csAstForOf(parser->arena, line, " element", 8, isConst,
-                                 iterable, body);
+      AstNode *loop = csAstForOf(parser->arena, line, " element", 8, isConst, iterable, body);
       if (loop != NULL) {
         loop->as.forOf.isForIn = patternForIn;
         loop->as.forOf.pattern = pattern;
@@ -265,8 +257,7 @@ AstNode *parseFor(Parser *parser) {
     /* `of` is contextual, not a keyword: `Array.of` and a variable called `of`
      * both have to keep working, so it is recognised by its text right here
      * rather than by the lexer. */
-    bool isForOf = check(parser, TOKEN_IDENTIFIER) && parser->current.length == 2 &&
-                   memcmp(parser->current.start, "of", 2) == 0;
+    bool isForOf = check(parser, TOKEN_IDENTIFIER) && parser->current.length == 2 && memcmp(parser->current.start, "of", 2) == 0;
     /* `in` is a real keyword, unlike `of`, because nothing else can follow the
      * binding name here. */
     bool isForIn = check(parser, TOKEN_IN);
@@ -278,8 +269,7 @@ AstNode *parseFor(Parser *parser) {
 
       AstNode *body = parseStatement(parser);
       if (body == NULL) return NULL;
-      AstNode *loop = csAstForOf(parser->arena, line, bindingName, bindingLength,
-                                 isConst, iterable, body);
+      AstNode *loop = csAstForOf(parser->arena, line, bindingName, bindingLength, isConst, iterable, body);
       if (loop != NULL) {
         loop->as.forOf.isForIn = isForIn;
         loop->as.forOf.isAwait = isAwait;
@@ -294,8 +284,7 @@ AstNode *parseFor(Parser *parser) {
       return NULL;
     }
 
-    initializer = finishVarDeclaration(parser, line, bindingName, bindingLength,
-                                       isConst);
+    initializer = finishVarDeclaration(parser, line, bindingName, bindingLength, isConst);
     if (initializer == NULL) return NULL;
 
     /* `for (let i = 0, limit = xs.length; …)`. The rest of the list joins the
@@ -349,8 +338,7 @@ AstNode *parseFor(Parser *parser) {
  * rejected. */
 const char *notImplementedMessage(TokenType type) {
   switch (type) {
-    default:
-      return NULL;
+    default: return NULL;
   }
 }
 

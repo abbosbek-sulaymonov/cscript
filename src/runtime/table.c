@@ -126,8 +126,7 @@ void csTableAddAll(Table *from, Table *to) {
   }
 }
 
-ObjString *csTableFindString(Table *table, const char *chars, int length,
-                             uint32_t hash) {
+ObjString *csTableFindString(Table *table, const char *chars, int length, uint32_t hash) {
   if (table->count == 0) return NULL;
 
   uint32_t index = hash & (uint32_t)(table->capacity - 1);
@@ -135,8 +134,7 @@ ObjString *csTableFindString(Table *table, const char *chars, int length,
     Entry *entry = &table->entries[index];
     if (entry->key == NULL) {
       if (IS_NULL(entry->value)) return NULL; /* empty slot, not present */
-    } else if (entry->key->length == length && entry->key->hash == hash &&
-               memcmp(entry->key->chars, chars, (size_t)length) == 0) {
+    } else if (entry->key->length == length && entry->key->hash == hash && memcmp(entry->key->chars, chars, (size_t)length) == 0) {
       return entry->key;
     }
     index = (index + 1) & (uint32_t)(table->capacity - 1);

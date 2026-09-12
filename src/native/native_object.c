@@ -22,11 +22,9 @@
 
 /* Walks an object's keys in insertion order, which is exactly why ObjObject
  * keeps that list alongside its hash table. */
-static bool objectEnumerate(int argCount, Value *args, Value *result, int mode,
-                            const char *method) {
+static bool objectEnumerate(int argCount, Value *args, Value *result, int mode, const char *method) {
   if (argCount < 1 || !IS_OBJECT(args[0])) {
-    csVMRuntimeError("Object.%s expects an object, got %s", method,
-                     argCount >= 1 ? csValueTypeName(args[0]) : "no argument");
+    csVMRuntimeError("Object.%s expects an object, got %s", method, argCount >= 1 ? csValueTypeName(args[0]) : "no argument");
     return false;
   }
   ObjObject *object = AS_OBJECT(args[0]);
@@ -81,8 +79,7 @@ static bool objectEntries(Value r, int c, Value *a, Value *out) {
 
 /* `Object.fromEntries` — the inverse of `Object.entries`, and the reason a
  * Map and an object can be converted into one another at all. */
-static bool objectFromEntries(Value receiver, int argCount, Value *args,
-                              Value *result) {
+static bool objectFromEntries(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   Value source = argCount > 0 ? args[0] : UNDEFINED_VAL;
   if (IS_MAP(source)) source = OBJ_VAL(csMapToArray(AS_MAP(source)));
@@ -153,8 +150,7 @@ static bool objectIsFrozen(Value receiver, int argCount, Value *args, Value *res
 /* The symbol keys an object carries. They live beside the shape, so they are
  * not among what `Object.keys` reports — this is the one way to ask for
  * them, which is also true in JavaScript. */
-static bool objectGetOwnPropertySymbols(Value receiver, int argCount, Value *args,
-                                        Value *result) {
+static bool objectGetOwnPropertySymbols(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   ObjArray *found = csArrayNew();
   csPushTempRoot((Obj *)found);
@@ -229,8 +225,7 @@ static bool objectCreate(Value receiver, int argCount, Value *args, Value *resul
   return true;
 }
 
-static bool objectGetPrototypeOf(Value receiver, int argCount, Value *args,
-                                 Value *result) {
+static bool objectGetPrototypeOf(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   if (argCount < 1 || !IS_OBJECT(args[0])) {
     csVMRuntimeError("Object.getPrototypeOf expects an object");
@@ -241,8 +236,7 @@ static bool objectGetPrototypeOf(Value receiver, int argCount, Value *args,
   return true;
 }
 
-static bool objectSetPrototypeOf(Value receiver, int argCount, Value *args,
-                                 Value *result) {
+static bool objectSetPrototypeOf(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   if (argCount < 2 || !IS_OBJECT(args[0])) {
     csVMRuntimeError("Object.setPrototypeOf expects an object and a prototype");
@@ -256,13 +250,13 @@ static bool objectSetPrototypeOf(Value receiver, int argCount, Value *args,
     return true;
   }
   if (!IS_OBJECT(args[1])) {
-    csVMRuntimeError("a prototype must be an object or null, got %s",
-                     csValueTypeName(args[1]));
+    csVMRuntimeError("a prototype must be an object or null, got %s", csValueTypeName(args[1]));
     return false;
   }
   if (!csObjectSetPrototype(object, AS_OBJECT(args[1]))) {
-    csVMRuntimeError("that prototype is already in this object\'s chain, which "
-                     "would make every lookup on it loop");
+    csVMRuntimeError(
+        "that prototype is already in this object\'s chain, which "
+        "would make every lookup on it loop");
     return false;
   }
   *result = args[0];

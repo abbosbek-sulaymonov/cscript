@@ -21,11 +21,11 @@ typedef enum {
   OBJ_BOUND_METHOD, /* a method captured away from its receiver */
   OBJ_MODULE,       /* one source file: its own top-level scope */
   OBJ_PROMISE,
-  OBJ_FIBER, /* a suspendable call: an async function's own stack */
-  OBJ_MAP,   /* also Set: a set is a map that stores only its keys */
+  OBJ_FIBER,     /* a suspendable call: an async function's own stack */
+  OBJ_MAP,       /* also Set: a set is a map that stores only its keys */
   OBJ_GENERATOR, /* a paused call the caller pulls values out of */
   OBJ_REGEX,
-  OBJ_DATE,  /* one instant, held as milliseconds since the epoch */
+  OBJ_DATE,   /* one instant, held as milliseconds since the epoch */
   OBJ_SYMBOL, /* a name that is equal to nothing but itself */
   OBJ_BIGINT, /* a whole number with no upper bound */
 } ObjType;
@@ -65,7 +65,7 @@ typedef struct ObjNative {
   Obj obj;
   NativeFn function;
   ObjString *name; /* for error messages and disassembly */
-  int arity;            /* -1 means variadic */
+  int arity;       /* -1 means variadic */
 
   /* Static properties hung off a callable, so `Number(x)` and
    * `Number.isInteger` can both work. In JavaScript functions are objects and
@@ -247,7 +247,7 @@ struct ObjPromise {
 };
 
 typedef enum {
-  FIBER_READY,     /* set up, never started */
+  FIBER_READY, /* set up, never started */
   FIBER_RUNNING,
   FIBER_SUSPENDED, /* waiting on a promise */
   FIBER_DONE,
@@ -332,9 +332,9 @@ typedef struct ObjGenerator {
   Obj obj;
   struct ObjFiber *fiber;
 
-  Value yielded;  /* what the last `yield` produced, or the return value */
-  bool done;      /* the body ran off its end or returned */
-  bool running;   /* inside next(): re-entering would corrupt the fiber */
+  Value yielded; /* what the last `yield` produced, or the return value */
+  bool done;     /* the body ran off its end or returned */
+  bool running;  /* inside next(): re-entering would corrupt the fiber */
 
   /* An async generator's `next()` answers with a promise, because the body may
    * await any number of times before it reaches the `yield` that has the
@@ -368,9 +368,9 @@ typedef struct ObjMap {
   MapEntry *entries; /* insertion order, tombstones included */
   int count;         /* slots used in `entries`, live or not */
   int capacity;
-  int liveCount;     /* what .size reports */
+  int liveCount; /* what .size reports */
 
-  int *index;        /* hash slot -> index into `entries`, or -1 */
+  int *index; /* hash slot -> index into `entries`, or -1 */
   int indexCapacity;
 
   bool isSet;

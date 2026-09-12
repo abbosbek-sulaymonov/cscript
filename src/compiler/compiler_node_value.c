@@ -21,9 +21,7 @@
 
 bool compileValueNode(const AstNode *node, int line) {
   switch (node->type) {
-    case AST_NUMBER_LITERAL:
-      emitConstant(NUMBER_VAL(node->as.number), line);
-      break;
+    case AST_NUMBER_LITERAL: emitConstant(NUMBER_VAL(node->as.number), line); break;
 
     case AST_STRING_LITERAL: {
       ObjString *string = csStringCopy(node->as.string.chars, node->as.string.length);
@@ -38,38 +36,24 @@ bool compileValueNode(const AstNode *node, int line) {
       csBigInit(&parsed);
       if (!csBigFromText(&parsed, node->as.string.chars, node->as.string.length)) {
         csBigFree(&parsed);
-        errorAt(node->line, "'%.*s' is not a whole number",
-                node->as.string.length, node->as.string.chars);
+        errorAt(node->line, "'%.*s' is not a whole number", node->as.string.length, node->as.string.chars);
         break;
       }
       emitConstant(OBJ_VAL(csBigIntNew(parsed)), line);
       break;
     }
 
-    case AST_BOOL_LITERAL:
-      emitByte(node->as.boolean ? OP_TRUE : OP_FALSE, line);
-      break;
+    case AST_BOOL_LITERAL: emitByte(node->as.boolean ? OP_TRUE : OP_FALSE, line); break;
 
-    case AST_NULL_LITERAL:
-      emitByte(OP_NULL, line);
-      break;
+    case AST_NULL_LITERAL: emitByte(OP_NULL, line); break;
 
-    case AST_UNDEFINED_LITERAL:
-      emitByte(OP_UNDEFINED, line);
-      break;
+    case AST_UNDEFINED_LITERAL: emitByte(OP_UNDEFINED, line); break;
 
-    case AST_IDENTIFIER:
-      compileIdentifierLoad(node->as.identifier.name,
-                            node->as.identifier.length, line);
-      break;
+    case AST_IDENTIFIER: compileIdentifierLoad(node->as.identifier.name, node->as.identifier.length, line); break;
 
-    case AST_ASSIGN:
-      compileAssign(node, false);
-      break;
+    case AST_ASSIGN: compileAssign(node, false); break;
 
-    case AST_UPDATE:
-      compileUpdate(node);
-      break;
+    case AST_UPDATE: compileUpdate(node); break;
 
     case AST_PROPERTY: {
       /* `this.x` and `local.x` fuse the load of the receiver into the read.
@@ -78,25 +62,17 @@ bool compileValueNode(const AstNode *node, int line) {
 
       if (isPrivateName(node->as.property.name, node->as.property.length)) {
         compileNode(object);
-        emitConstantOp(OP_GET_PRIVATE,
-                       identifierConstant(node->as.property.name,
-                                          node->as.property.length, line),
-                       line);
+        emitConstantOp(OP_GET_PRIVATE, identifierConstant(node->as.property.name, node->as.property.length, line), line);
         break;
       }
 
       /* The fusion loads the receiver and reads the property in one
        * instruction, which leaves nowhere to test the receiver for `?.`. */
-      int slot = object->type == AST_IDENTIFIER && !node->as.property.optional
-                     ? resolveLocal(current, object->as.identifier.name,
-                                    object->as.identifier.length)
-                     : -1;
+      int slot = object->type == AST_IDENTIFIER && !node->as.property.optional ? resolveLocal(current, object->as.identifier.name, object->as.identifier.length) : -1;
       if (slot != -1) {
         emitByte(OP_GET_LOCAL_PROPERTY, line);
         emitByte((uint8_t)slot, line);
-        emitConstantOperand(
-            identifierConstant(node->as.property.name, node->as.property.length, line),
-            line);
+        emitConstantOperand(identifierConstant(node->as.property.name, node->as.property.length, line), line);
         int cache = csChunkAddPropertyCache(currentChunk());
         if (cache > UINT16_MAX) errorAt(line, "too many property sites in one function");
         emitConstantOperand(cache, line);
@@ -104,16 +80,11 @@ bool compileValueNode(const AstNode *node, int line) {
       }
       compileNode(object);
       if (node->as.property.optional) emitOptionalGuard(line);
-      emitPropertyOp(OP_GET_PROPERTY,
-                     identifierConstant(node->as.property.name,
-                                        node->as.property.length, line),
-                     line);
+      emitPropertyOp(OP_GET_PROPERTY, identifierConstant(node->as.property.name, node->as.property.length, line), line);
       break;
     }
 
-    case AST_OPTIONAL_CHAIN:
-      compileOptionalChain(node);
-      break;
+    case AST_OPTIONAL_CHAIN: compileOptionalChain(node); break;
 
     case AST_TEMPLATE_STRINGS:
       compileNode(node->as.templateStrings.cooked);
@@ -132,8 +103,9 @@ bool compileValueNode(const AstNode *node, int line) {
         /* Delegating needs somewhere to keep its position across each
          * suspension, and a local's slot is the stack height it was declared
          * at — which only holds where nothing else is part-way evaluated. */
-        errorAt(line, "'yield*' is only supported as a statement of its own, "
-                      "not inside a larger expression");
+        errorAt(line,
+                "'yield*' is only supported as a statement of its own, "
+                "not inside a larger expression");
         break;
       }
       if (node->as.yield.value != NULL) {
@@ -148,10 +120,7 @@ bool compileValueNode(const AstNode *node, int line) {
       const AstNode *target = node->as.deleteTarget;
       if (target->type == AST_PROPERTY) {
         compileNode(target->as.property.object);
-        emitConstantOp(OP_DELETE_PROPERTY,
-                       identifierConstant(target->as.property.name,
-                                          target->as.property.length, line),
-                       line);
+        emitConstantOp(OP_DELETE_PROPERTY, identifierConstant(target->as.property.name, target->as.property.length, line), line);
       } else {
         compileNode(target->as.index.target);
         compileNode(target->as.index.index);
@@ -171,8 +140,7 @@ bool compileValueNode(const AstNode *node, int line) {
 
     case AST_OBJECT_LITERAL: {
       if (node->as.objectLiteral.count > UINT8_MAX) {
-        errorAt(line, "too many properties in one object literal (limit %d)",
-                UINT8_MAX);
+        errorAt(line, "too many properties in one object literal (limit %d)", UINT8_MAX);
         break;
       }
       /* A spread or an accessor means the entries have to be applied one at a
@@ -236,8 +204,7 @@ bool compileValueNode(const AstNode *node, int line) {
         if (node->as.arrayLiteral.elements[i]->type == AST_SPREAD) hasSpread = true;
         compileNode(node->as.arrayLiteral.elements[i]);
       }
-      emitBytes(hasSpread ? OP_ARRAY_SPREAD : OP_ARRAY,
-                (uint8_t)node->as.arrayLiteral.count, line);
+      emitBytes(hasSpread ? OP_ARRAY_SPREAD : OP_ARRAY, (uint8_t)node->as.arrayLiteral.count, line);
       break;
     }
 
@@ -246,9 +213,7 @@ bool compileValueNode(const AstNode *node, int line) {
       emitByte(OP_SPREAD_MARK, line);
       break;
 
-    case AST_DESTRUCTURE:
-      compileDestructure(node);
-      break;
+    case AST_DESTRUCTURE: compileDestructure(node); break;
 
     case AST_CALL: {
       if (node->as.call.argCount > UINT8_MAX) {
@@ -274,10 +239,7 @@ bool compileValueNode(const AstNode *node, int line) {
           }
           emitBytes(OP_SUPER_CALL, (uint8_t)node->as.call.argCount, line);
         } else {
-          emitConstantOp(OP_SUPER_INVOKE,
-                         identifierConstant(callee->as.super.name,
-                                            callee->as.super.length, line),
-                         line);
+          emitConstantOp(OP_SUPER_INVOKE, identifierConstant(callee->as.super.name, callee->as.super.length, line), line);
           emitByte((uint8_t)node->as.call.argCount, line);
         }
         break;
@@ -305,10 +267,7 @@ bool compileValueNode(const AstNode *node, int line) {
         if (callee->type == AST_PROPERTY) {
           compileNode(callee->as.property.object);
           if (callee->as.property.optional) emitOptionalGuard(line);
-          emitPropertyOp(OP_GET_PROPERTY,
-                         identifierConstant(callee->as.property.name,
-                                            callee->as.property.length, line),
-                         line);
+          emitPropertyOp(OP_GET_PROPERTY, identifierConstant(callee->as.property.name, callee->as.property.length, line), line);
         } else {
           compileNode(callee);
         }
@@ -334,8 +293,7 @@ bool compileValueNode(const AstNode *node, int line) {
         compileNode(callee->as.property.object);
         if (callee->as.property.optional) emitOptionalGuard(line);
 
-        int nameConstant = identifierConstant(callee->as.property.name,
-                                              callee->as.property.length, line);
+        int nameConstant = identifierConstant(callee->as.property.name, callee->as.property.length, line);
         emitConstantOp(OP_JUMP_IF_NO_METHOD, nameConstant, line);
         int missing = emitJump16(line);
 
@@ -381,10 +339,7 @@ bool compileValueNode(const AstNode *node, int line) {
       }
 
       if (isMethodCall) {
-        emitConstantOp(OP_INVOKE,
-                       identifierConstant(callee->as.property.name,
-                                          callee->as.property.length, line),
-                       line);
+        emitConstantOp(OP_INVOKE, identifierConstant(callee->as.property.name, callee->as.property.length, line), line);
         emitByte((uint8_t)node->as.call.argCount, line);
       } else if (isComputedCall) {
         emitBytes(OP_INVOKE_INDEX, (uint8_t)node->as.call.argCount, line);
@@ -398,7 +353,7 @@ bool compileValueNode(const AstNode *node, int line) {
       compileNode(node->as.unary.operand);
       switch (node->as.unary.op) {
         case UNARY_NEGATE: emitByte(OP_NEGATE, line); break;
-        case UNARY_NOT:    emitByte(OP_NOT, line); break;
+        case UNARY_NOT: emitByte(OP_NOT, line); break;
         case UNARY_TYPEOF: emitByte(OP_TYPEOF, line); break;
         /* `void x` runs x for whatever it does and answers undefined. */
         case UNARY_VOID:
@@ -408,13 +363,9 @@ bool compileValueNode(const AstNode *node, int line) {
       }
       break;
 
-    case AST_BINARY:
-      compileBinary(node);
-      break;
+    case AST_BINARY: compileBinary(node); break;
 
-    case AST_LOGICAL:
-      compileLogical(node);
-      break;
+    case AST_LOGICAL: compileLogical(node); break;
 
     case AST_GROUPING:
       /* Parentheses only affect parsing; they emit nothing of their own. */
@@ -437,17 +388,11 @@ bool compileValueNode(const AstNode *node, int line) {
 
     case AST_REGEX_LITERAL:
       emitByte(OP_REGEX, line);
-      emitConstantOperand(
-          identifierConstant(node->as.regex.source, node->as.regex.sourceLength, line),
-          line);
-      emitConstantOperand(
-          identifierConstant(node->as.regex.flags, node->as.regex.flagsLength, line),
-          line);
+      emitConstantOperand(identifierConstant(node->as.regex.source, node->as.regex.sourceLength, line), line);
+      emitConstantOperand(identifierConstant(node->as.regex.flags, node->as.regex.flagsLength, line), line);
       break;
 
-    case AST_THIS:
-      compileThisLoad(line);
-      break;
+    case AST_THIS: compileThisLoad(line); break;
 
     case AST_DYNAMIC_IMPORT:
       compileNode(node->as.unary.operand);
@@ -461,8 +406,9 @@ bool compileValueNode(const AstNode *node, int line) {
        * answer lives on the frame — so the honest thing is to name the gap
        * rather than quietly give the wrong answer. */
       if (current->kind == FUNCTION_ARROW) {
-        errorAt(line, "'new.target' is not available inside an arrow function; "
-                      "read it in the enclosing function and capture it");
+        errorAt(line,
+                "'new.target' is not available inside an arrow function; "
+                "read it in the enclosing function and capture it");
         break;
       }
       if (current->kind == FUNCTION_SCRIPT) {
@@ -481,14 +427,10 @@ bool compileValueNode(const AstNode *node, int line) {
        * receiver with it. */
       if (!compileThisLoad(line)) break;
       if (!compileSuperLoad(line)) break;
-      emitConstantOp(OP_GET_SUPER,
-                     identifierConstant(node->as.super.name, node->as.super.length, line),
-                     line);
+      emitConstantOp(OP_GET_SUPER, identifierConstant(node->as.super.name, node->as.super.length, line), line);
       break;
 
-
-    default:
-      return false;
+    default: return false;
   }
   return true;
 }

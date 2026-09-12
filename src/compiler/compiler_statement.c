@@ -17,7 +17,6 @@
 #include "cscript/vm.h"
 #include "compiler/compiler_internal.h"
 
-
 /* Emits the pops needed to leave every scope inside `depth` before jumping out
  * of a loop. The locals stay in the compiler's table, because the code after
  * the jump is still inside the loop and can still see them. */
@@ -48,8 +47,7 @@ void discardLocalsAbove(int depth, int line) {
 }
 
 void unwindTryBlocks(int stopAtDepth, int line) {
-  for (TryContext *context = currentTry; context != NULL;
-       context = context->enclosing) {
+  for (TryContext *context = currentTry; context != NULL; context = context->enclosing) {
     if (context->scopeDepth <= stopAtDepth) break;
     if (context->handlerActive) emitByte(OP_END_TRY, line);
     if (context->finallyBody != NULL) compileNode(context->finallyBody);
@@ -73,9 +71,7 @@ void compileDestructurePattern(const AstNode *node, int line) {
     for (int i = 0; i < node->as.destructure.count; i++) {
       if (node->as.destructure.bindings[i].isRest) takesRest = true;
     }
-    int wanted = takesRest || node->as.destructure.count > 254
-                     ? 255
-                     : node->as.destructure.count;
+    int wanted = takesRest || node->as.destructure.count > 254 ? 255 : node->as.destructure.count;
     emitBytes(OP_DESTRUCTURE_PREPARE, (uint8_t)wanted, line);
   }
 
@@ -93,8 +89,7 @@ void compileDestructurePattern(const AstNode *node, int line) {
          * A rest is always last, so those are exactly the first `i`. */
         for (int taken = 0; taken < i; taken++) {
           const AstBinding *named = &node->as.destructure.bindings[taken];
-          emitConstantOp(OP_CONSTANT,
-                         identifierConstant(named->key, named->keyLength, line), line);
+          emitConstantOp(OP_CONSTANT, identifierConstant(named->key, named->keyLength, line), line);
         }
         emitBytes(OP_OBJECT_REST, (uint8_t)i, line);
       } else {
@@ -103,9 +98,7 @@ void compileDestructurePattern(const AstNode *node, int line) {
     } else {
       emitBytes(OP_GET_LOCAL, (uint8_t)sourceSlot, line);
       if (isObject) {
-        emitPropertyOp(OP_GET_PROPERTY,
-                       identifierConstant(binding->key, binding->keyLength, line),
-                       line);
+        emitPropertyOp(OP_GET_PROPERTY, identifierConstant(binding->key, binding->keyLength, line), line);
       } else {
         emitConstant(NUMBER_VAL(i), line);
         emitByte(OP_GET_INDEX, line);
@@ -138,8 +131,7 @@ void compileDestructurePattern(const AstNode *node, int line) {
       addLocal(binding->name, binding->nameLength, node->as.destructure.isConst, line);
     } else {
       addGlobal(binding->name, binding->nameLength, node->as.destructure.isConst, line);
-      emitConstantOp(node->as.destructure.isConst ? OP_DEFINE_CONST : OP_DEFINE_GLOBAL,
-                     identifierConstant(binding->name, binding->nameLength, line), line);
+      emitConstantOp(node->as.destructure.isConst ? OP_DEFINE_CONST : OP_DEFINE_GLOBAL, identifierConstant(binding->name, binding->nameLength, line), line);
     }
   }
 
@@ -175,8 +167,7 @@ void compileVarDecl(const AstNode *node) {
   }
 
   addGlobal(name, length, node->as.varDecl.isConst, line);
-  emitConstantOp(node->as.varDecl.isConst ? OP_DEFINE_CONST : OP_DEFINE_GLOBAL,
-                 identifierConstant(name, length, line), line);
+  emitConstantOp(node->as.varDecl.isConst ? OP_DEFINE_CONST : OP_DEFINE_GLOBAL, identifierConstant(name, length, line), line);
 }
 
 void compileIf(const AstNode *node) {
@@ -249,15 +240,11 @@ void compileFor(const AstNode *node) {
 
   /* Per-iteration binding is only observable through a closure, so the copy is
    * emitted only when the loop actually contains one. */
-  bool perIteration = node->as.forStmt.initializer != NULL &&
-                      node->as.forStmt.initializer->type == AST_VAR_DECL &&
-                      !node->as.forStmt.initializer->as.varDecl.isConst &&
+  bool perIteration = node->as.forStmt.initializer != NULL && node->as.forStmt.initializer->type == AST_VAR_DECL && !node->as.forStmt.initializer->as.varDecl.isConst &&
                       containsFunction(node->as.forStmt.body);
   int outerSlot = perIteration ? current->localCount - 1 : -1;
-  const char *bindingName =
-      perIteration ? node->as.forStmt.initializer->as.varDecl.name : NULL;
-  int bindingLength =
-      perIteration ? node->as.forStmt.initializer->as.varDecl.length : 0;
+  const char *bindingName = perIteration ? node->as.forStmt.initializer->as.varDecl.name : NULL;
+  int bindingLength = perIteration ? node->as.forStmt.initializer->as.varDecl.length : 0;
 
   int loopStart = currentChunk()->count;
 
@@ -373,8 +360,7 @@ void compileForOf(const AstNode *node) {
    * captures that iteration's value rather than sharing one cell. The element
    * ITER_STEP pushed is already sitting where the local belongs. */
   beginScope();
-  addLocal(node->as.forOf.name, node->as.forOf.nameLength, node->as.forOf.isConst,
-           line);
+  addLocal(node->as.forOf.name, node->as.forOf.nameLength, node->as.forOf.isConst, line);
 
   /* `for (const [k, v] of m)` — the element is in its slot; the pattern binds
    * the pieces beside it, fresh on every iteration. */
@@ -455,8 +441,7 @@ void compileTry(const AstNode *node) {
     beginScope();
     if (node->as.tryStmt.catchName != NULL) {
       /* The thrown value is already in the slot the binding will occupy. */
-      addLocal(node->as.tryStmt.catchName, node->as.tryStmt.catchNameLength, false,
-               line);
+      addLocal(node->as.tryStmt.catchName, node->as.tryStmt.catchNameLength, false, line);
     } else {
       emitByte(OP_POP, line); /* `catch { }` ignores the value */
     }

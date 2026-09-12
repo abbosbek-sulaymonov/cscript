@@ -79,18 +79,17 @@ static bool mathMin(Value receiver, int argCount, Value *args, Value *result) {
 /* ---------------- Math ---------------- */
 
 /* One wrapper for every single-argument libm function. */
-#define MATH_UNARY(name, expression)                                       \
-  static bool math##name(Value receiver, int argCount, Value *args,        \
-                         Value *result) {                                  \
-    (void)receiver;                                                        \
-    if (argCount != 1 || !IS_NUMBER(args[0])) {                            \
-      csVMRuntimeError("Math." #name " expects one number");               \
-      return false;                                                        \
-    }                                                                      \
-    double x = AS_NUMBER(args[0]);                                         \
-    (void)x;                                                               \
-    *result = NUMBER_VAL(expression);                                      \
-    return true;                                                           \
+#define MATH_UNARY(name, expression)                                                 \
+  static bool math##name(Value receiver, int argCount, Value *args, Value *result) { \
+    (void)receiver;                                                                  \
+    if (argCount != 1 || !IS_NUMBER(args[0])) {                                      \
+      csVMRuntimeError("Math." #name " expects one number");                         \
+      return false;                                                                  \
+    }                                                                                \
+    double x = AS_NUMBER(args[0]);                                                   \
+    (void)x;                                                                         \
+    *result = NUMBER_VAL(expression);                                                \
+    return true;                                                                     \
   }
 
 MATH_UNARY(Sqrt, sqrt(x))

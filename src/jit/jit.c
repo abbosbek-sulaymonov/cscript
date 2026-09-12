@@ -32,12 +32,12 @@
 
 typedef struct {
   ObjFunction *function;
-  const char *refusal;      /* why a backend would skip it, or NULL */
-  const char *irRefusal;    /* why it would not lower, or NULL */
-  IrFunction *ir;           /* the lowered form, when it lowered */
-  JitCode *code;            /* machine code, when it compiled */
+  const char *refusal;   /* why a backend would skip it, or NULL */
+  const char *irRefusal; /* why it would not lower, or NULL */
+  IrFunction *ir;        /* the lowered form, when it lowered */
+  JitCode *code;         /* machine code, when it compiled */
   const char *codeRefusal;
-  Value *scratch;           /* the compiled code's working space */
+  Value *scratch; /* the compiled code's working space */
 
   /* Decided once, when the IR is lowered. Both were being recomputed on every
    * call — and csIrIsFullyTyped walks every instruction of every block, so a
@@ -72,20 +72,16 @@ static long exited = 0;
  * would have to model. Everything else is arithmetic, moves and branches. */
 static const char *unsupportedOpcode(uint8_t opcode) {
   switch (opcode) {
-    case OP_AWAIT:
-      return "suspends the frame (await)";
+    case OP_AWAIT: return "suspends the frame (await)";
     case OP_TRY:
     case OP_THROW:
-    case OP_END_TRY:
-      return "unwinds past the frame (try/throw)";
+    case OP_END_TRY: return "unwinds past the frame (try/throw)";
     case OP_NEW:
     case OP_SUPER_CALL:
     case OP_SUPER_INVOKE:
-    case OP_GET_SUPER:
-      return "constructs or calls through a class";
+    case OP_GET_SUPER: return "constructs or calls through a class";
     case OP_IMPORT_NAME:
-    case OP_IMPORT_NAMESPACE:
-      return "resolves a module";
+    case OP_IMPORT_NAMESPACE: return "resolves a module";
     case OP_CLASS:
     case OP_INHERIT:
     case OP_METHOD:
@@ -94,10 +90,8 @@ static const char *unsupportedOpcode(uint8_t opcode) {
     case OP_CONSTRUCTOR:
     case OP_FIELD_INIT:
     case OP_GETTER:
-    case OP_SETTER:
-      return "builds a class";
-    default:
-      return NULL;
+    case OP_SETTER: return "builds a class";
+    default: return NULL;
   }
 }
 
@@ -136,15 +130,18 @@ void csJitSetThreshold(int threshold) {
   jitThreshold = threshold < 1 ? 1 : threshold;
 }
 
-void csJitDisable(void) { jitThreshold = INT_MAX; }
+void csJitDisable(void) {
+  jitThreshold = INT_MAX;
+}
 
-void csJitRequestReport(void) { jitReportRequested = true; }
+void csJitRequestReport(void) {
+  jitReportRequested = true;
+}
 
 /* Do the arguments still match what the lowering was told to expect? Only the
  * parameters it speculated on are checked; an annotated one was already
  * checked at the call boundary, and an unspeculated one was never assumed. */
-static bool observedTypesHold(const ObjFunction *function, const Value *args,
-                              int argCount) {
+static bool observedTypesHold(const ObjFunction *function, const Value *args, int argCount) {
   if (function->observedParams == NULL) return true;
 
   for (int i = 0; i < function->paramCount; i++) {
@@ -164,8 +161,7 @@ static bool observedTypesHold(const ObjFunction *function, const Value *args,
  * bug that produced: compiled code keeps a slot it believes is a number in a
  * floating-point register, so entering a loop whose parameter turned out to
  * hold a pointer read that pointer as a double and wrote the result back. */
-static bool observedTypesHoldInFrame(const ObjFunction *function,
-                                     const Value *slots) {
+static bool observedTypesHoldInFrame(const ObjFunction *function, const Value *slots) {
   if (function->observedParams == NULL) return true;
 
   for (int i = 0; i < function->paramCount; i++) {
@@ -198,8 +194,7 @@ static bool assumptionsHold(const JitCode *code) {
   return true;
 }
 
-bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args,
-                 int argCount, Value *out) {
+bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int argCount, Value *out) {
   /* Both states are runnable: JIT_HOT has lowered IR, JIT_COMPILED also has
    * machine code. Admitting only the first rejected exactly the functions that
    * had got furthest. */
@@ -231,8 +226,7 @@ bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args,
 
     /* The layouts the property reads were lowered against, asked of the frame
      * they will actually run on. */
-    if (hot[i].ir->entryShapeCount > 0 &&
-        !csIrEntryShapesHold(hot[i].ir, slots)) {
+    if (hot[i].ir->entryShapeCount > 0 && !csIrEntryShapesHold(hot[i].ir, slots)) {
       return false;
     }
 
@@ -262,8 +256,7 @@ bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args,
   return false;
 }
 
-bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots,
-              Value *out, int *resumeAt, int *resumeHeight) {
+bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *out, int *resumeAt, int *resumeHeight) {
   *resumeAt = -1;
   if (function->jitOsrRefusedAt == bytecodeOffset) return false;
 
@@ -360,9 +353,7 @@ void csJitConsider(ObjFunction *function) {
 
   /* Decided here, once. A body with an exit in it is entered only through OSR,
    * where a frame already exists for the interpreter to be handed back. */
-  hot[hotCount].entryUsable = hot[hotCount].ir != NULL &&
-                              csIrIsFullyTyped(hot[hotCount].ir) &&
-                              !hot[hotCount].ir->hasExits;
+  hot[hotCount].entryUsable = hot[hotCount].ir != NULL && csIrIsFullyTyped(hot[hotCount].ir) && !hot[hotCount].ir->hasExits;
   function->jitSlot = hotCount;
 
   /* Machine code only where every arithmetic operand is proved a number.
@@ -372,8 +363,7 @@ void csJitConsider(ObjFunction *function) {
     hot[hotCount].code = csJitCompile(hot[hotCount].ir, &codeWhy);
     hot[hotCount].codeRefusal = codeWhy;
     if (hot[hotCount].code != NULL) {
-      hot[hotCount].scratch =
-          (Value *)calloc((size_t)hot[hotCount].ir->registerCount + 1, sizeof(Value));
+      hot[hotCount].scratch = (Value *)calloc((size_t)hot[hotCount].ir->registerCount + 1, sizeof(Value));
       /* Stored as data, because ISO C does not promise a function pointer
        * fits in a void*. It is only ever read back through the same cast. */
       memcpy(&function->jitCode, &hot[hotCount].code->entry, sizeof(void *));
@@ -402,10 +392,8 @@ void csJitDumpProfile(void) {
     return;
   }
 
-  printf("\n== tiering: %d function%s over %d ==\n\n", hotCount,
-         hotCount == 1 ? "" : "s", CS_JIT_THRESHOLD);
-  printf("  %-28s %10s %8s %8s  %s\n", "function", "hotness", "typed", "generic",
-         "verdict");
+  printf("\n== tiering: %d function%s over %d ==\n\n", hotCount, hotCount == 1 ? "" : "s", CS_JIT_THRESHOLD);
+  printf("  %-28s %10s %8s %8s  %s\n", "function", "hotness", "typed", "generic", "verdict");
 
   int compilable = 0;
   int typedTotal = 0;
@@ -413,15 +401,13 @@ void csJitDumpProfile(void) {
 
   for (int i = 0; i < hotCount; i++) {
     ObjFunction *function = hot[i].function;
-    const char *name =
-        function->name != NULL ? function->name->chars : "<top level>";
+    const char *name = function->name != NULL ? function->name->chars : "<top level>";
 
     typedTotal += function->typedSites;
     genericTotal += function->genericSites;
     if (hot[i].refusal == NULL) compilable++;
 
-    printf("  %-28.28s %10d %8d %8d  %s\n", name, function->hotness,
-           function->typedSites, function->genericSites,
+    printf("  %-28.28s %10d %8d %8d  %s\n", name, function->hotness, function->typedSites, function->genericSites,
            hot[i].refusal != NULL ? hot[i].refusal : "compilable");
   }
 
@@ -446,8 +432,7 @@ void csJitDumpProfile(void) {
     if (hot[i].ir != NULL || hot[i].irRefusal == NULL) continue;
     int same = 0;
     for (int j = 0; j < i; j++) {
-      if (hot[j].irRefusal != NULL && hot[j].ir == NULL &&
-          strcmp(hot[j].irRefusal, hot[i].irRefusal) == 0) {
+      if (hot[j].irRefusal != NULL && hot[j].ir == NULL && strcmp(hot[j].irRefusal, hot[i].irRefusal) == 0) {
         same = 1;
         break;
       }
@@ -456,8 +441,7 @@ void csJitDumpProfile(void) {
 
     int count = 0;
     for (int j = 0; j < hotCount; j++) {
-      if (hot[j].ir == NULL && hot[j].irRefusal != NULL &&
-          strcmp(hot[j].irRefusal, hot[i].irRefusal) == 0) {
+      if (hot[j].ir == NULL && hot[j].irRefusal != NULL && strcmp(hot[j].irRefusal, hot[i].irRefusal) == 0) {
         count++;
       }
     }
@@ -469,24 +453,18 @@ void csJitDumpProfile(void) {
     const char *producer = NULL;
     const char *consumer = NULL;
     if (!csIrFirstUntyped(hot[i].ir, &producer, &consumer)) continue;
-    const char *name = hot[i].function->name != NULL
-                           ? hot[i].function->name->chars
-                           : "<top level>";
-    printf("    %-24.24s untyped: %s wanted a number from %s\n", name, consumer,
-           producer);
+    const char *name = hot[i].function->name != NULL ? hot[i].function->name->chars : "<top level>";
+    printf("    %-24.24s untyped: %s wanted a number from %s\n", name, consumer, producer);
   }
   if (totalRegisters > 0) {
     /* The number stage 2 exists to produce: how much of a hot function's
      * data flow is provably numeric, and could therefore live unboxed in a
      * register with no guard on it. */
-    printf("  %d of %d IR values (%.0f%%) are known to be numbers\n", typedRegisters,
-           totalRegisters, 100.0 * (double)typedRegisters / (double)totalRegisters);
+    printf("  %d of %d IR values (%.0f%%) are known to be numbers\n", typedRegisters, totalRegisters, 100.0 * (double)typedRegisters / (double)totalRegisters);
   }
   for (int i = 0; i < hotCount; i++) {
     if (hot[i].ir == NULL && hot[i].irRefusal != NULL) {
-      printf("  %-24s did not lower: %s\n",
-             hot[i].function->name != NULL ? hot[i].function->name->chars : "<top level>",
-             hot[i].irRefusal);
+      printf("  %-24s did not lower: %s\n", hot[i].function->name != NULL ? hot[i].function->name->chars : "<top level>", hot[i].irRefusal);
     }
   }
   if (getenv("CS_JIT_DUMP_IR") != NULL) {
@@ -503,9 +481,7 @@ void csJitDumpProfile(void) {
   printf("  %d of %d compiled to machine code\n", compiled, hotCount);
   for (int i = 0; i < hotCount; i++) {
     if (hot[i].code != NULL) continue;
-    const char *name = hot[i].function->name != NULL
-                           ? hot[i].function->name->chars
-                           : "<top level>";
+    const char *name = hot[i].function->name != NULL ? hot[i].function->name->chars : "<top level>";
     if (hot[i].ir == NULL) continue; /* the lowering already said why */
     const char *why = hot[i].codeRefusal;
     if (why == NULL) why = "not fully typed";
@@ -513,9 +489,7 @@ void csJitDumpProfile(void) {
   }
   for (int i = 0; i < hotCount; i++) {
     if (hot[i].ir != NULL && hot[i].code == NULL && hot[i].codeRefusal != NULL) {
-      printf("  %-24s did not compile: %s\n",
-             hot[i].function->name != NULL ? hot[i].function->name->chars : "<top level>",
-             hot[i].codeRefusal);
+      printf("  %-24s did not compile: %s\n", hot[i].function->name != NULL ? hot[i].function->name->chars : "<top level>", hot[i].codeRefusal);
     }
   }
   int inlinedCalls = 0;
@@ -527,25 +501,19 @@ void csJitDumpProfile(void) {
   }
   for (int i = 0; i < hotCount; i++) {
     if (hot[i].ir == NULL || hot[i].ir->firstReplayRefusal == NULL) continue;
-    printf("    %-24.24s lost the blocks past a hand-over: could not replay %s\n",
-           hot[i].function->name != NULL ? hot[i].function->name->chars
-                                         : "<top level>",
+    printf("    %-24.24s lost the blocks past a hand-over: could not replay %s\n", hot[i].function->name != NULL ? hot[i].function->name->chars : "<top level>",
            hot[i].ir->firstReplayRefusal);
   }
   if (inlinedCalls > 0) {
-    printf("  %d callee%s spliced in, %d instruction%s of body\n", inlinedCalls,
-           inlinedCalls == 1 ? "" : "s", inlinedInstructions,
+    printf("  %d callee%s spliced in, %d instruction%s of body\n", inlinedCalls, inlinedCalls == 1 ? "" : "s", inlinedInstructions,
            inlinedInstructions == 1 ? "" : "s");
   }
-  printf("  %ld call%s answered without the interpreter\n", substituted,
-         substituted == 1 ? "" : "s");
-  printf("  %ld loop%s taken over while already running\n", osrEntered,
-         osrEntered == 1 ? "" : "s");
+  printf("  %ld call%s answered without the interpreter\n", substituted, substituted == 1 ? "" : "s");
+  printf("  %ld loop%s taken over while already running\n", osrEntered, osrEntered == 1 ? "" : "s");
   printf("  %ld handed back to the interpreter part-way\n", exited);
 
   int sites = typedTotal + genericTotal;
-  printf("\n  %d of %d compilable without falling back to the interpreter\n",
-         compilable, hotCount);
+  printf("\n  %d of %d compilable without falling back to the interpreter\n", compilable, hotCount);
   if (sites > 0) {
     /* The number this stage exists to produce. Every typed site is an
      * operation a compiler could emit unboxed, with no guard and no
@@ -554,8 +522,7 @@ void csJitDumpProfile(void) {
     /* Arithmetic only: those are the sites the compiler currently consults a
      * resolved type for. A wider count would need the checker to record more
      * than it does, which is itself a finding. */
-    printf("  %d of %d arithmetic sites (%.0f%%) have both operand types known\n",
-           typedTotal, sites, 100.0 * (double)typedTotal / (double)sites);
+    printf("  %d of %d arithmetic sites (%.0f%%) have both operand types known\n", typedTotal, sites, 100.0 * (double)typedTotal / (double)sites);
   }
   printf("\n");
 }

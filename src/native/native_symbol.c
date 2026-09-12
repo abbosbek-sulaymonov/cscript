@@ -76,9 +76,7 @@ static bool symbolKeyFor(Value receiver, int argCount, Value *args, Value *resul
   }
 
   ObjSymbol *symbol = AS_SYMBOL(args[0]);
-  *result = symbol->registered && symbol->description != NULL
-                ? OBJ_VAL(symbol->description)
-                : UNDEFINED_VAL;
+  *result = symbol->registered && symbol->description != NULL ? OBJ_VAL(symbol->description) : UNDEFINED_VAL;
   return true;
 }
 
@@ -115,13 +113,14 @@ void csSymbolMethodsInstall(void) {
   defineSymbolMethod("toString", symbolToString, 0);
 }
 
-NativeFn csSymbolConstructorFn(void) { return symbolConstruct; }
+NativeFn csSymbolConstructorFn(void) {
+  return symbolConstruct;
+}
 
 /* The well-known ones. They are ordinary symbols; what makes them well known
  * is that the language looks for them by name — `Symbol.iterator` is what
  * `for...of` asks an object for. */
-static void defineWellKnown(ObjObject *statics, const char *name,
-                            ObjSymbol **remember) {
+static void defineWellKnown(ObjObject *statics, const char *name, ObjSymbol **remember) {
   ObjString *described = csStringCopy(name, (int)strlen(name));
   csPushTempRoot((Obj *)described);
   ObjSymbol *symbol = csSymbolNew(described);

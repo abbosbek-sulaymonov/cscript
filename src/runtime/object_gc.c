@@ -21,8 +21,7 @@
 
 void csObjectBlacken(Obj *object) {
   switch (object->type) {
-    case OBJ_STRING:
-      break; /* no outgoing references */
+    case OBJ_STRING: break; /* no outgoing references */
 
     case OBJ_NATIVE: {
       ObjNative *native = (ObjNative *)object;
@@ -65,9 +64,7 @@ void csObjectBlacken(Obj *object) {
       break;
     }
 
-    case OBJ_SHAPE:
-      csShapeBlacken((Shape *)object);
-      break;
+    case OBJ_SHAPE: csShapeBlacken((Shape *)object); break;
 
     case OBJ_CLASS: {
       ObjClass *klass = (ObjClass *)object;
@@ -127,8 +124,7 @@ void csObjectBlacken(Obj *object) {
         csMarkObject((Obj *)fiber->frames[i].closure);
         csMarkValue(fiber->frames[i].newTarget);
       }
-      for (ObjUpvalue *upvalue = fiber->openUpvalues; upvalue != NULL;
-           upvalue = upvalue->next) {
+      for (ObjUpvalue *upvalue = fiber->openUpvalues; upvalue != NULL; upvalue = upvalue->next) {
         csMarkObject((Obj *)upvalue);
       }
       csMarkObject((Obj *)fiber->promise);
@@ -139,11 +135,9 @@ void csObjectBlacken(Obj *object) {
       break;
     }
 
-    case OBJ_DATE:
-      break; /* a number and nothing else */
+    case OBJ_DATE: break; /* a number and nothing else */
 
-    case OBJ_BIGINT:
-      break; /* limbs, and nothing that can be collected */
+    case OBJ_BIGINT: break; /* limbs, and nothing that can be collected */
 
     case OBJ_SYMBOL: {
       ObjSymbol *symbol = (ObjSymbol *)object;
@@ -235,17 +229,14 @@ void csObjectFree(Obj *object) {
       csReallocate(object, sizeof(ObjString) + (size_t)string->length + 1, 0);
       break;
     }
-    case OBJ_NATIVE:
-      CS_FREE(ObjNative, object);
-      break;
+    case OBJ_NATIVE: CS_FREE(ObjNative, object); break;
     case OBJ_OBJECT: {
       ObjObject *instance = (ObjObject *)object;
       if (instance->shape != NULL) {
         CS_FREE_ARRAY(Value, instance->as.slots.values, instance->as.slots.capacity);
       } else {
         csTableFree(&instance->as.dictionary.table);
-        CS_FREE_ARRAY(ObjString *, instance->as.dictionary.keys,
-                      instance->as.dictionary.capacity);
+        CS_FREE_ARRAY(ObjString *, instance->as.dictionary.keys, instance->as.dictionary.capacity);
       }
       if (instance->privates != NULL) {
         csTableFree(instance->privates);
@@ -259,9 +250,7 @@ void csObjectFree(Obj *object) {
       break;
     }
 
-    case OBJ_SHAPE:
-      csShapeFree((Shape *)object);
-      break;
+    case OBJ_SHAPE: csShapeFree((Shape *)object); break;
 
     case OBJ_CLASS: {
       ObjClass *klass = (ObjClass *)object;
@@ -304,18 +293,14 @@ void csObjectFree(Obj *object) {
       break;
     }
 
-    case OBJ_DATE:
-      CS_FREE(ObjDate, object);
-      break;
+    case OBJ_DATE: CS_FREE(ObjDate, object); break;
 
     case OBJ_BIGINT:
       csBigFree(&((ObjBigInt *)object)->value);
       CS_FREE(ObjBigInt, object);
       break;
 
-    case OBJ_SYMBOL:
-      CS_FREE(ObjSymbol, object);
-      break;
+    case OBJ_SYMBOL: CS_FREE(ObjSymbol, object); break;
 
     case OBJ_GENERATOR: {
       /* The fiber is an object of its own and is swept on its own. */

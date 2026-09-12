@@ -24,22 +24,18 @@
 
 /* ---- the two things a case may append to -------------------------------- */
 
-void csJitAddFixup(EmitAt *at, int instructionAt, int block, bool conditional,
-                   uint32_t condition) {
+void csJitAddFixup(EmitAt *at, int instructionAt, int block, bool conditional, uint32_t condition) {
   if (*at->fixupCapacity < *at->fixupCount + 1) {
     *at->fixupCapacity = *at->fixupCapacity < 8 ? 8 : *at->fixupCapacity * 2;
-    *at->fixups = (Fixup *)realloc(*at->fixups,
-                                   sizeof(Fixup) * (size_t)*at->fixupCapacity);
+    *at->fixups = (Fixup *)realloc(*at->fixups, sizeof(Fixup) * (size_t)*at->fixupCapacity);
   }
-  (*at->fixups)[(*at->fixupCount)++] =
-      (Fixup){instructionAt, block, conditional, condition};
+  (*at->fixups)[(*at->fixupCount)++] = (Fixup){instructionAt, block, conditional, condition};
 }
 
 int csJitAddExit(EmitAt *at, int bytecodeOffset, int stackHeight) {
   if (*at->exitCount >= *at->exitCapacity) {
     *at->exitCapacity = *at->exitCapacity < 8 ? 8 : *at->exitCapacity * 2;
-    *at->exits = (JitExit *)realloc(*at->exits,
-                                    sizeof(JitExit) * (size_t)*at->exitCapacity);
+    *at->exits = (JitExit *)realloc(*at->exits, sizeof(JitExit) * (size_t)*at->exitCapacity);
   }
   (*at->exits)[*at->exitCount].bytecodeOffset = bytecodeOffset;
   (*at->exits)[*at->exitCount].stackHeight = stackHeight;
@@ -70,7 +66,6 @@ bool csJitEmitInstruction(EmitAt *at) {
   const int b = at->block;
   const char **why = at->why;
 
-
   switch (inst->op) {
     case IR_STORE_PROPERTY: {
       /* The load's address computation, then a store instead of a load.
@@ -87,8 +82,7 @@ bool csJitEmitInstruction(EmitAt *at) {
       csJitLdrGeneral(encoder, REG_TEMP, REG_SLOTS, inst->a * 8);
       csJitMovImmediate(encoder, 10, ~(CS_SIGN_BIT | CS_QNAN));
       csJitAndRegisters(encoder, REG_TEMP, REG_TEMP, 10);
-      csJitLdrGeneral(encoder, REG_TEMP, REG_TEMP,
-                 (int)offsetof(ObjObject, as.slots.values));
+      csJitLdrGeneral(encoder, REG_TEMP, REG_TEMP, (int)offsetof(ObjObject, as.slots.values));
       csJitStrDouble(encoder, value, REG_TEMP, inst->c * 8);
       break;
     }
@@ -118,8 +112,7 @@ bool csJitEmitInstruction(EmitAt *at) {
       csJitLdrGeneral(encoder, REG_TEMP, REG_SLOTS, inst->a * 8);
       csJitMovImmediate(encoder, 10, ~(CS_SIGN_BIT | CS_QNAN));
       csJitAndRegisters(encoder, REG_TEMP, REG_TEMP, 10);
-      csJitLdrGeneral(encoder, REG_TEMP, REG_TEMP,
-                 (int)offsetof(ObjObject, as.slots.values));
+      csJitLdrGeneral(encoder, REG_TEMP, REG_TEMP, (int)offsetof(ObjObject, as.slots.values));
       csJitLdrDouble(encoder, destination, REG_TEMP, inst->b * 8);
 
       if (home[inst->result] < 0) {
@@ -135,7 +128,10 @@ bool csJitEmitInstruction(EmitAt *at) {
 
       int source = -1;
       for (int k = 0; k < constantCount; k++) {
-        if (constantValue[k] == bits) { source = constantHome[k]; break; }
+        if (constantValue[k] == bits) {
+          source = constantHome[k];
+          break;
+        }
       }
 
       int destination = home[inst->result] >= 0 ? home[inst->result] : 0;
@@ -155,7 +151,10 @@ bool csJitEmitInstruction(EmitAt *at) {
     case IR_LOAD_GLOBAL: {
       int slotOf = -1;
       for (int g = 0; g < globalCount; g++) {
-        if (globalName[g] == inst->a) { slotOf = g; break; }
+        if (globalName[g] == inst->a) {
+          slotOf = g;
+          break;
+        }
       }
       int destination = home[inst->result] >= 0 ? home[inst->result] : 0;
       csJitLdrDouble(encoder, destination, REG_FIRST_GLOBAL + slotOf, 0);
@@ -168,7 +167,10 @@ bool csJitEmitInstruction(EmitAt *at) {
     case IR_STORE_GLOBAL: {
       int slotOf = -1;
       for (int g = 0; g < globalCount; g++) {
-        if (globalName[g] == inst->a) { slotOf = g; break; }
+        if (globalName[g] == inst->a) {
+          slotOf = g;
+          break;
+        }
       }
       int source = csJitReadOperand(encoder, home, inst->b, ALLOC_FIRST_SCRATCH);
       csJitStrDouble(encoder, source, REG_FIRST_GLOBAL + slotOf, 0);
@@ -198,14 +200,21 @@ bool csJitEmitInstruction(EmitAt *at) {
       break;
     }
 
-    case IR_ADD: case IR_SUB: case IR_MUL: case IR_DIV: {
+    case IR_ADD:
+    case IR_SUB:
+    case IR_MUL:
+    case IR_DIV: {
       int left = csJitReadOperand(encoder, home, inst->a, ALLOC_FIRST_SCRATCH);
       int right = csJitReadOperand(encoder, home, inst->b, ALLOC_SECOND_SCRATCH);
       int destination = home[inst->result] >= 0 ? home[inst->result] : 0;
-      if (inst->op == IR_ADD) csJitFadd(encoder, destination, left, right);
-      else if (inst->op == IR_SUB) csJitFsub(encoder, destination, left, right);
-      else if (inst->op == IR_MUL) csJitFmul(encoder, destination, left, right);
-      else csJitFdiv(encoder, destination, left, right);
+      if (inst->op == IR_ADD)
+        csJitFadd(encoder, destination, left, right);
+      else if (inst->op == IR_SUB)
+        csJitFsub(encoder, destination, left, right);
+      else if (inst->op == IR_MUL)
+        csJitFmul(encoder, destination, left, right);
+      else
+        csJitFdiv(encoder, destination, left, right);
       if (home[inst->result] < 0) {
         csJitStrDouble(encoder, 0, REG_SCRATCH, inst->result * 8);
       }
@@ -263,8 +272,8 @@ bool csJitEmitInstruction(EmitAt *at) {
       csJitFcmp(encoder, CALL_SHUFFLE, right);
       slowPath[slowCount++] = csJitBranchHere(encoder, 0x1u);
 
-      slowPath[slowCount++] = csJitCbzHere(encoder, 10);        /* divisor 0 */
-      slowPath[slowCount++] = csJitCbzHere(encoder, REG_TEMP);  /* dividend 0 */
+      slowPath[slowCount++] = csJitCbzHere(encoder, 10);       /* divisor 0 */
+      slowPath[slowCount++] = csJitCbzHere(encoder, REG_TEMP); /* dividend 0 */
 
       {
         int destination = home[inst->result] >= 0 ? home[inst->result] : 0;
@@ -302,7 +311,12 @@ bool csJitEmitInstruction(EmitAt *at) {
       break;
     }
 
-    case IR_LT: case IR_LE: case IR_GT: case IR_GE: case IR_EQ: case IR_NE: {
+    case IR_LT:
+    case IR_LE:
+    case IR_GT:
+    case IR_GE:
+    case IR_EQ:
+    case IR_NE: {
       /* Every comparison here is a floating-point one, so every operand of
        * one has to be a number.
        *
@@ -320,8 +334,7 @@ bool csJitEmitInstruction(EmitAt *at) {
        * interpreter's coverage: it can run these correctly, and only the
        * encoder cannot. */
       if (inst->op == IR_EQ || inst->op == IR_NE) {
-        if (ir->registerTypes[inst->a] != IR_TYPE_NUMBER ||
-            ir->registerTypes[inst->b] != IR_TYPE_NUMBER) {
+        if (ir->registerTypes[inst->a] != IR_TYPE_NUMBER || ir->registerTypes[inst->b] != IR_TYPE_NUMBER) {
           *why = "an equality whose operands are not both numbers";
           return false;
         }
@@ -348,12 +361,9 @@ bool csJitEmitInstruction(EmitAt *at) {
        * never adjacent. Materialising the boolean costs two immediate
        * loads, a csel, a store and a load — on a loop condition, every
        * iteration. */
-      const IrInst *following =
-          *at->index + 1 < ir->blocks[b].count ? &ir->blocks[b].instructions[*at->index + 1] : NULL;
-      if (following != NULL && following->op == IR_BRANCH &&
-          following->a == inst->result) {
-        csJitAddFixup(at, encoder->count, following->b, true,
-                      csJitConditionFor(inst->op));
+      const IrInst *following = *at->index + 1 < ir->blocks[b].count ? &ir->blocks[b].instructions[*at->index + 1] : NULL;
+      if (following != NULL && following->op == IR_BRANCH && following->a == inst->result) {
+        csJitAddFixup(at, encoder->count, following->b, true, csJitConditionFor(inst->op));
         csJitWord(encoder, 0x54000000u);
         csJitAddFixup(at, encoder->count, following->c, false, 0);
         csJitWord(encoder, 0x14000000u);

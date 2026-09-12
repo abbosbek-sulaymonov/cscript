@@ -16,7 +16,6 @@
 
 #include "native/native_internal.h"
 
-
 void csNativeAppendRooted(ObjArray *array, Value value) {
   if (IS_OBJ(value)) csPushTempRoot(AS_OBJ(value));
   csValueArrayWrite(&array->elements, value);
@@ -33,15 +32,13 @@ static int resolveIndex(double raw, int length) {
   return index;
 }
 
-static bool argIndex(int argCount, Value *args, int position, int length,
-                     int fallback, int *out) {
+static bool argIndex(int argCount, Value *args, int position, int length, int fallback, int *out) {
   if (argCount <= position || IS_UNDEFINED(args[position])) {
     *out = fallback;
     return true;
   }
   if (!IS_NUMBER(args[position])) {
-    csVMRuntimeError("array index must be a number, got %s",
-                     csValueTypeName(args[position]));
+    csVMRuntimeError("array index must be a number, got %s", csValueTypeName(args[position]));
     return false;
   }
   *out = resolveIndex(AS_NUMBER(args[position]), length);
@@ -76,8 +73,7 @@ static bool arrayShift(Value receiver, int argCount, Value *args, Value *result)
     return true;
   }
   *result = array->elements.values[0];
-  memmove(array->elements.values, array->elements.values + 1,
-          sizeof(Value) * (size_t)(array->elements.count - 1));
+  memmove(array->elements.values, array->elements.values + 1, sizeof(Value) * (size_t)(array->elements.count - 1));
   array->elements.count--;
   return true;
 }
@@ -86,8 +82,7 @@ static bool arrayUnshift(Value receiver, int argCount, Value *args, Value *resul
   ObjArray *array = ARRAY_OF(receiver);
   /* Grow first, then slide the tail up, so the new slots exist before the move. */
   for (int i = 0; i < argCount; i++) csValueArrayWrite(&array->elements, UNDEFINED_VAL);
-  memmove(array->elements.values + argCount, array->elements.values,
-          sizeof(Value) * (size_t)(array->elements.count - argCount));
+  memmove(array->elements.values + argCount, array->elements.values, sizeof(Value) * (size_t)(array->elements.count - argCount));
   for (int i = 0; i < argCount; i++) array->elements.values[i] = args[i];
   *result = NUMBER_VAL(array->elements.count);
   return true;
@@ -144,8 +139,7 @@ static bool arrayJoin(Value receiver, int argCount, Value *args, Value *result) 
   size_t separatorLength = 1;
   if (argCount >= 1 && !IS_UNDEFINED(args[0])) {
     if (!IS_STRING(args[0])) {
-      csVMRuntimeError("join separator must be a string, got %s",
-                       csValueTypeName(args[0]));
+      csVMRuntimeError("join separator must be a string, got %s", csValueTypeName(args[0]));
       return false;
     }
     separator = AS_CSTRING(args[0]);
@@ -241,8 +235,7 @@ static bool arrayAt(Value receiver, int argCount, Value *args, Value *result) {
   int at = (int)raw;
   if (at < 0) at += array->elements.count;
 
-  *result = at >= 0 && at < array->elements.count ? array->elements.values[at]
-                                                  : UNDEFINED_VAL;
+  *result = at >= 0 && at < array->elements.count ? array->elements.values[at] : UNDEFINED_VAL;
   return true;
 }
 

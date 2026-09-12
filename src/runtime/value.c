@@ -110,8 +110,7 @@ const char *csValueTypeName(Value value) {
   if (IS_STRING(value)) return "string";
   /* Natives, user functions and closures are all callable, so `typeof` cannot
    * tell them apart — which matches JavaScript. */
-  if (IS_NATIVE(value) || IS_FUNCTION(value) || IS_CLOSURE(value) ||
-      IS_BOUND_METHOD(value)) {
+  if (IS_NATIVE(value) || IS_FUNCTION(value) || IS_CLOSURE(value) || IS_BOUND_METHOD(value)) {
     return "function";
   }
   /* A class is callable in JavaScript — only with `new` — and reports as a
@@ -137,8 +136,7 @@ const char *csValueTypeName(Value value) {
 /* Fills `digits` with the shortest significant digits that round-trip and sets
  * `pointPosition` to where the decimal point falls within them — so the value
  * is 0.<digits> x 10^pointPosition. Returns the digit count. */
-static int shortestDigits(double value, char *digits, size_t size,
-                          int *pointPosition) {
+static int shortestDigits(double value, char *digits, size_t size, int *pointPosition) {
   char scratch[64];
 
   for (int precision = 0; precision < 17; precision++) {

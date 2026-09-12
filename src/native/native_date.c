@@ -67,10 +67,8 @@ static double localOffsetMs(double ms) {
 
   long long localDays = daysFromCivil(local.tm_year + 1900, local.tm_mon, local.tm_mday);
   long long utcDays = daysFromCivil(utc.tm_year + 1900, utc.tm_mon, utc.tm_mday);
-  long long localSeconds =
-      localDays * 86400 + local.tm_hour * 3600 + local.tm_min * 60 + local.tm_sec;
-  long long utcSeconds =
-      utcDays * 86400 + utc.tm_hour * 3600 + utc.tm_min * 60 + utc.tm_sec;
+  long long localSeconds = localDays * 86400 + local.tm_hour * 3600 + local.tm_min * 60 + local.tm_sec;
+  long long utcSeconds = utcDays * 86400 + utc.tm_hour * 3600 + utc.tm_min * 60 + utc.tm_sec;
   return (double)(localSeconds - utcSeconds) * 1000.0;
 }
 
@@ -117,9 +115,7 @@ static bool breakDown(double ms, bool utc, Parts *out) {
 bool csDateToISO(double ms, char *out, size_t size) {
   Parts parts;
   if (!breakDown(ms, true, &parts)) return false;
-  snprintf(out, size, "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ", parts.year,
-           parts.month + 1, parts.day, parts.hour, parts.minute, parts.second,
-           parts.millisecond);
+  snprintf(out, size, "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ", parts.year, parts.month + 1, parts.day, parts.hour, parts.minute, parts.second, parts.millisecond);
   return true;
 }
 
@@ -137,12 +133,10 @@ static double parseISO(const char *text, int length) {
    * string and would leave the rest unread. `%n` is only assigned when the
    * conversion before it succeeded, so `read` is checked rather than trusted. */
   int read = -1;
-  if (sscanf(buffer, "%d-%d-%dT%d:%d:%d.%d%n", &year, &month, &day, &hour, &minute,
-             &second, &milli, &read) < 7 || read < 0) {
+  if (sscanf(buffer, "%d-%d-%dT%d:%d:%d.%d%n", &year, &month, &day, &hour, &minute, &second, &milli, &read) < 7 || read < 0) {
     read = -1;
     milli = 0;
-    if (sscanf(buffer, "%d-%d-%dT%d:%d:%d%n", &year, &month, &day, &hour, &minute,
-               &second, &read) < 6 || read < 0) {
+    if (sscanf(buffer, "%d-%d-%dT%d:%d:%d%n", &year, &month, &day, &hour, &minute, &second, &read) < 6 || read < 0) {
       read = -1;
       hour = minute = second = 0;
       if (sscanf(buffer, "%d-%d-%d%n", &year, &month, &day, &read) < 3 || read < 0) {
@@ -153,8 +147,7 @@ static double parseISO(const char *text, int length) {
   if (month < 1 || month > 12 || day < 1 || day > 31) return NAN;
   if (hour > 24 || minute > 59 || second > 60) return NAN;
 
-  double ms = (double)daysFromCivil(year, month - 1, day) * 86400000.0 +
-              hour * 3600000.0 + minute * 60000.0 + second * 1000.0 + milli;
+  double ms = (double)daysFromCivil(year, month - 1, day) * 86400000.0 + hour * 3600000.0 + minute * 60000.0 + second * 1000.0 + milli;
 
   /* A trailing `Z`, or nothing, means UTC. Anything else is a zone this does
    * not read, and saying so beats being quietly an hour out. */
@@ -170,8 +163,7 @@ double csDateNowMs(void) {
   return (double)now.tv_sec * 1000.0 + (double)now.tv_nsec / 1000000.0;
 }
 
-static bool numberAt(int argCount, Value *args, int index, double fallback,
-                     double *out) {
+static bool numberAt(int argCount, Value *args, int index, double fallback, double *out) {
   if (argCount <= index) {
     *out = fallback;
     return true;
@@ -197,19 +189,14 @@ static bool dateConstruct(Value receiver, int argCount, Value *args, Value *resu
     /* `new Date(y, m, d, …)` reads its components as local time, which is what
      * makes it the one constructor whose answer depends on where it runs. */
     double year, month, day, hour, minute, second, milli;
-    if (!numberAt(argCount, args, 0, 1970, &year) ||
-        !numberAt(argCount, args, 1, 0, &month) ||
-        !numberAt(argCount, args, 2, 1, &day) ||
-        !numberAt(argCount, args, 3, 0, &hour) ||
-        !numberAt(argCount, args, 4, 0, &minute) ||
-        !numberAt(argCount, args, 5, 0, &second) ||
+    if (!numberAt(argCount, args, 0, 1970, &year) || !numberAt(argCount, args, 1, 0, &month) || !numberAt(argCount, args, 2, 1, &day) ||
+        !numberAt(argCount, args, 3, 0, &hour) || !numberAt(argCount, args, 4, 0, &minute) || !numberAt(argCount, args, 5, 0, &second) ||
         !numberAt(argCount, args, 6, 0, &milli)) {
       csVMRuntimeError("Date expects numbers for its components");
       return false;
     }
 
-    double utc = (double)daysFromCivil((int)year, (int)month, (int)day) * 86400000.0 +
-                 hour * 3600000.0 + minute * 60000.0 + second * 1000.0 + milli;
+    double utc = (double)daysFromCivil((int)year, (int)month, (int)day) * 86400000.0 + hour * 3600000.0 + minute * 60000.0 + second * 1000.0 + milli;
     /* The offset is read at the instant itself, so a date on the far side of a
      * daylight-saving change gets that side's offset. */
     ms = utc - localOffsetMs(utc);
@@ -236,12 +223,17 @@ static bool requireDate(Value receiver, const char *method) {
 /* Every getter is the same shape: break the instant down, hand back one piece.
  * `field` says which, and `utc` which zone. */
 typedef enum {
-  FIELD_YEAR, FIELD_MONTH, FIELD_DAY, FIELD_WEEKDAY,
-  FIELD_HOUR, FIELD_MINUTE, FIELD_SECOND, FIELD_MILLISECOND,
+  FIELD_YEAR,
+  FIELD_MONTH,
+  FIELD_DAY,
+  FIELD_WEEKDAY,
+  FIELD_HOUR,
+  FIELD_MINUTE,
+  FIELD_SECOND,
+  FIELD_MILLISECOND,
 } DateField;
 
-static bool getPart(Value receiver, const char *method, DateField field, bool utc,
-                    Value *result) {
+static bool getPart(Value receiver, const char *method, DateField field, bool utc, Value *result) {
   if (!requireDate(receiver, method)) return false;
 
   Parts parts;
@@ -252,13 +244,13 @@ static bool getPart(Value receiver, const char *method, DateField field, bool ut
 
   int value = 0;
   switch (field) {
-    case FIELD_YEAR:        value = parts.year; break;
-    case FIELD_MONTH:       value = parts.month; break;
-    case FIELD_DAY:         value = parts.day; break;
-    case FIELD_WEEKDAY:     value = parts.weekday; break;
-    case FIELD_HOUR:        value = parts.hour; break;
-    case FIELD_MINUTE:      value = parts.minute; break;
-    case FIELD_SECOND:      value = parts.second; break;
+    case FIELD_YEAR: value = parts.year; break;
+    case FIELD_MONTH: value = parts.month; break;
+    case FIELD_DAY: value = parts.day; break;
+    case FIELD_WEEKDAY: value = parts.weekday; break;
+    case FIELD_HOUR: value = parts.hour; break;
+    case FIELD_MINUTE: value = parts.minute; break;
+    case FIELD_SECOND: value = parts.second; break;
     case FIELD_MILLISECOND: value = parts.millisecond; break;
   }
   *result = NUMBER_VAL(value);
@@ -270,9 +262,7 @@ static bool getPart(Value receiver, const char *method, DateField field, bool ut
  * out-of-range components roll over rather than being rejected: `setMonth(12)`
  * means January of the next year, in JavaScript and here. */
 static double buildMs(const Parts *parts, bool utc) {
-  double result = (double)daysFromCivil(parts->year, parts->month, parts->day) *
-                      86400000.0 +
-                  parts->hour * 3600000.0 + parts->minute * 60000.0 +
+  double result = (double)daysFromCivil(parts->year, parts->month, parts->day) * 86400000.0 + parts->hour * 3600000.0 + parts->minute * 60000.0 +
                   parts->second * 1000.0 + parts->millisecond;
   /* Local components name an instant only once the offset at that instant is
    * known, which is the same order the constructor works in. */
@@ -285,9 +275,7 @@ static double buildMs(const Parts *parts, bool utc) {
  *
  * Rolling over falls out of buildMs: a day of 32 or a month of 12 is carried
  * by the same arithmetic that turns any date into a day count. */
-static bool setParts(Value receiver, const char *method, DateField first,
-                     int count, bool utc, int argCount, Value *args,
-                     Value *result) {
+static bool setParts(Value receiver, const char *method, DateField first, int count, bool utc, int argCount, Value *args, Value *result) {
   if (!requireDate(receiver, method)) return false;
   if (argCount < 1) {
     csVMRuntimeError("%s expects at least one number", method);
@@ -317,14 +305,14 @@ static bool setParts(Value receiver, const char *method, DateField first,
 
     int value = (int)given;
     switch ((DateField)(first + i)) {
-      case FIELD_YEAR:        parts.year = value; break;
-      case FIELD_MONTH:       parts.month = value; break;
-      case FIELD_DAY:         parts.day = value; break;
-      case FIELD_HOUR:        parts.hour = value; break;
-      case FIELD_MINUTE:      parts.minute = value; break;
-      case FIELD_SECOND:      parts.second = value; break;
+      case FIELD_YEAR: parts.year = value; break;
+      case FIELD_MONTH: parts.month = value; break;
+      case FIELD_DAY: parts.day = value; break;
+      case FIELD_HOUR: parts.hour = value; break;
+      case FIELD_MINUTE: parts.minute = value; break;
+      case FIELD_SECOND: parts.second = value; break;
       case FIELD_MILLISECOND: parts.millisecond = value; break;
-      case FIELD_WEEKDAY:     break; /* not settable; there is no such setter */
+      case FIELD_WEEKDAY: break; /* not settable; there is no such setter */
     }
   }
 
@@ -333,17 +321,16 @@ static bool setParts(Value receiver, const char *method, DateField first,
   return true;
 }
 
-#define DATE_SETTER(fn, method, first, count, utc)                             \
-  static bool fn(Value receiver, int argCount, Value *args, Value *result) {   \
-    return setParts(receiver, method, first, count, utc, argCount, args,       \
-                    result);                                                   \
+#define DATE_SETTER(fn, method, first, count, utc)                                \
+  static bool fn(Value receiver, int argCount, Value *args, Value *result) {      \
+    return setParts(receiver, method, first, count, utc, argCount, args, result); \
   }
 
-#define DATE_GETTER(fn, method, field, utc)                                    \
-  static bool fn(Value receiver, int argCount, Value *args, Value *result) {   \
-    (void)argCount;                                                            \
-    (void)args;                                                                \
-    return getPart(receiver, method, field, utc, result);                      \
+#define DATE_GETTER(fn, method, field, utc)                                  \
+  static bool fn(Value receiver, int argCount, Value *args, Value *result) { \
+    (void)argCount;                                                          \
+    (void)args;                                                              \
+    return getPart(receiver, method, field, utc, result);                    \
   }
 
 DATE_GETTER(dateFullYear, "getFullYear", FIELD_YEAR, false)
@@ -400,8 +387,7 @@ static bool dateGetTime(Value receiver, int argCount, Value *args, Value *result
   return true;
 }
 
-static bool dateTimezoneOffset(Value receiver, int argCount, Value *args,
-                               Value *result) {
+static bool dateTimezoneOffset(Value receiver, int argCount, Value *args, Value *result) {
   (void)argCount;
   (void)args;
   if (!requireDate(receiver, "getTimezoneOffset")) return false;
@@ -457,7 +443,9 @@ static void defineDateMethod(const char *name, NativeFn function, int arity) {
   csPopTempRoot();
 }
 
-NativeFn csDateConstructorFn(void) { return dateConstruct; }
+NativeFn csDateConstructorFn(void) {
+  return dateConstruct;
+}
 
 /* `Date.UTC(y, m, d, …)` — the same components the `new Date(y, m, …)`
  * constructor takes, read as UTC rather than as local time, and answering the
@@ -466,20 +454,14 @@ NativeFn csDateConstructorFn(void) { return dateConstruct; }
 static bool dateUTC(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   double year, month, day, hour, minute, second, milli;
-  if (!numberAt(argCount, args, 0, 1970, &year) ||
-      !numberAt(argCount, args, 1, 0, &month) ||
-      !numberAt(argCount, args, 2, 1, &day) ||
-      !numberAt(argCount, args, 3, 0, &hour) ||
-      !numberAt(argCount, args, 4, 0, &minute) ||
-      !numberAt(argCount, args, 5, 0, &second) ||
+  if (!numberAt(argCount, args, 0, 1970, &year) || !numberAt(argCount, args, 1, 0, &month) || !numberAt(argCount, args, 2, 1, &day) ||
+      !numberAt(argCount, args, 3, 0, &hour) || !numberAt(argCount, args, 4, 0, &minute) || !numberAt(argCount, args, 5, 0, &second) ||
       !numberAt(argCount, args, 6, 0, &milli)) {
     csVMRuntimeError("Date.UTC expects numbers for its components");
     return false;
   }
 
-  *result = NUMBER_VAL(
-      (double)daysFromCivil((int)year, (int)month, (int)day) * 86400000.0 +
-      hour * 3600000.0 + minute * 60000.0 + second * 1000.0 + milli);
+  *result = NUMBER_VAL((double)daysFromCivil((int)year, (int)month, (int)day) * 86400000.0 + hour * 3600000.0 + minute * 60000.0 + second * 1000.0 + milli);
   return true;
 }
 
@@ -496,8 +478,7 @@ static bool dateParse(Value receiver, int argCount, Value *args, Value *result) 
   return true;
 }
 
-static void defineStatic(ObjObject *statics, const char *name, NativeFn function,
-                         int arity) {
+static void defineStatic(ObjObject *statics, const char *name, NativeFn function, int arity) {
   ObjNative *native = csNativeNew(function, name, arity);
   csPushTempRoot((Obj *)native);
   csObjectSetProperty(statics, name, OBJ_VAL(native));

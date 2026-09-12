@@ -41,8 +41,7 @@ static bool bigintConvert(Value receiver, int argCount, Value *args, Value *resu
     ok = csBigFromDouble(&parsed, AS_NUMBER(from));
     if (!ok) {
       csBigFree(&parsed);
-      csVMRuntimeError("BigInt cannot convert %g — it is not a whole number",
-                       AS_NUMBER(from));
+      csVMRuntimeError("BigInt cannot convert %g — it is not a whole number", AS_NUMBER(from));
       return false;
     }
   } else if (IS_BOOL(from)) {
@@ -56,16 +55,13 @@ static bool bigintConvert(Value receiver, int argCount, Value *args, Value *resu
       chars++;
       length--;
     }
-    while (length > 0 && (chars[length - 1] == ' ' || chars[length - 1] == '\t' ||
-                          chars[length - 1] == '\n')) {
+    while (length > 0 && (chars[length - 1] == ' ' || chars[length - 1] == '\t' || chars[length - 1] == '\n')) {
       length--;
     }
-    ok = length == 0 ? csBigFromInt64(&parsed, 0)
-                     : csBigFromText(&parsed, chars, length);
+    ok = length == 0 ? csBigFromInt64(&parsed, 0) : csBigFromText(&parsed, chars, length);
     if (!ok) {
       csBigFree(&parsed);
-      csVMRuntimeError("BigInt cannot convert '%s' — it is not a whole number",
-                       text->chars);
+      csVMRuntimeError("BigInt cannot convert '%s' — it is not a whole number", text->chars);
       return false;
     }
   } else {
@@ -135,4 +131,6 @@ void csBigIntMethodsInstall(void) {
   defineBigIntMethod("valueOf", bigintValueOf, 0);
 }
 
-NativeFn csBigIntConstructorFn(void) { return bigintConvert; }
+NativeFn csBigIntConstructorFn(void) {
+  return bigintConvert;
+}

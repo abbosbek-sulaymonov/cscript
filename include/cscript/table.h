@@ -43,8 +43,7 @@ bool csTableDelete(Table *table, ObjString *key);
 void csTableAddAll(Table *from, Table *to);
 
 /* Intern-pool lookup: finds by contents rather than by pointer. */
-ObjString *csTableFindString(Table *table, const char *chars, int length,
-                             uint32_t hash);
+ObjString *csTableFindString(Table *table, const char *chars, int length, uint32_t hash);
 
 /* GC support. */
 void csTableMark(Table *table);

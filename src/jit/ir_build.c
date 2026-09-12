@@ -24,8 +24,7 @@
 int csIrNewRegister(IrFunction *ir, IrType type) {
   if (ir->registerCapacity < ir->registerCount + 1) {
     ir->registerCapacity = ir->registerCapacity < 16 ? 16 : ir->registerCapacity * 2;
-    ir->registerTypes =
-        (IrType *)realloc(ir->registerTypes, sizeof(IrType) * (size_t)ir->registerCapacity);
+    ir->registerTypes = (IrType *)realloc(ir->registerTypes, sizeof(IrType) * (size_t)ir->registerCapacity);
   }
   ir->registerTypes[ir->registerCount] = type;
   return ir->registerCount++;
@@ -34,8 +33,7 @@ int csIrNewRegister(IrFunction *ir, IrType type) {
 IrInst *csIrAppend(IrBlock *block, IrOp op, int line) {
   if (block->capacity < block->count + 1) {
     block->capacity = block->capacity < 8 ? 8 : block->capacity * 2;
-    block->instructions =
-        (IrInst *)realloc(block->instructions, sizeof(IrInst) * (size_t)block->capacity);
+    block->instructions = (IrInst *)realloc(block->instructions, sizeof(IrInst) * (size_t)block->capacity);
   }
   IrInst *inst = &block->instructions[block->count++];
   memset(inst, 0, sizeof *inst);
@@ -97,8 +95,7 @@ bool csIrMarkLeaders(const Chunk *chunk, bool *leader, const char **reason) {
  * Read at the moment the function turns hot, which is the only moment the
  * lowering has a running program to ask. What keeps the answer true
  * afterwards is checked again at every entry — see the guards on JitCode. */
-bool csIrGlobalHoldsNumber(const ObjFunction *function, const Chunk *chunk,
-                              int nameIndex) {
+bool csIrGlobalHoldsNumber(const ObjFunction *function, const Chunk *chunk, int nameIndex) {
   if (function->module == NULL) return false;
   if (nameIndex < 0 || nameIndex >= chunk->constants.count) return false;
 
@@ -116,8 +113,7 @@ bool csIrGlobalHoldsNumber(const ObjFunction *function, const Chunk *chunk,
  * and for the same reason: this is the only point at which the lowering has a
  * running program to consult. What keeps the answer true afterwards is
  * csIrInlinedCalleesHold, asked again at every entry. */
-ObjClosure *csIrGlobalCallable(const ObjFunction *function, const Chunk *chunk,
-                                  int nameIndex) {
+ObjClosure *csIrGlobalCallable(const ObjFunction *function, const Chunk *chunk, int nameIndex) {
   if (function->module == NULL) return NULL;
   if (nameIndex < 0 || nameIndex >= chunk->constants.count) return NULL;
 
@@ -155,8 +151,7 @@ static void recordArrivalTypes(IrFunction *ir, int block, const IrType *slotType
   }
 }
 
-bool csIrRecordArrival(IrFunction *ir, Lowering *low, int block,
-                          const IrType *slotType, int height) {
+bool csIrRecordArrival(IrFunction *ir, Lowering *low, int block, const IrType *slotType, int height) {
   if (block < 0 || block >= ir->blockCount || block >= IR_MAX_BLOCKS) return false;
   if (low->entryHeight[block] < 0) {
     low->entryHeight[block] = height;

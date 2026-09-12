@@ -47,7 +47,7 @@ static void jsonAppendString(JsonBuffer *out, const char *chars, int length) {
   for (int i = 0; i < length; i++) {
     char c = chars[i];
     switch (c) {
-      case '"':  jsonAppend(out, "\\\"", 2); break;
+      case '"': jsonAppend(out, "\\\"", 2); break;
       case '\\': jsonAppend(out, "\\\\", 2); break;
       case '\n': jsonAppend(out, "\\n", 2); break;
       case '\t': jsonAppend(out, "\\t", 2); break;
@@ -195,11 +195,9 @@ static void skipWhitespace(JsonParser *parser) {
 
 static bool parseValue(JsonParser *parser, Value *out);
 
-static bool parseLiteral(JsonParser *parser, const char *text, Value value,
-                         Value *out) {
+static bool parseLiteral(JsonParser *parser, const char *text, Value value, Value *out) {
   size_t length = strlen(text);
-  if ((size_t)(parser->end - parser->cursor) < length ||
-      memcmp(parser->cursor, text, length) != 0) {
+  if ((size_t)(parser->end - parser->cursor) < length || memcmp(parser->cursor, text, length) != 0) {
     return false;
   }
   parser->cursor += length;
@@ -295,9 +293,7 @@ static bool parseString(JsonParser *parser, Value *out) {
             free(buffer);
             return false; /* not four hex digits */
           }
-          if (code >= 0xd800 && code <= 0xdbff &&
-              parser->end - parser->cursor >= 6 && parser->cursor[0] == '\\' &&
-              parser->cursor[1] == 'u') {
+          if (code >= 0xd800 && code <= 0xdbff && parser->end - parser->cursor >= 6 && parser->cursor[0] == '\\' && parser->cursor[1] == 'u') {
             const char *before = parser->cursor;
             parser->cursor += 2;
             long low = readHex4(parser);
@@ -464,8 +460,7 @@ static bool parseValue(JsonParser *parser, Value *out) {
 static bool jsonParse(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   if (argCount < 1 || !IS_STRING(args[0])) {
-    csVMRuntimeError("JSON.parse expects a string, got %s",
-                     argCount >= 1 ? csValueTypeName(args[0]) : "no argument");
+    csVMRuntimeError("JSON.parse expects a string, got %s", argCount >= 1 ? csValueTypeName(args[0]) : "no argument");
     return false;
   }
 

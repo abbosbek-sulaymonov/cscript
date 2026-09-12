@@ -12,19 +12,19 @@
 #include "cscript/regex.h"
 
 typedef enum {
-  RE_CHAR,          /* one specific byte                       */
-  RE_ANY,           /* `.`                                     */
-  RE_CLASS,         /* a 256-bit set, indexed by `x`           */
-  RE_SPLIT,         /* try `x`, and on failure `y`             */
+  RE_CHAR,  /* one specific byte                       */
+  RE_ANY,   /* `.`                                     */
+  RE_CLASS, /* a 256-bit set, indexed by `x`           */
+  RE_SPLIT, /* try `x`, and on failure `y`             */
   RE_JUMP,
-  RE_SAVE,          /* record the current position in slot `x` */
+  RE_SAVE, /* record the current position in slot `x` */
   RE_ASSERT_BOL,
   RE_ASSERT_EOL,
-  RE_ASSERT_WORD,   /* \b, or \B when `x` is 0                 */
+  RE_ASSERT_WORD, /* \b, or \B when `x` is 0                 */
   /* `\1`..`\9`. Only a backtracker can have these: what they match is not
    * known until the group they name has matched, so no NFA simulation over a
    * fixed alphabet can express one. */
-  RE_BACKREF,       /* the text group `x` captured             */
+  RE_BACKREF, /* the text group `x` captured             */
   /* `(?=…)` and `(?!…)`. `x` is 1 when negated; `y` is where to continue when
    * the assertion holds. The body runs as a sub-match that consumes nothing. */
   RE_LOOK,
@@ -37,7 +37,7 @@ typedef enum {
    * bytes — and it is correct for a body of any shape, which a width
    * calculation would not be. */
   RE_LOOKBEHIND,
-  RE_LOOK_END,      /* the end of a lookahead or lookbehind body */
+  RE_LOOK_END, /* the end of a lookahead or lookbehind body */
   RE_MATCH,
 } ReOp;
 

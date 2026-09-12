@@ -1,11 +1,20 @@
 # Matches the style already in src/ and include/.
+#
+# The column limit is the length of the longest function signature in the tree
+# (parser_arrow.c's scanTemplate, at 168 characters). A signature broken across
+# lines and aligned under its open paren is harder to read than a long one, and
+# it moves every parameter when the function is renamed — so the limit is set
+# where no signature has to break at all.
 BasedOnStyle: Google
 IndentWidth: 2
-ColumnLimit: 90
+ColumnLimit: 168
 PointerAlignment: Right
 AllowShortFunctionsOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: WithoutElse
 AllowShortCaseLabelsOnASingleLine: true
 DerivePointerAlignment: false
-SortIncludes: true
+# Include order is semantic here, not alphabetical: vm.c pulls in the dispatch
+# fragments in the order their static functions have to be defined, and sorting
+# them breaks the build.
+SortIncludes: Never
 IncludeBlocks: Preserve

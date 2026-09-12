@@ -54,8 +54,7 @@ static void emitIdentifierStore(const AstNode *target, bool discard, int line) {
     errorAt(line, "'%.*s' is declared const and cannot be reassigned", length, name);
     return;
   }
-  emitGlobalOp(discard ? OP_SET_GLOBAL_POP : OP_SET_GLOBAL,
-               identifierConstant(name, length, line), line);
+  emitGlobalOp(discard ? OP_SET_GLOBAL_POP : OP_SET_GLOBAL, identifierConstant(name, length, line), line);
 }
 
 /* The jump that skips the store, for `&&=`, `||=` and `??=`.
@@ -66,9 +65,9 @@ static void emitIdentifierStore(const AstNode *target, bool discard, int line) {
  * is a property with a setter or a value someone is watching. */
 static uint8_t logicalSkipJump(AssignKind kind) {
   switch (kind) {
-    case ASSIGN_AND:     return OP_JUMP_IF_FALSE;
-    case ASSIGN_OR:      return OP_JUMP_IF_TRUE;
-    default:             return OP_JUMP_IF_NOT_NULLISH;
+    case ASSIGN_AND: return OP_JUMP_IF_FALSE;
+    case ASSIGN_OR: return OP_JUMP_IF_TRUE;
+    default: return OP_JUMP_IF_NOT_NULLISH;
   }
 }
 
@@ -95,8 +94,7 @@ static void compileReadModifyWrite(const AstNode *node, bool discard) {
     case AST_PROPERTY:
       compileNode(target->as.property.object);
       emitByte(OP_DUP, line);
-      nameConstant = identifierConstant(target->as.property.name,
-                                        target->as.property.length, line);
+      nameConstant = identifierConstant(target->as.property.name, target->as.property.length, line);
       if (isPrivateName(target->as.property.name, target->as.property.length)) {
         emitConstantOp(OP_GET_PRIVATE, nameConstant, line);
       } else {
@@ -113,10 +111,7 @@ static void compileReadModifyWrite(const AstNode *node, bool discard) {
       beneath = 2;
       break;
 
-    default:
-      compileIdentifierLoad(target->as.identifier.name,
-                            target->as.identifier.length, line);
-      break;
+    default: compileIdentifierLoad(target->as.identifier.name, target->as.identifier.length, line); break;
   }
 
   int skip = isLogical ? emitJump(logicalSkipJump(kind), line) : -1;
@@ -131,17 +126,14 @@ static void compileReadModifyWrite(const AstNode *node, bool discard) {
         emitConstantOp(OP_SET_PRIVATE, nameConstant, line);
         if (discard) emitByte(OP_POP, line);
       } else {
-        emitPropertyOp(discard ? OP_SET_PROPERTY_POP : OP_SET_PROPERTY,
-                       nameConstant, line);
+        emitPropertyOp(discard ? OP_SET_PROPERTY_POP : OP_SET_PROPERTY, nameConstant, line);
       }
       break;
     case AST_INDEX:
       emitByte(OP_SET_INDEX, line);
       if (discard) emitByte(OP_POP, line);
       break;
-    default:
-      emitIdentifierStore(target, discard, line);
-      break;
+    default: emitIdentifierStore(target, discard, line); break;
   }
 
   if (!isLogical) return;
@@ -167,14 +159,10 @@ void compileAssign(const AstNode *node, bool discard) {
     return;
   }
 
-  if (target->type == AST_PROPERTY &&
-      isPrivateName(target->as.property.name, target->as.property.length)) {
+  if (target->type == AST_PROPERTY && isPrivateName(target->as.property.name, target->as.property.length)) {
     compileNode(target->as.property.object);
     compileNode(node->as.assign.value);
-    emitConstantOp(OP_SET_PRIVATE,
-                   identifierConstant(target->as.property.name,
-                                      target->as.property.length, assignLine),
-                   assignLine);
+    emitConstantOp(OP_SET_PRIVATE, identifierConstant(target->as.property.name, target->as.property.length, assignLine), assignLine);
     if (discard) emitByte(OP_POP, assignLine);
     return;
   }
@@ -182,10 +170,7 @@ void compileAssign(const AstNode *node, bool discard) {
   if (target->type == AST_PROPERTY) {
     compileNode(target->as.property.object);
     compileNode(node->as.assign.value);
-    emitPropertyOp(discard ? OP_SET_PROPERTY_POP : OP_SET_PROPERTY,
-                   identifierConstant(target->as.property.name,
-                                      target->as.property.length, assignLine),
-                   assignLine);
+    emitPropertyOp(discard ? OP_SET_PROPERTY_POP : OP_SET_PROPERTY, identifierConstant(target->as.property.name, target->as.property.length, assignLine), assignLine);
     return;
   }
 
@@ -214,15 +199,13 @@ void compileUpdate(const AstNode *node) {
 
   int slot = resolveLocal(current, name, length);
   if (slot != -1 && current->locals[slot].isConst) {
-    errorAt(line, "'%.*s' is declared const and cannot be reassigned", length,
-            name);
+    errorAt(line, "'%.*s' is declared const and cannot be reassigned", length, name);
     return;
   }
   if (slot == -1) {
     GlobalDecl *global = findGlobal(name, length);
     if (global != NULL && global->isConst) {
-      errorAt(line, "'%.*s' is declared const and cannot be reassigned",
-              length, name);
+      errorAt(line, "'%.*s' is declared const and cannot be reassigned", length, name);
       return;
     }
   }
@@ -302,16 +285,13 @@ void compileForEffect(const AstNode *node) {
     int slot = resolveLocal(current, name, length);
 
     if (slot != -1 && !current->locals[slot].isConst) {
-      emitBytes(node->as.update.isIncrement ? OP_INC_LOCAL : OP_DEC_LOCAL,
-                (uint8_t)slot, node->line);
+      emitBytes(node->as.update.isIncrement ? OP_INC_LOCAL : OP_DEC_LOCAL, (uint8_t)slot, node->line);
       return;
     }
   }
 
   /* An assignment whose value is discarded fuses its store with the pop. */
-  if (node != NULL && node->type == AST_ASSIGN &&
-      (node->as.assign.target->type == AST_IDENTIFIER ||
-       node->as.assign.target->type == AST_PROPERTY)) {
+  if (node != NULL && node->type == AST_ASSIGN && (node->as.assign.target->type == AST_IDENTIFIER || node->as.assign.target->type == AST_PROPERTY)) {
     compileAssign(node, true);
     return;
   }

@@ -115,8 +115,7 @@ static bool fsRead(Value receiver, int argCount, Value *args, Value *result) {
 }
 
 /* The body of both write and append, which differ only in the mode. */
-static bool writeWithMode(int argCount, Value *args, Value *result,
-                          const char *mode, const char *forWhat) {
+static bool writeWithMode(int argCount, Value *args, Value *result, const char *mode, const char *forWhat) {
   ObjString *path = pathArgument(argCount, args, forWhat);
   if (path == NULL) return false;
   if (argCount < 2 || !IS_STRING(args[1])) {
@@ -128,9 +127,7 @@ static bool writeWithMode(int argCount, Value *args, Value *result,
   FILE *file = fopen(path->chars, mode);
   if (file == NULL) return failure(errno, result);
 
-  size_t written = text->length > 0
-                       ? fwrite(text->chars, 1, (size_t)text->length, file)
-                       : 0;
+  size_t written = text->length > 0 ? fwrite(text->chars, 1, (size_t)text->length, file) : 0;
   /* Closing is what flushes, so its failure is the write's failure — a
    * successful fwrite into a buffer that never reached the disk is not a
    * successful write. */
@@ -175,8 +172,7 @@ static bool fsStat(Value receiver, int argCount, Value *args, Value *result) {
   csObjectSetProperty(answer, "isDirectory", BOOL_VAL(S_ISDIR(info.st_mode)));
   csObjectSetProperty(answer, "isFile", BOOL_VAL(S_ISREG(info.st_mode)));
   /* Milliseconds since 1970, which is what a Date is here. */
-  csObjectSetProperty(answer, "modifiedMs",
-                      NUMBER_VAL((double)info.st_mtime * 1000.0));
+  csObjectSetProperty(answer, "modifiedMs", NUMBER_VAL((double)info.st_mtime * 1000.0));
   return finishAnswer(answer, result);
 }
 
@@ -222,8 +218,7 @@ static bool fsList(Value receiver, int argCount, Value *args, Value *result) {
 
   ObjArray *entries = csArrayNew();
   csPushTempRoot((Obj *)entries);
-  for (struct dirent *entry = readdir(directory); entry != NULL;
-       entry = readdir(directory)) {
+  for (struct dirent *entry = readdir(directory); entry != NULL; entry = readdir(directory)) {
     if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
       continue;
     }

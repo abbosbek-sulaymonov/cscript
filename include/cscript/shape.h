@@ -42,8 +42,8 @@
 struct Shape {
   Obj obj;
 
-  Shape *parent; /* the shape this one adds a single key to */
-  ObjString *key;       /* the key it adds; NULL at the root */
+  Shape *parent;  /* the shape this one adds a single key to */
+  ObjString *key; /* the key it adds; NULL at the root */
   int slotCount;
 
   /* name -> NUMBER_VAL(slot). Flat rather than a chain walk, so a cache miss

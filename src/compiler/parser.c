@@ -13,8 +13,6 @@
 #include "cscript/parser.h"
 #include "compiler/parser_internal.h"
 
-
-
 void advanceToken(Parser *parser) {
   parser->previous = parser->current;
   for (;;) {
@@ -36,8 +34,7 @@ bool matchToken(Parser *parser, TokenType type) {
 }
 
 void errorAtCurrent(Parser *parser, const char *message) {
-  csDiagnosticError(parser->diag, parser->current.line, parser->current.start,
-                    parser->current.length, "%s", message);
+  csDiagnosticError(parser->diag, parser->current.line, parser->current.start, parser->current.length, "%s", message);
 }
 
 void consume(Parser *parser, TokenType type, const char *message) {
@@ -69,10 +66,8 @@ void synchronize(Parser *parser) {
       case TOKEN_IF:
       case TOKEN_WHILE:
       case TOKEN_FOR:
-      case TOKEN_RETURN:
-        return;
-      default:
-        break;
+      case TOKEN_RETURN: return;
+      default: break;
     }
     advanceToken(parser);
   }
@@ -82,58 +77,56 @@ void synchronize(Parser *parser) {
  * operator. */
 Precedence binaryPrecedence(TokenType type) {
   switch (type) {
-    case TOKEN_PIPE_PIPE:           return PREC_OR;
+    case TOKEN_PIPE_PIPE: return PREC_OR;
     /* `??` sits on the same tier as `||`. JavaScript then forbids mixing the
      * two without parentheses rather than picking a winner, because either
      * choice would be a coin-flip for the reader; parsePrecedence enforces
      * that separately. */
-    case TOKEN_QUESTION_QUESTION:   return PREC_OR;
-    case TOKEN_AMP_AMP:             return PREC_AND;
+    case TOKEN_QUESTION_QUESTION: return PREC_OR;
+    case TOKEN_AMP_AMP: return PREC_AND;
     case TOKEN_EQUAL_EQUAL_EQUAL:
-    case TOKEN_BANG_EQUAL_EQUAL:    return PREC_EQUALITY;
+    case TOKEN_BANG_EQUAL_EQUAL: return PREC_EQUALITY;
     case TOKEN_LESS:
     case TOKEN_LESS_EQUAL:
     case TOKEN_GREATER:
     case TOKEN_GREATER_EQUAL:
-    case TOKEN_INSTANCEOF:          return PREC_COMPARISON;
-    case TOKEN_IN:                  return PREC_COMPARISON;
+    case TOKEN_INSTANCEOF: return PREC_COMPARISON;
+    case TOKEN_IN: return PREC_COMPARISON;
     case TOKEN_PLUS:
-    case TOKEN_MINUS:               return PREC_TERM;
+    case TOKEN_MINUS: return PREC_TERM;
     case TOKEN_STAR:
     case TOKEN_SLASH:
-    case TOKEN_PERCENT:             return PREC_FACTOR;
-    case TOKEN_STAR_STAR:           return PREC_EXPONENT;
-    default:                        return PREC_NONE;
+    case TOKEN_PERCENT: return PREC_FACTOR;
+    case TOKEN_STAR_STAR: return PREC_EXPONENT;
+    default: return PREC_NONE;
   }
 }
 
 BinaryOp binaryOpFor(TokenType type) {
   switch (type) {
-    case TOKEN_PLUS:                return BINARY_ADD;
-    case TOKEN_MINUS:               return BINARY_SUBTRACT;
-    case TOKEN_STAR:                return BINARY_MULTIPLY;
-    case TOKEN_SLASH:               return BINARY_DIVIDE;
-    case TOKEN_PERCENT:             return BINARY_MODULO;
-    case TOKEN_STAR_STAR:           return BINARY_EXPONENT;
-    case TOKEN_EQUAL_EQUAL_EQUAL:   return BINARY_EQUAL;
-    case TOKEN_BANG_EQUAL_EQUAL:    return BINARY_NOT_EQUAL;
-    case TOKEN_GREATER:             return BINARY_GREATER;
-    case TOKEN_GREATER_EQUAL:       return BINARY_GREATER_EQUAL;
-    case TOKEN_LESS:                return BINARY_LESS;
-    case TOKEN_LESS_EQUAL:          return BINARY_LESS_EQUAL;
-    case TOKEN_INSTANCEOF:          return BINARY_INSTANCEOF;
-    case TOKEN_IN:                  return BINARY_IN;
-    default:                        return BINARY_ADD; /* unreachable */
+    case TOKEN_PLUS: return BINARY_ADD;
+    case TOKEN_MINUS: return BINARY_SUBTRACT;
+    case TOKEN_STAR: return BINARY_MULTIPLY;
+    case TOKEN_SLASH: return BINARY_DIVIDE;
+    case TOKEN_PERCENT: return BINARY_MODULO;
+    case TOKEN_STAR_STAR: return BINARY_EXPONENT;
+    case TOKEN_EQUAL_EQUAL_EQUAL: return BINARY_EQUAL;
+    case TOKEN_BANG_EQUAL_EQUAL: return BINARY_NOT_EQUAL;
+    case TOKEN_GREATER: return BINARY_GREATER;
+    case TOKEN_GREATER_EQUAL: return BINARY_GREATER_EQUAL;
+    case TOKEN_LESS: return BINARY_LESS;
+    case TOKEN_LESS_EQUAL: return BINARY_LESS_EQUAL;
+    case TOKEN_INSTANCEOF: return BINARY_INSTANCEOF;
+    case TOKEN_IN: return BINARY_IN;
+    default: return BINARY_ADD; /* unreachable */
   }
 }
 
-
 /* Decodes a string literal's escape sequences into a fresh arena buffer.
  * `start`/`length` cover the lexeme including both quotes. */
-AstNode *makeStringLiteral(Parser *parser, const char *start, int length,
-                                  int line) {
-  const char *src = start + 1;   /* skip the opening quote */
-  int srcLength = length - 2;    /* and the closing one */
+AstNode *makeStringLiteral(Parser *parser, const char *start, int length, int line) {
+  const char *src = start + 1; /* skip the opening quote */
+  int srcLength = length - 2;  /* and the closing one */
   if (srcLength < 0) srcLength = 0;
 
   /* Decoding only ever shrinks, so the source length is a safe upper bound. */
@@ -149,13 +142,13 @@ AstNode *makeStringLiteral(Parser *parser, const char *start, int length,
 
     i++;
     switch (src[i]) {
-      case 'n':  buffer[out++] = '\n'; break;
-      case 't':  buffer[out++] = '\t'; break;
-      case 'r':  buffer[out++] = '\r'; break;
-      case '0':  buffer[out++] = '\0'; break;
+      case 'n': buffer[out++] = '\n'; break;
+      case 't': buffer[out++] = '\t'; break;
+      case 'r': buffer[out++] = '\r'; break;
+      case '0': buffer[out++] = '\0'; break;
       case '\\': buffer[out++] = '\\'; break;
       case '\'': buffer[out++] = '\''; break;
-      case '"':  buffer[out++] = '"';  break;
+      case '"': buffer[out++] = '"'; break;
       default:
         /* Unknown escape: JS keeps the character as written. */
         buffer[out++] = src[i];
@@ -190,13 +183,11 @@ double parseNumberLiteral(const char *start, int length) {
  * produce a node: CScript has no coercing equality. See docs/GRAMMAR.md. */
 bool rejectLooseEquality(Parser *parser) {
   if (check(parser, TOKEN_EQUAL_EQUAL)) {
-    errorAtCurrent(parser,
-                   "'==' is not supported because it coerces its operands; use '==='");
+    errorAtCurrent(parser, "'==' is not supported because it coerces its operands; use '==='");
     return true;
   }
   if (check(parser, TOKEN_BANG_EQUAL)) {
-    errorAtCurrent(parser,
-                   "'!=' is not supported because it coerces its operands; use '!=='");
+    errorAtCurrent(parser, "'!=' is not supported because it coerces its operands; use '!=='");
     return true;
   }
   return false;
@@ -214,11 +205,9 @@ bool consumePropertyName(Parser *parser, const char *message) {
   }
 
   bool wordLike = parser->current.length > 0 &&
-                  ((parser->current.start[0] >= 'a' && parser->current.start[0] <= 'z') ||
-                   (parser->current.start[0] >= 'A' && parser->current.start[0] <= 'Z') ||
+                  ((parser->current.start[0] >= 'a' && parser->current.start[0] <= 'z') || (parser->current.start[0] >= 'A' && parser->current.start[0] <= 'Z') ||
                    parser->current.start[0] == '_' || parser->current.start[0] == '$');
-  if (!wordLike || parser->current.type == TOKEN_STRING ||
-      parser->current.type == TOKEN_NUMBER) {
+  if (!wordLike || parser->current.type == TOKEN_STRING || parser->current.type == TOKEN_NUMBER) {
     errorAtCurrent(parser, message);
     return false;
   }
@@ -234,8 +223,7 @@ bool nameIsWord(const char *name, int length, const char *word) {
 }
 
 bool checkWord(Parser *parser, const char *word) {
-  return check(parser, TOKEN_IDENTIFIER) &&
-         nameIsWord(parser->current.start, parser->current.length, word);
+  return check(parser, TOKEN_IDENTIFIER) && nameIsWord(parser->current.start, parser->current.length, word);
 }
 
 /* Whether the token after the current one opens a function. Used to tell
@@ -253,15 +241,13 @@ bool nextStartsArrowParams(Parser *parser) {
   return next.type == TOKEN_LEFT_PAREN || next.type == TOKEN_IDENTIFIER;
 }
 
-
-
 /* `&&= ||= ??=`. Not compound assignment: these short-circuit, so the right
  * side is not evaluated and no store happens when the left side already
  * decides the answer. */
 bool logicalAssignKind(TokenType type, AssignKind *out) {
   switch (type) {
-    case TOKEN_AMP_AMP_EQUAL:           *out = ASSIGN_AND; return true;
-    case TOKEN_PIPE_PIPE_EQUAL:         *out = ASSIGN_OR; return true;
+    case TOKEN_AMP_AMP_EQUAL: *out = ASSIGN_AND; return true;
+    case TOKEN_PIPE_PIPE_EQUAL: *out = ASSIGN_OR; return true;
     case TOKEN_QUESTION_QUESTION_EQUAL: *out = ASSIGN_NULLISH; return true;
     default: return false;
   }
@@ -270,19 +256,15 @@ bool logicalAssignKind(TokenType type, AssignKind *out) {
 /* Maps a compound assignment token to the operation it expands to. */
 bool compoundAssignOp(TokenType type, BinaryOp *out) {
   switch (type) {
-    case TOKEN_PLUS_EQUAL:    *out = BINARY_ADD; return true;
-    case TOKEN_MINUS_EQUAL:   *out = BINARY_SUBTRACT; return true;
-    case TOKEN_STAR_EQUAL:    *out = BINARY_MULTIPLY; return true;
-    case TOKEN_SLASH_EQUAL:   *out = BINARY_DIVIDE; return true;
+    case TOKEN_PLUS_EQUAL: *out = BINARY_ADD; return true;
+    case TOKEN_MINUS_EQUAL: *out = BINARY_SUBTRACT; return true;
+    case TOKEN_STAR_EQUAL: *out = BINARY_MULTIPLY; return true;
+    case TOKEN_SLASH_EQUAL: *out = BINARY_DIVIDE; return true;
     case TOKEN_PERCENT_EQUAL: *out = BINARY_MODULO; return true;
     case TOKEN_STAR_STAR_EQUAL: *out = BINARY_EXPONENT; return true;
     default: return false;
   }
 }
-
-
-
-
 
 /* Parses `: TypeName` if present. Returns false only on a malformed one. */
 bool parseTypeAnnotation(Parser *parser, TypeKind *type, bool *present) {
@@ -304,15 +286,12 @@ bool parseTypeAnnotation(Parser *parser, TypeKind *type, bool *present) {
     /* Some names are wrong in a way worth answering rather than merely
      * rejecting — `any` above all, which is the one a reader reaches for
      * first and the one this language is built on not having. */
-    const char *why = csTypeRejectedName(parser->previous.start,
-                                         parser->previous.length);
+    const char *why = csTypeRejectedName(parser->previous.start, parser->previous.length);
     if (why != NULL) {
-      csDiagnosticError(parser->diag, parser->previous.line, parser->previous.start,
-                        parser->previous.length, "%s", why);
+      csDiagnosticError(parser->diag, parser->previous.line, parser->previous.start, parser->previous.length, "%s", why);
     } else {
-      csDiagnosticError(parser->diag, parser->previous.line, parser->previous.start,
-                        parser->previous.length, "unknown type '%.*s'",
-                        parser->previous.length, parser->previous.start);
+      csDiagnosticError(parser->diag, parser->previous.line, parser->previous.start, parser->previous.length, "unknown type '%.*s'", parser->previous.length,
+                        parser->previous.start);
     }
     return false;
   }
@@ -320,16 +299,10 @@ bool parseTypeAnnotation(Parser *parser, TypeKind *type, bool *present) {
   return true;
 }
 
-
-
-
-
-
 bool nameIs(const char *name, int length, const char *word) {
   int wordLength = (int)strlen(word);
   return length == wordLength && memcmp(name, word, (size_t)wordLength) == 0;
 }
-
 
 /* True when the current token is the given contextual keyword. */
 bool checkContextual(Parser *parser, const char *word) {
@@ -342,27 +315,12 @@ bool matchContextual(Parser *parser, const char *word) {
   return true;
 }
 
-
-
-
-
-
-
-
 /* `const [a, b, ...rest] = xs;` and `const { x, y: alias, z = 1 } = o;`
  *
  * Both forms compile to the loads and stores they stand for, so nothing new
  * exists at run time. Nested patterns are not supported and say so. */
 
-
 /* `let x = 1;` / `const y = 2;` — `var` is rejected in parseStatement. */
-
-
-
-
-
-
-
 
 AstNode *csParse(const char *source, AstArena *arena, Diagnostics *diag) {
   Parser parser;
@@ -397,8 +355,7 @@ AstNode *csParse(const char *source, AstArena *arena, Diagnostics *diag) {
     if (diag->panicMode) synchronize(&parser);
 
     if (diag->errorCount >= maxReportedErrors) {
-      fprintf(stderr, "%s: too many errors; stopping after %d\n", diag->sourceName,
-              maxReportedErrors);
+      fprintf(stderr, "%s: too many errors; stopping after %d\n", diag->sourceName, maxReportedErrors);
       break;
     }
   }

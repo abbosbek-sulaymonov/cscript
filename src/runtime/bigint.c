@@ -40,7 +40,9 @@ bool csBigCopy(BigInt *out, const BigInt *from) {
   return true;
 }
 
-bool csBigIsZero(const BigInt *value) { return value->count == 0; }
+bool csBigIsZero(const BigInt *value) {
+  return value->count == 0;
+}
 
 bool csBigFromInt64(BigInt *out, int64_t value) {
   bool negative = value < 0;
@@ -143,8 +145,7 @@ bool csBigMultiply(BigInt *out, const BigInt *a, const BigInt *b) {
   for (int i = 0; i < a->count; i++) {
     uint64_t carry = 0;
     for (int j = 0; j < b->count; j++) {
-      uint64_t at = (uint64_t)product.limbs[i + j] +
-                    (uint64_t)a->limbs[i] * (uint64_t)b->limbs[j] + carry;
+      uint64_t at = (uint64_t)product.limbs[i + j] + (uint64_t)a->limbs[i] * (uint64_t)b->limbs[j] + carry;
       product.limbs[i + j] = (uint32_t)(at & 0xffffffffu);
       carry = at >> 32;
     }
@@ -176,8 +177,7 @@ static uint32_t divideBySmall(BigInt *value, uint32_t divisor) {
  * Knuth's algorithm D is much faster and much easier to get subtly wrong. The
  * numbers a script divides are small, and being able to read this and believe
  * it is worth more here than the constant factor. */
-static bool divideMagnitude(BigInt *quotient, BigInt *remainder, const BigInt *a,
-                            const BigInt *b) {
+static bool divideMagnitude(BigInt *quotient, BigInt *remainder, const BigInt *a, const BigInt *b) {
   if (!reserve(quotient, a->count)) return false;
   if (!reserve(remainder, 0)) return false;
 
@@ -343,9 +343,16 @@ bool csBigFromText(BigInt *out, const char *text, int length) {
   int radix = 10;
   if (at + 1 < length && text[at] == '0') {
     char marker = text[at + 1];
-    if (marker == 'x' || marker == 'X') { radix = 16; at += 2; }
-    else if (marker == 'o' || marker == 'O') { radix = 8; at += 2; }
-    else if (marker == 'b' || marker == 'B') { radix = 2; at += 2; }
+    if (marker == 'x' || marker == 'X') {
+      radix = 16;
+      at += 2;
+    } else if (marker == 'o' || marker == 'O') {
+      radix = 8;
+      at += 2;
+    } else if (marker == 'b' || marker == 'B') {
+      radix = 2;
+      at += 2;
+    }
   }
   if (at >= length) return false;
 
@@ -408,16 +415,13 @@ bool csBigFromDouble(BigInt *out, double value) {
   csBigInit(&two);
   csBigInit(&scale);
   csBigInit(&power);
-  bool ok = csBigFromInt64(&two, 2) &&
-            csBigFromInt64(&power, exponent > 0 ? exponent : -exponent) &&
-            csBigPower(&scale, &two, &power);
+  bool ok = csBigFromInt64(&two, 2) && csBigFromInt64(&power, exponent > 0 ? exponent : -exponent) && csBigPower(&scale, &two, &power);
   if (ok) {
     BigInt scaled;
     csBigInit(&scaled);
     /* Dividing is exact here: `value` is whole, so the low bits it is being
      * shifted down past are all zero. */
-    ok = exponent > 0 ? csBigMultiply(&scaled, out, &scale)
-                      : csBigDivide(&scaled, out, &scale);
+    ok = exponent > 0 ? csBigMultiply(&scaled, out, &scale) : csBigDivide(&scaled, out, &scale);
     if (ok) {
       csBigFree(out);
       *out = scaled;
