@@ -1,0 +1,77 @@
+import { levenshtein, similarity, closest, diffLines, formatDiff, slugify,
+         style, bold, dim, red, green, yellow, blue, stripStyle, width, table,
+         columns, naturalCompare, setColour, isColoured } from "std:text";
+import { equal, deepEqual, ok, notOk, messageOf, throws } from "std:assert";
+
+equal(levenshtein("kitten", "sitting"), 3);
+equal(levenshtein("", "abc"), 3);
+equal(levenshtein("abc", ""), 3);
+equal(levenshtein("same", "same"), 0);
+equal(levenshtein("a", "b"), 1);
+equal(similarity("same", "same"), 1);
+equal(similarity("", ""), 1);
+equal(similarity("abc", "xyz"), 0);
+equal(similarity("hello", "hallo"), 0.8);
+
+equal(closest("comit", ["commit", "checkout", "clone"]), "commit");
+equal(closest("chekout", ["commit", "checkout"]), "checkout");
+equal(closest("zzzzzz", ["commit"]), undefined, "nothing close enough");
+equal(closest("comit", ["commit"], 0.95), undefined, "with a stricter threshold");
+
+const changes = diffLines("a\nb\nc", "a\nx\nc");
+deepEqual(changes, [{ kind: "same", text: "a" }, { kind: "removed", text: "b" },
+                    { kind: "added", text: "x" }, { kind: "same", text: "c" }]);
+equal(formatDiff(changes), "  a\n- b\n+ x\n  c");
+equal(formatDiff(changes, 0), "- b\n+ x", "with no context");
+
+/* The minimal diff: an inserted line does not make everything after it
+ * changed, which is the diff everybody has seen and nobody can read. */
+const inserted = diffLines("a\nb", "a\nnew\nb");
+deepEqual(inserted, [{ kind: "same", text: "a" }, { kind: "added", text: "new" },
+                     { kind: "same", text: "b" }]);
+deepEqual(diffLines("", "a"), [{ kind: "added", text: "a" }]);
+deepEqual(diffLines("a", ""), [{ kind: "removed", text: "a" }]);
+deepEqual(diffLines("", ""), []);
+
+equal(slugify("Hello, World! 42"), "hello-world-42");
+equal(slugify("  spaced  out  "), "spaced-out");
+equal(slugify("a__b", "_"), "a_b");
+equal(slugify("!!!"), "");
+
+/* Widths are measured with the escapes stripped, which is why a coloured
+ * column lines up with a plain one. */
+ok(isColoured());
+equal(width(bold("hi")), 2);
+equal(bold("hi").length, 10);
+equal(stripStyle(red("x")), "x");
+equal(stripStyle("plain"), "plain");
+equal(style("x"), "x", "no styles is no escapes");
+equal(style("x", "bold", "red"), style("x", "bold", "red"));
+ok(messageOf(throws(() => style("x", "plaid"))).includes("unknown style"));
+for (const paint of [dim, green, yellow, blue]) equal(width(paint("ab")), 2);
+
+setColour(false);
+equal(bold("hi"), "hi", "and a program that is not on a terminal turns it off");
+notOk(isColoured());
+setColour(true);
+
+equal(table([["a", 1], ["bbb", 22]], { head: ["name", "n"], align: ["left", "right"] }),
+      "name   n\n----  --\na      1\nbbb   22");
+equal(table([["x"]]), "x");
+equal(table([]), "");
+equal(table([["a", "b"], ["c"]]), "a  b\nc", "a short row is padded, not refused");
+equal(width(table([[bold("a"), 1]]).split("\n")[0]), width("a  1"),
+      "a styled cell takes its visible width");
+
+equal(columns(["one", "two", "three", "four", "five"], { width: 20 }),
+      "one    three  five\ntwo    four");
+equal(columns([]), "");
+
+deepEqual(["item10", "item2", "item1"].sort(naturalCompare), ["item1", "item2", "item10"]);
+deepEqual(["a", "b"].sort(naturalCompare), ["a", "b"]);
+deepEqual(["x2y", "x10y"].sort(naturalCompare), ["x2y", "x10y"]);
+
+console.log(formatDiff(diffLines("one\ntwo", "one\nTWO")));
+console.log(table([["file", "lines"], ["a.cx", 12]], { align: ["left", "right"] }));
+console.log(closest("comit", ["commit", "clone"]), slugify("A Title, Here"));
+console.log("text ok");

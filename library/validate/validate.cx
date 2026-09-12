@@ -1,0 +1,250 @@
+/* validate.cx — checking that data from outside is the shape it claims.
+ *
+ * CScript's type checker proves what it can see. It cannot see a parsed JSON
+ * body, a row from a CSV file or an environment variable — those arrive as
+ * `any`, and the annotation on the function that receives one is a comment.
+ * This is the check that makes it true at the boundary, once, so that
+ * everything inside can rely on it.
+ *
+ * A schema is a value built from the functions below, and `check` answers a
+ * [`Result`](../result): the value, or **every** error found rather than the
+ * first, each with the path it was found at. One error at a time is what makes
+ * filling in a form take six attempts.
+ *
+ *   const user = object({
+ *     name: string().min(1),
+ *     age: number().integer().min(0),
+ *     tags: optional(array(string())),
+ *   });
+ *   user.check(parsed).unwrapOr(defaults);
+ */
+import { Result } from "std:result";
+import { kindOf } from "std:kind";
+
+/* Every schema is one of these. `rules` is a list of functions answering an
+ * error string or null, applied in order after the kind is confirmed. */
+class Schema {
+  #kind: string;
+  #rules: any;
+  #optional: boolean;
+  #fallback: any;
+
+  constructor(kind: string, rules: any = null, isOptional: boolean = false,
+              fallback: any = undefined) {
+    this.#kind = kind;
+    this.#rules = rules === null ? [] : rules;
+    this.#optional = isOptional;
+    this.#fallback = fallback;
+  }
+
+  get kind(): string {
+    return this.#kind;
+  }
+
+  get isOptional(): boolean {
+    return this.#optional;
+  }
+
+  get fallback(): any {
+    return this.#fallback;
+  }
+
+  get rules(): any {
+    return this.#rules;
+  }
+
+  /* Every builder answers a *new* schema rather than changing this one, so a
+   * schema shared between two shapes cannot be altered by either. */
+  #with(rule: any): any {
+    const rules: any = [];
+    for (const existing of this.#rules) rules.push(existing);
+    rules.push(rule);
+    return new Schema(this.#kind, rules, this.#optional, this.#fallback);
+  }
+
+  optional(fallback: any = undefined): any {
+    return new Schema(this.#kind, this.#rules, true, fallback);
+  }
+
+  /* --- the constraints -------------------------------------------------- */
+
+  min(limit: number): any {
+    return this.#with((value: any) => {
+      const size = this.#kind === "number" ? value : value.length;
+      if (size >= limit) return null;
+      return this.#kind === "number" ? "must be at least " + String(limit)
+                                     : "must have at least " + String(limit) + " of them";
+    });
+  }
+
+  max(limit: number): any {
+    return this.#with((value: any) => {
+      const size = this.#kind === "number" ? value : value.length;
+      if (size <= limit) return null;
+      return this.#kind === "number" ? "must be at most " + String(limit)
+                                     : "must have at most " + String(limit) + " of them";
+    });
+  }
+
+  length(exact: number): any {
+    return this.#with((value: any) =>
+        value.length === exact ? null
+                               : "must be exactly " + String(exact) + " long");
+  }
+
+  integer(): any {
+    return this.#with((value: any) =>
+        value === Math.floor(value) ? null : "must be a whole number");
+  }
+
+  /* A regular expression, or a plain string that must appear. */
+  matches(pattern: any, described: any = null): any {
+    return this.#with((value: any) => {
+      const ok = typeof pattern === "string" ? value.includes(pattern)
+                                             : pattern.test(value);
+      if (ok) return null;
+      return described === null ? "does not match " + String(pattern)
+                                : "must be " + described;
+    });
+  }
+
+  oneOf(allowed: any): any {
+    return this.#with((value: any) => {
+      for (const candidate of allowed) {
+        if (candidate === value) return null;
+      }
+      const names: any = [];
+      for (const candidate of allowed) names.push(String(candidate));
+      return "must be one of " + names.join(", ");
+    });
+  }
+
+  /* Anything the builders do not cover: answer null to accept, or a sentence
+   * saying what is wrong. The sentence is the error, so it should finish
+   * "this field …". */
+  check_(test: any, message: string): any {
+    return this.#with((value: any) => test(value) ? null : message);
+  }
+
+  /* --- running it -------------------------------------------------------- */
+
+  /* `Result.ok(value)` or `Result.err([{ path, message }, …])`. */
+  check(value: any): any {
+    const problems: any = [];
+    const checked = run(this, value, "", problems);
+    if (problems.length > 0) return Result.err(problems);
+    return Result.ok(checked);
+  }
+
+  /* The same, as a list of `"path: message"` lines — what a command-line
+   * program prints. */
+  explain(value: any): any {
+    return this.check(value).mapErr((problems: any) => {
+      const lines: any = [];
+      for (const problem of problems) {
+        lines.push((problem.path === "" ? "value" : problem.path) + ": " + problem.message);
+      }
+      return lines;
+    });
+  }
+}
+
+/* The walk. Adds to `problems` and answers the value — coerced where a schema
+ * says so, and left alone otherwise. */
+function run(schema: any, value: any, path: string, problems: any): any {
+  if (value === undefined || value === null) {
+    if (schema.isOptional) return schema.fallback;
+    problems.push({ path: path, message: "is required" });
+    return undefined;
+  }
+
+  const kind = kindOf(value);
+
+  if (schema.kind === "object") {
+    if (kind !== "object") {
+      problems.push({ path: path, message: "must be an object, got " + kind });
+      return value;
+    }
+    const shape = schema.rules[0];
+    const out: any = {};
+    for (const key of Object.keys(shape)) {
+      const inner = path === "" ? key : path + "." + key;
+      const held = value?.[key];
+      const checked = run(shape[key], held, inner, problems);
+      if (checked !== undefined) out[key] = checked;
+    }
+    /* Unknown keys are dropped rather than refused. A body with an extra field
+     * is the normal way an API grows, and refusing it makes the old client
+     * break on the new server. */
+    return out;
+  }
+
+  if (schema.kind === "array") {
+    if (kind !== "array") {
+      problems.push({ path: path, message: "must be an array, got " + kind });
+      return value;
+    }
+    const inner = schema.rules[0];
+    const out: any = [];
+    for (let i = 0; i < value.length; i++) {
+      out.push(run(inner, value[i], path + "[" + String(i) + "]", problems));
+    }
+    /* The length rules are the ones after the element schema. */
+    for (let i = 1; i < schema.rules.length; i++) {
+      const message = schema.rules[i](value);
+      if (message !== null) problems.push({ path: path, message: message });
+    }
+    return out;
+  }
+
+  if (schema.kind !== "any" && kind !== schema.kind) {
+    problems.push({ path: path, message: "must be a " + schema.kind + ", got " + kind });
+    return value;
+  }
+
+  for (const rule of schema.rules) {
+    const message = rule(value);
+    if (message !== null) problems.push({ path: path, message: message });
+  }
+  return value;
+}
+
+/* --- the builders --------------------------------------------------------- */
+
+export function string(): any {
+  return new Schema("string");
+}
+
+export function number(): any {
+  return new Schema("number");
+}
+
+export function boolean(): any {
+  return new Schema("boolean");
+}
+
+/* Anything at all, for a field whose shape is genuinely open — a JSON blob
+ * being passed through. Still required unless made optional. */
+export function anything(): any {
+  return new Schema("any");
+}
+
+/* `array(string())`, with `min`/`max`/`length` applying to how many. */
+export function array(inner: any): any {
+  return new Schema("array", [inner]);
+}
+
+/* `object({ name: string(), age: number() })`. */
+export function object(shape: any): any {
+  return new Schema("object", [shape]);
+}
+
+/* `optional(string())`, or with something to use instead. */
+export function optional(inner: any, fallback: any = undefined): any {
+  return inner.optional(fallback);
+}
+
+/* A value from a fixed set, whatever its type. */
+export function literal(allowed: any): any {
+  return new Schema("any").oneOf(allowed);
+}

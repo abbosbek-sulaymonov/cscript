@@ -1,0 +1,70 @@
+import { Decimal } from "std:decimal";
+import { equal, deepEqual, ok, notOk, messageOf, throws } from "std:assert";
+
+/* The reason the module exists. */
+notOk(0.1 + 0.2 === 0.3);
+equal(String(Decimal.parse("0.1").add(Decimal.parse("0.2"))), "0.3");
+
+let total = Decimal.zero(2);
+for (let i = 0; i < 1000; i++) total = total.add(Decimal.parse("0.10"));
+equal(String(total), "100.00", "a thousand additions with no drift");
+equal(total.toNumber(), 100);
+
+equal(String(Decimal.parse("12.34")), "12.34");
+equal(String(Decimal.parse("-0.05")), "-0.05");
+equal(String(Decimal.parse("1.500")), "1.500", "the scale comes from the text");
+equal(String(Decimal.parse(" 42 ")), "42");
+equal(String(Decimal.parse(".5")), "0.5");
+equal(Decimal.parse("12.34").units, 1234);
+equal(Decimal.parse("12.34").scale, 2);
+equal(String(Decimal.of(5, 2)), "5.00");
+equal(String(Decimal.of("1.25")), "1.25");
+ok(messageOf(throws(() => Decimal.parse("nope"))).includes("not a decimal"));
+ok(messageOf(throws(() => Decimal.parse(""))).includes("not a decimal"));
+
+equal(String(Decimal.parse("1.5").add(Decimal.parse("0.25"))), "1.75",
+      "both sides are brought to the wider scale");
+equal(String(Decimal.parse("10").subtract(Decimal.parse("0.01"))), "9.99");
+equal(String(Decimal.parse("1.5").multiply(Decimal.parse("1.5"))), "2.25",
+      "the scales add, as they do on paper");
+equal(String(Decimal.parse("12.34").multiply(2)), "24.68");
+equal(String(Decimal.parse("10").divide(Decimal.parse("3"), 4)), "3.3333");
+equal(String(Decimal.parse("10.00").divide(Decimal.parse("4"))), "2.50");
+ok(messageOf(throws(() => Decimal.parse("1").divide(Decimal.parse("0")))).includes("zero"));
+
+/* Rounding, by name, and symmetric about zero — unlike Math.round, which
+ * rounds -0.5 towards zero and 0.5 away from it. */
+equal(String(Decimal.parse("1.005").round(2)), "1.01");
+equal(String(Decimal.parse("1.005").round(2, "half-even")), "1.00");
+equal(String(Decimal.parse("2.5").round(0, "half-even")), "2");
+equal(String(Decimal.parse("3.5").round(0, "half-even")), "4", "banker's does not drift");
+equal(String(Decimal.parse("-1.5").round(0, "half-up")), "-2");
+equal(String(Decimal.parse("-1.5").round(0, "floor")), "-2");
+equal(String(Decimal.parse("-1.5").round(0, "ceil")), "-1");
+equal(String(Decimal.parse("1.9").round(0, "down")), "1");
+equal(String(Decimal.parse("1.1").round(0, "up")), "2");
+ok(messageOf(throws(() => Decimal.parse("1.5").round(0, "sideways"))).includes("unknown"));
+
+equal(String(Decimal.parse("19.99").percent(20)), "4.00");
+equal(String(Decimal.parse("100").percent(7.5)), "8", "at the amount's own scale");
+equal(String(Decimal.parse("1.5").rescale(4)), "1.5000");
+ok(messageOf(throws(() => Decimal.parse("1.55").rescale(1))).includes("cannot lose digits"));
+
+ok(Decimal.parse("1.50").equals(Decimal.parse("1.5")), "the same number at two scales");
+equal(Decimal.parse("2").compare(Decimal.parse("10")), -1);
+equal(Decimal.parse("10").compare(Decimal.parse("2")), 1);
+equal(Decimal.parse("1.0").compare(Decimal.parse("1.00")), 0);
+ok(Decimal.parse("0.00").isZero);
+ok(Decimal.parse("-1").isNegative);
+equal(String(Decimal.parse("-0.05").abs()), "0.05");
+equal(String(Decimal.parse("5").negate()), "-5");
+
+/* Past the exact range of a number, it stops rather than quietly losing the
+ * last digits — which is the behaviour that makes it worth using. */
+ok(messageOf(throws(() => Decimal.parse("99999999999999.99").multiply(Decimal.parse("1000"))))
+       .includes("2^53"));
+
+console.log(String(Decimal.parse("0.1").add(Decimal.parse("0.2"))), 0.1 + 0.2);
+console.log(String(total), String(Decimal.parse("19.99").percent(20)));
+console.log(String(Decimal.parse("2.5").round(0, "half-even")), String(Decimal.parse("3.5").round(0, "half-even")));
+console.log("decimal ok");
