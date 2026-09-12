@@ -1,0 +1,109 @@
+import { test, skip, only, suite, run, reset, names, filter, line, exitCode } from "std:test";
+import { equal, deepEqual, ok, notOk } from "std:assert";
+
+async function main() {
+  /* The output is captured rather than printed, which is how a runner is
+   * tested by itself. */
+  const lines: any = [];
+  const report = (text: string) => lines.push(text);
+
+  reset();
+  test("passes", () => { equal(1, 1); });
+  test("fails", () => { equal(1, 2, "counts must match"); });
+  skip("is skipped", () => { equal(1, 3); });
+  test("throws something else", () => { throw new Error("not an assertion"); });
+
+  const summary = await run({ report: report });
+  equal(summary.total, 4);
+  equal(summary.passed, 1);
+  equal(summary.failed, 2);
+  equal(summary.skipped, 1);
+  notOk(summary.ok);
+  equal(exitCode(summary), 1);
+
+  deepEqual(lines, [
+    "ok    passes",
+    "FAIL  fails",
+    "        1 !== 2 — counts must match",
+    "skip  is skipped",
+    "FAIL  throws something else",
+    "        Error: not an assertion",
+    "",
+    "1 passed, 2 failed, 1 skipped",
+  ]);
+
+  deepEqual(summary.failures[0], { name: "fails", reason: "1 !== 2 — counts must match" });
+  equal(summary.failures[1].reason, "Error: not an assertion",
+        "something that is not an assertion failed differently");
+
+  /* A suite groups names and nothing else. */
+  reset();
+  suite("Deque", () => {
+    test("pushes", () => { equal(1, 1); });
+    suite("empty", () => {
+      test("pops nothing", () => { equal(1, 1); });
+    });
+  });
+  deepEqual(names(), ["Deque › pushes", "Deque › empty › pops nothing"]);
+  const grouped = await run({ quiet: true });
+  equal(grouped.passed, 2);
+  ok(grouped.ok);
+  equal(exitCode(grouped), 0);
+  equal(line(grouped), "2 passed");
+
+  /* An async body is awaited. */
+  reset();
+  let ran = false;
+  test("waits", async () => {
+    await Promise.resolve(undefined);
+    ran = true;
+    equal(1, 1);
+  });
+  const waited = await run({ quiet: true });
+  ok(ran);
+  equal(waited.passed, 1);
+
+  /* An async body that rejects fails the test rather than the run. */
+  reset();
+  test("rejects", async () => {
+    await Promise.resolve(undefined);
+    equal("a", "b");
+  });
+  test("still runs", () => { equal(1, 1); });
+  const rejected = await run({ quiet: true });
+  equal(rejected.failed, 1);
+  equal(rejected.passed, 1, "and the test after it still ran");
+
+  /* `only` narrows the run; everything else is skipped and counted. */
+  reset();
+  test("not this", () => { equal(1, 2); });
+  only("just this", () => { equal(1, 1); });
+  const narrowed = await run({ quiet: true });
+  equal(narrowed.passed, 1);
+  equal(narrowed.skipped, 1);
+  equal(narrowed.failed, 0, "the failing one never ran");
+
+  /* A filter is applied before the run, so the summary counts what was asked
+   * for rather than what was registered. */
+  reset();
+  test("alpha one", () => { equal(1, 1); });
+  test("alpha two", () => { equal(1, 1); });
+  test("beta", () => { equal(1, 2); });
+  filter("alpha");
+  const filtered = await run({ quiet: true });
+  equal(filtered.total, 2);
+  equal(filtered.passed, 2);
+  ok(filtered.ok);
+
+  /* Nothing registered is a pass, not an error. */
+  reset();
+  const nothing = await run({ quiet: true });
+  equal(nothing.total, 0);
+  ok(nothing.ok);
+
+  reset();
+  test("shown", () => { equal(2, 2); });
+  await run();
+  console.log("test ok");
+}
+main();

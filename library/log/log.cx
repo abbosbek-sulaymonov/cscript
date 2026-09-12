@@ -1,0 +1,227 @@
+/* log.cx — output a program can turn down, and a machine can read.
+ *
+ * `console.log` is two things at once: what a program prints because printing
+ * it *is* the job, and what it prints so that someone can work out what it did.
+ * The second wants a level, a timestamp, and the fields that say which request
+ * or which file this line is about — and it wants to be turned off without
+ * being deleted.
+ *
+ * Two formats: `text` for a person reading a terminal, and `json` for anything
+ * that will be searched later. The choice is a field on the logger, not a
+ * second set of methods, so switching is one line in the program that builds
+ * it.
+ *
+ * The clock is injectable. That is not a testing convenience bolted on: a
+ * logger whose output cannot be reproduced cannot be checked by a golden test,
+ * and everything in this library is.
+ */
+import { formatInstant } from "std:time";
+
+export const DEBUG: number = 10;
+export const INFO: number = 20;
+export const WARN: number = 30;
+export const ERROR: number = 40;
+export const SILENT: number = 100;
+
+const NAMES: any = new Map([[DEBUG, "debug"], [INFO, "info"], [WARN, "warn"],
+                            [ERROR, "error"]]);
+
+/* A level by name, for one that arrives as text from a flag or the
+ * environment. `-1` for a name that is not a level, so a caller can tell that
+ * from a deliberate `silent`. */
+export function levelNamed(name: string): number {
+  const lowered = String(name).toLowerCase();
+  if (lowered === "debug") return DEBUG;
+  if (lowered === "info") return INFO;
+  if (lowered === "warn" || lowered === "warning") return WARN;
+  if (lowered === "error") return ERROR;
+  if (lowered === "silent" || lowered === "off" || lowered === "none") return SILENT;
+  return -1;
+}
+
+export function levelName(level: number): string {
+  return NAMES.has(level) ? NAMES.get(level) : "log";
+}
+
+export class Logger {
+  #level: number;
+  #format: string;
+  #fields: any;
+  #write: any;
+  #clock: any;
+  #showTime: boolean;
+
+  /* `{ level, format, fields, write, clock, time }` — every one optional.
+   *
+   * `write` takes a finished line, which is what makes a Logger usable against
+   * a file, a StringWriter or a test's array without knowing about any of
+   * them. */
+  constructor(options: any = null) {
+    this.#level = options?.level ?? INFO;
+    this.#format = options?.format ?? "text";
+    this.#fields = options?.fields ?? {};
+    this.#write = options?.write ?? ((line: string) => console.log(line));
+    this.#clock = options?.clock ?? null;
+    this.#showTime = options?.time ?? true;
+  }
+
+  get level(): number {
+    return this.#level;
+  }
+
+  setLevel(level: number): any {
+    this.#level = level;
+    return this;
+  }
+
+  /* Whether a line at this level would be written at all — for the case where
+   * building the message is itself expensive. */
+  enabled(level: number): boolean {
+    return level >= this.#level;
+  }
+
+  /* A logger with more fields, sharing everything else. The usual shape is one
+   * per request or per file: `const log = base.with({ requestId: id })`, and
+   * every line from it carries that without being told again. */
+  with(fields: any): any {
+    const merged: any = {};
+    for (const key of Object.keys(this.#fields)) merged[key] = this.#fields[key];
+    for (const key of Object.keys(fields)) merged[key] = fields[key];
+    return new Logger({
+      level: this.#level,
+      format: this.#format,
+      fields: merged,
+      write: this.#write,
+      clock: this.#clock,
+      time: this.#showTime,
+    });
+  }
+
+  debug(message: string, fields: any = null): any {
+    return this.log(DEBUG, message, fields);
+  }
+
+  info(message: string, fields: any = null): any {
+    return this.log(INFO, message, fields);
+  }
+
+  warn(message: string, fields: any = null): any {
+    return this.log(WARN, message, fields);
+  }
+
+  error(message: string, fields: any = null): any {
+    return this.log(ERROR, message, fields);
+  }
+
+  log(level: number, message: string, fields: any = null): any {
+    if (!this.enabled(level)) return this;
+
+    const all: any = {};
+    for (const key of Object.keys(this.#fields)) all[key] = this.#fields[key];
+    if (fields !== null) {
+      for (const key of Object.keys(fields)) all[key] = fields[key];
+    }
+
+    const at = this.#showTime ? this.#now() : undefined;
+    this.#write(this.#format === "json" ? renderJson(level, message, all, at)
+                                        : renderText(level, message, all, at));
+    return this;
+  }
+
+  #now(): number {
+    return this.#clock === null ? Date.now() : this.#clock();
+  }
+}
+
+/* `2024-01-01T00:00:00.000Z info  saved  path=/tmp/x bytes=12`
+ *
+ * The level is padded so the messages line up, which is the whole reason a
+ * terminal format exists separately: a column a reader can scan. */
+function renderText(level: number, message: string, fields: any, at: any): string {
+  const parts: any = [];
+  if (at !== undefined) parts.push(formatInstant(at));
+  parts.push(levelName(level).padEnd(5));
+  parts.push(message);
+
+  const keys = Object.keys(fields);
+  if (keys.length > 0) {
+    const pairs: any = [];
+    for (const key of keys) pairs.push(key + "=" + renderValue(fields[key]));
+    parts.push(pairs.join(" "));
+  }
+  return parts.join(" ");
+}
+
+/* A value in a text line. Quoted only when it has a space in it, because
+ * quoting everything makes the common line harder to read and quoting nothing
+ * makes `message=hello world` ambiguous. */
+function renderValue(value: any): string {
+  const text = typeof value === "string" ? value : String(value);
+  return text.includes(" ") ? "\"" + text + "\"" : text;
+}
+
+/* One JSON object per line, which is what every log search expects. Written by
+ * hand rather than through std:json to keep the field order fixed — time,
+ * level, message, then the fields — since a log file that reorders its own
+ * columns is a log file nobody can diff. */
+function renderJson(level: number, message: string, fields: any, at: any): string {
+  const parts: any = [];
+  if (at !== undefined) parts.push("\"time\":" + quote(formatInstant(at)));
+  parts.push("\"level\":" + quote(levelName(level)));
+  parts.push("\"message\":" + quote(message));
+  for (const key of Object.keys(fields)) {
+    parts.push(quote(key) + ":" + jsonValue(fields[key]));
+  }
+  return "{" + parts.join(",") + "}";
+}
+
+function jsonValue(value: any): string {
+  if (value === null || value === undefined) return "null";
+  if (typeof value === "number") {
+    return value !== value || value === Infinity || value === -Infinity
+               ? "null"
+               : String(value);
+  }
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return quote(String(value));
+}
+
+function quote(text: string): string {
+  let out = "\"";
+  for (let i = 0; i < text.length; i++) {
+    const character = text[i];
+    const code = text.charCodeAt(i);
+    if (character === "\"") { out = out + "\\\""; continue; }
+    if (character === "\\") { out = out + "\\\\"; continue; }
+    if (character === "\n") { out = out + "\\n"; continue; }
+    if (character === "\t") { out = out + "\\t"; continue; }
+    if (character === "\r") { out = out + "\\r"; continue; }
+    if (code < 32) {
+      out = out + "\\u" + code.toString(16).padStart(4, "0");
+      continue;
+    }
+    out = out + character;
+  }
+  return out + "\"";
+}
+
+/* The one most programs want: info and above, text, to the console. Built
+ * here rather than left to each program so that `log.info(...)` works with no
+ * setup at all, and a program that needs more replaces it in one line. */
+export const base: any = new Logger();
+
+export function debug(message: string, fields: any = null): any {
+  return base.debug(message, fields);
+}
+
+export function info(message: string, fields: any = null): any {
+  return base.info(message, fields);
+}
+
+export function warn(message: string, fields: any = null): any {
+  return base.warn(message, fields);
+}
+
+export function error(message: string, fields: any = null): any {
+  return base.error(message, fields);
+}

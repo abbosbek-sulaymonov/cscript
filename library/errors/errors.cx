@@ -1,0 +1,182 @@
+/* errors.cx — kinds of failure, and what caused what.
+ *
+ * CScript cannot subclass Error. `class NotFound extends Error` is refused —
+ * `Error` is a built-in function rather than a class — so the usual way of
+ * building a taxonomy of failures is simply unavailable, and every program
+ * ends up comparing `error.message` against a string. That is the worst
+ * possible test: it breaks when the wording improves.
+ *
+ * So a kind is a *name*, carried on the error, and asked about by name. An
+ * error made here is an ordinary Error object with `name` set, plus two
+ * fields: `details`, for what a handler needs to decide, and `cause`, for what
+ * went wrong underneath.
+ *
+ * The chain is the point. A failure that reaches the top of a program should
+ * say what could not be done, and then why, and then why — each layer adding
+ * what it knows. `wrap` is how a layer adds its sentence without throwing the
+ * original away, and `format` is how the whole chain prints.
+ */
+
+/* An error of `kind`, which is what `name` carries. `details` is an object a
+ * handler can read — a path, a field, a status — rather than text it would
+ * have to parse back out of the message. */
+export function make(kind: string, message: string, details: any = null): any {
+  const error = new Error(message);
+  error.name = kind;
+  if (details !== null) error.details = details;
+  return error;
+}
+
+/* A maker for one kind, so a module names its failures once:
+ *
+ *   const NotFound = errors.kind("NotFound");
+ *   throw NotFound("no user " + id, { id: id });
+ */
+export function kind(name: string): any {
+  return (message: string, details: any = null) => make(name, message, details);
+}
+
+/* `error` with another sentence in front of it, keeping the original as the
+ * cause. The new error takes the kind of the one it wraps unless told
+ * otherwise, so a handler asking `isKind(e, "NotFound")` still finds it after
+ * three layers have added context. */
+export function wrap(error: any, message: string, asKind: any = null): any {
+  const wrapped = new Error(message);
+  wrapped.name = asKind === null ? kindOf(error) : asKind;
+  wrapped.cause = error;
+  return wrapped;
+}
+
+/* --- asking ---------------------------------------------------------------- */
+
+/* The kind of anything that was thrown, including a plain string or an object
+ * that is not an Error at all — a thrown value is whatever the program threw. */
+export function kindOf(error: any): string {
+  if (typeof error === "string") return "Error";
+  if (typeof error !== "object" || error === null) return "Error";
+  const name = error?.name;
+  return typeof name === "string" ? name : "Error";
+}
+
+export function messageOf(error: any): string {
+  if (typeof error === "string") return error;
+  if (typeof error === "object" && error !== null) {
+    const message = error?.message;
+    if (typeof message === "string") return message;
+  }
+  return String(error);
+}
+
+export function detailsOf(error: any): any {
+  if (typeof error !== "object" || error === null) return undefined;
+  return error?.details;
+}
+
+/* Whether this error, or anything under it, is of `name`. Walking the chain is
+ * what makes wrapping safe: a caller that cares about the original failure
+ * does not have to know how many layers added context on the way up. */
+export function isKind(error: any, name: string): boolean {
+  for (const link of chain(error)) {
+    if (kindOf(link) === name) return true;
+  }
+  return false;
+}
+
+/* The **innermost** error of that kind, or `undefined`.
+ *
+ * Innermost rather than outermost because a wrapper inherits the kind of what
+ * it wraps, so the outermost match is usually the layer that added context and
+ * the innermost is the failure itself — which is where the details are. A
+ * handler asking `find(e, "NotFound")` wants the one that knows the id, not
+ * the one that knows it could not start. */
+export function find(error: any, name: string): any {
+  const links = chain(error);
+  for (let i = links.length - 1; i >= 0; i--) {
+    if (kindOf(links[i]) === name) return links[i];
+  }
+  return undefined;
+}
+
+/* Every error from this one down to the first cause.
+ *
+ * A cycle is stopped rather than followed: `a.cause = b; b.cause = a` is a
+ * mistake, and a walk that hung on it would be a worse one. */
+export function chain(error: any): any {
+  const out: any = [];
+  const seen = new Set();
+  let at = error;
+  while (at !== undefined && at !== null) {
+    if (typeof at === "object") {
+      if (seen.has(at)) return out;
+      seen.add(at);
+    }
+    out.push(at);
+    if (typeof at !== "object") return out;
+    at = at?.cause;
+  }
+  return out;
+}
+
+/* The error underneath everything, which is usually the one that says what
+ * actually went wrong. */
+export function rootCause(error: any): any {
+  const links = chain(error);
+  return links.length === 0 ? error : links[links.length - 1];
+}
+
+/* --- printing -------------------------------------------------------------- */
+
+/* One line: `NotFound: no user 7`. The kind is left out when it is the plain
+ * "Error", because `Error: x` says nothing `x` did not. */
+export function describe(error: any): string {
+  const name = kindOf(error);
+  const message = messageOf(error);
+  return name === "Error" ? message : name + ": " + message;
+}
+
+/* The whole chain, innermost last:
+ *
+ *   Save: cannot save settings
+ *     caused by Write: cannot write /etc/app.conf
+ *     caused by NotFound: no such file or directory
+ */
+export function format(error: any, indent: string = "  "): string {
+  const links = chain(error);
+  const out: any = [describe(links[0])];
+  for (let i = 1; i < links.length; i++) {
+    out.push(indent + "caused by " + describe(links[i]));
+  }
+  return out.join("\n");
+}
+
+/* --- the shape of a handler ------------------------------------------------ */
+
+/* Runs `body`, and hands anything it throws to the branch for its kind — with
+ * `otherwise` for the rest. The alternative is a chain of `if (isKind(...))`
+ * inside a `catch`, which reads as a switch that forgot it was one.
+ *
+ *   catching(() => load(path), {
+ *     NotFound: (e) => defaults,
+ *     Permission: (e) => { throw wrap(e, "cannot read the config"); },
+ *   }, (e) => { throw e; });
+ *
+ * Only a `throw` is caught. A runtime error — reading a property that is not
+ * there, adding a number to an object — is not catchable in CScript, and no
+ * branch here will see one.
+ */
+export function catching(body: any, branches: any, otherwise: any = null): any {
+  try {
+    return body();
+  } catch (error) {
+    for (const name of Object.keys(branches)) {
+      if (!isKind(error, name)) continue;
+      const branch = branches[name];
+      return branch.length >= 1 ? branch(error) : branch();
+    }
+    if (otherwise !== null) {
+      return otherwise.length >= 1 ? otherwise(error) : otherwise();
+    }
+    throw error;
+  }
+  return undefined;
+}

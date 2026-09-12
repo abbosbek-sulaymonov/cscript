@@ -1,6 +1,6 @@
 # `library/` — the standard library
 
-Twenty-four modules, written in CScript, imported by name:
+Twenty-eight modules, written in CScript, imported by name:
 
 ```ts
 import { range, zip } from "std:iter";
@@ -25,11 +25,20 @@ This is deliberately *not* the C built-ins. `Math`, `JSON`, `Map`, `Promise`,
 [`../src/native/`](../src/native/README.md) and need no import. What is here is
 the layer above: the things you would otherwise write again in every program.
 
+### Writing a program
+
+| Module | Holds | Reference |
+| --- | --- | --- |
+| [`std:cli`](cli) | A command line described once — flags, commands, generated help | [README](cli/README.md) |
+| [`std:log`](log) | Levels, fields, and a text or JSON line — `Logger` | [README](log/README.md) |
+| [`std:errors`](errors) | Kinds of failure and their causes, since `Error` cannot be subclassed | [README](errors/README.md) |
+
 ### Testing
 
 | Module | Holds | Reference |
 | --- | --- | --- |
 | [`std:assert`](assert) | `ok`, `equal`, `deepEqual`, `closeTo`, `throws` — and what a runtime error means for `throws` | [README](assert/README.md) |
+| [`std:test`](test) | The runner for those — `suite`, `test`, `run`, `only`, `filter` | [README](test/README.md) |
 
 ### Sequences and functions
 
