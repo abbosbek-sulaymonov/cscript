@@ -13,12 +13,12 @@
  * until the inner one runs, and the inner one is reached only from the timer
  * queue.
  */
-function sleep(ms: number): any {
-  return new Promise((resolve: any) => setTimeout(() => resolve(undefined), ms));
+function sleep(ms: number) {
+  return new Promise((resolve: Function) => setTimeout(() => resolve(undefined), ms));
 }
 
 class Gate {
-  #waiting: any = [];
+  #waiting = [];
   #count: number = 0;
 
   expect(howMany: number) {
@@ -32,15 +32,15 @@ class Gate {
     this.#waiting = [];
   }
 
-  wait(): any {
+  wait() {
     if (this.#count === 0) return Promise.resolve(undefined);
-    return new Promise((resolve: any) => { this.#waiting.push(resolve); });
+    return new Promise((resolve: Function) => { this.#waiting.push(resolve); });
   }
 }
 
 async function main() {
   const gate = new Gate();
-  const seen: any = [];
+  const seen = [];
   gate.expect(3);
 
   for (const name of ["a", "b", "c"]) {

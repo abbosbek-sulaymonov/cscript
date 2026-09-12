@@ -74,7 +74,7 @@ AstNode *csAstNewNode(AstArena *arena, AstNodeType type, int line) {
   memset(node, 0, sizeof(AstNode));
   node->type = type;
   node->line = line;
-  node->resolvedType = TYPE_ANY; /* until the checker says otherwise */
+  node->resolvedType = TYPE_DYNAMIC; /* until the checker says otherwise */
   return node;
 }
 

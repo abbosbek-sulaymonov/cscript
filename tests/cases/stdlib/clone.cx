@@ -24,7 +24,7 @@ equal(deep(null), null);
 equal(deep("text"), "text");
 
 /* A cycle comes back as a cycle rather than as an overflow. */
-const looped: any = { name: "self" };
+const looped = { name: "self" };
 looped.self = looped;
 const copiedLoop = deep(looped);
 equal(copiedLoop.name, "self");

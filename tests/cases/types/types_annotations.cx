@@ -1,12 +1,22 @@
-// TypeScript-style annotations. Optional everywhere.
+// TypeScript-style annotations. Optional on a declaration that has something
+// to learn its type from, and required on a parameter, which has not.
 let count: number = 0;
 const name: string = "cscript";
 let flag: boolean = true;
 let nothing: null = null;
-let dynamic: any = 1;
+
+// One-time autocasting: an unannotated declaration takes the type of what it
+// is given, and keeps it. `inferred` is a number from here on, exactly as if
+// it had been written `let inferred: number`.
+let inferred = 1;
+inferred = inferred + 1;
+
+// `let x;` has nothing to learn from yet, so it waits: the first assignment
+// fixes the type, and every later one has to agree with it.
+let waiting;
+waiting = "fixed by this line";
 
 count = count + 5;
-dynamic = "now a string";
 
-console.log(count, name, flag, nothing, dynamic);
-console.log(typeof count, typeof name, typeof flag);
+console.log(count, name, flag, nothing, inferred, waiting);
+console.log(typeof count, typeof name, typeof flag, typeof inferred);

@@ -20,7 +20,7 @@ const d = { y: 2, x: 1 };
 console.log(c.x === d.x, c.y === d.y, Object.keys(c).join(""), Object.keys(d).join(""));
 
 // A site that sees many different layouts still has to be right.
-function first(o) {
+function first(o: object) {
   return o.x;
 }
 console.log(first({ x: "a" }), first({ y: 0, x: "b" }), first({ p: 1, q: 2, x: "c" }));

@@ -25,13 +25,13 @@ equal(compare(false, true), -1);
 /* The built-in sort with no comparator sorts strings the same way. */
 deepEqual(["pear", "apple", "Fig"].sort(compareStrings), ["pear", "apple", "Fig"].sort());
 
-const people: any = [{ name: "bea", age: 30 }, { name: "ann", age: 30 },
+const people = [{ name: "bea", age: 30 }, { name: "ann", age: 30 },
                      { name: "cal", age: 20 }];
-deepEqual(people.slice(0).sort(by((p: any) => p.age)).map((p: any) => p.name),
+deepEqual(people.slice(0).sort(by((p: object) => p.age)).map((p: object) => p.name),
           ["cal", "bea", "ann"]);
-deepEqual(people.slice(0).sort(then(by((p: any) => p.age), by((p: any) => p.name)))
-              .map((p: any) => p.name), ["cal", "ann", "bea"]);
-deepEqual(people.slice(0).sort(byDescending((p: any) => p.age)).map((p: any) => p.age),
+deepEqual(people.slice(0).sort(then(by((p: object) => p.age), by((p: object) => p.name)))
+              .map((p: object) => p.name), ["cal", "ann", "bea"]);
+deepEqual(people.slice(0).sort(byDescending((p: object) => p.age)).map((p: object) => p.age),
           [30, 30, 20]);
 deepEqual([3, 1, 2].sort(reversed(compareNumbers)), [3, 2, 1]);
 
@@ -46,7 +46,7 @@ equal(minBy([3, 1, 2]), 1);
 equal(maxBy([3, 1, 2]), 3);
 equal(minBy(["pear", "apple"]), "apple");
 equal(minBy([]), undefined, "the smallest of nothing is nothing");
-equal(maxBy(people, by((p: any) => p.age)).age, 30);
+equal(maxBy(people, by((p: object) => p.age)).age, 30);
 
 ok(isSorted([1, 2, 2, 3]));
 notOk(isSorted([2, 1]));
@@ -54,6 +54,6 @@ ok(isSorted(["a", "b"]));
 ok(isSorted([]));
 
 console.log(["pear", "apple", "Fig"].sort(compareStrings));
-console.log(people.slice(0).sort(then(by((p: any) => p.age), by((p: any) => p.name)))
-                .map((p: any) => p.name));
+console.log(people.slice(0).sort(then(by((p: object) => p.age), by((p: object) => p.name)))
+                .map((p: object) => p.name));
 console.log("cmp ok");

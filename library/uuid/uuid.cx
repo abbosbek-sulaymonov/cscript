@@ -17,9 +17,9 @@ import { toHex } from "std:encoding";
 /* The random source is injectable, which is what lets a test of something
  * that makes ids be a golden test at all. It answers a float in [0, 1), the
  * same contract as Math.random and std:random's `next`. */
-function randomBytes(count: number, source: any): any {
+function randomBytes(count: number, source: Function) {
   const next = source === null ? (() => Math.random()) : source;
-  const out: any = [];
+  const out = [];
   for (let i = 0; i < count; i++) out.push(Math.floor(next() * 256) % 256);
   return out;
 }
@@ -27,13 +27,13 @@ function randomBytes(count: number, source: any): any {
 /* The version and variant bits, which are what make a UUID a UUID rather than
  * sixteen arbitrary bytes: the 13th hex digit is the version, and the 17th is
  * 8, 9, a or b. */
-function stamp(bytes: any, version: number): any {
+function stamp(bytes: array, version: number) {
   bytes[6] = version * 16 + (bytes[6] % 16);
   bytes[8] = 128 + (bytes[8] % 64);
   return bytes;
 }
 
-export function v4(source: any = null): string {
+export function v4(source: Function = null): string {
   return format(stamp(randomBytes(16, source), 4));
 }
 
@@ -41,7 +41,7 @@ export function v4(source: any = null): string {
  *
  * `at` is injectable for the same reason the random source is — and because a
  * v7 made at a known instant is the only kind that can be checked. */
-export function v7(source: any = null, at: any = null): string {
+export function v7(source: Function = null, at: value = null): string {
   const when = at === null ? Date.now() : at;
   const bytes = randomBytes(16, source);
 
@@ -57,7 +57,7 @@ export function v7(source: any = null, at: any = null): string {
 }
 
 /* Sixteen bytes as the canonical 8-4-4-4-12. */
-export function format(bytes: any): string {
+export function format(bytes: array): string {
   if (bytes.length !== 16) {
     throw new Error("a UUID is sixteen bytes, got " + String(bytes.length));
   }
@@ -71,7 +71,7 @@ export function format(bytes: any): string {
  * upper. */
 export function isValid(text: string): boolean {
   if (typeof text !== "string" || text.length !== 36) return false;
-  const shape: any = [8, 4, 4, 4, 12];
+  const shape = [8, 4, 4, 4, 12];
   let at = 0;
   for (let part = 0; part < shape.length; part++) {
     if (part > 0) {

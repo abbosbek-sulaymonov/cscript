@@ -98,5 +98,5 @@ opcode.
 ## Related
 
 - [../../docs/GRAMMAR.md](../../docs/GRAMMAR.md) — the syntax as EBNF, and what is not implemented
-- [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md#the-type-checker) — why the checker is where it is, and what gradual typing buys the code generator
+- [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md#the-type-checker) — why the checker is where it is, and what the types buy the code generator
 - `--print-tokens`, `--print-ast`, `--print-bytecode` — each pass's output, from the CLI ([CLI.md](../../docs/CLI.md))

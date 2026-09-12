@@ -23,7 +23,7 @@ import { isMap } from "std:kind";
  * given twice keeps the last, which is what every server does; `queryAll` is
  * there for the case where both are wanted.
  */
-export function parse(text: string): any {
+export function parse(text: string) {
   let rest = String(text);
 
   const schemeEnd = rest.indexOf("://");
@@ -114,7 +114,7 @@ function isDigits(text: string): boolean {
 
 /* `a=1&b=two+words` as a Map. A name with no `=` is present with an empty
  * value, which is how a flag-shaped parameter is written. */
-export function parseQuery(text: string): any {
+export function parseQuery(text: string) {
   const out = new Map();
   if (text === "") return Result.ok(out);
 
@@ -136,7 +136,7 @@ export function parseQuery(text: string): any {
 
 /* Every value for every name, for the `?tag=a&tag=b` shape that `parseQuery`
  * collapses. A Map of name to array. */
-export function parseQueryAll(text: string): any {
+export function parseQueryAll(text: string) {
   const out = new Map();
   if (text === "") return Result.ok(out);
 
@@ -157,8 +157,8 @@ export function parseQueryAll(text: string): any {
 /* A Map, or an object, or an array of pairs, as a query string. Every name and
  * value is percent-encoded, which is the step that is skipped in the version
  * everybody writes by hand. */
-export function formatQuery(query: any): string {
-  const pairs: any = [];
+export function formatQuery(query: value): string {
+  const pairs = [];
 
   /* `instanceof Map` is not available: `Map` is a built-in function rather
    * than a class, and the right side of `instanceof` must be a class or a
@@ -167,13 +167,17 @@ export function formatQuery(query: any): string {
     for (const [name, value] of query) addPair(pairs, name, value);
   } else if (Array.isArray(query)) {
     for (const [name, value] of query) addPair(pairs, name, value);
-  } else {
+  } else if (typeof query === "object") {
+    /* Narrowed, because reading a key off a `value` proves nothing: the two
+     * branches above have already said it is neither a Map nor an array. */
     for (const name of Object.keys(query)) addPair(pairs, name, query[name]);
+  } else {
+    throw new Error("a query must be a Map, an array of pairs, or an object");
   }
   return pairs.join("&");
 }
 
-function addPair(pairs: any, name: any, value: any) {
+function addPair(pairs: array, name: value, value: value) {
   /* An array value is the same name repeated, which is the convention every
    * server understands. */
   if (Array.isArray(value)) {
@@ -193,7 +197,7 @@ function addPair(pairs: any, name: any, value: any) {
 
 /* The inverse of `parse`. Every part is optional except the scheme and the
  * host, and a `?` or `#` appears only when there is something after it. */
-export function format(parts: any): string {
+export function format(parts: object): string {
   const scheme = parts?.scheme ?? "https";
   const host = parts?.host ?? "";
   if (host === "") throw new Error("a URL needs a host");
@@ -241,15 +245,15 @@ function isDefaultPort(scheme: string, port: number): boolean {
 /* A copy with some parts replaced: `withParts(url, { path: "/other" })`. The
  * parsed form is a plain object, so this is a shallow merge — spelled out
  * because a URL is usually changed one part at a time. */
-export function withParts(parts: any, changes: any): any {
-  const out: any = {};
+export function withParts(parts: object, changes: object) {
+  const out = {};
   for (const key of Object.keys(parts)) out[key] = parts[key];
   for (const key of Object.keys(changes)) out[key] = changes[key];
   return out;
 }
 
 /* A copy with one query parameter set, leaving the rest. */
-export function withParameter(parts: any, name: string, value: any): any {
+export function withParameter(parts: object, name: string, value: value) {
   const query = new Map(parts.query);
   query.set(name, String(value));
   return withParts(parts, { query: query });
@@ -257,7 +261,7 @@ export function withParameter(parts: any, name: string, value: any): any {
 
 /* The origin: scheme, host and non-default port. What a browser compares when
  * it decides whether two URLs are the same place. */
-export function origin(parts: any): string {
+export function origin(parts: object): string {
   const port = parts?.port ?? -1;
   const tail = port >= 0 && !isDefaultPort(parts.scheme, port) ? ":" + String(port) : "";
   return parts.scheme + "://" + parts.host + tail;

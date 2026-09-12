@@ -6,7 +6,7 @@ Comparators, and the one the language cannot write.
 import { compareStrings, by, then } from "std:cmp";
 
 names.sort(compareStrings);
-people.sort(then(by((p: any) => p.age), by((p: any) => p.name)));
+people.sort(then(by((p: object) => p.age), by((p: object) => p.name)));
 ```
 
 `<` and `>` in CScript are **numeric**: comparing two strings with them is a

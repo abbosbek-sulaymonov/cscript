@@ -66,7 +66,7 @@ AstNode *csAstFunction(AstArena *arena, int line, const char *name, int nameLeng
   node->as.function.params = NULL;
   node->as.function.paramCount = 0;
   node->as.function.body = NULL;
-  node->as.function.returnType = TYPE_ANY;
+  node->as.function.returnType = TYPE_DYNAMIC;
   node->as.function.hasReturnAnnotation = false;
   node->as.function.isAsync = false;
   node->as.function.nameIsInferred = false;

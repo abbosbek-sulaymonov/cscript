@@ -2,7 +2,7 @@
 // entry check refuses, the interpreter runs the body, and what a program sees
 // is the interpreter's answer — which for a string times a number is a refusal,
 // because CScript does not coerce. The compiler changes none of that.
-function dot(a, b) {
+function dot(a: object, b: object) {
   return a.x * b.x + a.y * b.y;
 }
 

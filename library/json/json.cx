@@ -25,7 +25,7 @@ import { kindOf } from "std:kind";
  * The position is a character offset, which is what a caller needs to point at
  * the problem — a line and column can be worked out from the text and the
  * offset, and cannot be recovered from a line and column alone. */
-export function parse(text: string): any {
+export function parse(text: string) {
   const state = { text: text, at: 0, error: "" };
   skipSpace(state);
   const value = parseValue(state);
@@ -40,19 +40,19 @@ export function parse(text: string): any {
 
 /* The same thing for a caller who would rather have a fallback than a Result.
  * `parseOr(text, {})` is the shape most configuration reading takes. */
-export function parseOr(text: string, fallback: any): any {
+export function parseOr(text: string, fallback: value) {
   return parse(text).unwrapOr(fallback);
 }
 
-function complain(state: any, message: string): string {
+function complain(state: object, message: string): string {
   return "at " + String(state.at) + ": " + message;
 }
 
-function fail(state: any, message: string) {
+function fail(state: object, message: string) {
   if (state.error === "") state.error = complain(state, message);
 }
 
-function skipSpace(state: any) {
+function skipSpace(state: object) {
   while (state.at < state.text.length) {
     const character = state.text[state.at];
     if (character === " " || character === "\t" || character === "\n" ||
@@ -70,7 +70,7 @@ function skipSpace(state: any) {
   }
 }
 
-function parseValue(state: any): any {
+function parseValue(state: object) {
   if (state.error !== "") return undefined;
   if (state.at >= state.text.length) {
     fail(state, "the text ended where a value was expected");
@@ -94,7 +94,7 @@ function parseValue(state: any): any {
   return undefined;
 }
 
-function parseWord(state: any, word: string, value: any): any {
+function parseWord(state: object, word: string, value: value) {
   if (state.text.slice(state.at, state.at + word.length) !== word) {
     fail(state, "expected '" + word + "'");
     return undefined;
@@ -103,9 +103,9 @@ function parseWord(state: any, word: string, value: any): any {
   return value;
 }
 
-function parseObject(state: any): any {
+function parseObject(state: object) {
   state.at = state.at + 1; /* the brace */
-  const out: any = {};
+  const out = {};
   skipSpace(state);
   if (state.error !== "") return undefined;
 
@@ -158,9 +158,9 @@ function parseObject(state: any): any {
   return out;
 }
 
-function parseArray(state: any): any {
+function parseArray(state: object) {
   state.at = state.at + 1; /* the bracket */
-  const out: any = [];
+  const out = [];
   skipSpace(state);
   if (state.error !== "") return undefined;
 
@@ -196,7 +196,7 @@ function parseArray(state: any): any {
   return out;
 }
 
-function parseString(state: any): any {
+function parseString(state: object) {
   state.at = state.at + 1; /* the opening quote */
   let out = "";
   while (state.at < state.text.length) {
@@ -254,7 +254,7 @@ function parseString(state: any): any {
   return undefined;
 }
 
-function parseNumber(state: any): any {
+function parseNumber(state: object) {
   const start = state.at;
   if (state.text[state.at] === "-") state.at = state.at + 1;
   while (state.at < state.text.length && isDigit(state.text[state.at])) {
@@ -285,7 +285,7 @@ function parseNumber(state: any): any {
   return value;
 }
 
-function isDigit(character: any): boolean {
+function isDigit(character: value): boolean {
   if (character === undefined) return false;
   const code = String(character).charCodeAt(0);
   return code >= 48 && code <= 57;
@@ -333,26 +333,26 @@ function hexValue(digits: string): number {
  * `stable` sorts the keys of every object, which is what makes two runs
  * comparable: insertion order is not part of what JSON means, so output that
  * depends on it produces a diff for a change nobody made. */
-export function stringify(value: any, indent: number = 0, stable: boolean = false): string {
+export function stringify(value: value, indent: number = 0, stable: boolean = false): string {
   return write(value, indent, stable, 0);
 }
 
-export function pretty(value: any, indent: number = 2): string {
+export function pretty(value: value, indent: number = 2): string {
   return write(value, indent, false, 0);
 }
 
 /* Sorted keys and two-space indentation: the shape for a file under version
  * control. */
-export function stringifyStable(value: any, indent: number = 2): string {
+export function stringifyStable(value: value, indent: number = 2): string {
   return write(value, indent, true, 0);
 }
 
-function write(value: any, indent: number, stable: boolean, depth: number): string {
+function write(value: value, indent: number, stable: boolean, depth: number): string {
   const kind = kindOf(value);
 
   if (kind === "null" || kind === "undefined") return "null";
   if (kind === "boolean") return value ? "true" : "false";
-  if (kind === "number") {
+  if (typeof value === "number") {
     /* Infinity and NaN have no JSON spelling, and null is what every other
      * implementation writes for them. */
     if (value !== value || value === Infinity || value === -Infinity) return "null";
@@ -363,6 +363,12 @@ function write(value: any, indent: number, stable: boolean, depth: number): stri
     throw new Error("JSON has no bigint: convert it to a string or a number first");
   }
 
+  /* Everything from here holds something: a primitive has already answered
+   * above, so the checker can be told once rather than at every branch. */
+  if (typeof value !== "object" || value === null) {
+    throw new Error("JSON cannot hold a " + kind);
+  }
+
   const newline = indent > 0 ? "\n" : "";
   const inner = indent > 0 ? " ".repeat(indent * (depth + 1)) : "";
   const closing = indent > 0 ? " ".repeat(indent * depth) : "";
@@ -370,7 +376,7 @@ function write(value: any, indent: number, stable: boolean, depth: number): stri
 
   if (kind === "array") {
     if (value.length === 0) return "[]";
-    const parts: any = [];
+    const parts = [];
     for (const element of value) parts.push(inner + write(element, indent, stable, depth + 1));
     return "[" + newline + parts.join("," + newline) + newline + closing + "]";
   }
@@ -380,7 +386,7 @@ function write(value: any, indent: number, stable: boolean, depth: number): stri
      * private fields are invisible to any walk, here as everywhere. */
     const keys = Object.keys(value);
     if (stable) keys.sort();
-    const parts: any = [];
+    const parts = [];
     for (const key of keys) {
       const held = value[key];
       /* undefined has no JSON spelling, so the key is left out — which is what
@@ -396,11 +402,11 @@ function write(value: any, indent: number, stable: boolean, depth: number): stri
     /* A Map has no own properties, so the built-in writes `{}` for one and
      * loses everything in it. Writing the entries is the useful answer, and is
      * a deliberate difference — `[...map]` is the way to get pairs instead. */
-    const entries: any = [];
+    const entries = [];
     for (const [key, held] of value) entries.push([String(key), held]);
-    if (stable) entries.sort((a: any, b: any) => a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0));
+    if (stable) entries.sort((a: array, b: array) => a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0));
     if (entries.length === 0) return "{}";
-    const parts: any = [];
+    const parts = [];
     for (const [key, held] of entries) {
       parts.push(inner + quote(key) + separator + write(held, indent, stable, depth + 1));
     }
@@ -408,7 +414,7 @@ function write(value: any, indent: number, stable: boolean, depth: number): stri
   }
 
   if (kind === "set") {
-    const parts: any = [];
+    const parts = [];
     for (const element of value) parts.push(inner + write(element, indent, stable, depth + 1));
     if (parts.length === 0) return "[]";
     return "[" + newline + parts.join("," + newline) + newline + closing + "]";

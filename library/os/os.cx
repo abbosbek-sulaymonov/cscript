@@ -18,14 +18,14 @@ import { Option } from "std:result";
  * `process.env` is a function rather than an object for the reason this
  * matters: reading an absent property is a runtime error in CScript, so
  * `process.env.HOME` would crash on a machine that did not set it. */
-export function env(name: string, fallback: any = undefined): any {
+export function env(name: string, fallback: value = undefined) {
   const value = process.env(name);
   return value === undefined ? fallback : value;
 }
 
 /* The same lookup as an Option, for the code that would rather match than
  * compare against undefined. */
-export function envOption(name: string): any {
+export function envOption(name: string) {
   return Option.from(process.env(name));
 }
 
@@ -33,7 +33,7 @@ export function hasEnv(name: string): boolean {
   return process.env(name) !== undefined;
 }
 
-export function envNames(): any {
+export function envNames() {
   const names = process.envNames();
   names.sort();
   return names;
@@ -42,7 +42,7 @@ export function envNames(): any {
 /* The whole environment as a Map, built one lookup at a time. A Map rather
  * than an object so that walking it is ordinary iteration, and so that a name
  * that happens to be `toString` is not a surprise. */
-export function envAll(): any {
+export function envAll() {
   const all = new Map();
   for (const name of envNames()) all.set(name, process.env(name));
   return all;
@@ -56,7 +56,7 @@ export function cwd(): string {
 
 /* HOME on every platform this runs on; USERPROFILE is what Windows calls it,
  * and is checked so the answer is not empty there. */
-export function homeDir(): any {
+export function homeDir() {
   return env("HOME") ?? env("USERPROFILE");
 }
 
@@ -107,17 +107,17 @@ export function pid(): number {
 /* What the *script* was given, without the executable and the script path that
  * `process.argv` carries in front for Node's sake. This is what a program
  * parsing its own options wants. */
-export function args(): any {
+export function args() {
   const all = process.argv;
   return all.length > 2 ? all.slice(2) : [];
 }
 
-export function scriptPath(): any {
+export function scriptPath() {
   const all = process.argv;
   return all.length > 1 ? all[1] : undefined;
 }
 
-export function executablePath(): any {
+export function executablePath() {
   const all = process.argv;
   return all.length > 0 ? all[0] : undefined;
 }

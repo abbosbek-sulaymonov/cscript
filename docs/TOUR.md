@@ -35,7 +35,7 @@ console.log(String(42) + "!");     // 42!
 // Classes, with fields, inheritance and `this`.
 class Shape {
   sides = 0;
-  constructor(name) { this.name = name; }
+  constructor(name: string) { this.name = name; }
   describe() { return `${this.name}: ${this.sides} sides`; }
 }
 

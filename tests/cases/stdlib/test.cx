@@ -4,7 +4,7 @@ import { equal, deepEqual, ok, notOk } from "std:assert";
 async function main() {
   /* The output is captured rather than printed, which is how a runner is
    * tested by itself. */
-  const lines: any = [];
+  const lines = [];
   const report = (text: string) => lines.push(text);
 
   reset();

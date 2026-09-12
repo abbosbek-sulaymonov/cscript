@@ -16,8 +16,8 @@ equal(String(new Cell("held")), "Cell(held)");
 /* Two closures over one Cell see each other's writes, without an enclosing
  * `let` and without being defined in the same scope. */
 const shared = new Cell(0);
-function bump(): any { return shared.update((n: number) => n + 1); }
-function read(): any { return shared.get(); }
+function bump() { return shared.update((n: number) => n + 1); }
+function read() { return shared.get(); }
 bump(); bump();
 equal(read(), 2);
 

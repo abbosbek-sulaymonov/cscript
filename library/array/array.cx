@@ -22,8 +22,8 @@ import { by, compare } from "std:cmp";
  *
  * A negative `start` counts from the end, as every other array method here
  * does. `remove` below zero removes nothing rather than a surprising amount. */
-export function splice(items: any, start: number, remove: number = -1,
-                       ...insert: any): any {
+export function splice(items: array, start: number, remove: number = -1,
+                       ...insert: value) {
   const length = items.length;
   let from = start < 0 ? length + start : start;
   if (from < 0) from = 0;
@@ -33,28 +33,28 @@ export function splice(items: any, start: number, remove: number = -1,
   if (count < 0) count = 0;
   if (from + count > length) count = length - from;
 
-  const out: any = [];
+  const out = [];
   for (let i = 0; i < from; i++) out.push(items[i]);
   for (const value of insert) out.push(value);
   for (let i = from + count; i < length; i++) out.push(items[i]);
   return out;
 }
 
-export function insertAt(items: any, index: number, value: any): any {
+export function insertAt(items: array, index: number, value: value) {
   return splice(items, index, 0, value);
 }
 
-export function removeAt(items: any, index: number): any {
+export function removeAt(items: array, index: number) {
   return splice(items, index, 1);
 }
 
 /* Removes the **first** element equal to `value`, or nothing. */
-export function removeValue(items: any, value: any): any {
+export function removeValue(items: array, value: value) {
   const at = items.indexOf(value);
   return at < 0 ? items.slice(0) : removeAt(items, at);
 }
 
-export function swapped(items: any, first: number, second: number): any {
+export function swapped(items: array, first: number, second: number) {
   const out = items.slice(0);
   const held = out[first];
   out[first] = out[second];
@@ -64,17 +64,17 @@ export function swapped(items: any, first: number, second: number): any {
 
 /* Moves every element `by` places towards the front, wrapping. A negative `by`
  * rotates the other way. */
-export function rotated(items: any, by: number): any {
+export function rotated(items: array, by: number) {
   const length = items.length;
   if (length === 0) return [];
   const shift = ((by % length) + length) % length;
-  const out: any = [];
+  const out = [];
   for (let i = 0; i < length; i++) out.push(items[(i + shift) % length]);
   return out;
 }
 
-export function reversed(items: any): any {
-  const out: any = [];
+export function reversed(items: array) {
+  const out = [];
   for (let i = items.length - 1; i >= 0; i--) out.push(items[i]);
   return out;
 }
@@ -85,20 +85,20 @@ export function reversed(items: any): any {
  * is why this goes through `std:cmp` rather than comparing with `<`: in
  * CScript `<` is numeric, and comparing two strings with it is a runtime
  * error rather than a lexicographic answer. */
-export function sortBy(items: any, keyOf: any): any {
+export function sortBy(items: array, keyOf: Function) {
   return sortWith(items, by(keyOf));
 }
 
-export function sortWith(items: any, compare: any): any {
+export function sortWith(items: array, compare: Function) {
   const out = items.slice(0);
   out.sort(compare);
   return out;
 }
 
 /* Keeps the first of each, by value or by key. Eager, unlike `iter.unique`. */
-export function dedupe(items: any, keyOf: any = null): any {
+export function dedupe(items: array, keyOf: Function = null) {
   const seen = new Set();
-  const out: any = [];
+  const out = [];
   for (const item of items) {
     const key = keyOf === null ? item : keyOf(item);
     if (seen.has(key)) continue;
@@ -113,7 +113,7 @@ export function dedupe(items: any, keyOf: any = null): any {
 /* The index of `target` in a **sorted** array, or -1. O(log n), which is the
  * only reason to use it over `indexOf` — and it is wrong on an unsorted array
  * rather than slow, so the caller has to know. */
-export function binarySearch(items: any, target: any, comparison: any = null): number {
+export function binarySearch(items: array, target: value, comparison: Function = null): number {
   const order = comparison === null ? compare : comparison;
   let low = 0;
   let high = items.length - 1;
@@ -133,7 +133,7 @@ export function binarySearch(items: any, target: any, comparison: any = null): n
 /* Where `target` would go to keep a sorted array sorted — which is what a
  * caller inserting into one actually needs, and what `binarySearch` cannot say
  * when it answers -1. */
-export function insertionIndex(items: any, target: any, comparison: any = null): number {
+export function insertionIndex(items: array, target: value, comparison: Function = null): number {
   const order = comparison === null ? compare : comparison;
   let low = 0;
   let high = items.length;
@@ -152,8 +152,8 @@ export function insertionIndex(items: any, target: any, comparison: any = null):
 
 /* Every level, unlike the built-in `flat()` with its default depth of one and
  * unlike `iter.flatten`, which stops at one deliberately. */
-export function flattenDeep(items: any): any {
-  const out: any = [];
+export function flattenDeep(items: array) {
+  const out = [];
   for (const item of items) {
     if (Array.isArray(item)) {
       for (const inner of flattenDeep(item)) out.push(inner);
@@ -166,28 +166,28 @@ export function flattenDeep(items: any): any {
 
 /* `undefined` for an empty array, which is why `isEmpty` is here beside them:
  * an array may hold an `undefined` of its own. */
-export function first(items: any): any {
+export function first(items: array) {
   return items.length > 0 ? items[0] : undefined;
 }
 
-export function last(items: any): any {
+export function last(items: array) {
   return items.length > 0 ? items[items.length - 1] : undefined;
 }
 
-export function isEmpty(items: any): boolean {
+export function isEmpty(items: array): boolean {
   return items.length === 0;
 }
 
 /* An array of `length` copies. `Array.fill` needs an array to fill first,
  * which is the part that is awkward to write. */
-export function filled(length: number, value: any): any {
-  const out: any = [];
+export function filled(length: number, value: value) {
+  const out = [];
   for (let i = 0; i < length; i++) out.push(value);
   return out;
 }
 
 /* Pads to `length` on the right, leaving a longer array alone. */
-export function padded(items: any, length: number, value: any): any {
+export function padded(items: array, length: number, value: value) {
   const out = items.slice(0);
   while (out.length < length) out.push(value);
   return out;

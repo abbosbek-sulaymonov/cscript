@@ -24,7 +24,7 @@ console.log("first stage:", stages[0]);
 const matrix = [[1, 2], [3, 4]];
 console.log(matrix[1][0]);
 
-function total(numbers) {
+function total(numbers: object) {
   let sum = 0;
   for (let i = 0; i < numbers.length; i++) {
     sum += numbers[i];

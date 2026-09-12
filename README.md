@@ -1,8 +1,9 @@
 <img src="assets/cscript-logo.svg" alt="CScript" height="64">
 
-A **gradually typed** language with **TypeScript's syntax and none of
+A **statically typed** language with **TypeScript's syntax and none of
 JavaScript's footguns**, implemented from scratch in C11 as a bytecode virtual
-machine.
+machine. Annotations are optional and there is no `any`: a variable takes its
+type from what it is first given, and keeps it.
 
 ```js
 // hello.cx — this is also a valid JavaScript file
@@ -41,9 +42,9 @@ aspirational.
 ```ts
 const name: string = "cscript";   // annotated
 let year = 2026;                  // inferred as number — just as checked
-let loose: any = 1;               // opted out
 
 let total: number = "text";   // error: cannot assign string to 'total'
+year = "twenty-six";          // error: a variable's type is fixed once taken
 true * 3;                     // error: operand of '*' must be a number
 ```
 
@@ -71,11 +72,12 @@ The full list, with the reasoning for each, is in
 ---
 ## Status
 
-**v0.46.0.** The language is feature-complete for everyday code and well past
+**v0.47.0.** The language is feature-complete for everyday code and well past
 it: objects and arrays, functions and closures, classes with private members
 and static blocks, modules, promises and `async`/`await`, generators and async
 generators, regular expressions, `Map`/`Set`, `Symbol`, `BigInt`, `Date`,
-prototypes, gradual typing with inference, and the whole of the control flow.
+prototypes, static typing with inference, a standard library of 39 modules,
+and the whole of the control flow.
 
 The pipeline is lexer → parser → type checker → bytecode compiler → stack VM,
 with a mark-sweep collector underneath. Above it sits a second tier: hot
@@ -97,7 +99,8 @@ class Person {
 }
 
 const people = [new Person("Ada", 1815), new Person("Alan", 1912)];
-const names = people.map(p => p.name).filter(n => n.length > 3).sort();
+const names = people.map((p: object) => p.name)
+                    .filter((n: string) => n.length > 3).sort();
 
 try {
   console.log(JSON.stringify({ names: names, first: people[0].label() }));

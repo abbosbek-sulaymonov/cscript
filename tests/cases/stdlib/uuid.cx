@@ -23,7 +23,7 @@ equal(versionOf(seven), 7);
 equal(timeOf(seven), 1700000000000);
 equal(timeOf(four), -1, "a v4 carries no time");
 
-const ordered: any = [];
+const ordered = [];
 for (let i = 0; i < 20; i++) ordered.push(v7(source, 1700000000000 + i * 1000));
 deepEqual(ordered.slice(0).sort(), ordered, "and they sort into that order");
 

@@ -13,16 +13,16 @@
  */
 
 /* Waits, and answers nothing. The one everything else is built on. */
-export function sleep(milliseconds: number): any {
-  return new Promise((resolve: any) => {
+export function sleep(milliseconds: number) {
+  return new Promise((resolve: Function) => {
     setTimeout(() => resolve(undefined), milliseconds);
   });
 }
 
 /* The same wait, answering a value — for putting a pause in a chain without
  * losing what was being carried through it. */
-export function delay(value: any, milliseconds: number): any {
-  return new Promise((resolve: any) => {
+export function delay(value: value, milliseconds: number) {
+  return new Promise((resolve: Function) => {
     setTimeout(() => resolve(value), milliseconds);
   });
 }
@@ -33,14 +33,14 @@ export function delay(value: any, milliseconds: number): any {
  * long the *caller* waits, not how long the work runs. The timer is cleared
  * either way, so a fast answer does not leave the program waiting for a timer
  * nobody is listening to. */
-export function timeout(work: any, milliseconds: number,
-                        message: string = "timed out"): any {
-  return new Promise((resolve: any, reject: any) => {
+export function timeout(work: array, milliseconds: number,
+                        message: string = "timed out") {
+  return new Promise((resolve: Function, reject: Function) => {
     const timer = setTimeout(() => reject(new Error(message)), milliseconds);
-    work.then((value: any) => {
+    work.then((value: value) => {
       clearTimeout(timer);
       resolve(value);
-    }, (reason: any) => {
+    }, (reason: value) => {
       clearTimeout(timer);
       reject(reason);
     });
@@ -55,7 +55,7 @@ export function timeout(work: any, milliseconds: number,
  *
  * The last failure is re-thrown rather than wrapped, so the caller sees what
  * actually went wrong rather than "retried 3 times". */
-export async function retry(body: any, options: any = null): any {
+export async function retry(body: Function, options: object = null) {
   const attempts = options?.attempts ?? 3;
   const factor = options?.factor ?? 2;
   const onRetry = options?.onRetry ?? null;
@@ -90,16 +90,16 @@ export async function retry(body: any, options: any = null): any {
  * which is the work this was meant to save. The point of the limit is that
  * `Promise.all` over ten thousand items starts ten thousand of them at once,
  * which is how a machine runs out of sockets. */
-export async function pool(items: any, limit: number, worker: any): any {
+export async function pool(items: array, limit: number, worker: Function) {
   if (limit < 1) throw new Error("pool needs a limit of at least one");
 
-  const all: any = [];
+  const all = [];
   for (const item of items) all.push(item);
-  const results: any = [];
+  const results = [];
   for (let i = 0; i < all.length; i++) results.push(undefined);
 
   let next = 0;
-  async function runOne(): any {
+  async function runOne() {
     while (next < all.length) {
       const index = next;
       next = next + 1;
@@ -108,7 +108,7 @@ export async function pool(items: any, limit: number, worker: any): any {
     }
   }
 
-  const runners: any = [];
+  const runners = [];
   const width = limit < all.length ? limit : all.length;
   for (let i = 0; i < width; i++) runners.push(runOne());
   await Promise.all(runners);
@@ -118,8 +118,8 @@ export async function pool(items: any, limit: number, worker: any): any {
 /* Every result, settled or not, in order — as `{ ok, value }` or
  * `{ ok, error }`. `Promise.all` rejects on the first failure and loses the
  * rest; this is for when the failures are part of the answer. */
-export async function settleAll(work: any): any {
-  const out: any = [];
+export async function settleAll(work: array) {
+  const out = [];
   for (const one of work) {
     try {
       out.push({ ok: true, value: await one });
@@ -137,10 +137,10 @@ export async function settleAll(work: any): any {
  * CScript functions do not hold properties. Cancelling matters: a debounced
  * call still pending when the work is done would keep the program alive until
  * its timer fired. */
-export function debounce(fn: any, milliseconds: number): any {
-  let timer: any = null;
+export function debounce(fn: Function, milliseconds: number) {
+  let timer = null;
 
-  const run = (payload: any = undefined) => {
+  const run = (payload: value = undefined) => {
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
@@ -164,9 +164,9 @@ export function debounce(fn: any, milliseconds: number): any {
 /* Calls at most once per interval: the first call goes through, and anything
  * during the interval after it does not. Where debounce waits for quiet,
  * this one keeps a steady rate. */
-export function throttle(fn: any, milliseconds: number): any {
+export function throttle(fn: Function, milliseconds: number) {
   let last = -1;
-  return (payload: any = undefined) => {
+  return (payload: value = undefined) => {
     const now = Date.now();
     if (last >= 0 && now - last < milliseconds) return undefined;
     last = now;
@@ -178,10 +178,10 @@ export function throttle(fn: any, milliseconds: number): any {
 /* A promise with its resolve and reject alongside it, for the times the thing
  * that settles it is not the thing that created it — a callback API, an event
  * handler. Without this the pair have to be smuggled out of the executor. */
-export function deferred(): any {
-  let settle: any = null;
-  let fail: any = null;
-  const promise = new Promise((resolve: any, reject: any) => {
+export function deferred() {
+  let settle = null;
+  let fail = null;
+  const promise = new Promise((resolve: Function, reject: Function) => {
     settle = resolve;
     fail = reject;
   });

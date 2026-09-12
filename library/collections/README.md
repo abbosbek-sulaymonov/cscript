@@ -33,7 +33,7 @@ All four are iterable, so `for...of` and `[...]` work on each.
 ### `PriorityQueue` — a binary heap
 
 `new PriorityQueue(compare?, initial?)` — `compare` defaults to ascending
-numbers, so a max-heap is `new PriorityQueue((a, b) => b - a)`.
+numbers, so a max-heap is `new PriorityQueue((a: number, b: number) => b - a)`.
 
 | Member | Signature | Behaviour |
 | --- | --- | --- |

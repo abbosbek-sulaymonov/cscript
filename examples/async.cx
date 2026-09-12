@@ -3,7 +3,7 @@
 // Run me:  cscript examples/async.cx
 
 function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(() => resolve(ms), ms));
+  return new Promise((resolve: Function) => setTimeout(() => resolve(ms), ms));
 }
 
 // An async function hands its caller a promise straight away and carries on
@@ -21,7 +21,7 @@ async function main() {
   // Or all at once. Both requests are already in flight before the await, so
   // this takes as long as the slowest rather than the sum.
   const users = await Promise.all([fetchUser(2), fetchUser(3), fetchUser(4)]);
-  console.log(users.map((u: any) => u.name).join(", "));
+  console.log(users.map((u: object) => u.name).join(", "));
 
   // A rejection arrives as an exception at the await that was waiting for it,
   // so the ordinary try/catch/finally applies.
@@ -45,5 +45,5 @@ async function main() {
 console.log("1 sync");
 setTimeout(() => console.log("4 timer"), 0);
 Promise.resolve().then(() => console.log("3 microtask"));
-main().then((count) => console.log("5 done, saw", count, "users"));
+main().then((count: number) => console.log("5 done, saw", count, "users"));
 console.log("2 sync");

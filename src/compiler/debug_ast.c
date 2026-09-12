@@ -21,7 +21,7 @@ static void indent(int depth) {
 /* Annotates a dumped node with the type the checker resolved, so `make trace`
  * shows what the compiler actually knows. */
 static void printType(const AstNode *node) {
-  if (node->resolvedType != TYPE_ANY) printf("  : %s", csTypeName(node->resolvedType));
+  if (node->resolvedType != TYPE_DYNAMIC) printf("  : %s", csTypeName(node->resolvedType));
 }
 
 static void printNode(const AstNode *node, int depth) {

@@ -21,12 +21,12 @@ import { messageOf, kindOf } from "std:errors";
 
 /* The registry is module-level, which is what lets a test file be a file of
  * `test(...)` calls with no ceremony — importing it is the registration. */
-let registered: any = [];
-let suiteStack: any = [];
+let registered = [];
+let suiteStack = [];
 let onlyUsed: boolean = false;
 
 /* `test("adds", () => { ... })`, inside an optional `suite`. */
-export function test(name: string, body: any) {
+export function test(name: string, body: Function) {
   registered.push({
     name: fullName(name),
     body: body,
@@ -37,13 +37,13 @@ export function test(name: string, body: any) {
 
 /* Registered, reported, and not run. A skipped test is a decision that shows
  * up in the summary; a commented-out one is a decision nobody can see. */
-export function skip(name: string, body: any) {
+export function skip(name: string, body: Function) {
   registered.push({ name: fullName(name), body: body, skip: true, only: false });
 }
 
 /* When any test is `only`, every other one is skipped. For narrowing a run to
  * the thing being worked on, without deleting the rest. */
-export function only(name: string, body: any) {
+export function only(name: string, body: Function) {
   onlyUsed = true;
   registered.push({ name: fullName(name), body: body, skip: false, only: true });
 }
@@ -52,7 +52,7 @@ export function only(name: string, body: any) {
  * its body immediately to register what is inside it. There is no setup or
  * teardown here on purpose — a test that needs fixtures can build them in its
  * own body, where what it did is visible. */
-export function suite(name: string, body: any) {
+export function suite(name: string, body: Function) {
   suiteStack.push(name);
   body();
   suiteStack.pop();
@@ -72,7 +72,7 @@ function fullName(name: string): string {
  * one-argument function otherwise, which is how the output is captured in a
  * test of the runner itself.
  */
-export async function run(options: any = null): any {
+export async function run(options: object = null) {
   const report = options?.report ?? ((line: string) => console.log(line));
   const quiet = options?.quiet ?? false;
 
@@ -120,14 +120,14 @@ export async function run(options: any = null): any {
  * "AssertionError" is what a failing test is. Anything else is named, because
  * a test that threw something unexpected failed differently from one whose
  * check did not hold. */
-function describeFailure(failure: any): string {
+function describeFailure(failure: value): string {
   const kind = kindOf(failure);
   const message = messageOf(failure);
   return kind === "AssertionError" ? message : kind + ": " + message;
 }
 
-export function line(summary: any): string {
-  const parts: any = [String(summary.passed) + " passed"];
+export function line(summary: object): string {
+  const parts = [String(summary.passed) + " passed"];
   if (summary.failed > 0) parts.push(String(summary.failed) + " failed");
   if (summary.skipped > 0) parts.push(String(summary.skipped) + " skipped");
   return parts.join(", ");
@@ -143,8 +143,8 @@ export function reset() {
 
 /* What has been registered, without running any of it: for a runner that wants
  * to list or filter before deciding. */
-export function names(): any {
-  const out: any = [];
+export function names() {
+  const out = [];
   for (const entry of registered) out.push(entry.name);
   return out;
 }
@@ -153,7 +153,7 @@ export function names(): any {
  * passes down, applied before `run` rather than inside it, so the summary
  * counts what was actually asked for. */
 export function filter(text: string) {
-  const kept: any = [];
+  const kept = [];
   for (const entry of registered) {
     if (entry.name.includes(text)) kept.push(entry);
   }
@@ -162,6 +162,6 @@ export function filter(text: string) {
 
 /* The exit code a runner should use: 0 when everything passed, 1 otherwise.
  * Answered rather than acted on, for the same reason `run` does not exit. */
-export function exitCode(summary: any): number {
+export function exitCode(summary: object): number {
   return summary.ok ? 0 : 1;
 }

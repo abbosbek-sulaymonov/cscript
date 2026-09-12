@@ -1,30 +1,30 @@
 // Default parameters, evaluated at the top of the body so a later one can see
 // an earlier one — and an argument written as `undefined` counts as absent.
-function greet(name = "world", greeting = "hello " + name) {
+function greet(name: string = "world", greeting: value = "hello " + name) {
   return greeting;
 }
 console.log(greet(), greet("you"), greet("you", "hi"), greet(undefined));
 
-function span(a, b = a * 2, c = a + b) { return [a, b, c].join(","); }
+function span(a: number, b: number = a * 2, c: value = a + b) { return [a, b, c].join(","); }
 console.log(span(1), span(1, 10), span(1, 10, 100));
 
-const arrow = (a = 7, b = 8) => a * b;
+const arrow = (a: number = 7, b: number = 8) => a * b;
 console.log(arrow(), arrow(2), arrow(2, 3));
 
 class Box {
-  constructor(size = 1) { this.size = size; }
-  scaled(by = 2) { return this.size * by; }
+  constructor(size: number = 1) { this.size = size; }
+  scaled(by: number = 2) { return this.size * by; }
 }
 console.log(new Box().scaled(), new Box(3).scaled(4));
 
-async function later(value = "default") { return value; }
+async function later(value: value = "default") { return value; }
 console.log(await later(), await later("given"));
 
-function* counted(upTo = 3) { for (let i = 0; i < upTo; i++) yield i; }
+function* counted(upTo: number = 3) { for (let i = 0; i < upTo; i++) yield i; }
 console.log([...counted()], [...counted(1)]);
 
 // A default may be any expression, including one that allocates.
-function collect(into = []) { into.push(1); return into.length; }
+function collect(into: object = []) { into.push(1); return into.length; }
 console.log(collect(), collect([9, 9]));
 
 // The comma operator, which is not the comma that separates things.

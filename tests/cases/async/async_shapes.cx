@@ -1,17 +1,17 @@
 // async inside array callbacks: each async call gets its own fiber.
-async function twice(n) { await Promise.resolve(); return n * 2; }
-Promise.all([1, 2, 3].map(twice)).then((v) => console.log("map", v.join(",")));
+async function twice(n: number) { await Promise.resolve(); return n * 2; }
+Promise.all([1, 2, 3].map(twice)).then((v: object) => console.log("map", v.join(",")));
 
 // `this` through an async arrow inside an async method.
 class Box {
-  constructor(v) { this.v = v; }
+  constructor(v: object) { this.v = v; }
   async lift() {
     const inner = async () => { await Promise.resolve(); return this.v + 1; };
     return await inner();
   }
-  static async make(v) { await Promise.resolve(); return new Box(v); }
+  static async make(v: object) { await Promise.resolve(); return new Box(v); }
 }
-Box.make(5).then((b) => b.lift()).then((v) => console.log("this", v));
+Box.make(5).then((b: object) => b.lift()).then((v: object) => console.log("this", v));
 
 // break and continue crossing an await.
 async function loops() {
@@ -30,7 +30,7 @@ async function loops() {
   }
   return `${seen.join("")} ${j}`;
 }
-loops().then((v) => console.log("loops", v));
+loops().then((v: object) => console.log("loops", v));
 
 // return inside try with finally, across an await.
 async function tryReturn() {
@@ -41,18 +41,18 @@ async function tryReturn() {
     console.log("finally ran");
   }
 }
-tryReturn().then((v) => console.log("tr", v));
+tryReturn().then((v: object) => console.log("tr", v));
 
 // Recursive async.
-async function count(n) {
+async function count(n: number) {
   if (n === 0) return 0;
   await Promise.resolve();
   return 1 + (await count(n - 1));
 }
-count(5).then((v) => console.log("recursive", v));
+count(5).then((v: object) => console.log("recursive", v));
 
 // Many concurrent fibers.
-async function slow(n) { await Promise.resolve(); return n; }
+async function slow(n: number) { await Promise.resolve(); return n; }
 const many = [];
 for (let i = 0; i < 50; i++) many.push(slow(i));
-Promise.all(many).then((v) => console.log("many", v.length, v[49]));
+Promise.all(many).then((v: object) => console.log("many", v.length, v[49]));

@@ -3,7 +3,7 @@
 // divergence. What an object with *no* toString renders as is the deliberate
 // difference, and it is unchanged.
 class Temperature {
-  constructor(c) { this.c = c; }
+  constructor(c: value) { this.c = c; }
   toString() { return `${this.c}C`; }
 }
 const t = new Temperature(21);
@@ -20,21 +20,21 @@ console.log(`${{ toString() { return "literal"; } }}`);
 
 // Array.from over everything it can convert, and with a mapping function that
 // is handed only the arguments it asked for.
-console.log(Array.from([1, 2], (x) => x * 2));
+console.log(Array.from([1, 2], (x: number) => x * 2));
 console.log(Array.from("ab"));
 console.log(Array.from(new Set([1, 1, 2])));
 console.log(Array.from(new Map([["a", 1]])));
 function* counted() { yield 1; yield 2; }
 console.log(Array.from(counted()));
-console.log(Array.from({ length: 3 }, (_, i) => i));
+console.log(Array.from({ length: 3 }, (_: value, i: number) => i));
 console.log(Array.from({ 0: "x", length: 1 }));
-console.log(Array.from([1, 2, 3], (x, i) => x + i));
+console.log(Array.from([1, 2, 3], (x: number, i: number) => x + i));
 
 // reduceRight folds from the end, with and without an initial value.
-console.log([1, 2, 3].reduceRight((a, b) => a + b));
-console.log(["a", "b", "c"].reduceRight((a, b) => a + b));
-console.log([1, 2].reduceRight((a, b) => a + b, 10));
-console.log([[1, 2], [3]].reduceRight((a, b) => a.concat(b)));
+console.log([1, 2, 3].reduceRight((a: number, b: number) => a + b));
+console.log(["a", "b", "c"].reduceRight((a: string, b: string) => a + b));
+console.log([1, 2].reduceRight((a: number, b: number) => a + b, 10));
+console.log([[1, 2], [3]].reduceRight((a: array, b: array) => a.concat(b)));
 
 // A class member may be named after an accessor keyword. `get` is a modifier
 // only when a name follows it.

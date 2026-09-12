@@ -20,8 +20,8 @@ async function main() {
     if (tries < 3) throw new Error("not yet");
     return "third time";
   };
-  const notes: any = [];
-  equal(await retry(flaky, { attempts: 5, delayMs: 1, onRetry: (e: any, n: number) => notes.push(n) }),
+  const notes = [];
+  equal(await retry(flaky, { attempts: 5, delayMs: 1, onRetry: (e: value, n: number) => notes.push(n) }),
         "third time");
   equal(tries, 3);
   deepEqual(notes, [1, 2]);
@@ -31,7 +31,7 @@ async function main() {
     ok(false, "retry should have given up");
   } catch (e) { equal(messageOf(e), "always"); }
 
-  const order: any = [];
+  const order = [];
   let inFlight = 0;
   let highWater = 0;
   const results = await pool([1, 2, 3, 4, 5], 2, async (n: number) => {

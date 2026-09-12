@@ -57,7 +57,7 @@ export function compareBooleans(a: boolean, b: boolean): number {
 /* Whatever it is handed: numbers numerically, strings lexicographically,
  * booleans false-first. Anything else is compared by its text, which is at
  * least stable and is why the specific functions above exist. */
-export function compare(a: any, b: any): number {
+export function compare(a: value, b: value): number {
   if (typeof a === "number" && typeof b === "number") return compareNumbers(a, b);
   if (typeof a === "string" && typeof b === "string") return compareStrings(a, b);
   if (typeof a === "boolean" && typeof b === "boolean") return compareBooleans(a, b);
@@ -67,25 +67,25 @@ export function compare(a: any, b: any): number {
 /* --- building one --------------------------------------------------------- */
 
 /* Orders by what `keyOf` answers: `sort(cmp.by(p => p.age))`. */
-export function by(keyOf: any, order: any = null): any {
+export function by(keyOf: Function, order: Function = null) {
   const inner = order === null ? compare : order;
-  return (a: any, b: any) => inner(keyOf(a), keyOf(b));
+  return (a: value, b: value) => inner(keyOf(a), keyOf(b));
 }
 
-export function byDescending(keyOf: any, order: any = null): any {
+export function byDescending(keyOf: Function, order: Function = null) {
   return reversed(by(keyOf, order));
 }
 
-export function reversed(order: any): any {
-  return (a: any, b: any) => order(b, a);
+export function reversed(order: Function) {
+  return (a: value, b: value) => order(b, a);
 }
 
 /* The first order that has an opinion decides: `then(by(lastName), by(age))`.
  * Written out as a fold rather than as a chain of `||`, because a comparator
  * answering 0 is falsy and the shorter spelling would then be wrong for a tie
  * in the middle. */
-export function then(...orders: any): any {
-  return (a: any, b: any) => {
+export function then(...orders: Function) {
+  return (a: value, b: value) => {
     for (const order of orders) {
       const side = order(a, b);
       if (side !== 0) return side;
@@ -97,9 +97,9 @@ export function then(...orders: any): any {
 /* `undefined` and `null` first, or last, with everything else in `order`.
  * Sorting a list with holes in it is otherwise a comparison against undefined,
  * which answers 0 and leaves them wherever they happened to be. */
-export function nullsFirst(order: any = null): any {
+export function nullsFirst(order: Function = null) {
   const inner = order === null ? compare : order;
-  return (a: any, b: any) => {
+  return (a: value, b: value) => {
     const aMissing = a === null || a === undefined;
     const bMissing = b === null || b === undefined;
     if (aMissing && bMissing) return 0;
@@ -109,7 +109,7 @@ export function nullsFirst(order: any = null): any {
   };
 }
 
-export function nullsLast(order: any = null): any {
+export function nullsLast(order: Function = null) {
   return reversed(nullsFirst(reversed(order === null ? compare : order)));
 }
 
@@ -118,9 +118,9 @@ export function nullsLast(order: any = null): any {
 /* The smallest and largest by an order, without sorting: O(n) rather than
  * O(n log n), and the answer for an empty sequence is `undefined` rather than
  * an error, because "the largest of nothing" is a question a loop asks. */
-export function minBy(items: any, order: any = null): any {
+export function minBy(items: array, order: Function = null) {
   const inner = order === null ? compare : order;
-  let best: any = undefined;
+  let best = undefined;
   let first = true;
   for (const item of items) {
     if (first || inner(item, best) < 0) best = item;
@@ -129,9 +129,9 @@ export function minBy(items: any, order: any = null): any {
   return best;
 }
 
-export function maxBy(items: any, order: any = null): any {
+export function maxBy(items: array, order: Function = null) {
   const inner = order === null ? compare : order;
-  let best: any = undefined;
+  let best = undefined;
   let first = true;
   for (const item of items) {
     if (first || inner(item, best) > 0) best = item;
@@ -142,9 +142,9 @@ export function maxBy(items: any, order: any = null): any {
 
 /* Whether a sequence is already ordered, which is worth knowing before paying
  * to sort it — and is how a test says "this came back sorted". */
-export function isSorted(items: any, order: any = null): boolean {
+export function isSorted(items: array, order: Function = null): boolean {
   const inner = order === null ? compare : order;
-  let previous: any = undefined;
+  let previous = undefined;
   let first = true;
   for (const item of items) {
     if (!first && inner(previous, item) > 0) return false;

@@ -3,7 +3,7 @@ import { Logger, DEBUG, INFO, WARN, ERROR, SILENT, levelNamed, levelName,
 import { equal, deepEqual, ok, notOk } from "std:assert";
 
 /* The clock is injectable so a golden test can check the output at all. */
-const lines: any = [];
+const lines = [];
 const at = () => 1700000000000;
 const log = new Logger({ write: (line: string) => lines.push(line), clock: at });
 
@@ -19,7 +19,7 @@ deepEqual(lines, [
 ]);
 
 /* A level turns lines off without deleting them. */
-const quiet: any = [];
+const quiet = [];
 const quietLog = new Logger({ level: WARN, write: (l: string) => quiet.push(l),
                               time: false });
 quietLog.debug("no"); quietLog.info("no"); quietLog.warn("yes"); quietLog.error("yes");
@@ -27,7 +27,7 @@ deepEqual(quiet, ["warn  yes", "error yes"]);
 notOk(quietLog.enabled(INFO));
 ok(quietLog.enabled(ERROR));
 
-const silent: any = [];
+const silent = [];
 const silentLog = new Logger({ level: SILENT, write: (l: string) => silent.push(l) });
 silentLog.error("nothing gets through");
 deepEqual(silent, []);
@@ -36,7 +36,7 @@ quietLog.setLevel(DEBUG);
 ok(quietLog.enabled(DEBUG));
 
 /* A child logger carries its fields without being told again. */
-const child: any = [];
+const child = [];
 const parent = new Logger({ write: (l: string) => child.push(l), time: false });
 const request = parent.with({ requestId: "abc" });
 request.info("received");
@@ -47,7 +47,7 @@ deepEqual(child, [
 ]);
 
 /* JSON, for anything that will be searched later. Field order is fixed. */
-const structured: any = [];
+const structured = [];
 const jsonLog = new Logger({ format: "json", clock: at,
                              write: (l: string) => structured.push(l) });
 jsonLog.info("saved", { bytes: 12, ok: true, note: null, quoted: "a \"b\"" });
@@ -56,7 +56,7 @@ deepEqual(structured, [
   '"bytes":12,"ok":true,"note":null,"quoted":"a \\"b\\""}',
 ]);
 
-const noTime: any = [];
+const noTime = [];
 new Logger({ format: "json", time: false, write: (l: string) => noTime.push(l) })
     .warn("terse");
 deepEqual(noTime, ['{"level":"warn","message":"terse"}']);

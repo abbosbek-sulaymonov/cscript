@@ -5,7 +5,7 @@ class Counter {
   #step;
   label = "counter";
 
-  constructor(step) {
+  constructor(step: number) {
     this.#step = step;
   }
 

@@ -32,13 +32,13 @@ export function char(value: number): string {
 }
 
 /* Every code in a string, which is how a byte-level algorithm reads one. */
-export function codes(text: string): any {
-  const out: any = [];
+export function codes(text: string) {
+  const out = [];
   for (let i = 0; i < text.length; i++) out.push(text.charCodeAt(i));
   return out;
 }
 
-export function fromCodes(values: any): string {
+export function fromCodes(values: array): string {
   let out = "";
   for (const value of values) out = out + char(value);
   return out;
@@ -48,47 +48,47 @@ export function fromCodes(values: any): string {
 
 /* Each takes a one-character string *or* a code, because a caller has one or
  * the other and converting first is noise at the call site. */
-function codeOf(value: any): number {
+function codeOf(value: value): number {
   return typeof value === "number" ? value : code(String(value));
 }
 
-export function isAscii(value: any): boolean {
+export function isAscii(value: value): boolean {
   const at = codeOf(value);
   return at >= 0 && at <= 127;
 }
 
-export function isDigit(value: any): boolean {
+export function isDigit(value: value): boolean {
   const at = codeOf(value);
   return at >= 48 && at <= 57;
 }
 
-export function isUpper(value: any): boolean {
+export function isUpper(value: value): boolean {
   const at = codeOf(value);
   return at >= 65 && at <= 90;
 }
 
-export function isLower(value: any): boolean {
+export function isLower(value: value): boolean {
   const at = codeOf(value);
   return at >= 97 && at <= 122;
 }
 
-export function isAlpha(value: any): boolean {
+export function isAlpha(value: value): boolean {
   return isUpper(value) || isLower(value);
 }
 
-export function isAlphanumeric(value: any): boolean {
+export function isAlphanumeric(value: value): boolean {
   return isAlpha(value) || isDigit(value);
 }
 
 /* Space, tab, newline, carriage return, vertical tab and form feed — the six
  * the C standard calls whitespace, which is also what `trim` removes. */
-export function isSpace(value: any): boolean {
+export function isSpace(value: value): boolean {
   const at = codeOf(value);
   return at === 32 || (at >= 9 && at <= 13);
 }
 
 /* Anything printable that is neither a letter, a digit, nor a space. */
-export function isPunctuation(value: any): boolean {
+export function isPunctuation(value: value): boolean {
   const at = codeOf(value);
   if (!isAscii(at) || isAlphanumeric(at) || isSpace(at)) return false;
   return at > 32 && at < 127;
@@ -96,17 +96,17 @@ export function isPunctuation(value: any): boolean {
 
 /* A control character: the 32 below space, and DEL. Worth a predicate of its
  * own because these are what a program strips before printing. */
-export function isControl(value: any): boolean {
+export function isControl(value: value): boolean {
   const at = codeOf(value);
   return (at >= 0 && at <= 31) || at === 127;
 }
 
-export function isPrintable(value: any): boolean {
+export function isPrintable(value: value): boolean {
   const at = codeOf(value);
   return at >= 32 && at <= 126;
 }
 
-export function isHexDigit(value: any): boolean {
+export function isHexDigit(value: value): boolean {
   const at = codeOf(value);
   return isDigit(at) || (at >= 65 && at <= 70) || (at >= 97 && at <= 102);
 }
@@ -116,12 +116,12 @@ export function isHexDigit(value: any): boolean {
 /* One character, by arithmetic: the 32 between 'A' and 'a' is the whole of
  * ASCII case. `toUpperCase` on a string does the same thing and more, so
  * these are for the code that is already working in codes. */
-export function toUpper(value: any): string {
+export function toUpper(value: value): string {
   const at = codeOf(value);
   return char(isLower(at) ? at - 32 : at);
 }
 
-export function toLower(value: any): string {
+export function toLower(value: value): string {
   const at = codeOf(value);
   return char(isUpper(at) ? at + 32 : at);
 }
@@ -131,12 +131,12 @@ export function toLower(value: any): string {
 /* The value of a digit, or -1. `Number("7")` answers 7 as well; this answers
  * -1 rather than NaN for something that is not one, which composes without a
  * separate check. */
-export function digitValue(value: any): number {
+export function digitValue(value: value): number {
   const at = codeOf(value);
   return isDigit(at) ? at - 48 : -1;
 }
 
-export function hexValue(value: any): number {
+export function hexValue(value: value): number {
   const at = codeOf(value);
   if (isDigit(at)) return at - 48;
   if (at >= 65 && at <= 70) return at - 55;

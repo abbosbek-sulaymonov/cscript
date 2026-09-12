@@ -20,7 +20,7 @@
 /* An error of `kind`, which is what `name` carries. `details` is an object a
  * handler can read — a path, a field, a status — rather than text it would
  * have to parse back out of the message. */
-export function make(kind: string, message: string, details: any = null): any {
+export function make(kind: string, message: string, details: object = null) {
   const error = new Error(message);
   error.name = kind;
   if (details !== null) error.details = details;
@@ -32,15 +32,15 @@ export function make(kind: string, message: string, details: any = null): any {
  *   const NotFound = errors.kind("NotFound");
  *   throw NotFound("no user " + id, { id: id });
  */
-export function kind(name: string): any {
-  return (message: string, details: any = null) => make(name, message, details);
+export function kind(name: string) {
+  return (message: string, details: object = null) => make(name, message, details);
 }
 
 /* `error` with another sentence in front of it, keeping the original as the
  * cause. The new error takes the kind of the one it wraps unless told
  * otherwise, so a handler asking `isKind(e, "NotFound")` still finds it after
  * three layers have added context. */
-export function wrap(error: any, message: string, asKind: any = null): any {
+export function wrap(error: value, message: string, asKind: value = null) {
   const wrapped = new Error(message);
   wrapped.name = asKind === null ? kindOf(error) : asKind;
   wrapped.cause = error;
@@ -51,14 +51,14 @@ export function wrap(error: any, message: string, asKind: any = null): any {
 
 /* The kind of anything that was thrown, including a plain string or an object
  * that is not an Error at all — a thrown value is whatever the program threw. */
-export function kindOf(error: any): string {
+export function kindOf(error: value): string {
   if (typeof error === "string") return "Error";
   if (typeof error !== "object" || error === null) return "Error";
   const name = error?.name;
   return typeof name === "string" ? name : "Error";
 }
 
-export function messageOf(error: any): string {
+export function messageOf(error: value): string {
   if (typeof error === "string") return error;
   if (typeof error === "object" && error !== null) {
     const message = error?.message;
@@ -67,7 +67,7 @@ export function messageOf(error: any): string {
   return String(error);
 }
 
-export function detailsOf(error: any): any {
+export function detailsOf(error: value) {
   if (typeof error !== "object" || error === null) return undefined;
   return error?.details;
 }
@@ -75,7 +75,7 @@ export function detailsOf(error: any): any {
 /* Whether this error, or anything under it, is of `name`. Walking the chain is
  * what makes wrapping safe: a caller that cares about the original failure
  * does not have to know how many layers added context on the way up. */
-export function isKind(error: any, name: string): boolean {
+export function isKind(error: value, name: string): boolean {
   for (const link of chain(error)) {
     if (kindOf(link) === name) return true;
   }
@@ -89,7 +89,7 @@ export function isKind(error: any, name: string): boolean {
  * the innermost is the failure itself — which is where the details are. A
  * handler asking `find(e, "NotFound")` wants the one that knows the id, not
  * the one that knows it could not start. */
-export function find(error: any, name: string): any {
+export function find(error: value, name: string) {
   const links = chain(error);
   for (let i = links.length - 1; i >= 0; i--) {
     if (kindOf(links[i]) === name) return links[i];
@@ -101,8 +101,8 @@ export function find(error: any, name: string): any {
  *
  * A cycle is stopped rather than followed: `a.cause = b; b.cause = a` is a
  * mistake, and a walk that hung on it would be a worse one. */
-export function chain(error: any): any {
-  const out: any = [];
+export function chain(error: value) {
+  const out = [];
   const seen = new Set();
   let at = error;
   while (at !== undefined && at !== null) {
@@ -119,7 +119,7 @@ export function chain(error: any): any {
 
 /* The error underneath everything, which is usually the one that says what
  * actually went wrong. */
-export function rootCause(error: any): any {
+export function rootCause(error: value) {
   const links = chain(error);
   return links.length === 0 ? error : links[links.length - 1];
 }
@@ -128,7 +128,7 @@ export function rootCause(error: any): any {
 
 /* One line: `NotFound: no user 7`. The kind is left out when it is the plain
  * "Error", because `Error: x` says nothing `x` did not. */
-export function describe(error: any): string {
+export function describe(error: value): string {
   const name = kindOf(error);
   const message = messageOf(error);
   return name === "Error" ? message : name + ": " + message;
@@ -140,9 +140,9 @@ export function describe(error: any): string {
  *     caused by Write: cannot write /etc/app.conf
  *     caused by NotFound: no such file or directory
  */
-export function format(error: any, indent: string = "  "): string {
+export function format(error: value, indent: string = "  "): string {
   const links = chain(error);
-  const out: any = [describe(links[0])];
+  const out = [describe(links[0])];
   for (let i = 1; i < links.length; i++) {
     out.push(indent + "caused by " + describe(links[i]));
   }
@@ -164,7 +164,7 @@ export function format(error: any, indent: string = "  "): string {
  * there, adding a number to an object — is not catchable in CScript, and no
  * branch here will see one.
  */
-export function catching(body: any, branches: any, otherwise: any = null): any {
+export function catching(body: Function, branches: object, otherwise: Function = null) {
   try {
     return body();
   } catch (error) {

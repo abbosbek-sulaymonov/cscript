@@ -1,6 +1,6 @@
 // Error handling: throw any value, catch it, and let finally clean up.
 
-function parsePort(text) {
+function parsePort(text: string) {
   const port = Number(text);
   if (isNaN(port)) {
     throw Error(`"${text}" is not a number`);
@@ -20,7 +20,7 @@ for (const candidate of ["8080", "notaport", "99999"]) {
 }
 
 // finally runs whichever way the block is left — including a return.
-function withCleanup(shouldFail) {
+function withCleanup(shouldFail: value) {
   try {
     if (shouldFail) {
       throw "failed";
@@ -55,7 +55,7 @@ try {
 
 // It also escapes a callback running inside a built-in method.
 try {
-  [1, 2, 3].forEach(n => {
+  [1, 2, 3].forEach((n: number) => {
     if (n === 2) {
       throw Error("stopped at " + n);
     }

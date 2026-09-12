@@ -269,7 +269,7 @@ lookup that finds nothing.
 Two spellings work. A `let` assigned afterwards:
 
 ```ts
-let walk: any = null;
+let walk: Function = null;
 walk = (n: number) => n <= 0 ? "done" : walk(n - 1);
 ```
 
@@ -430,20 +430,21 @@ continuing, which the fiber machinery does not have yet. `break` out of a
 `for...of` over a generator has the same gap, because it does not call
 `.return()` at all.
 
-### A `number` annotation is checked when `any` crosses into it
+### A `number` annotation is checked at the boundary
 
-The checker enforces an annotation wherever it can see the argument's type, but
-`any` is assignable to everything by design — that is what makes the system
-gradual. So a value that arrived through an untyped edge reaches an annotated
-parameter unexamined, and the annotation is not advice: arithmetic on a
-`number` parameter compiles to an unchecked add, and the JIT seeds the slot as
-a number and stops guarding.
+The checker enforces an annotation wherever it can see the argument's type, and
+there are edges it cannot see across: an array's element types are not
+modelled, nor an object's properties, nor what an imported binding holds. A
+value arriving through one of those reaches an annotated parameter unexamined,
+and the annotation is not advice: arithmetic on a `number` parameter compiles
+to an unchecked add, and the JIT seeds the slot as a number and stops
+guarding.
 
 CScript therefore checks a `number` parameter against its argument on the way
 in, and reports `argument 1 is bigint but the parameter is number` rather than
 reading the value's bits as a double. JavaScript has no annotations to check
 and TypeScript erases its own, so this has no counterpart in either; it is the
-contract a sound gradual boundary needs, and it is one comparison per annotated
+contract a sound structural boundary needs, and it is one comparison per annotated
 parameter per call — too small to measure on a call-heavy benchmark.
 
 ### Known, not yet fixed
@@ -558,9 +559,10 @@ Each of these produces an error that names it, rather than failing obscurely.
 | `with`, `eval` | No plans |
 
 Class names are not usable as type annotations. The type lattice is a fixed set
-of primitives, so an instance is `object` and a class is dynamic. Types do not
-cross a module boundary either — an imported binding is `any`. Nominal types
-are the next typing milestone rather than part of this one.
+of types, so an instance is `object` and a class is callable. Types do not
+cross a module boundary either — what an imported binding holds is checked
+where it is used. Nominal types are the next typing milestone rather than part
+of this one.
 
 ---
 

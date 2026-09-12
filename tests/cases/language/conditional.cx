@@ -3,7 +3,7 @@ console.log(n > 5 ? "big" : "small");
 console.log(n % 2 === 0 ? "even" : "odd");
 
 // Right-associative, so this chains the way it reads.
-function grade(score) {
+function grade(score: number) {
   return score >= 90 ? "A" : score >= 80 ? "B" : score >= 70 ? "C" : "F";
 }
 console.log(grade(95), grade(85), grade(75), grade(40));

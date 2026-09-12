@@ -30,7 +30,7 @@ const v = new Vec({ x: 1, y: 2 }).add({ x: 10, y: 20 });
 console.log(v.x, v.y);
 
 async function load({ id }) { await Promise.resolve(); return id * 2; }
-load({ id: 21 }).then((n) => console.log("async", n));
+load({ id: 21 }).then((n: number) => console.log("async", n));
 
 // Computed keys, and shorthand beside them.
 const key = "dyn";

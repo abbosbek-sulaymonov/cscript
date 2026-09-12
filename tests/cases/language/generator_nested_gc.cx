@@ -11,8 +11,8 @@
  * The allocations matter: each `push` and each array literal is a chance to
  * collect, and the crash needed one to land while both generators were live.
  */
-function* source(): any {
-  const kept: any = [];
+function* source() {
+  const kept = [];
   for (const item of [1, 2, 3]) {
     kept.push([item, item * 2]);
     yield item;
@@ -22,7 +22,7 @@ function* source(): any {
   }
 }
 
-function* limit(iterable: any, howMany: number): any {
+function* limit(iterable: value, howMany: number) {
   let taken = 0;
   for (const element of iterable) {
     yield [taken, element];
@@ -34,12 +34,12 @@ function* limit(iterable: any, howMany: number): any {
 /* Printed as JSON so the expected file is the same in Node and here: Node's
  * console.log breaks a wide array across lines and CScript's does not, which
  * is a difference in the printer rather than in what was produced. */
-const collected: any = [];
+const collected = [];
 for (const pair of limit(source(), 7)) collected.push(pair);
 console.log(JSON.stringify(collected));
 
 /* Three deep, to check the chain and not only one link. */
-function* passThrough(iterable: any): any {
+function* passThrough(iterable: value) {
   for (const element of iterable) yield element;
 }
 console.log(JSON.stringify([...limit(passThrough(source()), 5)]));

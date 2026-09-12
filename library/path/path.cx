@@ -17,8 +17,8 @@ const SEPARATOR = "/";
 
 /* The parts, with the empty ones dropped: "a//b/" gives ["a", "b"]. A leading
  * separator is not a part — `isAbsolute` is how that is asked about. */
-export function split(path: string): any {
-  const out: any = [];
+export function split(path: string) {
+  const out = [];
   for (const part of path.split(SEPARATOR)) {
     if (part !== "") out.push(part);
   }
@@ -73,7 +73,7 @@ export function stem(path: string): string {
 /* Joins with one separator between parts, whatever the parts end or begin
  * with, and normalises the result. An empty part is skipped rather than
  * producing a doubled separator. */
-export function join(...parts: any): string {
+export function join(...parts: string): string {
   let out = "";
   for (const part of parts) {
     const text = String(part);
@@ -96,7 +96,7 @@ export function join(...parts: any): string {
  * something the text cannot resolve on its own. */
 export function normalize(path: string): string {
   const absolute = isAbsolute(path);
-  const out: any = [];
+  const out = [];
   for (const part of split(path)) {
     if (part === ".") continue;
     if (part !== "..") {
@@ -142,7 +142,7 @@ export function relative(from: string, to: string): string {
     shared = shared + 1;
   }
 
-  const out: any = [];
+  const out = [];
   for (let i = shared; i < fromParts.length; i++) out.push("..");
   for (let i = shared; i < toParts.length; i++) out.push(toParts[i]);
   return out.length === 0 ? "." : out.join(SEPARATOR);

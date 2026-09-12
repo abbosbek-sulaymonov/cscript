@@ -16,7 +16,7 @@ import { Result } from "std:result";
 
 export class Graph {
   #directed: boolean;
-  #edges: any = new Map(); /* node -> Map of neighbour -> weight */
+  #edges: object = new Map(); /* node -> Map of neighbour -> weight */
 
   constructor(directed: boolean = false) {
     this.#directed = directed;
@@ -36,14 +36,14 @@ export class Graph {
     return this.#directed ? total : total / 2;
   }
 
-  addNode(node: any): any {
+  addNode(node: value) {
     if (!this.#edges.has(node)) this.#edges.set(node, new Map());
     return this;
   }
 
   /* Adding an edge adds its endpoints, because a graph with an edge to a node
    * it does not have is a graph in two minds about what it contains. */
-  addEdge(from: any, to: any, weight: number = 1): any {
+  addEdge(from: value, to: value, weight: number = 1) {
     this.addNode(from);
     this.addNode(to);
     this.#edges.get(from).set(to, weight);
@@ -51,7 +51,7 @@ export class Graph {
     return this;
   }
 
-  removeEdge(from: any, to: any): boolean {
+  removeEdge(from: value, to: value): boolean {
     if (!this.#edges.has(from)) return false;
     const removed = this.#edges.get(from).delete(to);
     if (!this.#directed && this.#edges.has(to)) this.#edges.get(to).delete(from);
@@ -61,29 +61,29 @@ export class Graph {
   /* Removing a node removes every edge that mentioned it, which is the part
    * that is forgotten in the hand-written version and leaves an adjacency list
    * pointing at something that is gone. */
-  removeNode(node: any): boolean {
+  removeNode(node: value): boolean {
     if (!this.#edges.has(node)) return false;
     this.#edges.delete(node);
     for (const [ignored, neighbours] of this.#edges) neighbours.delete(node);
     return true;
   }
 
-  hasNode(node: any): boolean {
+  hasNode(node: value): boolean {
     return this.#edges.has(node);
   }
 
-  hasEdge(from: any, to: any): boolean {
+  hasEdge(from: value, to: value): boolean {
     if (!this.#edges.has(from)) return false;
     return this.#edges.get(from).has(to);
   }
 
-  weight(from: any, to: any): any {
+  weight(from: value, to: value) {
     if (!this.hasEdge(from, to)) return undefined;
     return this.#edges.get(from).get(to);
   }
 
-  nodes(): any {
-    const out: any = [];
+  nodes() {
+    const out = [];
     for (const node of this.#edges.keys()) out.push(node);
     return out;
   }
@@ -91,8 +91,8 @@ export class Graph {
   /* `[from, to, weight]` triples. An undirected edge appears once, in the
    * order it was added, rather than twice — which is what a caller drawing or
    * counting them expects. */
-  edges(): any {
-    const out: any = [];
+  edges() {
+    const out = [];
     const seen = new Set();
     for (const [from, neighbours] of this.#edges) {
       for (const [to, weight] of neighbours) {
@@ -106,14 +106,14 @@ export class Graph {
     return out;
   }
 
-  neighbours(node: any): any {
+  neighbours(node: value) {
     if (!this.#edges.has(node)) return [];
-    const out: any = [];
+    const out = [];
     for (const neighbour of this.#edges.get(node).keys()) out.push(neighbour);
     return out;
   }
 
-  degree(node: any): number {
+  degree(node: value): number {
     return this.#edges.has(node) ? this.#edges.get(node).size : 0;
   }
 
@@ -121,10 +121,10 @@ export class Graph {
 
   /* Breadth first, nearest first — which is what makes it the one to use for
    * "how far", and the wrong one for "is there a path" on a wide graph. */
-  *breadthFirst(start: any) {
+  *breadthFirst(start: value) {
     if (!this.#edges.has(start)) return;
     const seen = new Set([start]);
-    const queue: any = [start];
+    const queue = [start];
     let at = 0;
     while (at < queue.length) {
       const node = queue[at];
@@ -140,10 +140,10 @@ export class Graph {
 
   /* Depth first, on an explicit stack rather than by recursion: a graph deep
    * enough to matter is deep enough to overflow. */
-  *depthFirst(start: any) {
+  *depthFirst(start: value) {
     if (!this.#edges.has(start)) return;
     const seen = new Set();
-    const stack: any = [start];
+    const stack = [start];
     while (stack.length > 0) {
       const node = stack.pop();
       if (seen.has(node)) continue;
@@ -160,8 +160,8 @@ export class Graph {
   /* --- questions --------------------------------------------------------- */
 
   /* The nodes reachable from `start`, including it. */
-  reachableFrom(start: any): any {
-    const out: any = [];
+  reachableFrom(start: value) {
+    const out = [];
     for (const node of this.breadthFirst(start)) out.push(node);
     return out;
   }
@@ -169,12 +169,12 @@ export class Graph {
   /* Each group of nodes that can reach one another. On a directed graph this
    * ignores direction — the strongly-connected version is a different
    * algorithm, and calling this one by that name would be a lie. */
-  components(): any {
+  components() {
     const seen = new Set();
-    const out: any = [];
+    const out = [];
     for (const node of this.#edges.keys()) {
       if (seen.has(node)) continue;
-      const group: any = [];
+      const group = [];
       for (const found of this.#undirectedWalk(node)) {
         seen.add(found);
         group.push(found);
@@ -184,9 +184,9 @@ export class Graph {
     return out;
   }
 
-  *#undirectedWalk(start: any) {
+  *#undirectedWalk(start: value) {
     const seen = new Set([start]);
-    const queue: any = [start];
+    const queue = [start];
     let at = 0;
     while (at < queue.length) {
       const node = queue[at];
@@ -209,7 +209,7 @@ export class Graph {
    * Dijkstra, over the priority queue from [`std:collections`](../collections).
    * A negative weight makes it wrong rather than slow — it assumes a path
    * already settled cannot improve — so one is refused outright. */
-  shortestPath(from: any, to: any): any {
+  shortestPath(from: value, to: value) {
     if (!this.#edges.has(from) || !this.#edges.has(to)) return undefined;
 
     for (const [ignoredNode, neighbours] of this.#edges) {
@@ -224,7 +224,7 @@ export class Graph {
     const distance = new Map([[from, 0]]);
     const previous = new Map();
     const settled = new Set();
-    const queue = new PriorityQueue((a: any, b: any) => a.distance - b.distance);
+    const queue = new PriorityQueue((a: object, b: object) => a.distance - b.distance);
     queue.push({ node: from, distance: 0 });
 
     while (!queue.isEmpty) {
@@ -247,7 +247,7 @@ export class Graph {
 
     if (!distance.has(to)) return undefined;
 
-    const path: any = [to];
+    const path = [to];
     let at = to;
     while (previous.has(at)) {
       at = previous.get(at);
@@ -263,7 +263,7 @@ export class Graph {
    * Kahn's algorithm: repeatedly take a node nothing points at. What is left
    * over when none remains *is* the cycle, which is why the failure can name
    * the nodes involved rather than saying that one exists. */
-  topologicalOrder(): any {
+  topologicalOrder() {
     if (!this.#directed) {
       return Result.err("a topological order needs a directed graph");
     }
@@ -274,12 +274,12 @@ export class Graph {
       for (const to of neighbours.keys()) incoming.set(to, incoming.get(to) + 1);
     }
 
-    const ready: any = [];
+    const ready = [];
     for (const [node, count] of incoming) {
       if (count === 0) ready.push(node);
     }
 
-    const out: any = [];
+    const out = [];
     let at = 0;
     while (at < ready.length) {
       const node = ready[at];
@@ -294,7 +294,7 @@ export class Graph {
 
     if (out.length === this.#edges.size) return Result.ok(out);
 
-    const stuck: any = [];
+    const stuck = [];
     for (const [node, count] of incoming) {
       if (count > 0) stuck.push(String(node));
     }
@@ -310,7 +310,7 @@ export class Graph {
     const seen = new Set();
     for (const start of this.#edges.keys()) {
       if (seen.has(start)) continue;
-      const stack: any = [[start, undefined]];
+      const stack = [[start, undefined]];
       while (stack.length > 0) {
         const [node, cameFrom] = stack.pop();
         if (seen.has(node)) return true;
@@ -337,11 +337,11 @@ export class Graph {
  * Useful on its own — deduplicating equivalent records, grouping by a relation
  * — and it is what a minimum spanning tree is built on. */
 export class DisjointSet {
-  #parent: any = new Map();
-  #size: any = new Map();
+  #parent: object = new Map();
+  #size: object = new Map();
   #groups: number = 0;
 
-  constructor(items: any = null) {
+  constructor(items: array = null) {
     if (items === null) return;
     for (const item of items) this.add(item);
   }
@@ -354,7 +354,7 @@ export class DisjointSet {
     return this.#parent.size;
   }
 
-  add(item: any): any {
+  add(item: value) {
     if (this.#parent.has(item)) return this;
     this.#parent.set(item, item);
     this.#size.set(item, 1);
@@ -365,7 +365,7 @@ export class DisjointSet {
   /* The representative of the group, flattening the path on the way — every
    * node visited is pointed straight at the root, so the next lookup is one
    * step. */
-  find(item: any): any {
+  find(item: value) {
     this.add(item);
     let root = item;
     while (this.#parent.get(root) !== root) root = this.#parent.get(root);
@@ -382,7 +382,7 @@ export class DisjointSet {
   /* Answers whether the two were in different groups, which is exactly the
    * test Kruskal's algorithm needs: an edge joining two groups is in the tree,
    * and one joining a group to itself would close a cycle. */
-  union(a: any, b: any): boolean {
+  union(a: value, b: value): boolean {
     const rootA = this.find(a);
     const rootB = this.find(b);
     if (rootA === rootB) return false;
@@ -396,23 +396,23 @@ export class DisjointSet {
     return true;
   }
 
-  connected(a: any, b: any): boolean {
+  connected(a: value, b: value): boolean {
     return this.find(a) === this.find(b);
   }
 
-  groupSize(item: any): number {
+  groupSize(item: value): number {
     return this.#size.get(this.find(item));
   }
 
   /* Every group, as an array of arrays. */
-  groups(): any {
+  groups() {
     const byRoot = new Map();
     for (const item of this.#parent.keys()) {
       const root = this.find(item);
       if (!byRoot.has(root)) byRoot.set(root, []);
       byRoot.get(root).push(item);
     }
-    const out: any = [];
+    const out = [];
     for (const [ignored, group] of byRoot) out.push(group);
     return out;
   }

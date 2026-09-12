@@ -1,5 +1,5 @@
 class Widget {
-  constructor(name) {
+  constructor(name: string) {
     this.name = name;
   }
 }

@@ -47,7 +47,7 @@ export function fromSigned(value: number): number {
  * slower than an instruction and is the price of the operators not existing.
  * `combine` decides which operation it is, so `and`, `or` and `xor` differ by
  * one line rather than by three copies of the loop. */
-function pairwise(a: number, b: number, combine: any): number {
+function pairwise(a: number, b: number, combine: Function): number {
   let left = wrap(a);
   let right = wrap(b);
   let result = 0;
@@ -243,7 +243,7 @@ export function toHex(value: number, width: number = 0): string {
  * this is one bit each, which is what makes a sieve or a visited-set over a
  * million indices reasonable. */
 export class Bitset {
-  #words: any = [];
+  #words: array = [];
   #size: number = 0;
 
   constructor(size: number = 0) {
@@ -263,14 +263,14 @@ export class Bitset {
     while (this.#words.length < needed) this.#words.push(0);
   }
 
-  set(index: number): any {
+  set(index: number) {
     this.#grow(index);
     const word = Math.floor(index / WIDTH);
     this.#words[word] = setBit(this.#words[word], index % WIDTH);
     return this;
   }
 
-  clear(index: number): any {
+  clear(index: number) {
     if (index >= this.#size) return this;
     const word = Math.floor(index / WIDTH);
     this.#words[word] = clearBit(this.#words[word], index % WIDTH);
@@ -298,8 +298,8 @@ export class Bitset {
     }
   }
 
-  toArray(): any {
-    const out: any = [];
+  toArray() {
+    const out = [];
     for (const index of this) out.push(index);
     return out;
   }

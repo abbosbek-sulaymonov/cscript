@@ -4,7 +4,7 @@ import { equal, deepEqual, ok, notOk } from "std:assert";
 /* A program takes a command or takes files, not both: with commands in the
  * description, a bare word is a command, and an unknown one is an error rather
  * than a filename nobody noticed. So there are two descriptions here. */
-const spec: any = {
+const spec = {
   name: "notes",
   version: "1.2.0",
   description: "Keep short notes.",
@@ -40,7 +40,7 @@ deepEqual(bare.positional, []);
 equal(bare.command, undefined);
 
 /* The same flags, without commands, so bare words are files. */
-const fileSpec: any = {
+const fileSpec = {
   name: "notes",
   version: "1.2.0",
   description: "Keep short notes.",

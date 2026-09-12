@@ -36,7 +36,7 @@ console.log([..."abc"]);
 console.log([0, ...[]]);
 
 // Spread as call arguments.
-function sum3(one, two, three) {
+function sum3(one: number, two: number, three: number) {
   return one + two + three;
 }
 console.log(sum3(...[1, 2, 3]));
@@ -58,7 +58,7 @@ for (const entry of [[1, "one"], [2, "two"]]) {
 
 // Combining with the rest of the language.
 const values = [5, 3, 8, 1];
-const [smallest] = values.slice().sort((i, j) => i - j);
+const [smallest] = values.slice().sort((i: number, j: number) => i - j);
 console.log(smallest);
 
 const { length } = "hello";

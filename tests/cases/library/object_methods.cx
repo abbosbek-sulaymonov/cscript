@@ -2,7 +2,7 @@
 const counter = {
   n: 1,
   get() { return this.n; },
-  add(by) { this.n = this.n + by; return this.n; },
+  add(by: number) { this.n = this.n + by; return this.n; },
 };
 console.log(counter.get(), counter.add(4), counter.get());
 

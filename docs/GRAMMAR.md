@@ -178,56 +178,33 @@ sum rather than yielding `a` and then adding.
 
 ## Types
 
-Seven of JavaScript's primitives. A symbol is a value rather than a literal,
-so it has no row below; `Symbol("tag")` makes one.
-
-| Type | Literals | `typeof` |
-| --- | --- | --- |
-| number | `42`, `3.14`, `1e3`, `1.5e-2`, `0x1F` | `"number"` |
-| bigint | `42n`, `0xffn`, `0b1010n`, `0o17n` | `"bigint"` |
-| string | `"double"`, `'single'` | `"string"` |
-| boolean | `true`, `false` | `"boolean"` |
-| null | `null` | `"null"` ← **differs from JavaScript** |
-| undefined | `undefined` | `"undefined"` |
-
-### Numbers
-
-All numbers are IEEE 754 doubles; there is no integer type.
-
-- Integral values print without a decimal point: `10 / 2` prints `5`
-- `1 / 0` is `Infinity`, `0 / 0` is `NaN`
-- `%` takes the sign of the left operand: `-7 % 3` is `-1`
-- Number-to-string follows ECMA-262 exactly: the shortest decimal that reads
-  back as the same double, switching to exponent notation only once the decimal
-  point falls outside `(-6, 21]`. So `1e20` prints in full and `1e21` does not;
-  `1e-6` prints in full and `1e-7` does not.
-- `console.log(-0)` shows `-0`, while `String(-0)` gives `"0"` — the same split
-  JavaScript makes between `util.inspect` and `String`
-
-At most 65536 distinct constants may appear in one function.
-
-### Strings
-
-Immutable and interned — two strings with the same contents are the same
-object, so equality is a pointer comparison.
-
-Escapes: `\n` `\t` `\r` `\0` `\\` `\'` `\"`. An unrecognised escape keeps the
-character as written.
-
-Template literals — `` `a ${b} c` `` — are concatenation: the literal is
-re-lexed at parse time and each `${...}` becomes a `+`, which is why
-interpolating a number needs no extra machinery. They nest.
-
-## Types
-
-CScript is **gradually typed**. Annotations are optional; a declaration without
-one takes the type of its initialiser, so unannotated code is still checked.
+CScript is **statically typed, with the annotations optional**. A declaration
+that has something to learn its type from takes it and keeps it; there is no
+`any`, and no way to opt a variable back out of checking.
 
 ```js
 const name: string = "cscript";   // annotated
 let year = 2026;                  // inferred as number — just as checked
-let loose: any = 1;               // opted out of static checking
+year = "twenty-six";              // error: cannot assign string to 'year'
 ```
+
+### One-time autocasting
+
+An unannotated declaration takes the type of its initialiser, once, and that
+type is fixed for the life of the variable. A declaration with no initialiser —
+`let x;` — has nothing to learn from yet, so it **waits**: the first assignment
+fixes the type, and every later one has to agree.
+
+```js
+let count = 0;        // number from here on
+let waiting;          // waiting for its first assignment
+waiting = "text";     // string from here on
+waiting = 1;          // error: cannot assign number to 'waiting'
+```
+
+This is the whole of the rule. A variable never changes type, whether or not it
+was annotated — the annotation only moves the decision earlier and writes it
+down.
 
 | Type name | Matches |
 | --- | --- |
@@ -237,12 +214,60 @@ let loose: any = 1;               // opted out of static checking
 | `boolean` | `true` and `false` |
 | `null` | the `null` literal, and nothing else |
 | `undefined` | the `undefined` literal, and a missing value |
-| `object` | `console`, `Math` |
-| `any` | anything — the escape hatch |
+| `array` | an array, whose element types are not modelled |
+| `object` | an object, including an array and a class instance |
+| `Function` | anything callable |
+| `value` | anything at all — but see below |
 
-`any` is assignable in both directions. It is the one place the checker
-deliberately stops being sound, and it is what makes the system gradual rather
-than static.
+Spelled as TypeScript spells them, which is what lets `node
+--experimental-strip-types` run the same file: the callable type is `Function`
+because `function` is a keyword, and a keyword cannot appear in a type.
+
+### `value`, and narrowing
+
+`value` is the type for what genuinely is not known until run time — a JSON
+payload, a comparator's arguments, whatever a caller chose to pass. It is a
+**checked** top type, not an escape hatch:
+
+- everything is assignable **to** a `value`
+- nothing is assignable **from** one, and nothing may be read off one, called,
+  indexed or added, until the program has said what it is
+
+`typeof` is how it says so, and the checker follows it:
+
+```js
+function describe(thing: value): string {
+  if (typeof thing === "number") return "number " + String(thing * 2);
+  if (typeof thing === "string") return "string of " + String(thing.length);
+  return "something else";
+}
+```
+
+Narrowing works through `&&` and `||`, through a parenthesised group, and
+through a guard that leaves — `if (typeof x !== "number") return;` proves what
+`x` is for the rest of the block. `Array.isArray(x)` narrows to `array`.
+
+`===` is the one operator a `value` needs no narrowing for: asking whether one
+equals a number is exactly what narrowing would answer.
+
+### Parameters must say
+
+A declaration takes its type from what it is given. A parameter has nothing to
+take one from, so it has to say:
+
+```js
+function double(n) { return n * 2; }        // error: parameter 'n' needs a type
+function double(n: number) { return n * 2; } // fine
+```
+
+Without this rule every unannotated parameter would be the escape hatch the
+language is built on not having. A destructured parameter is exempt: the
+pattern names the parts, and annotating the whole would say less than the
+pattern already does.
+
+A rest parameter's annotation describes **one argument**, not the array it is
+collected into: `...parts: string` accepts strings and reads as an array
+inside the body.
 
 ### What the checker catches
 
@@ -258,6 +283,8 @@ n === s;                      // the types can never match
 let c = 1; c();               // number is not a function
 let n = 1; n.field;           // cannot read property 'field' of number
 let x: integer = 1;           // unknown type 'integer'
+let x: any = 1;               // there is no 'any' in CScript: write 'value'
+function f(a) {}              // parameter 'a' needs a type
 ```
 
 ### Deliberate gaps
@@ -267,18 +294,22 @@ other side has a known, different type. Those checks are idiomatic, and without
 union types there is no way to write "a string, or null" — so rejecting them
 would punish correct code for a hole in the type system.
 
-**Object properties are dynamic.** `Math.PI` type-checks as `any`, because
-object shapes are not modelled yet.
+**Object properties are dynamic.** `Math.PI` and `point.x` are not modelled,
+because object shapes are not. Reading one answers a type the checker does not
+know, which the runtime checks where it lands.
 
-**Function signatures do not exist yet.** A call's result is `any`. Both arrive
-with user-defined functions.
+**Element types are not modelled either.** An `array` is an array of anything,
+and what comes out of one is checked where it is used.
 
-**The type system is deliberately shallow** — a fixed set of primitives, no
-structural or higher-order types. That is what keeps gradual typing cheap here.
-Sound gradual type systems get expensive at the boundary between typed and
-untyped code, because a function or object crossing it must be wrapped in a
-contract that checks every later use; Typed Racket measured 10–100× slowdowns
-from exactly that. A primitive needs one check, or none.
+**A function's parameter types are checked, its return type only if it is
+written down.** `function f(): number` is enforced; without the annotation a
+call's result is what the checker could not work out.
+
+**The type system is deliberately shallow** — a fixed set of types, no
+structural or higher-order types, no generics and no unions. That shallowness
+is what keeps the checking cheap: a primitive needs one check at a boundary, or
+none, where a structural type would need a contract that follows the value
+around. Typed Racket measured 10–100× slowdowns from exactly that.
 
 ## Variables
 
@@ -654,7 +685,7 @@ constructor cannot `return` a value.
 class Temp {
   celsius = 0;
   get fahrenheit() { return this.celsius * 9 / 5 + 32; }
-  set fahrenheit(f) { this.celsius = (f - 32) * 5 / 9; }
+  set fahrenheit(f: number) { this.celsius = (f - 32) * 5 / 9; }
 }
 ```
 
@@ -727,8 +758,9 @@ where it is.
 Default exports, `export *`, re-exporting with `export { x } from "..."` and
 dynamic `import()` all work. What is not supported is a **bare specifier**:
 `import x from "lodash"` has nowhere to look, and says so rather than guessing.
-Imported bindings are `any` to the type checker — types do not cross a file
-boundary yet.
+Imported bindings arrive untyped — types do not cross a file boundary yet, so
+what a module exports is checked where it is used rather than where it came
+from.
 
 ## Converting to a string
 
@@ -762,7 +794,7 @@ off once whatever it awaited settles. `return` fulfils that promise, a throw
 rejects it, and a rejection arrives at the `await` as an exception — so
 `try`/`catch`/`finally` work unchanged.
 
-**Promises.** `new Promise((resolve, reject) => …)`, `Promise.resolve`,
+**Promises.** `new Promise((resolve: Function, reject: Function) => …)`, `Promise.resolve`,
 `.reject`, `.all`, `.race`, and `.then` / `.catch` / `.finally`. Settling a
 promise *queues* its handlers rather than running them, which is why `.then`
 is asynchronous even on an already settled promise, and is what makes ordering

@@ -23,7 +23,7 @@ export const WARN: number = 30;
 export const ERROR: number = 40;
 export const SILENT: number = 100;
 
-const NAMES: any = new Map([[DEBUG, "debug"], [INFO, "info"], [WARN, "warn"],
+const NAMES = new Map([[DEBUG, "debug"], [INFO, "info"], [WARN, "warn"],
                             [ERROR, "error"]]);
 
 /* A level by name, for one that arrives as text from a flag or the
@@ -46,9 +46,9 @@ export function levelName(level: number): string {
 export class Logger {
   #level: number;
   #format: string;
-  #fields: any;
-  #write: any;
-  #clock: any;
+  #fields: object;
+  #write: Function;
+  #clock: Function;
   #showTime: boolean;
 
   /* `{ level, format, fields, write, clock, time }` — every one optional.
@@ -56,7 +56,7 @@ export class Logger {
    * `write` takes a finished line, which is what makes a Logger usable against
    * a file, a StringWriter or a test's array without knowing about any of
    * them. */
-  constructor(options: any = null) {
+  constructor(options: object = null) {
     this.#level = options?.level ?? INFO;
     this.#format = options?.format ?? "text";
     this.#fields = options?.fields ?? {};
@@ -69,7 +69,7 @@ export class Logger {
     return this.#level;
   }
 
-  setLevel(level: number): any {
+  setLevel(level: number) {
     this.#level = level;
     return this;
   }
@@ -83,8 +83,8 @@ export class Logger {
   /* A logger with more fields, sharing everything else. The usual shape is one
    * per request or per file: `const log = base.with({ requestId: id })`, and
    * every line from it carries that without being told again. */
-  with(fields: any): any {
-    const merged: any = {};
+  with(fields: object) {
+    const merged = {};
     for (const key of Object.keys(this.#fields)) merged[key] = this.#fields[key];
     for (const key of Object.keys(fields)) merged[key] = fields[key];
     return new Logger({
@@ -97,26 +97,26 @@ export class Logger {
     });
   }
 
-  debug(message: string, fields: any = null): any {
+  debug(message: string, fields: object = null) {
     return this.log(DEBUG, message, fields);
   }
 
-  info(message: string, fields: any = null): any {
+  info(message: string, fields: object = null) {
     return this.log(INFO, message, fields);
   }
 
-  warn(message: string, fields: any = null): any {
+  warn(message: string, fields: object = null) {
     return this.log(WARN, message, fields);
   }
 
-  error(message: string, fields: any = null): any {
+  error(message: string, fields: object = null) {
     return this.log(ERROR, message, fields);
   }
 
-  log(level: number, message: string, fields: any = null): any {
+  log(level: number, message: string, fields: object = null) {
     if (!this.enabled(level)) return this;
 
-    const all: any = {};
+    const all = {};
     for (const key of Object.keys(this.#fields)) all[key] = this.#fields[key];
     if (fields !== null) {
       for (const key of Object.keys(fields)) all[key] = fields[key];
@@ -137,15 +137,15 @@ export class Logger {
  *
  * The level is padded so the messages line up, which is the whole reason a
  * terminal format exists separately: a column a reader can scan. */
-function renderText(level: number, message: string, fields: any, at: any): string {
-  const parts: any = [];
+function renderText(level: number, message: string, fields: object, at: value): string {
+  const parts = [];
   if (at !== undefined) parts.push(formatInstant(at));
   parts.push(levelName(level).padEnd(5));
   parts.push(message);
 
   const keys = Object.keys(fields);
   if (keys.length > 0) {
-    const pairs: any = [];
+    const pairs = [];
     for (const key of keys) pairs.push(key + "=" + renderValue(fields[key]));
     parts.push(pairs.join(" "));
   }
@@ -155,7 +155,7 @@ function renderText(level: number, message: string, fields: any, at: any): strin
 /* A value in a text line. Quoted only when it has a space in it, because
  * quoting everything makes the common line harder to read and quoting nothing
  * makes `message=hello world` ambiguous. */
-function renderValue(value: any): string {
+function renderValue(value: value): string {
   const text = typeof value === "string" ? value : String(value);
   return text.includes(" ") ? "\"" + text + "\"" : text;
 }
@@ -164,8 +164,8 @@ function renderValue(value: any): string {
  * hand rather than through std:json to keep the field order fixed — time,
  * level, message, then the fields — since a log file that reorders its own
  * columns is a log file nobody can diff. */
-function renderJson(level: number, message: string, fields: any, at: any): string {
-  const parts: any = [];
+function renderJson(level: number, message: string, fields: object, at: value): string {
+  const parts = [];
   if (at !== undefined) parts.push("\"time\":" + quote(formatInstant(at)));
   parts.push("\"level\":" + quote(levelName(level)));
   parts.push("\"message\":" + quote(message));
@@ -175,7 +175,7 @@ function renderJson(level: number, message: string, fields: any, at: any): strin
   return "{" + parts.join(",") + "}";
 }
 
-function jsonValue(value: any): string {
+function jsonValue(value: value): string {
   if (value === null || value === undefined) return "null";
   if (typeof value === "number") {
     return value !== value || value === Infinity || value === -Infinity
@@ -208,20 +208,20 @@ function quote(text: string): string {
 /* The one most programs want: info and above, text, to the console. Built
  * here rather than left to each program so that `log.info(...)` works with no
  * setup at all, and a program that needs more replaces it in one line. */
-export const base: any = new Logger();
+export const base = new Logger();
 
-export function debug(message: string, fields: any = null): any {
+export function debug(message: string, fields: object = null) {
   return base.debug(message, fields);
 }
 
-export function info(message: string, fields: any = null): any {
+export function info(message: string, fields: object = null) {
   return base.info(message, fields);
 }
 
-export function warn(message: string, fields: any = null): any {
+export function warn(message: string, fields: object = null) {
   return base.warn(message, fields);
 }
 
-export function error(message: string, fields: any = null): any {
+export function error(message: string, fields: object = null) {
   return base.error(message, fields);
 }

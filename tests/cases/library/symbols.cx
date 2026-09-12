@@ -45,7 +45,7 @@ console.log([...counter]);
 
 // The same thing written as a generator, which is what it is for.
 class Range {
-  constructor(count) { this.count = count; }
+  constructor(count: number) { this.count = count; }
   *[Symbol.iterator]() {
     for (let i = 0; i < this.count; i++) yield i * 10;
   }

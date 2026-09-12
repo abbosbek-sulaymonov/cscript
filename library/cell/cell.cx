@@ -16,38 +16,38 @@
  */
 
 export class Cell {
-  #value: any;
+  #value: value;
 
-  constructor(value: any = undefined) {
+  constructor(value: value = undefined) {
     this.#value = value;
   }
 
-  get(): any {
+  get() {
     return this.#value;
   }
 
-  set(value: any): any {
+  set(value: value) {
     this.#value = value;
     return this;
   }
 
   /* `cell.update(n => n + 1)` — a read and a write as one call, which is what
    * stops the two drifting apart when the expression between them grows. */
-  update(transform: any): any {
+  update(transform: Function) {
     this.#value = transform(this.#value);
     return this.#value;
   }
 
   /* Answers the old value and leaves the new one, for a swap that has to keep
    * what was there. */
-  replace(value: any): any {
+  replace(value: value) {
     const previous = this.#value;
     this.#value = value;
     return previous;
   }
 
   /* Answers what was there and leaves `undefined`. */
-  take(): any {
+  take() {
     return this.replace(undefined);
   }
 
@@ -67,17 +67,17 @@ export class Cell {
  * `memoize` is that there are no arguments — a Lazy holds one value, not a
  * table of them. */
 export class Lazy {
-  #build: any;
-  #value: any = undefined;
+  #build: Function;
+  #value: value = undefined;
   #built: boolean = false;
 
-  constructor(build: any) {
+  constructor(build: Function) {
     this.#build = build;
   }
 
   /* A flag rather than testing the value, so a builder that answered
    * `undefined` is not run again every time. */
-  get(): any {
+  get() {
     if (!this.#built) {
       this.#value = this.#build();
       this.#built = true;
@@ -91,7 +91,7 @@ export class Lazy {
 
   /* Forgets the value so the next `get` builds again — for the cases where
    * what it was built from has changed. */
-  reset(): any {
+  reset() {
     this.#value = undefined;
     this.#built = false;
     return this;
@@ -105,10 +105,10 @@ export class Lazy {
  * has fired. */
 export class Once {
   #done: boolean = false;
-  #result: any = undefined;
+  #result: value = undefined;
 
   /* Answers what the body answered — the first time, and every time after. */
-  run(body: any): any {
+  run(body: Function) {
     if (this.#done) return this.#result;
     this.#done = true;
     this.#result = body();

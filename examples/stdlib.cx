@@ -8,12 +8,12 @@ const people = [
 
 // Array methods, chained, with arrow functions.
 const names = people
-  .map(person => person.name)
-  .filter(name => name.length > 3)
+  .map((person: object) => person.name)
+  .filter((name: string) => name.length > 3)
   .sort();
 console.log(names);
 
-const earliest = people.reduce((oldest, person) =>
+const earliest = people.reduce((oldest: object, person: object) =>
   person.born < oldest.born ? person : oldest
 );
 console.log(`earliest: ${earliest.name} (${earliest.born})`);
@@ -28,13 +28,13 @@ console.log("cscript".padStart(10, "-").padEnd(13, "-"));
 // Object statics, which see properties in insertion order.
 const config = { host: "localhost", port: 8080, secure: false };
 console.log(Object.keys(config));
-console.log(Object.entries(config).map(entry => {
+console.log(Object.entries(config).map((entry: object) => {
   const [key, value] = entry;
   return `${key}=${value}`;
 }).join(" "));
 
 // Math and numeric parsing.
-console.log(Math.max(...people.map(p => p.born)));
+console.log(Math.max(...people.map((p: object) => p.born)));
 console.log(Math.round(Math.sqrt(2) * 100) / 100);
 console.log(parseInt("42px"), Number.isInteger(7), Number("3.5"));
 
