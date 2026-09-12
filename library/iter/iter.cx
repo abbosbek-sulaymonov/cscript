@@ -16,10 +16,13 @@
 /* `range(4)` is 0..3, `range(1, 4)` is 1..3, `range(4, 0, -1)` counts down.
  * The one-argument form is the common one, so it is the one that reads as a
  * length rather than as a bound. */
-export function* range(start: number, stop: any = undefined, step: number = 1) {
+/* The one-argument form is the common one, so a stop that was not given is a
+ * sentinel rather than undefined: the bound is a number from the first line,
+ * which is what lets the loops below be plain comparisons. */
+export function* range(start: number, stop: number = Infinity, step: number = 1) {
   let from = start;
   let to = stop;
-  if (to === undefined) {
+  if (to === Infinity) {
     to = start;
     from = 0;
   }
@@ -43,15 +46,15 @@ export function* count(start: number = 0, step: number = 1) {
 
 /* `times` below zero repeats for ever, which is what makes `repeat(x)` a
  * sensible thing to write at all. */
-export function* repeat(value: any, times: number = -1) {
+export function* repeat(value: value, times: number = -1) {
   if (times < 0) {
     while (true) yield value;
   }
   for (let i = 0; i < times; i++) yield value;
 }
 
-export function* cycle(iterable: any) {
-  const seen: any = [];
+export function* cycle(iterable: value) {
+  const seen = [];
   for (const element of iterable) {
     seen.push(element);
     yield element;
@@ -69,12 +72,12 @@ export function* cycle(iterable: any) {
  * how many parameters it declared and called with that many — which is exactly
  * what the built-in array methods do, so `map` here and `map` there behave the
  * same way for the same callback. */
-function callIndexed(callback: any, element: any, index: number): any {
+function callIndexed(callback: Function, element: value, index: number) {
   if (callback.length >= 2) return callback(element, index);
   return callback(element);
 }
 
-export function* map(iterable: any, transform: any) {
+export function* map(iterable: value, transform: Function) {
   let index = 0;
   for (const element of iterable) {
     yield callIndexed(transform, element, index);
@@ -82,7 +85,7 @@ export function* map(iterable: any, transform: any) {
   }
 }
 
-export function* filter(iterable: any, keep: any) {
+export function* filter(iterable: value, keep: Function) {
   let index = 0;
   for (const element of iterable) {
     if (callIndexed(keep, element, index)) yield element;
@@ -90,7 +93,7 @@ export function* filter(iterable: any, keep: any) {
   }
 }
 
-export function* take(iterable: any, howMany: number) {
+export function* take(iterable: value, howMany: number) {
   if (howMany <= 0) return;
   let taken = 0;
   for (const element of iterable) {
@@ -100,7 +103,7 @@ export function* take(iterable: any, howMany: number) {
   }
 }
 
-export function* drop(iterable: any, howMany: number) {
+export function* drop(iterable: value, howMany: number) {
   let dropped = 0;
   for (const element of iterable) {
     if (dropped < howMany) {
@@ -111,14 +114,14 @@ export function* drop(iterable: any, howMany: number) {
   }
 }
 
-export function* takeWhile(iterable: any, keep: any) {
+export function* takeWhile(iterable: value, keep: Function) {
   for (const element of iterable) {
     if (!keep(element)) return;
     yield element;
   }
 }
 
-export function* dropWhile(iterable: any, skip: any) {
+export function* dropWhile(iterable: value, skip: Function) {
   let dropping = true;
   for (const element of iterable) {
     if (dropping && skip(element)) continue;
@@ -130,7 +133,7 @@ export function* dropWhile(iterable: any, skip: any) {
 /* Anything iterable as a generator, which is the only handle CScript gives on
  * "one element at a time from a source I did not create" — a generator object
  * answers `next()`, and an array or a string does not. */
-function* asStream(iterable: any) {
+function* asStream(iterable: value) {
   for (const element of iterable) yield element;
 }
 
@@ -139,7 +142,7 @@ function* asStream(iterable: any) {
  * Pulls from both one element at a time rather than collecting them first, so
  * `zip(range(3), cycle(xs))` finishes: collecting would walk the endless side
  * until it ran out of memory. */
-export function* zip(first: any, second: any) {
+export function* zip(first: value, second: value) {
   const left = asStream(first);
   const right = asStream(second);
   while (true) {
@@ -150,7 +153,7 @@ export function* zip(first: any, second: any) {
   }
 }
 
-export function* enumerate(iterable: any, start: number = 0) {
+export function* enumerate(iterable: value, start: number = 0) {
   let index = start;
   for (const element of iterable) {
     yield [index, element];
@@ -158,7 +161,7 @@ export function* enumerate(iterable: any, start: number = 0) {
   }
 }
 
-export function* chain(...iterables: any) {
+export function* chain(...iterables: value) {
   for (const iterable of iterables) {
     for (const element of iterable) yield element;
   }
@@ -166,7 +169,7 @@ export function* chain(...iterables: any) {
 
 /* One level. Flattening to the bottom needs a rule for what counts as a
  * sequence, and a string is one — so `flatten(["ab"])` would be a surprise. */
-export function* flatten(iterable: any) {
+export function* flatten(iterable: value) {
   for (const element of iterable) {
     if (Array.isArray(element)) {
       for (const inner of element) yield inner;
@@ -178,7 +181,7 @@ export function* flatten(iterable: any) {
 
 /* Keeps the first of each. What "each" means is `===` plus NaN matching
  * itself, which is what a Set does. */
-export function* unique(iterable: any, keyOf: any = null) {
+export function* unique(iterable: value, keyOf: Function = null) {
   const seen = new Set();
   for (const element of iterable) {
     const key = keyOf === null ? element : keyOf(element);
@@ -190,9 +193,9 @@ export function* unique(iterable: any, keyOf: any = null) {
 
 /* The last chunk is short rather than padded: padding invents elements, and a
  * caller that wants them can say so with `chain`. */
-export function* chunk(iterable: any, size: number) {
+export function* chunk(iterable: value, size: number) {
   if (size < 1) throw new Error("chunk needs a size of at least 1");
-  let current: any = [];
+  let current = [];
   for (const element of iterable) {
     current.push(element);
     if (current.length === size) {
@@ -204,8 +207,8 @@ export function* chunk(iterable: any, size: number) {
 }
 
 /* Overlapping pairs: [1,2,3] gives [1,2] and [2,3]. */
-export function* pairwise(iterable: any) {
-  let previous: any = undefined;
+export function* pairwise(iterable: value) {
+  let previous = undefined;
   let first = true;
   for (const element of iterable) {
     if (!first) yield [previous, element];
@@ -216,14 +219,14 @@ export function* pairwise(iterable: any) {
 
 /* --- reading one ---------------------------------------------------------- */
 
-export function toArray(iterable: any): any {
+export function toArray(iterable: value) {
   if (Array.isArray(iterable)) return iterable;
-  const out: any = [];
+  const out = [];
   for (const element of iterable) out.push(element);
   return out;
 }
 
-export function reduce(iterable: any, combine: any, initial: any = undefined): any {
+export function reduce(iterable: value, combine: Function, initial: value = undefined) {
   let accumulator = initial;
   let first = initial === undefined;
   for (const element of iterable) {
@@ -238,14 +241,14 @@ export function reduce(iterable: any, combine: any, initial: any = undefined): a
   return accumulator;
 }
 
-export function some(iterable: any, test: any): boolean {
+export function some(iterable: value, test: Function): boolean {
   for (const element of iterable) {
     if (test(element)) return true;
   }
   return false;
 }
 
-export function every(iterable: any, test: any): boolean {
+export function every(iterable: value, test: Function): boolean {
   for (const element of iterable) {
     if (!test(element)) return false;
   }
@@ -254,14 +257,14 @@ export function every(iterable: any, test: any): boolean {
 
 /* `undefined` when nothing matches, which is why `findIndex` exists beside it:
  * a sequence may hold an `undefined` of its own. */
-export function find(iterable: any, test: any): any {
+export function find(iterable: value, test: Function) {
   for (const element of iterable) {
     if (test(element)) return element;
   }
   return undefined;
 }
 
-export function findIndex(iterable: any, test: any): number {
+export function findIndex(iterable: value, test: Function): number {
   let index = 0;
   for (const element of iterable) {
     if (test(element)) return index;
@@ -270,7 +273,7 @@ export function findIndex(iterable: any, test: any): number {
   return -1;
 }
 
-export function length(iterable: any): number {
+export function length(iterable: value): number {
   let total = 0;
   for (const element of iterable) total = total + 1;
   return total;
@@ -278,7 +281,7 @@ export function length(iterable: any): number {
 
 /* A Map rather than an object, so a key can be a number or anything else that
  * is not a string — which is most of what one groups by. */
-export function groupBy(iterable: any, keyOf: any): any {
+export function groupBy(iterable: value, keyOf: Function) {
   const groups = new Map();
   for (const element of iterable) {
     const key = keyOf(element);
@@ -290,9 +293,9 @@ export function groupBy(iterable: any, keyOf: any): any {
 
 /* Two arrays: the ones that passed, then the ones that did not. One walk,
  * where `filter` twice is two — and the second walk of a generator is empty. */
-export function partition(iterable: any, keep: any): any {
-  const kept: any = [];
-  const rest: any = [];
+export function partition(iterable: value, keep: Function) {
+  const kept = [];
+  const rest = [];
   for (const element of iterable) {
     if (keep(element)) {
       kept.push(element);

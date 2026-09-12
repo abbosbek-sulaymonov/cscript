@@ -13,7 +13,7 @@ equal(good.andThen((x: number) => Result.err("later")).isErr, true);
 equal(bad.orElse((e: string) => Result.ok(0)).value, 0);
 equal(good.unwrapOr(9), 2); equal(bad.unwrapOr(9), 9);
 equal(bad.unwrapOrElse((e: string) => e.length), 4);
-equal(good.match((v: number) => "ok " + String(v), (e: any) => "err"), "ok 2");
+equal(good.match((v: number) => "ok " + String(v), (e: value) => "err"), "ok 2");
 equal(String(good), "Ok(2)"); equal(String(bad), "Err(nope)");
 equal(messageOf(throws(() => bad.value)), "read the value of an error Result");
 equal(messageOf(throws(() => good.error)), "read the error of an ok Result");

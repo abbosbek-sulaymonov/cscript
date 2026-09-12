@@ -8,8 +8,8 @@ console.log("hello".at(0), "hello".at(-1), "hello".at(9));
 console.log([[1, [2]], 3].flat());
 console.log([[1, [2]], 3].flat(2));
 console.log([1, 2].flat(0));
-console.log([1, 2, 3].flatMap((n) => [n, n * 10]));
-console.log([1, 2].flatMap((n) => n));
+console.log([1, 2, 3].flatMap((n: number) => [n, n * 10]));
+console.log([1, 2].flatMap((n: number) => n));
 
 // Numbers answer to three methods, all of which produce text.
 console.log((1.2345).toFixed(2), (1).toFixed(0), (1.5).toFixed(3));
@@ -31,8 +31,8 @@ console.log(Object.isFrozen(frozen), Object.isFrozen({}), frozen.a);
 
 // A function knows how many arguments it needs and what it is called. A
 // parameter with a default is not counted, because a call need not supply it.
-function two(a, b) { return a + b; }
-function one(a, b = 1) { return a + b; }
+function two(a: number, b: number) { return a + b; }
+function one(a: number, b: number = 1) { return a + b; }
 class Named {}
 console.log(two.length, two.name, one.length, Named.name);
-console.log(((x) => x).length);
+console.log(((x: number) => x).length);

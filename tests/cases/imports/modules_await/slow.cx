@@ -1,5 +1,5 @@
-function later(value, ms) {
-  return new Promise((resolve) => setTimeout(() => resolve(value), ms));
+function later(value: value, ms: number) {
+  return new Promise((resolve: Function) => setTimeout(() => resolve(value), ms));
 }
 export const ready = await later("loaded", 5);
 console.log("slow finished");

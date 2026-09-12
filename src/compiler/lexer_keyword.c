@@ -96,7 +96,6 @@ TokenType csLexerIdentifierType(const Lexer *lexer) {
       }
       break;
     case 'u': return checkKeyword(lexer, 1, 8, "ndefined", TOKEN_UNDEFINED);
-    case 'F': return checkKeyword(lexer, 1, 7, "unction", TOKEN_FUNCTION);
     case 'c':
       if (lexer->current - lexer->start > 1) {
         switch (lexer->start[1]) {

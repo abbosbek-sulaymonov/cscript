@@ -15,12 +15,12 @@
  */
 
 export class EventEmitter {
-  #listeners: any = new Map();
+  #listeners: object = new Map();
 
   /* Registers `listener` for `event`, and answers a function that removes it.
    * Keeping the remover means an anonymous arrow can still be taken off,
    * without the caller having to hold the same reference to pass to `off`. */
-  on(event: string, listener: any): any {
+  on(event: string, listener: Function) {
     if (!this.#listeners.has(event)) this.#listeners.set(event, []);
     this.#listeners.get(event).push(listener);
     return () => this.off(event, listener);
@@ -28,12 +28,12 @@ export class EventEmitter {
 
   /* Removes itself before running, so a listener that emits the same event
    * again does not re-enter this one. */
-  once(event: string, listener: any): any {
+  once(event: string, listener: Function) {
     /* `let` and then assign, rather than `const`: an arrow bound with `const`
      * cannot see its own binding from inside itself, and this one has to, in
      * order to take itself off the list. */
-    let wrapper: any = null;
-    wrapper = (payload: any) => {
+    let wrapper = null;
+    wrapper = (payload: value) => {
       this.off(event, wrapper);
       return callListener(listener, payload);
     };
@@ -43,7 +43,7 @@ export class EventEmitter {
   /* Removes the first registration of `listener`, keeping the rest in order.
    * The array is rebuilt rather than spliced, because CScript's arrays have no
    * `splice` — and a rebuild is the same O(n) the splice would have been. */
-  off(event: string, listener: any): boolean {
+  off(event: string, listener: Function): boolean {
     if (!this.#listeners.has(event)) return false;
     const registered = this.#listeners.get(event);
 
@@ -56,7 +56,7 @@ export class EventEmitter {
     }
     if (found < 0) return false;
 
-    const kept: any = [];
+    const kept = [];
     for (let i = 0; i < registered.length; i++) {
       if (i !== found) kept.push(registered[i]);
     }
@@ -71,7 +71,7 @@ export class EventEmitter {
   /* Walks a copy of the list, so a listener that adds or removes one does not
    * change what this emit delivers — the alternative is a listener that is
    * skipped or run twice depending on where it was in the array. */
-  emit(event: string, payload: any = undefined): boolean {
+  emit(event: string, payload: value = undefined): boolean {
     if (!this.#listeners.has(event)) return false;
     const registered = this.#listeners.get(event).slice(0);
     for (const listener of registered) callListener(listener, payload);
@@ -83,13 +83,13 @@ export class EventEmitter {
     return this.#listeners.get(event).length;
   }
 
-  eventNames(): any {
-    const names: any = [];
+  eventNames() {
+    const names = [];
     for (const name of this.#listeners.keys()) names.push(name);
     return names;
   }
 
-  removeAllListeners(event: any = null) {
+  removeAllListeners(event: value = null) {
     if (event === null) {
       this.#listeners = new Map();
       return;
@@ -100,9 +100,9 @@ export class EventEmitter {
   /* Resolves the next time `event` is emitted, so an emitter can be awaited
    * rather than listened to — which is what one usually wants when waiting for
    * a single occurrence rather than reacting to a stream of them. */
-  next(event: string): any {
-    return new Promise((resolve: any) => {
-      this.once(event, (payload: any) => resolve(payload));
+  next(event: string) {
+    return new Promise((resolve: Function) => {
+      this.once(event, (payload: value) => resolve(payload));
     });
   }
 }
@@ -110,7 +110,7 @@ export class EventEmitter {
 /* A listener is called with as many arguments as it declared: none for
  * `() => …`, the payload for `(x) => …`. Passing a payload to a listener that
  * takes no parameters would be a runtime error, not an ignored extra. */
-function callListener(listener: any, payload: any): any {
+function callListener(listener: Function, payload: value) {
   if (listener.length >= 1) return listener(payload);
   return listener();
 }

@@ -180,17 +180,17 @@ static bool spliceBoundArguments(ObjBoundMethod *bound, int *argCount) {
   return true;
 }
 
-/* The contract at the gradual boundary.
+/* The contract at the boundary the checker cannot see across.
  *
  * A `number` annotation is not advice: the compiler emits OP_ADD_NUM for
  * arithmetic on it and the JIT seeds the slot as a number and stops guarding.
  * The checker enforces the annotation wherever it can see the argument's type
- * — but `any` is assignable to everything by design, so a value that came in
- * through an untyped edge reaches the callee unexamined. Without this check it
- * would be read as a double it is not, and the answer would be quietly wrong
- * rather than a reported error.
+ * — but element types, property types and what an import holds are not
+ * modelled, so a value that came through one of those edges reaches the callee
+ * unexamined. Without this check it would be read as a double it is not, and
+ * the answer would be quietly wrong rather than a reported error.
  *
- * This is the one check type.h promised gradual typing would need. Only
+ * This is the one check type.h promised the type system would need. Only
  * `number` is checked, because `number` is the only annotation anything
  * currently generates code from — guarding a type nothing trusts would cost
  * without buying anything.

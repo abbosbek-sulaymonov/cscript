@@ -1,7 +1,7 @@
 export const UNIT = 1;
 
 export class Shape {
-  constructor(name) {
+  constructor(name: string) {
     this.name = name;
   }
   area() {
@@ -12,6 +12,6 @@ export class Shape {
   }
 }
 
-export function scale(n, by) {
+export function scale(n: number, by: number) {
   return n * by;
 }

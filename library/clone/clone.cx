@@ -19,7 +19,11 @@
 import { kindOf } from "std:kind";
 
 /* A copy of the top level. Everything one level down is shared. */
-export function shallow(value: any): any {
+export function shallow(value: value) {
+  /* Narrowed once, at the top: everything copied structurally is an object,
+   * and a primitive is its own copy. After this the walk can read keys and
+   * call methods without the checker having to be told again. */
+  if (typeof value !== "object" || value === null) return value;
   const kind = kindOf(value);
   if (kind === "array") return value.slice(0);
   if (kind === "map") return new Map(value);
@@ -27,7 +31,7 @@ export function shallow(value: any): any {
   if (kind === "date") return new Date(value.getTime());
   if (kind !== "object") return value;
 
-  const out: any = {};
+  const out = {};
   for (const key of Object.keys(value)) out[key] = value[key];
   return out;
 }
@@ -38,11 +42,14 @@ export function shallow(value: any): any {
  * what makes `a.self = a` come back as a copy whose `self` is that same copy,
  * and it is also what stops the walk from recursing for ever. A Map keyed by
  * object works here because Map compares keys by identity. */
-export function deep(value: any): any {
+export function deep(value: value) {
   return copyInto(value, new Map());
 }
 
-function copyInto(value: any, seen: any): any {
+function copyInto(value: value, seen: object) {
+  /* Narrowed once, at the top: a primitive is its own copy and everything
+   * below this line is an object of some kind. */
+  if (typeof value !== "object" || value === null) return value;
   const kind = kindOf(value);
   if (kind !== "array" && kind !== "object" && kind !== "map" && kind !== "set" &&
       kind !== "date") {
@@ -59,7 +66,7 @@ function copyInto(value: any, seen: any): any {
   }
 
   if (kind === "array") {
-    const out: any = [];
+    const out = [];
     seen.set(value, out);
     for (const element of value) out.push(copyInto(element, seen));
     return out;
@@ -82,7 +89,7 @@ function copyInto(value: any, seen: any): any {
     return out;
   }
 
-  const out: any = {};
+  const out = {};
   seen.set(value, out);
   for (const key of Object.keys(value)) out[key] = copyInto(value[key], seen);
   return out;
@@ -95,14 +102,18 @@ function copyInto(value: any, seen: any): any {
  * This exists because the alternative is a silent half-copy: a deep clone that
  * quietly shares a class instance is the failure mode this whole project is
  * written against. */
-export function deepReport(value: any): any {
-  const shared: any = [];
+export function deepReport(value: value) {
+  const shared = [];
   const copy = copyReporting(value, new Map(), shared, "");
   return { value: copy, shared: shared };
 }
 
-function copyReporting(value: any, seen: any, shared: any, path: string): any {
+function copyReporting(value: value, seen: object, shared: array, path: string) {
   const kind = kindOf(value);
+  if (typeof value !== "object" || value === null) {
+    /* A primitive has nothing to share and nothing to copy. */
+    return value;
+  }
   const where = path === "" ? "(the value itself)" : path;
 
   /* A primitive has nothing to share. Everything else that cannot be taken
@@ -127,7 +138,7 @@ function copyReporting(value: any, seen: any, shared: any, path: string): any {
   }
 
   if (kind === "array") {
-    const out: any = [];
+    const out = [];
     seen.set(value, out);
     for (let i = 0; i < value.length; i++) {
       out.push(copyReporting(value[i], seen, shared, path + "[" + String(i) + "]"));
@@ -156,7 +167,7 @@ function copyReporting(value: any, seen: any, shared: any, path: string): any {
     return out;
   }
 
-  const out: any = {};
+  const out = {};
   seen.set(value, out);
   for (const key of Object.keys(value)) {
     out[key] = copyReporting(value[key], seen, shared, path === "" ? key
@@ -170,18 +181,18 @@ function copyReporting(value: any, seen: any, shared: any, path: string): any {
  * The update is applied over a shallow copy, which is the shape almost every
  * "change one field" ends up being — and doing it in one call is what stops it
  * being written as a mutation because that was shorter. */
-export function withFields(value: any, changes: any): any {
+export function withFields(value: object, changes: object) {
   const out = shallow(value);
   for (const key of Object.keys(changes)) out[key] = changes[key];
   return out;
 }
 
 /* A copy without some keys. */
-export function withoutFields(value: any, keys: any): any {
+export function withoutFields(value: object, keys: array) {
   const drop = new Set();
   for (const key of keys) drop.add(key);
 
-  const out: any = {};
+  const out = {};
   for (const key of Object.keys(value)) {
     if (drop.has(key)) continue;
     out[key] = value[key];
@@ -190,8 +201,8 @@ export function withoutFields(value: any, keys: any): any {
 }
 
 /* Only the keys asked for, and only those that are there. */
-export function pickFields(value: any, keys: any): any {
-  const out: any = {};
+export function pickFields(value: object, keys: array) {
+  const out = {};
   const present = new Set();
   for (const key of Object.keys(value)) present.add(key);
   for (const key of keys) {

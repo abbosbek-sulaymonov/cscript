@@ -5,7 +5,7 @@ A failure as a value, and a missing thing as a value.
 ```ts
 import { Result, Option } from "std:result";
 
-function halve(n: number): any {
+function halve(n: number) {
   return n % 2 === 0 ? Result.ok(n / 2) : Result.err("odd");
 }
 

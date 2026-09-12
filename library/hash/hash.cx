@@ -16,7 +16,7 @@
 import { and, xor, wrap, shiftLeft, shiftRight, rotateLeft, toHex } from "std:bits";
 import { fromString } from "std:bytes";
 
-function asBytes(input: any): any {
+function asBytes(input: value) {
   return typeof input === "string" ? fromString(input) : input;
 }
 
@@ -25,7 +25,7 @@ function asBytes(input: any): any {
 /* The one to reach for by default: two operations per byte, a good spread, and
  * short enough to read. 32-bit, which is enough for a hash table and not
  * enough for a content address. */
-export function fnv1a(input: any): number {
+export function fnv1a(input: value): number {
   let value = 2166136261;
   for (const byte of asBytes(input)) {
     value = xor(value, byte);
@@ -43,7 +43,7 @@ export function fnv1a(input: any): number {
 
 /* Bernstein's, kept because it is the one people recognise and because its
  * behaviour on short ASCII keys is well understood. */
-export function djb2(input: any): number {
+export function djb2(input: value): number {
   let value = 5381;
   for (const byte of asBytes(input)) {
     /* value * 33 + byte, in 32 bits. */
@@ -60,10 +60,10 @@ export function djb2(input: any): number {
  *
  * The table is built once, on first use, because 256 entries of eight shifts
  * each is worth doing once and not per call. */
-let crcTable: any = null;
+let crcTable = null;
 
-function buildCrcTable(): any {
-  const table: any = [];
+function buildCrcTable() {
+  const table = [];
   for (let n = 0; n < 256; n++) {
     let value = n;
     for (let bit = 0; bit < 8; bit++) {
@@ -75,7 +75,7 @@ function buildCrcTable(): any {
   return table;
 }
 
-export function crc32(input: any): number {
+export function crc32(input: value): number {
   if (crcTable === null) crcTable = buildCrcTable();
   let value = 4294967295;
   for (const byte of asBytes(input)) {
@@ -90,7 +90,7 @@ export function crc32(input: any): number {
  * table that has to hold a million things. The constants are the published
  * ones; a seed makes two tables over the same keys disagree, which is what
  * stops a shared worst case. */
-export function murmur3(input: any, seed: number = 0): number {
+export function murmur3(input: value, seed: number = 0): number {
   const bytes = asBytes(input);
   let value = wrap(seed);
   const blocks = Math.floor(bytes.length / 4);
@@ -159,7 +159,7 @@ export function toHexString(value: number): string {
 /* Which of `count` buckets this falls in. The modulo is here rather than at
  * every call site because `hash % count` with a signed hash is negative half
  * the time, and every hash here is unsigned for exactly that reason. */
-export function bucket(input: any, count: number): number {
+export function bucket(input: value, count: number): number {
   if (count < 1) throw new Error("hash.bucket needs at least one bucket");
   return fnv1a(input) % count;
 }
@@ -167,6 +167,6 @@ export function bucket(input: any, count: number): number {
 /* A short, stable, human-typable identifier for a value — for a cache
  * filename or a test snapshot name. Not unique: eight hex digits is four
  * billion, so a collision is likely in the tens of thousands. */
-export function fingerprint(input: any): string {
+export function fingerprint(input: value): string {
   return toHexString(murmur3(input));
 }

@@ -197,7 +197,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
       advanceToken(parser);
       AstNode *arrow = csAstFunction(parser->arena, line, NULL, 0);
       arrow->as.function.isAsync = parser->pendingAsync;
-      csAstFunctionAddParam(parser->arena, arrow, name, nameLength, TYPE_ANY, false);
+      csAstFunctionAddParam(parser->arena, arrow, name, nameLength, TYPE_DYNAMIC, false);
       return finishArrow(parser, arrow, line);
     }
 
@@ -395,7 +395,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
             int generatedLength =
                 snprintf(generated, sizeof generated, " arg%d", patternIndex++);
             csAstFunctionAddParam(parser->arena, arrow, generated, generatedLength,
-                                  TYPE_ANY, false);
+                                  TYPE_DYNAMIC, false);
             csAstParamPattern(arrow, pattern);
             continue;
           }

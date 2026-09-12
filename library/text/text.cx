@@ -25,11 +25,11 @@ export function levenshtein(a: string, b: string): number {
   if (a.length === 0) return b.length;
   if (b.length === 0) return a.length;
 
-  let previous: any = [];
+  let previous = [];
   for (let i = 0; i <= b.length; i++) previous.push(i);
 
   for (let i = 0; i < a.length; i++) {
-    const current: any = [i + 1];
+    const current = [i + 1];
     for (let j = 0; j < b.length; j++) {
       const substitute = previous[j] + (a[i] === b[j] ? 0 : 1);
       const insert = current[j] + 1;
@@ -59,8 +59,8 @@ export function similarity(a: string, b: string): number {
  *
  * This is the "did you mean" behind a good error message: an unknown command
  * or an unknown field is far more useful with a suggestion attached. */
-export function closest(text: string, candidates: any, threshold: number = 0.6): any {
-  let best: any = undefined;
+export function closest(text: string, candidates: array, threshold: number = 0.6) {
+  let best = undefined;
   let bestScore = threshold;
   for (const candidate of candidates) {
     const score = similarity(text, candidate);
@@ -80,14 +80,14 @@ export function closest(text: string, candidates: any, threshold: number = 0.6):
  * a line-by-line comparison would call every line after an inserted one
  * changed, which is the diff everybody has seen and nobody can read. The table
  * is O(n × m), so this is for files rather than for logs. */
-export function diffLines(before: string, after: string): any {
+export function diffLines(before: string, after: string) {
   const from = before === "" ? [] : before.split("\n");
   const to = after === "" ? [] : after.split("\n");
 
   /* lengths[i][j] is the longest common subsequence of the first i and j. */
-  const lengths: any = [];
+  const lengths = [];
   for (let i = 0; i <= from.length; i++) {
-    const row: any = [];
+    const row = [];
     for (let j = 0; j <= to.length; j++) row.push(0);
     lengths.push(row);
   }
@@ -103,7 +103,7 @@ export function diffLines(before: string, after: string): any {
     }
   }
 
-  const out: any = [];
+  const out = [];
   let i = 0;
   let j = 0;
   while (i < from.length && j < to.length) {
@@ -133,8 +133,8 @@ export function diffLines(before: string, after: string): any {
 }
 
 /* The same diff as text, in the `-`/`+` form every reviewer already reads. */
-export function formatDiff(changes: any, context: any = null): string {
-  const lines: any = [];
+export function formatDiff(changes: array, context: number = -1): string {
+  const lines = [];
   for (const change of changes) {
     if (change.kind === "same") {
       if (context === 0) continue;
@@ -155,7 +155,7 @@ export function formatDiff(changes: any, context: any = null): string {
  * needs a table per language — in some, "ö" sorts and transliterates as "oe" —
  * and a wrong transliteration is worse than an honest omission. */
 export function slugify(text: string, separator: string = "-"): string {
-  const parts: any = [];
+  const parts = [];
   let current = "";
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
@@ -184,7 +184,7 @@ export function slugify(text: string, separator: string = "-"): string {
  * exactly one careless copy. */
 const ESCAPE: string = String.fromCharCode(27);
 
-const CODES: any = new Map([
+const CODES = new Map([
   ["reset", 0], ["bold", 1], ["dim", 2], ["italic", 3], ["underline", 4],
   ["black", 30], ["red", 31], ["green", 32], ["yellow", 33], ["blue", 34],
   ["magenta", 35], ["cyan", 36], ["white", 37], ["grey", 90],
@@ -204,9 +204,9 @@ export function isColoured(): boolean {
 }
 
 /* `style(text, "red")`, or several: `style(text, "bold", "red")`. */
-export function style(text: string, ...names: any): string {
+export function style(text: string, ...names: string): string {
   if (!coloured || names.length === 0) return text;
-  const opening: any = [];
+  const opening = [];
   for (const name of names) {
     if (!CODES.has(name)) throw new Error("unknown style '" + String(name) + "'");
     opening.push(String(CODES.get(name)));
@@ -252,12 +252,12 @@ export function width(text: string): number {
  * `{ head, align, separator }` — `align` is an array of "left" or "right", one
  * per column. Widths are measured with the escapes stripped, so a coloured
  * cell lines up with a plain one. */
-export function table(rows: any, options: any = null): string {
+export function table(rows: array, options: object = null): string {
   const head = options?.head ?? null;
   const align = options?.align ?? [];
   const separator = options?.separator ?? "  ";
 
-  const all: any = [];
+  const all = [];
   if (head !== null) all.push(head);
   for (const row of rows) all.push(row);
   if (all.length === 0) return "";
@@ -267,7 +267,7 @@ export function table(rows: any, options: any = null): string {
     if (row.length > columns) columns = row.length;
   }
 
-  const widths: any = [];
+  const widths = [];
   for (let c = 0; c < columns; c++) {
     let widest = 0;
     for (const row of all) {
@@ -278,9 +278,9 @@ export function table(rows: any, options: any = null): string {
     widths.push(widest);
   }
 
-  const lines: any = [];
+  const lines = [];
   for (let r = 0; r < all.length; r++) {
-    const cells: any = [];
+    const cells = [];
     for (let c = 0; c < columns; c++) {
       const cell = c < all[r].length ? String(all[r][c]) : "";
       const padding = widths[c] - width(cell);
@@ -292,7 +292,7 @@ export function table(rows: any, options: any = null): string {
     lines.push(cells.join(separator).trimEnd());
 
     if (head !== null && r === 0) {
-      const rule: any = [];
+      const rule = [];
       for (let c = 0; c < columns; c++) rule.push("-".repeat(widths[c]));
       lines.push(rule.join(separator).trimEnd());
     }
@@ -301,11 +301,11 @@ export function table(rows: any, options: any = null): string {
 }
 
 /* Names in columns, down then across, the way `ls` lays them out. */
-export function columns(items: any, options: any = null): string {
+export function columns(items: array, options: object = null): string {
   const total = options?.width ?? 80;
   const gap = options?.gap ?? 2;
 
-  const all: any = [];
+  const all = [];
   for (const item of items) all.push(String(item));
   if (all.length === 0) return "";
 
@@ -317,9 +317,9 @@ export function columns(items: any, options: any = null): string {
   const perLine = Math.max(1, Math.floor((total + gap) / (widest + gap)));
   const rows = Math.ceil(all.length / perLine);
 
-  const lines: any = [];
+  const lines = [];
   for (let r = 0; r < rows; r++) {
-    const cells: any = [];
+    const cells = [];
     for (let c = 0; c < perLine; c++) {
       const at = c * rows + r;
       if (at >= all.length) continue;

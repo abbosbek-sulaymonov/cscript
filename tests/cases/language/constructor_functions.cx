@@ -6,7 +6,7 @@
 // CommonJS. The two disagree on one line: a bare call's `this` is undefined
 // under a module and `globalThis` under sloppy-mode CommonJS. CScript files
 // are modules, so that is the comparison that means anything.
-function Point(x, y) {
+function Point(x: number, y: number) {
   this.x = x;
   this.y = y;
 }
@@ -25,14 +25,14 @@ console.log(p instanceof Point);
 
 // The classic chain: a constructor delegating to another, and a prototype
 // built from the parent's.
-function Animal(name) {
+function Animal(name: string) {
   this.name = name;
 }
 Animal.prototype.speak = function () {
   return `${this.name} speaks`;
 };
 
-function Dog(name) {
+function Dog(name: string) {
   Animal.call(this, name);
   this.legs = 4;
 }

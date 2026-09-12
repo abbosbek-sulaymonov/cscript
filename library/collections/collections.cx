@@ -17,12 +17,12 @@
  * O(n) per item taken and O(n²) to drain — which is invisible at ten elements
  * and fatal at a hundred thousand. Here both ends are an index update. */
 export class Deque {
-  #items: any = [undefined, undefined, undefined, undefined,
+  #items: array = [undefined, undefined, undefined, undefined,
                  undefined, undefined, undefined, undefined];
   #head: number = 0;
   #count: number = 0;
 
-  constructor(initial: any = null) {
+  constructor(initial: value = null) {
     if (initial === null) return;
     for (const element of initial) this.pushBack(element);
   }
@@ -40,7 +40,7 @@ export class Deque {
   #grow() {
     const capacity = this.#items.length;
     if (this.#count < capacity) return;
-    const next: any = [];
+    const next = [];
     for (let i = 0; i < this.#count; i++) {
       next.push(this.#items[(this.#head + i) % capacity]);
     }
@@ -49,13 +49,13 @@ export class Deque {
     this.#head = 0;
   }
 
-  pushBack(value: any) {
+  pushBack(value: value) {
     this.#grow();
     this.#items[(this.#head + this.#count) % this.#items.length] = value;
     this.#count = this.#count + 1;
   }
 
-  pushFront(value: any) {
+  pushFront(value: value) {
     this.#grow();
     const capacity = this.#items.length;
     this.#head = (this.#head - 1 + capacity) % capacity;
@@ -65,7 +65,7 @@ export class Deque {
 
   /* `undefined` when there is nothing, rather than an error: a queue running
    * dry is the ordinary end of a loop, not a mistake. */
-  popFront(): any {
+  popFront() {
     if (this.#count === 0) return undefined;
     const value = this.#items[this.#head];
     this.#items[this.#head] = undefined;
@@ -74,7 +74,7 @@ export class Deque {
     return value;
   }
 
-  popBack(): any {
+  popBack() {
     if (this.#count === 0) return undefined;
     const at = (this.#head + this.#count - 1) % this.#items.length;
     const value = this.#items[at];
@@ -83,17 +83,17 @@ export class Deque {
     return value;
   }
 
-  peekFront(): any {
+  peekFront() {
     if (this.#count === 0) return undefined;
     return this.#items[this.#head];
   }
 
-  peekBack(): any {
+  peekBack() {
     if (this.#count === 0) return undefined;
     return this.#items[(this.#head + this.#count - 1) % this.#items.length];
   }
 
-  at(index: number): any {
+  at(index: number) {
     if (index < 0 || index >= this.#count) return undefined;
     return this.#items[(this.#head + index) % this.#items.length];
   }
@@ -105,8 +105,8 @@ export class Deque {
     this.#count = 0;
   }
 
-  toArray(): any {
-    const out: any = [];
+  toArray() {
+    const out = [];
     for (let i = 0; i < this.#count; i++) out.push(this.at(i));
     return out;
   }
@@ -126,11 +126,11 @@ export class Deque {
  * "Smallest" is whatever the comparator says, so a max-heap is
  * `new PriorityQueue((a, b) => b - a)`. */
 export class PriorityQueue {
-  #items: any = [];
-  #compare: any;
+  #items: array = [];
+  #compare: Function;
 
-  constructor(compare: any = null, initial: any = null) {
-    this.#compare = compare === null ? (a: any, b: any) => a - b : compare;
+  constructor(compare: Function = null, initial: value = null) {
+    this.#compare = compare === null ? (a: number, b: number) => a - b : compare;
     if (initial === null) return;
     for (const element of initial) this.push(element);
   }
@@ -143,7 +143,7 @@ export class PriorityQueue {
     return this.#items.length === 0;
   }
 
-  push(value: any) {
+  push(value: value) {
     this.#items.push(value);
     let at = this.#items.length - 1;
     while (at > 0) {
@@ -154,7 +154,7 @@ export class PriorityQueue {
     }
   }
 
-  pop(): any {
+  pop() {
     if (this.#items.length === 0) return undefined;
     const top = this.#items[0];
     const last = this.#items.pop();
@@ -181,7 +181,7 @@ export class PriorityQueue {
     return top;
   }
 
-  peek(): any {
+  peek() {
     if (this.#items.length === 0) return undefined;
     return this.#items[0];
   }
@@ -204,9 +204,9 @@ export class PriorityQueue {
 /* How many times each thing was seen. A Map underneath, so a key can be a
  * number, a boolean or an object rather than only a string. */
 export class Counter {
-  #counts: any = new Map();
+  #counts: object = new Map();
 
-  constructor(initial: any = null) {
+  constructor(initial: value = null) {
     if (initial === null) return;
     for (const element of initial) this.add(element);
   }
@@ -215,8 +215,8 @@ export class Counter {
     return this.#counts.size;
   }
 
-  add(key: any, howMany: number = 1) {
-    const current = this.#counts.has(key) ? this.#counts.get(key) : 0;
+  add(key: value, howMany: number = 1) {
+    const current = this.get(key);
     const next = current + howMany;
     if (next === 0) {
       this.#counts.delete(key);
@@ -227,16 +227,17 @@ export class Counter {
 
   /* Zero for something never seen, rather than undefined: a count is a number,
    * and `counter.get(x) + 1` should not be NaN for the first one. */
-  get(key: any): number {
+  get(key: value): number {
     if (!this.#counts.has(key)) return 0;
-    return this.#counts.get(key);
+    const held = this.#counts.get(key);
+    return typeof held === "number" ? held : 0;
   }
 
-  has(key: any): boolean {
+  has(key: value): boolean {
     return this.#counts.has(key);
   }
 
-  delete(key: any): boolean {
+  delete(key: value): boolean {
     return this.#counts.delete(key);
   }
 
@@ -248,15 +249,15 @@ export class Counter {
 
   /* Most frequent first, ties in insertion order, as `[key, count]` pairs.
    * `howMany` below zero means all of them. */
-  mostCommon(howMany: number = -1): any {
-    const pairs: any = [];
+  mostCommon(howMany: number = -1) {
+    const pairs = [];
     for (const pair of this.#counts) pairs.push(pair);
-    pairs.sort((a: any, b: any) => b[1] - a[1]);
+    pairs.sort((a: array, b: array) => b[1] - a[1]);
     if (howMany < 0) return pairs;
     return pairs.slice(0, howMany);
   }
 
-  keys(): any {
+  keys() {
     return this.#counts.keys();
   }
 
@@ -274,10 +275,10 @@ export class Counter {
  * precedes every update. The factory is called with the key, so a default can
  * depend on it. */
 export class DefaultMap {
-  #values: any = new Map();
-  #build: any;
+  #values: array = new Map();
+  #build: Function;
 
-  constructor(build: any, initial: any = null) {
+  constructor(build: Function, initial: value = null) {
     this.#build = build;
     if (initial === null) return;
     for (const [key, value] of initial) this.#values.set(key, value);
@@ -287,7 +288,7 @@ export class DefaultMap {
     return this.#values.size;
   }
 
-  get(key: any): any {
+  get(key: value) {
     if (!this.#values.has(key)) {
       this.#values.set(key, this.#build.length >= 1 ? this.#build(key) : this.#build());
     }
@@ -296,24 +297,24 @@ export class DefaultMap {
 
   /* Deliberately does *not* build: asking whether something is there should
    * not be what puts it there. */
-  has(key: any): boolean {
+  has(key: value): boolean {
     return this.#values.has(key);
   }
 
-  set(key: any, value: any): any {
+  set(key: value, value: value) {
     this.#values.set(key, value);
     return this;
   }
 
-  delete(key: any): boolean {
+  delete(key: value): boolean {
     return this.#values.delete(key);
   }
 
-  keys(): any {
+  keys() {
     return this.#values.keys();
   }
 
-  values(): any {
+  values() {
     return this.#values.values();
   }
 

@@ -21,7 +21,7 @@ const rows = [
 
 /* A row that will not parse is a value, not a throw: the report wants to say
  * how many were dropped, which means the failures have to survive the parse. */
-function parseRow(row: string): any {
+function parseRow(row: string) {
   const parts = row.split(":");
   if (parts.length !== 2) return Result.err("malformed row: " + row);
   const reading = Number(parts[1]);
@@ -30,8 +30,8 @@ function parseRow(row: string): any {
 }
 
 const parsed = toArray(map(rows, parseRow));
-const kept = toArray(map(filter(parsed, (r: any) => r.isOk), (r: any) => r.value));
-const dropped = toArray(filter(parsed, (r: any) => r.isErr));
+const kept = toArray(map(filter(parsed, (r: object) => r.isOk), (r: object) => r.value));
+const dropped = toArray(filter(parsed, (r: object) => r.isErr));
 
 console.log(padCenter(" readings ", 34, "="));
 for (const row of kept) {
@@ -39,7 +39,7 @@ for (const row of kept) {
   console.log(titleCase(row.day).padEnd(6) + bar + " " + String(row.reading));
 }
 
-const readings = toArray(map(kept, (r: any) => r.reading));
+const readings = toArray(map(kept, (r: object) => r.reading));
 console.log(padCenter(" summary ", 34, "="));
 console.log(format("{count} kept, {dropped} dropped", {
   count: kept.length,
@@ -55,21 +55,21 @@ console.log(format("low {low}, high {high}, mean {mean}, median {median}", {
 for (const failure of dropped) console.log("  dropped: " + failure.error);
 
 /* Grouping and counting, the two things a Map is always used for by hand. */
-const warmth = groupBy(kept, (r: any) => r.reading >= 22 ? "warm" : "mild");
+const warmth = groupBy(kept, (r: object) => r.reading >= 22 ? "warm" : "mild");
 console.log(padCenter(" grouped ", 34, "="));
 for (const [label, group] of warmth) {
-  const days = toArray(map(group, (r: any) => r.day));
+  const days = toArray(map(group, (r: object) => r.day));
   console.log(label.padEnd(6) + days.join(" "));
 }
 
-const letters = new Counter(chain(...map(kept, (r: any) => r.day)));
+const letters = new Counter(chain(...map(kept, (r: object) => r.day)));
 console.log("most common letter: " + String(letters.mostCommon(1)[0][0]));
 
 /* A pipeline, because the shape of the calculation is the point of it. */
 const summarise = pipe(
-  (rs: any) => toArray(map(rs, (r: any) => r.reading)),
-  (values: any) => describe(values),
-  (summary: any) => format("{count} readings, spread {spread}", {
+  (rs: value) => toArray(map(rs, (r: object) => r.reading)),
+  (values: value) => describe(values),
+  (summary: object) => format("{count} readings, spread {spread}", {
     count: summary.count,
     spread: summary.max - summary.min,
   }));

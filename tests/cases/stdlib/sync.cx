@@ -28,7 +28,7 @@ async function main() {
   equal(shared, 3, "and the same three under a lock");
 
   /* First in, first served. */
-  const order: any = [];
+  const order = [];
   const queue = new Mutex();
   const held = await queue.lock();
   ok(queue.isHeld);
@@ -63,7 +63,7 @@ async function main() {
 
   /* A WaitGroup counts rather than holding promises. */
   const group = new WaitGroup();
-  const finished: any = [];
+  const finished = [];
   for (const name of ["a", "b", "c"]) {
     group.add();
     (async () => {

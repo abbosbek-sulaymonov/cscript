@@ -4,7 +4,7 @@ import { kindOf, isPlainObject, isArray, isMap, isSet, isWeak, isDate, isRegex,
 import { equal, ok, notOk, deepEqual } from "std:assert";
 
 class Point { x: number = 1; }
-function* counter(): any { yield 1; }
+function* counter() { yield 1; }
 
 equal(kindOf(null), "null");
 equal(kindOf(undefined), "undefined");
@@ -50,6 +50,6 @@ notOk(isWalkable(new Map()), "a Map has no own keys to walk");
 ok(isCollection(new Map())); ok(isCollection(new Set()));
 notOk(isCollection(new WeakMap()), "a weak one cannot be iterated at all");
 
-const shapes: any = [{}, [], new Map(), new Set(), new Date(0), new Point()];
-console.log(shapes.map((v: any) => kindOf(v)));
+const shapes = [{}, [], new Map(), new Set(), new Date(0), new Point()];
+console.log(shapes.map((v: value) => kindOf(v)));
 console.log("kind ok");

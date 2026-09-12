@@ -1,7 +1,7 @@
 import { Shape, scale, UNIT } from "./shapes.cx";
 
 export class Rect extends Shape {
-  constructor(w, h) {
+  constructor(w: value, h: Function) {
     super("rect");
     this.w = w;
     this.h = h;

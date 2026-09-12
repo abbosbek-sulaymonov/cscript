@@ -28,7 +28,7 @@ console.log(a, rest);
 const box = { _v: 1 };
 Object.defineProperty(box, "v", {
   get() { return this._v * 10; },
-  set(n) { this._v = n; },
+  set(n: number) { this._v = n; },
   enumerable: true,
   configurable: true,
 });
@@ -40,7 +40,7 @@ console.log(typeof described.get, typeof described.set, described.enumerable);
 
 // Own accessors take their place in the insertion order and are enumerated.
 // A class's accessors are not: those belong to the class, not the instance.
-const literal = { b: 1, get a() { return 2; }, set c(v) {} };
+const literal = { b: 1, get a() { return 2; }, set c(v: value) {} };
 console.log(literal);
 console.log(Object.keys(literal), Object.values(literal));
 console.log(Object.entries(literal));

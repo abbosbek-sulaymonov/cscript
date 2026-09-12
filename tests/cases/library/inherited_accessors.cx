@@ -5,7 +5,7 @@
 const base = {
   _v: 1,
   get v() { return this._v; },
-  set v(n) { this._v = n * 2; },
+  set v(n: number) { this._v = n * 2; },
   describe() { return `v is ${this.v}`; },
 };
 
@@ -34,7 +34,7 @@ class Config {
   static stored = 0;
   static get version() { return "1.0"; }
   static get level() { return Config.stored; }
-  static set level(n) { Config.stored = n * 10; }
+  static set level(n: number) { Config.stored = n * 10; }
 }
 console.log(Config.version, Config.level);
 Config.level = 3;

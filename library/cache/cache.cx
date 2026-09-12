@@ -21,15 +21,15 @@
  * it is why this is thirty lines rather than a hundred and thirty. */
 export class LruCache {
   #capacity: number;
-  #entries: any = new Map();
+  #entries: array = new Map();
   #ttl: number;
-  #clock: any;
+  #clock: Function;
   #hits: number = 0;
   #misses: number = 0;
   #evictions: number = 0;
 
   /* `{ ttl, clock }` — `ttl` in milliseconds, zero meaning no expiry. */
-  constructor(capacity: number, options: any = null) {
+  constructor(capacity: number, options: object = null) {
     if (capacity < 1) throw new Error("a cache needs room for at least one entry");
     this.#capacity = capacity;
     this.#ttl = options?.ttl ?? 0;
@@ -47,7 +47,7 @@ export class LruCache {
   /* What the cache has been doing, which is the only way to know whether it is
    * worth having: a hit rate near zero is a cache that costs memory and buys
    * nothing. */
-  get stats(): any {
+  get stats() {
     const looks = this.#hits + this.#misses;
     return {
       hits: this.#hits,
@@ -61,13 +61,13 @@ export class LruCache {
     return this.#clock === null ? Date.now() : this.#clock();
   }
 
-  #expired(entry: any): boolean {
+  #expired(entry: object): boolean {
     return this.#ttl > 0 && this.#now() - entry.storedAt >= this.#ttl;
   }
 
   /* Reading marks the entry as used, which is what makes it least-recently-*used*
    * rather than least-recently-added. */
-  get(key: any): any {
+  get(key: value) {
     if (!this.#entries.has(key)) {
       this.#misses = this.#misses + 1;
       return undefined;
@@ -86,14 +86,14 @@ export class LruCache {
 
   /* Deliberately does not count as a use, and does not count as a hit: asking
    * whether something is cached is not the same as wanting it. */
-  has(key: any): boolean {
+  has(key: value): boolean {
     if (!this.#entries.has(key)) return false;
     if (!this.#expired(this.#entries.get(key))) return true;
     this.#entries.delete(key);
     return false;
   }
 
-  set(key: any, value: any): any {
+  set(key: value, value: value) {
     if (this.#entries.has(key)) this.#entries.delete(key);
     this.#entries.set(key, { value: value, storedAt: this.#now() });
 
@@ -110,18 +110,18 @@ export class LruCache {
 
   /* The shape almost every use takes: answer what is cached, or work it out
    * and cache that. One call, so the two halves cannot drift. */
-  fetch(key: any, build: any): any {
+  fetch(key: value, build: Function) {
     if (this.has(key)) return this.get(key);
     const value = build.length >= 1 ? build(key) : build();
     this.set(key, value);
     return value;
   }
 
-  delete(key: any): boolean {
+  delete(key: value): boolean {
     return this.#entries.delete(key);
   }
 
-  clear(): any {
+  clear() {
     this.#entries = new Map();
     return this;
   }
@@ -129,7 +129,7 @@ export class LruCache {
   /* Drops everything expired, for a cache that is read rarely and would
    * otherwise hold its dead entries until something asked for them. */
   prune(): number {
-    const dead: any = [];
+    const dead = [];
     for (const [key, entry] of this.#entries) {
       if (this.#expired(entry)) dead.push(key);
     }
@@ -137,8 +137,8 @@ export class LruCache {
     return dead.length;
   }
 
-  keys(): any {
-    const out: any = [];
+  keys() {
+    const out = [];
     for (const key of this.#entries.keys()) out.push(key);
     return out;
   }
@@ -155,10 +155,10 @@ export class LruCache {
  * `func.memoize` keys on JSON and never forgets; this takes the same shape and
  * a capacity, which is what makes it safe for something keyed by user input.
  */
-export function memoize(fn: any, options: any = null): any {
+export function memoize(fn: Function, options: object = null) {
   const cache = new LruCache(options?.capacity ?? 128, options);
   const keyOf = options?.keyOf ?? null;
-  return (...args: any) => {
+  return (...args: value) => {
     const key = keyOf === null ? JSON.stringify(args) : keyOf(...args);
     if (cache.has(key)) return cache.get(key);
     const value = fn(...args);

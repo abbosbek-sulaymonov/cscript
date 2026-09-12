@@ -30,7 +30,7 @@ import { deferred } from "std:async";
  */
 export class Mutex {
   #held: boolean = false;
-  #waiting: any = [];
+  #waiting: array = [];
 
   get isHeld(): boolean {
     return this.#held;
@@ -41,7 +41,7 @@ export class Mutex {
   }
 
   /* Resolves with the release function once the lock is free. */
-  lock(): any {
+  lock() {
     if (!this.#held) {
       this.#held = true;
       return Promise.resolve(() => this.#release());
@@ -67,7 +67,7 @@ export class Mutex {
 
   /* The form to reach for: the release cannot be forgotten, including when the
    * body throws — which is the case that leaves a lock held for ever. */
-  async withLock(body: any): any {
+  async withLock(body: Function) {
     const release = await this.lock();
     try {
       return await body();
@@ -84,7 +84,7 @@ export class Mutex {
  * exists, in the form that suits code which is not a loop over a list. */
 export class Semaphore {
   #free: number;
-  #waiting: any = [];
+  #waiting: array = [];
 
   constructor(permits: number) {
     if (permits < 1) throw new Error("a Semaphore needs at least one permit");
@@ -99,7 +99,7 @@ export class Semaphore {
     return this.#waiting.length;
   }
 
-  acquire(): any {
+  acquire() {
     if (this.#free > 0) {
       this.#free = this.#free - 1;
       return Promise.resolve(() => this.#release());
@@ -118,7 +118,7 @@ export class Semaphore {
     this.#free = this.#free + 1;
   }
 
-  async withPermit(body: any): any {
+  async withPermit(body: Function) {
     const release = await this.acquire();
     try {
       return await body();
@@ -138,13 +138,13 @@ export class Semaphore {
  */
 export class WaitGroup {
   #count: number = 0;
-  #waiting: any = [];
+  #waiting: array = [];
 
   get pending(): number {
     return this.#count;
   }
 
-  add(howMany: number = 1): any {
+  add(howMany: number = 1) {
     if (howMany < 1) throw new Error("WaitGroup.add needs a positive count");
     this.#count = this.#count + howMany;
     return this;
@@ -153,7 +153,7 @@ export class WaitGroup {
   /* More `done`s than `add`s is a bug in the caller worth reporting: the
    * alternative is a group that answers "finished" while work is still
    * running. */
-  done(): any {
+  done() {
     if (this.#count === 0) throw new Error("WaitGroup.done with nothing pending");
     this.#count = this.#count - 1;
     if (this.#count > 0) return this;
@@ -166,7 +166,7 @@ export class WaitGroup {
 
   /* Resolves immediately when nothing is pending, which makes a group that was
    * never used safe to wait on. */
-  wait(): any {
+  wait() {
     if (this.#count === 0) return Promise.resolve(undefined);
     const gate = deferred();
     this.#waiting.push(gate);
@@ -174,7 +174,7 @@ export class WaitGroup {
   }
 
   /* Runs `body`, counting it in and out — the whole pattern in one call. */
-  async run(body: any): any {
+  async run(body: Function) {
     this.add();
     try {
       return await body();
@@ -198,9 +198,9 @@ export class WaitGroup {
  */
 export class Channel {
   #capacity: number;
-  #queue: any = [];
-  #receivers: any = [];
-  #senders: any = [];
+  #queue: array = [];
+  #receivers: array = [];
+  #senders: array = [];
   #closed: boolean = false;
 
   constructor(capacity: number = 0) {
@@ -219,7 +219,7 @@ export class Channel {
   /* Resolves once the value has been taken or queued. Handed straight to a
    * waiting receiver when there is one, which is what keeps a rendezvous from
    * costing a trip through the queue. */
-  send(value: any): any {
+  send(value: value) {
     if (this.#closed) throw new Error("send on a closed Channel");
 
     if (this.#receivers.length > 0) {
@@ -242,7 +242,7 @@ export class Channel {
   /* Resolves with `{ value, done }` — `done` once the channel is closed and
    * drained, which is how a consumer knows to stop rather than waiting for
    * ever. */
-  receive(): any {
+  receive() {
     if (this.#queue.length > 0) {
       const value = this.#queue.shift();
       /* A sender that was waiting for room can now be let in, and its value
@@ -264,7 +264,7 @@ export class Channel {
 
   /* Nothing more will be sent. Anything already queued is still delivered;
    * every waiting receiver is told it is finished. */
-  close(): any {
+  close() {
     if (this.#closed) return this;
     this.#closed = true;
 
@@ -284,8 +284,8 @@ export class Channel {
 
   /* Everything until the channel is closed and drained, as an array. For a
    * consumer that wants the lot rather than one at a time. */
-  async drain(): any {
-    const out: any = [];
+  async drain() {
+    const out = [];
     while (true) {
       const next = await this.receive();
       if (next.done) return out;

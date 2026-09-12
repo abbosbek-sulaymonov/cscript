@@ -11,9 +11,7 @@ console.log(`${2n} and ${3}`);
 // Ordering mixes freely, because it always has exactly one right answer.
 console.log(1n < 2, 3n > 2.5);
 
-// The checker catches a literal pair; this one is hidden behind a parameter so
-// that the runtime refusal is what gets shown.
-function add(a, b) {
-  return a + b;
-}
-console.log(add(1n, 1));
+// The checker catches a literal pair outright. This one comes out of an array,
+// whose element types are not modelled, so the refusal is the runtime's.
+const mixed = [1n, 1];
+console.log(mixed[0] + mixed[1]);

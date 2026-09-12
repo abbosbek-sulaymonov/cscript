@@ -23,8 +23,8 @@ const URL_SAFE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
 
 /* Three bytes become four characters, by arithmetic rather than by shifting:
  * the language has no shift operators, and 24 bits fits in a double exactly. */
-function encodeWith(bytes: any, alphabet: string, pad: boolean): string {
-  const parts: any = [];
+function encodeWith(bytes: array, alphabet: string, pad: boolean): string {
+  const parts = [];
   let at = 0;
 
   while (at + 2 < bytes.length) {
@@ -52,13 +52,13 @@ function encodeWith(bytes: any, alphabet: string, pad: boolean): string {
   return parts.join("");
 }
 
-export function toBase64(bytes: any): string {
+export function toBase64(bytes: array): string {
   return encodeWith(bytes, STANDARD, true);
 }
 
 /* `-` and `_` instead of `+` and `/`, and no padding — the form that survives
  * being put in a URL or a filename without being escaped again. */
-export function toBase64Url(bytes: any): string {
+export function toBase64Url(bytes: array): string {
   return encodeWith(bytes, URL_SAFE, false);
 }
 
@@ -72,8 +72,8 @@ export function encodeBase64(text: string): string {
  * Both alphabets are accepted and padding is optional, because a decoder that
  * refuses the URL-safe form is a decoder that fails on half the tokens in the
  * world. */
-export function fromBase64(text: string): any {
-  const out: any = [];
+export function fromBase64(text: string) {
+  const out = [];
   let block = 0;
   let held = 0;
 
@@ -116,8 +116,8 @@ export function fromBase64(text: string): any {
   return Result.ok(out);
 }
 
-export function decodeBase64(text: string): any {
-  return fromBase64(text).map((bytes: any) => toString(bytes));
+export function decodeBase64(text: string) {
+  return fromBase64(text).map((bytes: array) => toString(bytes));
 }
 
 function base64Value(character: string): number {
@@ -134,8 +134,8 @@ function base64Value(character: string): number {
 
 const HEX = "0123456789abcdef";
 
-export function toHex(bytes: any, upper: boolean = false): string {
-  const parts: any = [];
+export function toHex(bytes: array, upper: boolean = false): string {
+  const parts = [];
   for (const byte of bytes) {
     const pair = HEX[Math.floor(byte / 16)] + HEX[byte % 16];
     parts.push(upper ? pair.toUpperCase() : pair);
@@ -143,13 +143,13 @@ export function toHex(bytes: any, upper: boolean = false): string {
   return parts.join("");
 }
 
-export function fromHex(text: string): any {
+export function fromHex(text: string) {
   const trimmed = text.startsWith("0x") || text.startsWith("0X") ? text.slice(2) : text;
   if (trimmed.length % 2 !== 0) {
     return Result.err("hex has an odd number of digits");
   }
 
-  const out: any = [];
+  const out = [];
   for (let i = 0; i < trimmed.length; i = i + 2) {
     const high = hexValue(trimmed.charCodeAt(i));
     const low = hexValue(trimmed.charCodeAt(i + 1));
@@ -183,7 +183,7 @@ function isUnreserved(code: number): boolean {
 }
 
 export function percentEncode(text: string): string {
-  const parts: any = [];
+  const parts = [];
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
     if (isUnreserved(code)) {
@@ -198,8 +198,8 @@ export function percentEncode(text: string): string {
 
 /* `+` is a space here, because that is what a form body means by it and a
  * decoder that ignores it silently mangles every query string it is given. */
-export function percentDecode(text: string): any {
-  const out: any = [];
+export function percentDecode(text: string) {
+  const out = [];
   let i = 0;
   while (i < text.length) {
     const character = text[i];
@@ -257,8 +257,8 @@ export function encodeUtf8(code: number): string {
  * because the é is two bytes, and `decodeUtf8(text).length` is 4 because it is
  * one character. Answers a Result, because text from outside may not be valid
  * UTF-8 and a decoder that guesses produces mojibake nobody can trace. */
-export function decodeUtf8(text: string): any {
-  const out: any = [];
+export function decodeUtf8(text: string) {
+  const out = [];
   let i = 0;
   while (i < text.length) {
     const first = text.charCodeAt(i);
@@ -306,17 +306,17 @@ export function decodeUtf8(text: string): any {
 
 /* The characters of a string, as strings — what `[...text]` would give in a
  * language whose strings were not bytes. */
-export function characters(text: string): any {
-  return decodeUtf8(text).map((codes: any) => {
-    const out: any = [];
+export function characters(text: string) {
+  return decodeUtf8(text).map((codes: array) => {
+    const out = [];
     for (const code of codes) out.push(encodeUtf8(code));
     return out;
   });
 }
 
 /* How many characters, as opposed to how many bytes. */
-export function characterLength(text: string): any {
-  return decodeUtf8(text).map((codes: any) => codes.length);
+export function characterLength(text: string) {
+  return decodeUtf8(text).map((codes: array) => codes.length);
 }
 
 /* Whether the bytes are valid UTF-8 at all — the question to ask before

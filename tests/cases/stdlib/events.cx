@@ -2,7 +2,7 @@ import { EventEmitter } from "std:events";
 import { equal, deepEqual, ok, throws, messageOf } from "std:assert";
 
 const bus = new EventEmitter();
-const seen: any = [];
+const seen = [];
 const remove = bus.on("tick", (n: number) => seen.push(n));
 bus.on("tick", () => seen.push("bare"));
 equal(bus.emit("tick", 1), true);
@@ -31,7 +31,7 @@ angry.on("x", () => { throw new Error("listener failed"); });
 equal(messageOf(throws(() => angry.emit("x"))), "listener failed");
 
 const mutating = new EventEmitter();
-const order: any = [];
+const order = [];
 mutating.on("m", () => { order.push(1); mutating.removeAllListeners("m"); });
 mutating.on("m", () => order.push(2));
 mutating.emit("m");

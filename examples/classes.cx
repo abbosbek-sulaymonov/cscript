@@ -76,13 +76,13 @@ console.log(new Account("Bo", 1));
 console.log(alan instanceof Savings, alan instanceof Account, ada instanceof Savings);
 
 // Classes are values, so they go in arrays and come back out.
-const owners = [ada, alan].map((a) => a.describe());
+const owners = [ada, alan].map((a: object) => a.describe());
 console.log(owners.join(" | "));
 console.log(Account.open("Grace").describe());
 
 // An arrow function inside a method sees the same `this` the method does.
 class Report {
-  rows: any = [];
+  rows = [];
 
   add(label: string, value: number) {
     this.rows.push({ label: label, value: value });
@@ -90,7 +90,7 @@ class Report {
   }
 
   render(): string {
-    return this.rows.map((row: any) => `${row.label}=${row.value}`).join(", ");
+    return this.rows.map((row: array) => `${row.label}=${row.value}`).join(", ");
   }
 }
 

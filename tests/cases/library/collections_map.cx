@@ -14,7 +14,7 @@ console.log([...s].join(","));
 
 const withPairs = new Map([["x", 10], ["y", 20]]);
 console.log(withPairs.size, withPairs.get("y"));
-withPairs.forEach((v, k) => console.log("each", k, v));
+withPairs.forEach((v: value, k: string) => console.log("each", k, v));
 
 // NaN and -0 follow SameValueZero.
 const odd = new Map();

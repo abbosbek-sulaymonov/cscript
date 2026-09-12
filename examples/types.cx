@@ -1,5 +1,6 @@
-// CScript is gradually typed: annotations are optional, and code without them
-// is still checked, because a declaration takes the type of its initialiser.
+// CScript is statically typed, with the annotations optional: a declaration
+// takes the type of its initialiser and keeps it, so code without annotations
+// is checked exactly as tightly as code with them. There is no `any`.
 
 // Annotated.
 const name: string = "cscript";
@@ -14,12 +15,28 @@ console.log(greeting + name);
 console.log("milestone", version, "stable:", stable);
 console.log(year + 1);
 
-// `any` opts a value back out of static checking, for the places where a type
-// genuinely is not known until run time.
-let flexible: any = 10;
-flexible = "ten";
-flexible = true;
-console.log(typeof flexible);
+// One-time autocasting: the type is taken once, from the first thing the
+// variable is given, and after that it cannot change. `flexible = "ten"` here
+// would be a compile error rather than a surprise at run time.
+let flexible = 10;
+flexible = flexible * 2;
+console.log(typeof flexible, flexible);
+
+// A declaration with nothing to learn from waits for its first assignment,
+// which is what fixes the type.
+let pending;
+pending = "decided here";
+console.log(typeof pending, pending);
+
+// `value` is the type for what genuinely is not known until run time. Anything
+// may be put in one; nothing may be read out of one until the program has
+// checked what it is — and `typeof` is that check, which the checker follows.
+function describe(thing: value): string {
+  if (typeof thing === "number") return "number " + String(thing * 1);
+  if (typeof thing === "string") return "string of " + String(thing.length);
+  return "something else";
+}
+console.log(describe(10), describe("ten"), describe(true));
 
 // Types follow scope, so an inner declaration can shadow with a different one.
 let value = 100;

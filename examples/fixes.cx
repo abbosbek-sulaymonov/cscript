@@ -50,7 +50,8 @@ const point = { x: 1, y: 2 };
 console.log(`point is ${point}`);
 console.log(String([1, [2, 3]]));
 
-// `any` is the escape hatch back into dynamic typing.
-let loose: any = 1;
-loose = "now a string";
-console.log(typeof loose);
+// A variable's type is fixed by what it is first given, and there is no `any`
+// to opt back out with: `loose = "now a string"` here would not compile.
+let loose = 1;
+loose = loose + 1;
+console.log(typeof loose, loose);

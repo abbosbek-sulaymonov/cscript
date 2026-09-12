@@ -24,18 +24,20 @@ function fail(message: string, detail: string) {
 
 /* `describe` rather than String(): a string has to come back quoted, or
  * `equal("1", 1)` reports `1 !== 1` and reads like a bug in the assertion. */
-export function describe(value: any): string {
+export function describe(value: value): string {
   if (typeof value === "string") return "'" + value + "'";
   if (value === undefined) return "undefined";
   if (value === null) return "null";
   if (Array.isArray(value)) {
-    const parts: any = [];
+    const parts = [];
     for (const element of value) parts.push(describe(element));
     return "[" + parts.join(", ") + "]";
   }
   const kind = kindOf(value);
+  if (typeof value !== "object" || value === null) return String(value);
+
   if (kind === "map" || kind === "set") {
-    const parts: any = [];
+    const parts = [];
     if (kind === "map") {
       for (const [key, held] of value) parts.push(describe(key) + " => " + describe(held));
     } else {
@@ -48,7 +50,7 @@ export function describe(value: any): string {
   if (kind === "object") {
     const keys = Object.keys(value);
     if (keys.length === 0) return "{}";
-    const parts: any = [];
+    const parts = [];
     for (const key of keys) parts.push(key + ": " + describe(value[key]));
     return "{ " + parts.join(", ") + " }";
   }
@@ -59,13 +61,17 @@ export function describe(value: any): string {
  * an array of computed numbers comparable at all; the second is a difference
  * from Node's deepStrictEqual, and is deliberate — a sign of zero that no
  * arithmetic can observe is not worth failing a test over. */
-function same(a: any, b: any): boolean {
+function same(a: value, b: value): boolean {
   if (a === b) return true;
   return a !== a && b !== b;
 }
 
-export function isDeepEqual(a: any, b: any): boolean {
+export function isDeepEqual(a: value, b: value): boolean {
   if (same(a, b)) return true;
+  /* Two things of different kinds are never equal, and past this line both are
+   * objects of some sort — which is what lets the walk below read them. */
+  if (typeof a !== "object" || typeof b !== "object") return false;
+  if (a === null || b === null) return false;
 
   /* Two different kinds are never equal, and asking the kind first is what
    * makes the rest of this safe: walking a Map with Object.keys is a runtime
@@ -116,32 +122,32 @@ export function isDeepEqual(a: any, b: any): boolean {
 
 /* --- the assertions ------------------------------------------------------ */
 
-export function ok(value: any, message: string = "") {
+export function ok(value: value, message: string = "") {
   if (value) return;
   fail("expected a truthy value, got " + describe(value), message);
 }
 
-export function notOk(value: any, message: string = "") {
+export function notOk(value: value, message: string = "") {
   if (!value) return;
   fail("expected a falsy value, got " + describe(value), message);
 }
 
-export function equal(actual: any, expected: any, message: string = "") {
+export function equal(actual: value, expected: value, message: string = "") {
   if (same(actual, expected)) return;
   fail(describe(actual) + " !== " + describe(expected), message);
 }
 
-export function notEqual(actual: any, expected: any, message: string = "") {
+export function notEqual(actual: value, expected: value, message: string = "") {
   if (!same(actual, expected)) return;
   fail("expected something other than " + describe(expected), message);
 }
 
-export function deepEqual(actual: any, expected: any, message: string = "") {
+export function deepEqual(actual: value, expected: value, message: string = "") {
   if (isDeepEqual(actual, expected)) return;
   fail(describe(actual) + " is not deeply equal to " + describe(expected), message);
 }
 
-export function notDeepEqual(actual: any, expected: any, message: string = "") {
+export function notDeepEqual(actual: value, expected: value, message: string = "") {
   if (!isDeepEqual(actual, expected)) return;
   fail("expected something not deeply equal to " + describe(expected), message);
 }
@@ -157,7 +163,7 @@ export function closeTo(actual: number, expected: number, tolerance: number = 1e
        message);
 }
 
-export function includes(haystack: any, needle: any, message: string = "") {
+export function includes(haystack: value, needle: value, message: string = "") {
   if (typeof haystack === "string") {
     if (haystack.includes(needle)) return;
     fail(describe(haystack) + " does not contain " + describe(needle), message);
@@ -168,7 +174,7 @@ export function includes(haystack: any, needle: any, message: string = "") {
   fail(describe(haystack) + " does not contain " + describe(needle), message);
 }
 
-export function hasLength(value: any, length: number, message: string = "") {
+export function hasLength(value: array, length: number, message: string = "") {
   if (value.length === length) return;
   fail("expected " + String(length) + " items, got " + String(value.length), message);
 }
@@ -179,8 +185,8 @@ export function hasLength(value: any, length: number, message: string = "") {
  * error's message, and a function is asked. Anything a `throws` accepts that
  * the body did not do is a failure, so a test cannot pass by throwing the
  * wrong thing. */
-export function throws(body: any, expected: any = null, message: string = ""): any {
-  let thrown: any = null;
+export function throws(body: Function, expected: value = null, message: string = "") {
+  let thrown = null;
   let threw = false;
   try {
     body();
@@ -205,7 +211,7 @@ export function throws(body: any, expected: any = null, message: string = ""): a
   return thrown;
 }
 
-export function doesNotThrow(body: any, message: string = ""): any {
+export function doesNotThrow(body: Function, message: string = "") {
   try {
     return body();
   } catch (error) {
@@ -217,7 +223,7 @@ export function doesNotThrow(body: any, message: string = ""): any {
 
 /* A thrown value need not be an Error — `throw "text"` is legal — so this is
  * how everything above reads one without assuming which it got. */
-export function messageOf(thrown: any): string {
+export function messageOf(thrown: value): string {
   if (typeof thrown === "string") return thrown;
   if (typeof thrown === "object" && thrown !== null) {
     const text = thrown?.message;

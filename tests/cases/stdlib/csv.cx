@@ -43,7 +43,7 @@ equal(formatObjects([{ a: 1 }, { a: 2, b: 3 }], { columns: ["a", "b"] }),
 equal(formatObjects([]), "");
 
 /* What goes out comes back. */
-const rows: any = [["name", "note"], ["Smith, J", 'said "hi"\nagain'], ["", "x"]];
+const rows = [["name", "note"], ["Smith, J", 'said "hi"\nagain'], ["", "x"]];
 deepEqual(parse(format(rows)).value, [["name", "note"], ["Smith, J", 'said "hi"\nagain'],
                                       ["", "x"]]);
 

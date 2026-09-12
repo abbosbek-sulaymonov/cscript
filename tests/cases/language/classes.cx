@@ -4,7 +4,7 @@ class Point {
   y = 0;
   label;
 
-  constructor(x, y) {
+  constructor(x: number, y: number) {
     this.x = x;
     this.y = y;
     this.label = `(${x}, ${y})`;
@@ -14,7 +14,7 @@ class Point {
     return Math.sqrt(this.x * this.x + this.y * this.y);
   }
 
-  scaled(k) {
+  scaled(k: number) {
     return new Point(this.x * k, this.y * k);
   }
 
@@ -35,7 +35,7 @@ console.log(Point, p.length);
 // A method returning `this` chains.
 class Builder {
   parts = [];
-  add(s) { this.parts.push(s); return this; }
+  add(s: string) { this.parts.push(s); return this; }
   build() { return this.parts.join("-"); }
 }
 console.log(new Builder().add("a").add("b").add("c").build());
@@ -43,7 +43,7 @@ console.log(new Builder().add("a").add("b").add("c").build());
 // An arrow inside a method captures `this` lexically.
 class Scaler {
   factor = 3;
-  applyAll(xs) { return xs.map((x) => x * this.factor); }
+  applyAll(xs: array) { return xs.map((x: number) => x * this.factor); }
 }
 console.log(new Scaler().applyAll([1, 2, 3]).join(","));
 

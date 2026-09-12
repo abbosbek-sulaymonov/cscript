@@ -218,7 +218,7 @@ struct AstNode {
   int line;
 
   /* Filled in by the type checker. The compiler reads it to specialise code,
-   * which is why annotations are consumed rather than erased. TYPE_ANY means
+   * which is why annotations are consumed rather than erased. TYPE_DYNAMIC means
    * "not known statically", not "unchecked". */
   TypeKind resolvedType;
   union {
@@ -344,7 +344,7 @@ struct AstNode {
       int length;
       AstNode *initializer;              /*   NULL for `let x;` */
       bool isConst;
-      TypeKind declaredType;             /*   from `: T`, else TYPE_ANY */
+      TypeKind declaredType;             /*   from `: T`, else TYPE_DYNAMIC */
       bool hasAnnotation;                /*   distinguishes `: any` from none */
     } varDecl;
     struct {                             /* AST_BLOCK */

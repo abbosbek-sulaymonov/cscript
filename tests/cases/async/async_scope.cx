@@ -1,5 +1,5 @@
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(() => resolve(ms), ms));
+function sleep(ms: number) {
+  return new Promise((resolve: Function) => setTimeout(() => resolve(ms), ms));
 }
 
 // A closure capturing a local across an await. The local must survive the
@@ -15,8 +15,8 @@ async function captures() {
 }
 
 class Service {
-  constructor(name) { this.name = name; }
-  async fetch(n) {
+  constructor(name: string) { this.name = name; }
+  async fetch(n: number) {
     await sleep(1);
     return `${this.name}:${n}`;
   }
@@ -34,7 +34,7 @@ async function fails() {
   throw Error("deliberate");
 }
 
-const asyncArrow = async (x) => {
+const asyncArrow = async (x: number) => {
   await sleep(1);
   return x * 2;
 };

@@ -29,28 +29,28 @@ import { Result } from "std:result";
  * `type` is "boolean", "string", "number" or "list"; a list may be given more
  * than once and collects. A boolean needs no value and defaults to false.
  */
-function flagFallback(flag: any): any {
+function flagFallback(flag: object) {
   if (flag?.fallback !== undefined) return flag.fallback;
   if (flag.type === "boolean") return false;
   if (flag.type === "list") return [];
   return undefined;
 }
 
-function flagNamed(spec: any, name: string): any {
+function flagNamed(spec: object, name: string) {
   for (const flag of spec?.flags ?? []) {
     if (flag.name === name) return flag;
   }
   return undefined;
 }
 
-function flagShort(spec: any, letter: string): any {
+function flagShort(spec: object, letter: string) {
   for (const flag of spec?.flags ?? []) {
     if (flag?.short === letter) return flag;
   }
   return undefined;
 }
 
-function commandNamed(spec: any, name: string): any {
+function commandNamed(spec: object, name: string) {
   for (const command of spec?.commands ?? []) {
     if (command.name === name) return command;
   }
@@ -66,7 +66,7 @@ function commandNamed(spec: any, name: string): any {
  * and exiting is the program's decision, and a parser that called `exit` could
  * not be tested.
  */
-export function parse(args: any, spec: any): any {
+export function parse(args: array, spec: object) {
   const state = {
     options: {},
     positional: [],
@@ -97,7 +97,7 @@ export function parse(args: any, spec: any): any {
   return Result.ok(state);
 }
 
-function checkRequired(spec: any, options: any): any {
+function checkRequired(spec: object, options: object) {
   for (const flag of spec?.flags ?? []) {
     if (flag?.required !== true) continue;
     const value = options[flag.name];
@@ -112,7 +112,7 @@ function checkRequired(spec: any, options: any): any {
  * are parsed from its own description, because `serve --port` and
  * `build --port` need not mean the same thing.
  */
-function walk(args: any, spec: any, state: any, inCommand: boolean): any {
+function walk(args: array, spec: object, state: object, inCommand: boolean) {
   const options = inCommand ? state.commandOptions : state.options;
   let at = 0;
 
@@ -176,7 +176,7 @@ function walk(args: any, spec: any, state: any, inCommand: boolean): any {
   return null;
 }
 
-function addPositional(state: any, inCommand: boolean, value: string) {
+function addPositional(state: object, inCommand: boolean, value: string) {
   if (inCommand) {
     state.commandPositional.push(value);
   } else {
@@ -186,7 +186,7 @@ function addPositional(state: any, inCommand: boolean, value: string) {
 
 /* `--name`, `--name value` or `--name=value`. Answers the next index, or an
  * error message. */
-function takeLong(args: any, at: number, spec: any, options: any): any {
+function takeLong(args: array, at: number, spec: object, options: object) {
   const argument = args[at];
   const equals = argument.indexOf("=");
   const name = equals < 0 ? argument.slice(2) : argument.slice(2, equals);
@@ -221,7 +221,7 @@ function takeLong(args: any, at: number, spec: any, options: any): any {
 }
 
 /* `-o`, `-o value`, `-ovalue`, and `-abc` for three booleans at once. */
-function takeShort(args: any, at: number, spec: any, options: any): any {
+function takeShort(args: array, at: number, spec: object, options: object) {
   const letters = args[at].slice(1);
 
   for (let i = 0; i < letters.length; i++) {
@@ -249,7 +249,7 @@ function takeShort(args: any, at: number, spec: any, options: any): any {
 }
 
 /* Answers an error message, or null when it stored. */
-function storeValue(flag: any, options: any, text: string): any {
+function storeValue(flag: object, options: object, text: string) {
   if (flag.type === "number") {
     const value = Number(text);
     if (value !== value) {
@@ -285,11 +285,11 @@ function storeValue(flag: any, options: any, text: string): any {
 
 /* Generated from the same description the parser uses, so the two cannot
  * drift. That is the whole reason the description is data. */
-export function help(spec: any, forCommand: any = null): string {
-  const target = forCommand === null ? spec : commandNamed(spec, forCommand);
-  if (target === undefined) return "unknown command '" + String(forCommand) + "'";
+export function help(spec: object, forCommand: string = ""): string {
+  const target = forCommand === "" ? spec : commandNamed(spec, forCommand);
+  if (target === undefined) return "unknown command '" + forCommand + "'";
 
-  const lines: any = [];
+  const lines = [];
   const name = spec?.name ?? "program";
 
   if (target?.description !== undefined) {
@@ -297,13 +297,13 @@ export function help(spec: any, forCommand: any = null): string {
     lines.push("");
   }
 
-  const usage = forCommand === null
+  const usage = forCommand === ""
                     ? name + usageTail(spec)
                     : name + " " + forCommand + usageTail(target);
   lines.push("usage: " + usage);
 
   const commands = spec?.commands ?? [];
-  if (forCommand === null && commands.length > 0) {
+  if (forCommand === "" && commands.length > 0) {
     lines.push("");
     lines.push("commands:");
     let widest = 0;
@@ -319,7 +319,7 @@ export function help(spec: any, forCommand: any = null): string {
   const flags = target?.flags ?? [];
   lines.push("");
   lines.push("options:");
-  const rendered: any = [];
+  const rendered = [];
   let widest = 0;
   for (const flag of flags) {
     const left = flagUsage(flag);
@@ -352,7 +352,7 @@ export function help(spec: any, forCommand: any = null): string {
   return lines.join("\n");
 }
 
-function usageTail(spec: any): string {
+function usageTail(spec: object): string {
   let tail = "";
   if ((spec?.commands ?? []).length > 0) tail = tail + " <command>";
   if ((spec?.flags ?? []).length > 0) tail = tail + " [options]";
@@ -360,7 +360,7 @@ function usageTail(spec: any): string {
   return tail;
 }
 
-function flagUsage(flag: any): string {
+function flagUsage(flag: object): string {
   const short = flag?.short === undefined ? "    " : "-" + flag.short + ", ";
   const value = flag.type === "boolean" ? ""
                 : (flag.type === "number" ? " <n>"
@@ -368,6 +368,6 @@ function flagUsage(flag: any): string {
   return "  " + short + "--" + flag.name + value;
 }
 
-export function version(spec: any): string {
+export function version(spec: object): string {
   return String(spec?.name ?? "program") + " " + String(spec?.version ?? "0");
 }

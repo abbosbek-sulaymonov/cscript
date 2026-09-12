@@ -21,13 +21,13 @@ import { Result } from "std:result";
  * because tab-separated files are the same format with a different character,
  * and having two modules for that would be silly.
  */
-export function parse(text: string, options: any = null): any {
+export function parse(text: string, options: object = null) {
   const delimiter = options?.delimiter ?? ",";
   const trim = options?.trim ?? false;
   const skipEmpty = options?.skipEmpty ?? true;
 
-  const rows: any = [];
-  let row: any = [];
+  const rows = [];
+  let row = [];
   let field = "";
   let quoted = false;
   let fieldWasQuoted = false;
@@ -94,7 +94,7 @@ export function parse(text: string, options: any = null): any {
 
   if (!skipEmpty) return Result.ok(rows);
 
-  const kept: any = [];
+  const kept = [];
   for (const candidate of rows) {
     if (candidate.length === 1 && candidate[0] === "") continue;
     kept.push(candidate);
@@ -114,19 +114,19 @@ function finish(field: string, trim: boolean, wasQuoted: boolean): string {
  * a short row means the file is not what the caller thinks it is, and filling
  * the gap with an empty string hides that.
  */
-export function parseObjects(text: string, options: any = null): any {
-  return parse(text, options).andThen((rows: any) => {
+export function parseObjects(text: string, options: object = null) {
+  return parse(text, options).andThen((rows: array) => {
     if (rows.length === 0) return Result.ok([]);
 
     const header = rows[0];
-    const out: any = [];
+    const out = [];
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (row.length !== header.length) {
         return Result.err("row " + String(i + 1) + " has " + String(row.length) +
                           " fields, and the header has " + String(header.length));
       }
-      const record: any = {};
+      const record = {};
       for (let column = 0; column < header.length; column++) {
         record[header[column]] = row[column];
       }
@@ -145,13 +145,13 @@ export function parseObjects(text: string, options: any = null): any {
  * every field is quoted is harder for a person to read and no easier for a
  * program.
  */
-export function format(rows: any, options: any = null): string {
+export function format(rows: array, options: object = null): string {
   const delimiter = options?.delimiter ?? ",";
   const always = options?.quoteAll ?? false;
 
-  const lines: any = [];
+  const lines = [];
   for (const row of rows) {
-    const fields: any = [];
+    const fields = [];
     for (const value of row) fields.push(quote(value, delimiter, always));
     lines.push(fields.join(delimiter));
   }
@@ -160,15 +160,15 @@ export function format(rows: any, options: any = null): string {
 
 /* Objects, with the header taken from `columns` or from the first object's
  * keys. Given explicitly when the order matters, which it usually does. */
-export function formatObjects(records: any, options: any = null): string {
-  const all: any = [];
+export function formatObjects(records: array, options: object = null): string {
+  const all = [];
   for (const record of records) all.push(record);
   if (all.length === 0) return "";
 
   const columns = options?.columns ?? Object.keys(all[0]);
-  const rows: any = [columns];
+  const rows = [columns];
   for (const record of all) {
-    const row: any = [];
+    const row = [];
     for (const column of columns) {
       const value = record?.[column];
       row.push(value === undefined ? "" : value);
@@ -178,7 +178,7 @@ export function formatObjects(records: any, options: any = null): string {
   return format(rows, options);
 }
 
-function quote(value: any, delimiter: string, always: boolean): string {
+function quote(value: value, delimiter: string, always: boolean): string {
   const text = value === null || value === undefined ? "" : String(value);
   const needs = always || text.includes(delimiter) || text.includes("\"") ||
                 text.includes("\n") || text.includes("\r");

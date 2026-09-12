@@ -15,7 +15,7 @@ user.check(parsed).unwrapOr(defaults);
 ```
 
 CScript's type checker proves what it can see. It cannot see a parsed JSON
-body, a row from a CSV file or an environment variable — those arrive as `any`,
+body, a row from a CSV file or an environment variable — those arrive as a `value`,
 and the annotation on the function receiving one is a comment. This is the
 check that makes it true at the boundary, once, so everything inside can rely
 on it.

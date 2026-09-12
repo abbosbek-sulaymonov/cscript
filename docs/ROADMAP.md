@@ -8,7 +8,7 @@ already measured says it is the thing that pays.
 | --- | --- |
 | **1 ✅** | Lexer, parser, compiler, VM, GC, REPL, expressions |
 | **2 ✅** | `let`/`const`, scopes, control flow, calls, `console.log` |
-| **3 ✅** | Gradual typing: annotations, inference, checking |
+| **3 ✅** | Typing: annotations, inference, checking |
 | **4 ✅** | User functions, `return`, closures, typed signatures |
 | **5 ✅** | Object literals, arrays, indexing, `.length` |
 | **6 ✅** | `switch`, `break`/`continue`, template literals, ternary |
@@ -72,6 +72,8 @@ already measured says it is the thing that pays.
 | **64 ✅** | Replaying a jump, so a hand-over with a `break` in it keeps the loop |
 | **65 ✅** | The command line: `--check`, stage dumps, `process.argv`, and a REPL that prints |
 | **66 ✅** | Every source file under 600 lines — 24 of them were over, one by 4515 |
+| **67 ✅** | The standard library: 39 modules under `std:`, each a directory with its specification |
+| **68 ✅** | No `any`: one-time autocasting, `value` with `typeof` narrowing, and parameters that must say |
 | next | A property store that *adds* one, which is what a constructor does |
 | next | Allocating an object in compiled code — attempted, backed out; see below |
 | next | Calling a CScript function from compiled code, for the callees inlining will not take: it needs frames and safepoints |

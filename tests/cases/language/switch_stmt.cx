@@ -1,4 +1,4 @@
-function name(n) {
+function name(n: number) {
   switch (n) {
     case 1:
       return "one";

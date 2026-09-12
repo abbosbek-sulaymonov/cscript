@@ -1,6 +1,6 @@
 // A closure keeps its variable alive after the scope that declared it is gone.
-function makeMultiplier(factor) {
-  return function (n) {
+function makeMultiplier(factor: number) {
+  return function (n: number) {
     return n * factor;
   };
 }
@@ -36,7 +36,7 @@ function shared() {
 console.log(shared());
 
 // Capture reaches through more than one level of nesting.
-function outer(x) {
+function outer(x: string) {
   return function () {
     return function () {
       return x;

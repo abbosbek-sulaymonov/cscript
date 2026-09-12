@@ -31,24 +31,29 @@ export class Range {
   }
 
   /* `Range.inclusive(1, 3)` holds 1, 2 and 3. */
-  static inclusive(start: number, last: number): any {
+  static inclusive(start: number, last: number) {
     return new Range(start, last + 1);
   }
 
-  static ofLength(start: number, length: number): any {
+  static ofLength(start: number, length: number) {
     return new Range(start, start + length);
   }
 
   /* The smallest range holding everything given, which is the shape a
    * measurement takes: the extent of what was seen. */
-  static covering(values: any): any {
-    let low: any = undefined;
-    let high: any = undefined;
+  static covering(values: array) {
+    /* Infinity rather than undefined: the bound is a number from the first
+     * line, so the comparisons below need no guard and the checker needs no
+     * explanation. */
+    let low = Infinity;
+    let high = -Infinity;
+    let seen = false;
     for (const value of values) {
-      if (low === undefined || value < low) low = value;
-      if (high === undefined || value > high) high = value;
+      seen = true;
+      if (value < low) low = value;
+      if (value > high) high = value;
     }
-    if (low === undefined) throw new Error("Range.covering of nothing");
+    if (!seen) throw new Error("Range.covering of nothing");
     return Range.inclusive(low, high);
   }
 
@@ -83,12 +88,12 @@ export class Range {
 
   /* Every value of `other` is in this one. An empty range is inside anything,
    * which is the convention that makes `intersect` compose. */
-  containsRange(other: any): boolean {
+  containsRange(other: object): boolean {
     if (other.isEmpty) return true;
     return other.start >= this.#start && other.end <= this.#end;
   }
 
-  overlaps(other: any): boolean {
+  overlaps(other: object): boolean {
     if (this.isEmpty || other.isEmpty) return false;
     return this.#start < other.end && other.start < this.#end;
   }
@@ -106,7 +111,7 @@ export class Range {
   /* --- combining ------------------------------------------------------ */
 
   /* The overlap, which is empty when there is none. */
-  intersect(other: any): any {
+  intersect(other: object) {
     const start = this.#start > other.start ? this.#start : other.start;
     const end = this.#end < other.end ? this.#end : other.end;
     return new Range(start, end < start ? start : end);
@@ -115,7 +120,7 @@ export class Range {
   /* The smallest range holding both — which also holds whatever sits between
    * them when they do not touch. `overlaps` is how to find out whether that
    * happened. */
-  union(other: any): any {
+  union(other: object) {
     if (this.isEmpty) return other;
     if (other.isEmpty) return this;
     const start = this.#start < other.start ? this.#start : other.start;
@@ -124,13 +129,13 @@ export class Range {
   }
 
   /* Moved by `by`, keeping its length. */
-  shifted(by: number): any {
+  shifted(by: number) {
     return new Range(this.#start + by, this.#end + by);
   }
 
   /* Wider at both ends by `by`, which is what a margin around a measurement
    * is. A negative `by` narrows it, and cannot take it past empty. */
-  grown(by: number): any {
+  grown(by: number) {
     const start = this.#start - by;
     const end = this.#end + by;
     return new Range(start, end < start ? start : end);
@@ -145,13 +150,13 @@ export class Range {
     for (let at = this.#start; at < this.#end; at = at + 1) yield at;
   }
 
-  toArray(): any {
-    const out: any = [];
+  toArray() {
+    const out = [];
     for (const value of this) out.push(value);
     return out;
   }
 
-  equals(other: any): boolean {
+  equals(other: object): boolean {
     if (this.isEmpty && other.isEmpty) return true;
     return this.#start === other.start && this.#end === other.end;
   }
@@ -163,10 +168,10 @@ export class Range {
 
 /* `range(1, 4)` reads better than `new Range(1, 4)` at a call site, and is the
  * spelling the rest of the library uses. */
-export function range(start: number, end: number): any {
+export function range(start: number, end: number) {
   return new Range(start, end);
 }
 
-export function inclusive(start: number, last: number): any {
+export function inclusive(start: number, last: number) {
   return Range.inclusive(start, last);
 }

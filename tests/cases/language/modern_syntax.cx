@@ -6,18 +6,18 @@ power **= 2;
 console.log(power);
 
 // Arrow functions.
-const double = (x) => x * 2;
-const add = (a, b) => a + b;
+const double = (x: number) => x * 2;
+const add = (a: number, b: number) => a + b;
 const nothing = () => "nothing";
-const block = (a, b) => {
+const block = (a: number, b: number) => {
   const sum = a + b;
   return sum * 2;
 };
 console.log(double(21), add(1, 2), nothing(), block(1, 2));
 
 // Single parameter needs no parentheses; arrows nest and close over.
-const bare = x => x + 1;
-const makeAdder = n => m => n + m;
+const bare = (x: number) => x + 1;
+const makeAdder = (n: number) => (m: number) => n + m;
 console.log(bare(1), makeAdder(10)(5));
 
 // With annotations.
@@ -25,7 +25,7 @@ const typed = (a: number, b: number): number => a * b;
 console.log(typed(6, 7));
 
 // Chained over the array methods.
-console.log([1, 2, 3, 4].map(x => x * x).filter(x => x > 4).reduce((a, b) => a + b, 0));
+console.log([1, 2, 3, 4].map((x: number) => x * x).filter((x: number) => x > 4).reduce((a: number, b: number) => a + b, 0));
 
 // A parenthesised expression is still a parenthesised expression.
 console.log((1 + 2) * 3);
@@ -37,7 +37,7 @@ for (const value of [10, 20]) {
 for (const character of "abc") {
   console.log(character);
 }
-for (const item of [1, 2, 3].map(x => x * 3)) {
+for (const item of [1, 2, 3].map((x: number) => x * 3)) {
   console.log(item);
 }
 

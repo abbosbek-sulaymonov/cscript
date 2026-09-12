@@ -20,9 +20,9 @@ console.log(10n / 3n, -10n / 3n, 10n % 3n, -10n % 3n);
 // Equality is by value, unlike every other object type.
 console.log(1n === 1n, 1n === 2n);
 // A BigInt never equals a number. Written as a pair of literals the checker
-// rejects it outright, so the cross-type comparison goes through a parameter
-// it cannot see into.
-function sameValue(a, b) {
+// rejects it outright, so the cross-type comparison goes through a `value`,
+// which is the one type `===` may ask about without narrowing first.
+function sameValue(a: bigint, b: value) {
   return a === b;
 }
 console.log(sameValue(1n, 1), sameValue(1n, 1n));
@@ -57,4 +57,4 @@ for (let i = 1n; i <= 20n; i = i + 1n) total = total * i;
 console.log(total);
 
 // Sorting needs a comparator, exactly as it does for numbers.
-console.log([3n, 1n, 2n].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)));
+console.log([3n, 1n, 2n].sort((a: bigint, b: bigint) => (a < b ? -1 : a > b ? 1 : 0)));

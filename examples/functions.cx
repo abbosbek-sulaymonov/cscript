@@ -5,11 +5,11 @@ function add(a: number, b: number): number {
   return a + b;
 }
 
-function applyTwice(f, value) {
+function applyTwice(f: Function, value: value) {
   return f(f(value));
 }
 
-function increment(n) {
+function increment(n: number) {
   return n + 1;
 }
 

@@ -61,7 +61,7 @@ writer.line("one").line("two").lines([3, 4]);
 equal(writer.text(), "one\ntwo\n3\n4\n");
 
 /* The streams take the same three methods, so a function can be handed either. */
-function report(stream: any) {
+function report(stream: object) {
   stream.write("a").write("b").line("!");
   stream.lines(["x", "y"]);
 }

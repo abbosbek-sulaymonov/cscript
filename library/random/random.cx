@@ -56,7 +56,7 @@ export class Random {
     return this.next() < chance;
   }
 
-  pick(items: any): any {
+  pick(items: array) {
     if (items.length === 0) throw new Error("pick from an empty list");
     return items[this.int(0, items.length - 1)];
   }
@@ -64,8 +64,8 @@ export class Random {
   /* Fisher–Yates, on a copy. Shuffling in place would be faster and would also
    * mean that shuffling a list of results reorders whatever else is holding
    * it, which is a bug the caller cannot see coming. */
-  shuffle(items: any): any {
-    const out: any = [];
+  shuffle(items: array) {
+    const out = [];
     for (const item of items) out.push(item);
     for (let i = out.length - 1; i > 0; i--) {
       const j = this.int(0, i);
@@ -77,8 +77,8 @@ export class Random {
   }
 
   /* `howMany` distinct elements, without replacement. */
-  sample(items: any, howMany: number): any {
-    const all: any = [];
+  sample(items: array, howMany: number) {
+    const all = [];
     for (const item of items) all.push(item);
     if (howMany > all.length) {
       throw new Error("sample of " + String(howMany) + " from " +
@@ -90,7 +90,7 @@ export class Random {
   /* One item, chosen with a probability proportional to its weight. Weights
    * need not add to 1 — they are normalised here, because requiring that of a
    * caller is requiring them to redo it every time the list changes. */
-  weighted(items: any, weights: any): any {
+  weighted(items: array, weights: array) {
     if (items.length !== weights.length) {
       throw new Error("weighted was given " + String(items.length) + " items and " +
                       String(weights.length) + " weights");
@@ -132,8 +132,8 @@ export class Random {
 /* A generator seeded from the clock, for when reproducibility is not the
  * point. Deliberately a Random rather than a wrapper over Math.random, so
  * that switching to a fixed seed changes one line. */
-export const random: any = new Random(Date.now() % MODULUS);
+export const random = new Random(Date.now() % MODULUS);
 
-export function seeded(seed: number): any {
+export function seeded(seed: number) {
   return new Random(seed);
 }

@@ -28,6 +28,10 @@ typedef struct {
   int requiredCount;
   bool hasRest; /* no upper bound on the arguments */
   TypeKind paramTypes[UINT8_MAX];
+  /* Which parameters have a default. Writing `undefined` for one of those is
+   * how a caller asks for the default, so such an argument is accepted
+   * whatever the parameter's type says. */
+  bool paramHasDefault[UINT8_MAX];
 } Signature;
 
 /* A variable the checker knows about. The scope stack mirrors the compiler's,
@@ -39,6 +43,12 @@ typedef struct {
   TypeKind type;
   int depth;
   const Signature *signature; /* NULL unless the variable is a function */
+
+  /* Declared with no annotation and nothing to learn from — `let x;` — so it
+   * is waiting for its first assignment to say what it is. That assignment
+   * fixes the type for good; the next one of a different type is an error.
+   * This is the whole of "one-time autocasting". */
+  bool awaiting;
 } Variable;
 
 #define MAX_FUNCTIONS 128
@@ -62,7 +72,7 @@ typedef struct {
 
 /* What a built-in method on a primitive answers.
  *
- * TYPE_ANY here means "known method, unknown result" — an array method whose
+ * TYPE_DYNAMIC here means "known method, unknown result" — an array method whose
  * element type the checker cannot see. */
 typedef struct {
   TypeKind receiver;
@@ -77,11 +87,36 @@ const MethodSignature *csTypeFindMethod(TypeKind receiver, const char *name,
 /* Requires a number, reporting against the operator that wanted one. Answers
  * TYPE_NUMBER either way, so one bad operand does not cascade. */
 TypeKind csTypeRequireNumber(Checker *checker, TypeKind type, int line,
-                             const char *what);
+                             const char *what, AstNode *subject);
+
+/* Reports, and answers true, when the type is a `value` that has not been
+ * narrowed — which is what makes `value` a type rather than an escape hatch. */
+bool csTypeRefuseUnnarrowed(Checker *checker, TypeKind type, int line,
+                            const char *what, AstNode *subject);
 
 void csTypeBeginScope(Checker *checker);
 void csTypeDeclareVariable(Checker *checker, const char *name, int length,
                            TypeKind type);
+
+/* The same, for a `let x;` that has nothing to take a type from yet. */
+void csTypeDeclareAwaiting(Checker *checker, const char *name, int length);
+
+/* Narrowing: `if (typeof x === "number")` proves something about `x` inside
+ * that branch and nothing outside it. Answers the variable whose type was
+ * changed, with its old type in `saved`, or NULL when the condition is not of
+ * that shape. */
+Variable *csTypeNarrow(Checker *checker, AstNode *condition, bool whenTrue,
+                       TypeKind *saved);
+
+/* Every narrowing a condition carries. See csTypeNarrow for the shape each
+ * one has to be in. */
+int csTypeNarrowAll(Checker *checker, AstNode *condition, bool whenTrue,
+                    Variable **narrowed, TypeKind *saved, int limit);
+
+/* Whether a branch always leaves — a throw, a return, a break, a continue, or
+ * a block ending in one. What makes `if (typeof x !== "number") return;` prove
+ * something about everything after it. */
+bool csTypeBranchAlwaysLeaves(const AstNode *node);
 
 /* Reports at a node's line, and counts it. */
 void csTypeError(Checker *checker, int line, const char *format, ...);

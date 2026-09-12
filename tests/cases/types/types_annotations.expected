@@ -1,2 +1,2 @@
-5 cscript true null now a string
-number string boolean
+5 cscript true null 2 fixed by this line
+number string boolean number

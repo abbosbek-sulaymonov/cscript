@@ -1,1 +1,1 @@
-error_function_argtype.cx:4: error: argument 1 is string but the parameter is number
+error_function_argtype.cx:4: error: argument 1 of 'double' is string but the parameter is number

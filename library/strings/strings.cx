@@ -18,8 +18,8 @@
  * A run of capitals is one word up to the last of them, because that last
  * capital starts the next: HTTPResponse is HTTP and Response, not H, T, T, P
  * and Response. */
-export function words(text: string): any {
-  const found: any = [];
+export function words(text: string) {
+  const found = [];
   let current = "";
 
   for (let i = 0; i < text.length; i++) {
@@ -53,7 +53,7 @@ export function words(text: string): any {
   return found;
 }
 
-export function lines(text: string): any {
+export function lines(text: string) {
   return text.split("\n");
 }
 
@@ -70,7 +70,7 @@ export function uncapitalize(text: string): string {
 }
 
 export function titleCase(text: string): string {
-  const out: any = [];
+  const out = [];
   for (const word of words(text)) out.push(capitalize(word.toLowerCase()));
   return out.join(" ");
 }
@@ -78,25 +78,25 @@ export function titleCase(text: string): string {
 export function camelCase(text: string): string {
   const parts = words(text);
   if (parts.length === 0) return "";
-  const out: any = [parts[0].toLowerCase()];
+  const out = [parts[0].toLowerCase()];
   for (let i = 1; i < parts.length; i++) out.push(capitalize(parts[i].toLowerCase()));
   return out.join("");
 }
 
 export function pascalCase(text: string): string {
-  const out: any = [];
+  const out = [];
   for (const word of words(text)) out.push(capitalize(word.toLowerCase()));
   return out.join("");
 }
 
 export function kebabCase(text: string): string {
-  const out: any = [];
+  const out = [];
   for (const word of words(text)) out.push(word.toLowerCase());
   return out.join("-");
 }
 
 export function snakeCase(text: string): string {
-  const out: any = [];
+  const out = [];
   for (const word of words(text)) out.push(word.toLowerCase());
   return out.join("_");
 }
@@ -127,8 +127,8 @@ export function padCenter(text: string, width: number, filler: string = " "): st
 /* Breaks on spaces, never inside a word — except a word longer than the width,
  * which has nowhere else to break and is left to overflow rather than split
  * into something that is no longer the word. */
-export function wrap(text: string, width: number): any {
-  const out: any = [];
+export function wrap(text: string, width: number) {
+  const out = [];
   for (const line of text.split("\n")) {
     let current = "";
     for (const word of line.split(" ")) {
@@ -163,14 +163,14 @@ export function dedent(text: string): string {
   }
   if (shared <= 0) return text;
 
-  const out: any = [];
+  const out = [];
   for (const line of all) out.push(line.length >= shared ? line.slice(shared) : line);
   return out.join("\n");
 }
 
 export function indent(text: string, by: number = 2, filler: string = " "): string {
   const prefix = filler.repeat(by);
-  const out: any = [];
+  const out = [];
   for (const line of text.split("\n")) out.push(line === "" ? line : prefix + line);
   return out.join("\n");
 }
@@ -226,7 +226,7 @@ export function stripSuffix(text: string, suffix: string): string {
  * template literal cannot serve, because it is compiled. A name with no value
  * is left alone rather than replaced with "undefined", so a mistake in the
  * pattern survives to be seen. */
-export function format(pattern: string, values: any): string {
+export function format(pattern: string, values: array): string {
   let out = "";
   let i = 0;
   while (i < pattern.length) {

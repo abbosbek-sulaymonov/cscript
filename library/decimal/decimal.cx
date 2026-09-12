@@ -39,7 +39,7 @@ export class Decimal {
    * already lost the exactness this type is for — it can only recover what the
    * double actually holds — while `Decimal.parse("0.1")` is exact by
    * construction. */
-  static of(value: any, scale: number = 2): any {
+  static of(value: value, scale: number = 2) {
     if (typeof value === "string") return Decimal.parse(value);
     if (typeof value !== "number" || value !== value) {
       throw new Error("Decimal.of needs a number or a string, got " + String(value));
@@ -51,7 +51,7 @@ export class Decimal {
   /* `"12.34"` is 1234 at scale 2; the scale comes from the text, so
    * `"1.500"` keeps its three places. Answers a Decimal or throws — a value
    * from outside should go through [`std:validate`](../validate) first. */
-  static parse(text: string): any {
+  static parse(text: string) {
     const trimmed = String(text).trim();
     const negative = trimmed.startsWith("-");
     const body = negative || trimmed.startsWith("+") ? trimmed.slice(1) : trimmed;
@@ -75,7 +75,7 @@ export class Decimal {
     return new Decimal(negative ? -units : units, fraction.length);
   }
 
-  static zero(scale: number = 2): any {
+  static zero(scale: number = 2) {
     return new Decimal(0, scale);
   }
 
@@ -91,19 +91,19 @@ export class Decimal {
 
   /* Both sides are brought to the wider scale first, so `1.5 + 0.25` is 1.75
    * rather than either operand's idea of the answer. */
-  add(other: any): any {
+  add(other: value) {
     const [left, right, scale] = align(this, other);
     return new Decimal(left + right, scale);
   }
 
-  subtract(other: any): any {
+  subtract(other: value) {
     const [left, right, scale] = align(this, other);
     return new Decimal(left - right, scale);
   }
 
   /* The scales add, exactly as they do on paper: 1.5 × 1.5 is 2.25. Rounding
    * back is a separate decision, which is why it is a separate call. */
-  multiply(other: any): any {
+  multiply(other: value) {
     const right = asDecimal(other, this.#scale);
     const product = this.#units * right.units;
     guard(product);
@@ -113,7 +113,7 @@ export class Decimal {
   /* Division has to be told how many places to keep, because most divisions
    * have no exact answer — and a default would be a guess that is wrong in
    * exactly the cases this type exists for. */
-  divide(other: any, scale: any = null, mode: string = "half-up"): any {
+  divide(other: value, scale: number = null, mode: string = "half-up") {
     const right = asDecimal(other, this.#scale);
     if (right.units === 0) throw new Error("division by zero");
 
@@ -127,17 +127,17 @@ export class Decimal {
     return new Decimal(roundUnits(quotient, 100, mode), places);
   }
 
-  negate(): any {
+  negate() {
     return new Decimal(-this.#units, this.#scale);
   }
 
-  abs(): any {
+  abs() {
     return this.#units < 0 ? this.negate() : this;
   }
 
   /* Percentages, which are the other half of what money arithmetic is:
    * `price.percent(20)` is a fifth of it, at the price's own scale. */
-  percent(amount: number, mode: string = "half-up"): any {
+  percent(amount: number, mode: string = "half-up") {
     return this.multiply(new Decimal(Math.round(amount * 100), 4))
                .round(this.#scale, mode);
   }
@@ -147,14 +147,14 @@ export class Decimal {
   /* `"half-up"` (the commercial default), `"half-even"` (banker's, which does
    * not drift upwards over many roundings), `"down"`, `"up"`, `"floor"`,
    * `"ceil"`. */
-  round(scale: number, mode: string = "half-up"): any {
+  round(scale: number, mode: string = "half-up") {
     if (scale >= this.#scale) return this.rescale(scale);
     const divisor = Math.pow(10, this.#scale - scale);
     return new Decimal(roundUnits(this.#units, divisor, mode), scale);
   }
 
   /* The same number at a different scale, exactly — so only upwards. */
-  rescale(scale: number): any {
+  rescale(scale: number) {
     if (scale < this.#scale) {
       throw new Error("rescale cannot lose digits: use round(" + String(scale) + ")");
     }
@@ -166,14 +166,14 @@ export class Decimal {
 
   /* --- comparing -------------------------------------------------------- */
 
-  compare(other: any): number {
+  compare(other: value): number {
     const [left, right] = align(this, other);
     if (left < right) return -1;
     if (left > right) return 1;
     return 0;
   }
 
-  equals(other: any): boolean {
+  equals(other: value): boolean {
     return this.compare(other) === 0;
   }
 
@@ -233,7 +233,7 @@ function isDigits(text: string): boolean {
  * add, and 2 genuinely has no fractional part. A fractional number converts at
  * the receiver's scale, since that is the only scale on offer — and a caller
  * who cares should pass a string, which carries its own. */
-function asDecimal(value: any, scale: number): any {
+function asDecimal(value: value, scale: number) {
   if (typeof value === "string") return Decimal.parse(value);
   if (typeof value === "number") {
     return value === Math.floor(value) ? new Decimal(value, 0)
@@ -243,7 +243,7 @@ function asDecimal(value: any, scale: number): any {
 }
 
 /* Both operands as units at the wider of the two scales. */
-function align(left: any, right: any): any {
+function align(left: object, right: value) {
   const other = asDecimal(right, left.scale);
   const scale = left.scale > other.scale ? left.scale : other.scale;
   const leftUnits = left.units * Math.pow(10, scale - left.scale);

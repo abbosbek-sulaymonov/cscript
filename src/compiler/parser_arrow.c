@@ -293,7 +293,7 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
         char generated[16];
         int generatedLength = snprintf(generated, sizeof generated, " arg%d", patternIndex++);
         csAstFunctionAddParam(parser->arena, function, generated, generatedLength,
-                              TYPE_ANY, false);
+                              TYPE_DYNAMIC, false);
         csAstParamPattern(function, pattern);
         continue;
       }

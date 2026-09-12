@@ -2,7 +2,7 @@
 // of the read, and unguarded for the same reason: the shape is checked once at
 // entry, and the property already exists in it, so the write cannot grow the
 // object or move it into dictionary mode.
-function bump(p, by) {
+function bump(p: object, by: number) {
   p.x = p.x + by;
   p.y = p.y * 2;
   return p.x + p.y;
@@ -19,7 +19,7 @@ console.log(last, point.x, point.y);
 
 // The written value is read back through the same assumption, so a property
 // both read and written keeps the stricter of the two requirements.
-function swap(p) {
+function swap(p: object) {
   const held = p.x;
   p.x = p.y;
   p.y = held;

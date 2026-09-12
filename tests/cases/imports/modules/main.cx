@@ -18,4 +18,4 @@ console.log(bump(), bump(), current());
 
 // A base class defined in one file, subclassed in another, used in a third.
 const all = [r, unitRect, new Shape("plain")];
-console.log(all.map((s) => s.describe()).join(" | "));
+console.log(all.map((s: object) => s.describe()).join(" | "));

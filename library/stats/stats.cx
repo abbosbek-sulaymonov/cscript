@@ -15,8 +15,8 @@
 /* Anything iterable, as an array of numbers, checked once so that the rest can
  * assume it. Reporting the offender rather than "not a number" is the
  * difference between finding the bad row and searching for it. */
-function numbers(values: any, forWhat: string): any {
-  const out: any = [];
+function numbers(values: array, forWhat: string) {
+  const out = [];
   for (const value of values) {
     if (typeof value !== "number") {
       throw new Error(forWhat + " needs numbers, and was given " + typeof value);
@@ -27,26 +27,26 @@ function numbers(values: any, forWhat: string): any {
   return out;
 }
 
-export function sum(values: any): number {
+export function sum(values: array): number {
   let total = 0;
   for (const value of values) total = total + value;
   return total;
 }
 
-export function product(values: any): number {
+export function product(values: array): number {
   let total = 1;
   for (const value of values) total = total * value;
   return total;
 }
 
-export function mean(values: any): number {
+export function mean(values: array): number {
   const all = numbers(values, "mean");
   return sum(all) / all.length;
 }
 
 /* The middle of the sorted values, or the mean of the middle two. Sorts a copy
  * — a function that summarises its input should not rearrange it. */
-export function median(values: any): number {
+export function median(values: array): number {
   const all = numbers(values, "median");
   const sorted = all.slice(0);
   sorted.sort((a: number, b: number) => a - b);
@@ -58,7 +58,7 @@ export function median(values: any): number {
 /* Every value tied for most frequent, in the order they first appear. An array
  * rather than one number, because a tie is the common case in small samples
  * and picking a winner would be inventing one. */
-export function mode(values: any): any {
+export function mode(values: array) {
   const all = numbers(values, "mode");
   const counts = new Map();
   let best = 0;
@@ -68,14 +68,14 @@ export function mode(values: any): any {
     if (next > best) best = next;
   }
 
-  const winners: any = [];
+  const winners = [];
   for (const [value, count] of counts) {
     if (count === best) winners.push(value);
   }
   return winners;
 }
 
-export function min(values: any): number {
+export function min(values: array): number {
   const all = numbers(values, "min");
   let lowest = all[0];
   for (const value of all) {
@@ -84,7 +84,7 @@ export function min(values: any): number {
   return lowest;
 }
 
-export function max(values: any): number {
+export function max(values: array): number {
   const all = numbers(values, "max");
   let highest = all[0];
   for (const value of all) {
@@ -93,7 +93,7 @@ export function max(values: any): number {
   return highest;
 }
 
-export function spread(values: any): number {
+export function spread(values: array): number {
   const all = numbers(values, "spread");
   return max(all) - min(all);
 }
@@ -104,7 +104,7 @@ export function spread(values: any): number {
  * is almost always what one has: dividing by n underestimates the variance of
  * the population it was drawn from. `populationVariance` is there for the case
  * where the values really are everything. */
-export function variance(values: any): number {
+export function variance(values: array): number {
   const all = numbers(values, "variance");
   if (all.length < 2) throw new Error("variance needs at least two values");
   const average = mean(all);
@@ -116,7 +116,7 @@ export function variance(values: any): number {
   return total / (all.length - 1);
 }
 
-export function populationVariance(values: any): number {
+export function populationVariance(values: array): number {
   const all = numbers(values, "populationVariance");
   const average = mean(all);
   let total = 0;
@@ -127,18 +127,18 @@ export function populationVariance(values: any): number {
   return total / all.length;
 }
 
-export function stdev(values: any): number {
+export function stdev(values: array): number {
   return Math.sqrt(variance(values));
 }
 
-export function populationStdev(values: any): number {
+export function populationStdev(values: array): number {
   return Math.sqrt(populationVariance(values));
 }
 
 /* The value below which `fraction` of the data lies, interpolating between the
  * two neighbours when the position falls between them — which is the method
  * every spreadsheet uses, so a number from here matches one from there. */
-export function quantile(values: any, fraction: number): number {
+export function quantile(values: array, fraction: number): number {
   if (fraction < 0 || fraction > 1) {
     throw new Error("a quantile is between 0 and 1, and was given " + String(fraction));
   }
@@ -154,7 +154,7 @@ export function quantile(values: any, fraction: number): number {
   return sorted[below] + (sorted[above] - sorted[below]) * (position - below);
 }
 
-export function percentile(values: any, percent: number): number {
+export function percentile(values: array, percent: number): number {
   return quantile(values, percent / 100);
 }
 
@@ -187,7 +187,7 @@ export function round(value: number, places: number = 0): number {
 /* --- several at once ------------------------------------------------------ */
 
 /* The usual summary in one walk, for printing or logging. */
-export function describe(values: any): any {
+export function describe(values: array) {
   const all = numbers(values, "describe");
   return {
     count: all.length,
@@ -200,8 +200,8 @@ export function describe(values: any): any {
 }
 
 /* A running total, one element per input: [1,2,3] gives [1,3,6]. */
-export function cumulativeSum(values: any): any {
-  const out: any = [];
+export function cumulativeSum(values: array) {
+  const out = [];
   let total = 0;
   for (const value of values) {
     total = total + value;
@@ -211,12 +211,12 @@ export function cumulativeSum(values: any): any {
 }
 
 /* How many standard deviations each value is from the mean. */
-export function zScores(values: any): any {
+export function zScores(values: array) {
   const all = numbers(values, "zScores");
   const average = mean(all);
   const deviation = stdev(all);
   if (deviation === 0) throw new Error("zScores of values that are all the same");
-  const out: any = [];
+  const out = [];
   for (const value of all) out.push((value - average) / deviation);
   return out;
 }

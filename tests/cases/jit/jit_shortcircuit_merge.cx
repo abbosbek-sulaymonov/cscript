@@ -27,7 +27,7 @@ function inRange(n: number): boolean {
   return n !== 1 && n !== 2 && n !== 3 && n !== 4;
 }
 
-const answers: any = [];
+const answers = [];
 for (const code of [45, 46, 47, 95, 126, 48, 65]) {
   answers.push(unreserved(code) ? 1 : 0);
 }

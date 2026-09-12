@@ -3,7 +3,7 @@ class Shape {
   area() { return 0; }
 }
 class Circle extends Shape {
-  constructor(r) { super(); this.r = r; }
+  constructor(r: value) { super(); this.r = r; }
   static kind() { return `circle/${super.kind()}`; }
   area() { return Math.round(Math.PI * this.r ** 2); }
 }
@@ -23,7 +23,7 @@ const parts = [1, 2];
 console.log([...parts, 3, ...["x"]].join(","), Math.max(...parts, 10));
 
 // Strings and numbers at the edges.
-console.log([10, 9, 1].sort().join(","), [10, 9, 1].sort((x, y) => x - y).join(","));
+console.log([10, 9, 1].sort().join(","), [10, 9, 1].sort((x: number, y: number) => x - y).join(","));
 console.log(`${1 + 1}${"x".repeat(3)}`, "a,b".split(",").length);
 console.log(Number("12abc"), parseInt("12abc"), Number(""), [] + "");
 

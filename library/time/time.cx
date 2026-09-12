@@ -67,7 +67,7 @@ export function toDays(duration: number): number {
  * `{ days, hours, minutes, seconds, milliseconds }`. Negative durations keep
  * their sign on the whole thing rather than on each part, which is why
  * `negative` is there beside them. */
-export function parts(duration: number): any {
+export function parts(duration: number) {
   const negative = duration < 0;
   let left = Math.floor(Math.abs(duration));
   const wholeDays = Math.floor(left / DAY);
@@ -95,7 +95,7 @@ export function parts(duration: number): any {
  * a log wants, not "1h 2m 3s 456ms". Ask for more with `most`. */
 export function formatDuration(duration: number, most: number = 2): string {
   const broken = parts(duration);
-  const named: any = [
+  const named = [
     [broken.days, "d"],
     [broken.hours, "h"],
     [broken.minutes, "m"],
@@ -103,7 +103,7 @@ export function formatDuration(duration: number, most: number = 2): string {
     [broken.milliseconds, "ms"],
   ];
 
-  const out: any = [];
+  const out = [];
   for (const [amount, unit] of named) {
     if (amount === 0 && out.length === 0) continue;
     if (out.length >= most) break;
@@ -119,7 +119,7 @@ export function formatDuration(duration: number, most: number = 2): string {
  * Answers NaN rather than throwing for text it cannot read, so a caller can
  * decide whether that is a mistake or a default. */
 export function parseDuration(text: string): number {
-  const units: any = new Map([["ms", MILLISECOND], ["s", SECOND], ["m", MINUTE],
+  const units = new Map([["ms", MILLISECOND], ["s", SECOND], ["m", MINUTE],
                               ["h", HOUR], ["d", DAY], ["w", WEEK]]);
   let total = 0;
   let seen = false;
@@ -211,15 +211,15 @@ export class Stopwatch {
   /* Undefined rather than 0 for "not started": 0 is a real instant — the first
    * of January 1970 — so a stopwatch that had never been started would
    * otherwise report fifty-odd years of elapsed time. */
-  #startedAt: any = undefined;
-  #lappedAt: any = undefined;
-  #stoppedAt: any = undefined;
+  #startedAt: value = undefined;
+  #lappedAt: value = undefined;
+  #stoppedAt: value = undefined;
 
   constructor(startNow: boolean = true) {
     if (startNow) this.start();
   }
 
-  start(): any {
+  start() {
     this.#startedAt = Date.now();
     this.#lappedAt = this.#startedAt;
     this.#stoppedAt = undefined;
@@ -260,7 +260,7 @@ export class Stopwatch {
 
 /* Runs `body` and answers `{ value, elapsed }`. The one thing a stopwatch is
  * used for, in one call. */
-export function measure(body: any): any {
+export function measure(body: Function) {
   const watch = new Stopwatch();
   const value = body();
   return { value: value, elapsed: watch.stop() };

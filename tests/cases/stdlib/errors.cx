@@ -33,8 +33,8 @@ equal(kindOf(renamed), "BadRequest");
 ok(isKind(renamed, "NotFound"), "and the original is still underneath");
 
 /* A cycle is stopped rather than followed. */
-const first: any = make("A", "first");
-const second: any = make("B", "second");
+const first = make("A", "first");
+const second = make("B", "second");
 first.cause = second;
 second.cause = first;
 equal(chain(first).length, 2);
@@ -53,7 +53,7 @@ const handled = catching(() => { throw NotFound("missing"); }, {
 equal(handled, "used the default");
 
 const passedDetails = catching(() => { throw NotFound("missing", { id: 1 }); }, {
-  NotFound: (e: any) => detailsOf(e).id,
+  NotFound: (e: value) => detailsOf(e).id,
 });
 equal(passedDetails, 1);
 

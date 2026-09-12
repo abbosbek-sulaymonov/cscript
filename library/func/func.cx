@@ -8,11 +8,11 @@
  * for.
  */
 
-export function identity(value: any): any {
+export function identity(value: value) {
   return value;
 }
 
-export function constant(value: any): any {
+export function constant(value: value) {
   return () => value;
 }
 
@@ -23,53 +23,58 @@ export function noop() {
 /* Left to right: `pipe(f, g)(x)` is `g(f(x))`, which is the order the steps
  * are written in. `compose` is the same thing the other way round, for the
  * readers who learned it from mathematics. */
-export function pipe(...steps: any): any {
-  return (value: any) => {
+export function pipe(...steps: Function) {
+  return (value: value) => {
     let current = value;
     for (const step of steps) current = step(current);
     return current;
   };
 }
 
-export function compose(...steps: any): any {
-  return (value: any) => {
+export function compose(...steps: Function) {
+  /* The steps are walked backwards, so they are collected first: a rest
+   * parameter's annotation describes one argument, and indexing the group it
+   * arrives in is a different question from calling one of them. */
+  return (value: value) => {
+    const ordered = [];
+    for (const step of steps) ordered.push(step);
     let current = value;
-    for (let i = steps.length - 1; i >= 0; i--) current = steps[i](current);
+    for (let i = ordered.length - 1; i >= 0; i--) current = ordered[i](current);
     return current;
   };
 }
 
 /* Fixes the leading arguments and asks for the rest later. */
-export function partial(fn: any, ...bound: any): any {
-  return (...rest: any) => fn(...bound, ...rest);
+export function partial(fn: Function, ...bound: value) {
+  return (...rest: value) => fn(...bound, ...rest);
 }
 
 /* Two- and three-argument currying, spelled out rather than general: a general
  * `curry` has to guess when it has enough arguments, and guessing wrong is a
  * function that silently returns another function instead of an answer. */
-export function curry2(fn: any): any {
-  return (first: any) => (second: any) => fn(first, second);
+export function curry2(fn: Function) {
+  return (first: value) => (second: value) => fn(first, second);
 }
 
-export function curry3(fn: any): any {
-  return (first: any) => (second: any) => (third: any) => fn(first, second, third);
+export function curry3(fn: Function) {
+  return (first: value) => (second: value) => (third: value) => fn(first, second, third);
 }
 
-export function flip(fn: any): any {
-  return (first: any, second: any) => fn(second, first);
+export function flip(fn: Function) {
+  return (first: value, second: value) => fn(second, first);
 }
 
-export function negate(test: any): any {
-  return (...args: any) => !test(...args);
+export function negate(test: Function) {
+  return (...args: value) => !test(...args);
 }
 
 /* Runs the body once and answers that same value ever after — including when
  * the first call returned undefined, which is why a flag is kept rather than
  * the result being tested. */
-export function once(fn: any): any {
+export function once(fn: Function) {
   let called = false;
-  let result: any = undefined;
-  return (...args: any) => {
+  let result = undefined;
+  return (...args: value) => {
     if (called) return result;
     called = true;
     result = fn(...args);
@@ -86,9 +91,9 @@ export function once(fn: any): any {
  * Only worth it for a function that is expensive and pure. A memoized function
  * that reads anything outside its arguments answers the first reading for
  * ever. */
-export function memoize(fn: any, keyOf: any = null): any {
+export function memoize(fn: Function, keyOf: Function = null) {
   const answers = new Map();
-  return (...args: any) => {
+  return (...args: value) => {
     const key = keyOf === null ? JSON.stringify(args) : keyOf(...args);
     if (answers.has(key)) return answers.get(key);
     const result = fn(...args);
@@ -99,8 +104,8 @@ export function memoize(fn: any, keyOf: any = null): any {
 
 /* Runs `fn` for its effect and answers the value unchanged, for putting a
  * `console.log` in the middle of a pipe without rewriting the pipe. */
-export function tap(fn: any): any {
-  return (value: any) => {
+export function tap(fn: Function) {
+  return (value: value) => {
     fn(value);
     return value;
   };
@@ -108,8 +113,8 @@ export function tap(fn: any): any {
 
 /* `times(3, i => i * 2)` is [0, 2, 4]. The callback is optional, so
  * `times(3)` is [0, 1, 2]. */
-export function times(count: number, fn: any = null): any {
-  const out: any = [];
+export function times(count: number, fn: Function = null) {
+  const out = [];
   for (let i = 0; i < count; i++) out.push(fn === null ? i : fn(i));
   return out;
 }

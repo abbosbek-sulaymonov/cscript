@@ -6,7 +6,7 @@ The array operations the built-ins do not have.
 import { splice, sortBy, binarySearch, dedupe } from "std:array";
 
 const without = splice(items, 2, 1);        // CScript arrays have no splice
-const ordered = sortBy(people, (p: any) => p.name);
+const ordered = sortBy(people, (p: object) => p.name);
 ```
 
 CScript's arrays answer `push`, `pop`, `shift`, `unshift`, `slice`, `concat`,

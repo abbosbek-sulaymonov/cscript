@@ -28,7 +28,7 @@
  *
  * "object" is a plain object and "instance" is one with a class, because that
  * is the distinction a structural walk needs. */
-export function kindOf(value: any): string {
+export function kindOf(value: value): string {
   if (typeof Object.kindOf === "function") return Object.kindOf(value);
   return nodeKind(value);
 }
@@ -36,7 +36,7 @@ export function kindOf(value: any): string {
 /* Node's answer to the same question. `Object.prototype.toString.call(x)` is
  * "[object Map]" and the like — the tag CScript does not carry. Unreachable
  * under CScript, where the built-in above answers first. */
-function nodeKind(value: any): string {
+function nodeKind(value: value): string {
   if (value === null) return "null";
   if (value === undefined) return "undefined";
 
@@ -68,55 +68,55 @@ function nodeKind(value: any): string {
  * True only for a plain object — not an array, not a Map, not an instance.
  * Every structural function in the library asks this before walking, because
  * asking wrongly is a crash rather than a wrong answer. */
-export function isPlainObject(value: any): boolean {
+export function isPlainObject(value: value): boolean {
   return kindOf(value) === "object";
 }
 
-export function isArray(value: any): boolean {
+export function isArray(value: value): boolean {
   return kindOf(value) === "array";
 }
 
-export function isMap(value: any): boolean {
+export function isMap(value: value): boolean {
   return kindOf(value) === "map";
 }
 
-export function isSet(value: any): boolean {
+export function isSet(value: value): boolean {
   return kindOf(value) === "set";
 }
 
-export function isWeak(value: any): boolean {
+export function isWeak(value: value): boolean {
   const kind = kindOf(value);
   return kind === "weakmap" || kind === "weakset";
 }
 
-export function isDate(value: any): boolean {
+export function isDate(value: value): boolean {
   return kindOf(value) === "date";
 }
 
-export function isRegex(value: any): boolean {
+export function isRegex(value: value): boolean {
   return kindOf(value) === "regex";
 }
 
-export function isPromise(value: any): boolean {
+export function isPromise(value: value): boolean {
   return kindOf(value) === "promise";
 }
 
-export function isGenerator(value: any): boolean {
+export function isGenerator(value: value): boolean {
   return kindOf(value) === "generator";
 }
 
-export function isInstance(value: any): boolean {
+export function isInstance(value: value): boolean {
   return kindOf(value) === "instance";
 }
 
-export function isFunction(value: any): boolean {
+export function isFunction(value: value): boolean {
   const kind = kindOf(value);
   return kind === "function" || kind === "class";
 }
 
 /* A number, string, boolean, bigint, symbol, null or undefined — anything with
  * no interior to walk. */
-export function isPrimitive(value: any): boolean {
+export function isPrimitive(value: value): boolean {
   const kind = kindOf(value);
   return kind === "number" || kind === "string" || kind === "boolean" ||
          kind === "bigint" || kind === "symbol" || kind === "null" ||
@@ -124,14 +124,14 @@ export function isPrimitive(value: any): boolean {
 }
 
 /* Something a structural walk can take apart: a plain object or an array. */
-export function isWalkable(value: any): boolean {
+export function isWalkable(value: value): boolean {
   const kind = kindOf(value);
   return kind === "object" || kind === "array";
 }
 
 /* Something with a `size` and an iterator: a Map or a Set, but not a weak one,
  * which cannot be iterated at all. */
-export function isCollection(value: any): boolean {
+export function isCollection(value: value): boolean {
   const kind = kindOf(value);
   return kind === "map" || kind === "set";
 }

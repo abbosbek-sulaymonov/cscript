@@ -16,7 +16,7 @@ console.log([1, "two", true, null]);
 console.log([[1, 2], [3, 4]]);
 
 // Arrays are values.
-function sum(list) {
+function sum(list: array) {
   let total = 0;
   for (let i = 0; i < list.length; i++) {
     total += list[i];

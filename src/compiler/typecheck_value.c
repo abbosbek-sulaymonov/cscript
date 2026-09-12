@@ -1,14 +1,17 @@
 /* typecheck_value.c — the type of an expression.
  *
  * Every one of these answers what the expression evaluates to, and reports
- * where the answer cannot be what the program needs. `any` is the escape hatch
- * and is assignable in both directions, which is the one place the checker
- * deliberately stops being sound — that is what makes the system gradual
- * rather than static.
+ * where the answer cannot be what the program needs. Two answers are not
+ * ordinary types: `value`, which the program may write and must narrow before
+ * using, and the dynamic type, which it may not write at all and which stands
+ * for what the checker could not see — an array's elements, an object's
+ * properties, what an import holds. Only the second is assignable in both
+ * directions, and it is the one place the checking stops being static; the
+ * runtime takes over there, at the boundary vm_call.inc guards.
  *
- * one of the two groups checkNode asks. Answers false for a node
- * belonging to the other, so a node neither claims keeps the `any` the checker
- * has always fallen back to. See typecheck.c for the walk and
+ * This file is one of the two groups checkNode asks. It answers false for a
+ * node belonging to the other, so a node neither claims keeps the dynamic type
+ * the checker falls back to. See typecheck.c for the walk and
  * typecheck_internal.h for the state they share.
  */
 #include <stdarg.h>
@@ -20,7 +23,7 @@
 #include "compiler/typecheck_internal.h"
 
 bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
-  TypeKind result = TYPE_ANY;
+  TypeKind result = TYPE_DYNAMIC;
 
   switch (node->type) {
     case AST_NUMBER_LITERAL:    result = TYPE_NUMBER; break;
@@ -35,7 +38,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
                                         node->as.identifier.length);
       /* An unknown name is a runtime error the VM reports with better context,
        * so the checker stays quiet and treats it as dynamic. */
-      result = variable != NULL ? variable->type : TYPE_ANY;
+      result = variable != NULL ? variable->type : TYPE_DYNAMIC;
       break;
     }
 
@@ -53,10 +56,26 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
       Variable *variable =
           csTypeFindVariable(checker, target->as.identifier.name, target->as.identifier.length);
 
+      if (variable != NULL && variable->awaiting) {
+        /* The first assignment is what says what this is. `null` and
+         * `undefined` say "still nothing", so they do not settle it — which is
+         * what keeps `let x; x = null; x = 5;` working and `x = 5; x = "s"`
+         * an error. */
+        if (valueType != TYPE_NULL && valueType != TYPE_UNDEFINED &&
+            valueType != TYPE_ERROR) {
+          variable->type = valueType;
+          variable->awaiting = false;
+        }
+        target->resolvedType = variable->type;
+        result = variable->type;
+        break;
+      }
+
       if (variable != NULL) {
         target->resolvedType = variable->type;
         if (!csTypeAssignable(valueType, variable->type)) {
-          csTypeError(checker, node->line, "cannot assign %s to '%.*s', which is %s",
+          csTypeError(checker, node->line,
+                    "cannot assign %s to '%.*s', which is %s and cannot change type",
                     csTypeName(valueType), target->as.identifier.length,
                     target->as.identifier.name, csTypeName(variable->type));
           result = TYPE_ERROR;
@@ -72,7 +91,8 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
     case AST_UPDATE: {
       TypeKind targetType = checkNode(checker, node->as.update.target);
       result = csTypeRequireNumber(checker, targetType, node->line,
-                             node->as.update.isIncrement ? "++" : "--");
+                             node->as.update.isIncrement ? "++" : "--",
+                             node->as.update.target);
       break;
     }
 
@@ -83,7 +103,8 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
           /* `-1n` is a BigInt; every other operand has to be a number. */
           result = operand == TYPE_BIGINT
                        ? TYPE_BIGINT
-                       : csTypeRequireNumber(checker, operand, node->line, "-");
+                       : csTypeRequireNumber(checker, operand, node->line, "-",
+                                                    node->as.unary.operand);
           break;
         case UNARY_NOT:
           result = TYPE_BOOLEAN; /* every type has a truthiness */
@@ -106,8 +127,18 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
       /* `a && b` evaluates to one operand or the other, so the result is only
        * known when both agree. */
       TypeKind left = checkNode(checker, node->as.logical.left);
+
+      /* The right-hand side only runs when the left said what it said, so it
+       * is checked knowing that: `typeof x === "number" && x > 0` is the usual
+       * way a guard is written, and `typeof x !== "number" || x < 0` is the
+       * same guard inverted. */
+      TypeKind saved = TYPE_DYNAMIC;
+      Variable *narrowed = csTypeNarrow(checker, node->as.logical.left,
+                                        node->as.logical.op == LOGICAL_AND, &saved);
       TypeKind right = checkNode(checker, node->as.logical.right);
-      result = (left == right) ? left : TYPE_ANY;
+      if (narrowed != NULL) narrowed->type = saved;
+
+      result = (left == right) ? left : TYPE_DYNAMIC;
       break;
     }
 
@@ -131,7 +162,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
     case AST_YIELD:
       /* What `next(x)` sends back in is whatever the caller chose. */
       checkNode(checker, node->as.yield.value);
-      result = TYPE_ANY;
+      result = TYPE_DYNAMIC;
       break;
 
     case AST_DELETE:
@@ -142,11 +173,19 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
 
     case AST_OPTIONAL_CHAIN:
       checkNode(checker, node->as.expression);
-      result = TYPE_ANY;
+      result = TYPE_DYNAMIC;
       break;
 
     case AST_PROPERTY: {
       TypeKind object = checkNode(checker, node->as.property.object);
+
+      /* Reading a property off a `value` is the commonest way a program would
+       * use one without knowing what it is. */
+      if (csTypeRefuseUnnarrowed(checker, object, node->line,
+                                 "reading a property", node->as.property.object)) {
+        result = TYPE_ERROR;
+        break;
+      }
       bool isLength = node->as.property.length == 6 &&
                       memcmp(node->as.property.name, "length", 6) == 0;
 
@@ -182,7 +221,13 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
        * on correct code. A property of an object stays dynamic; a call through
        * one still gets its result type from this same table, which is what
        * keeps `xs.map(f)` known to be an array. */
-      if (object != TYPE_OBJECT &&
+      /* An array's `length`, which is the one property it really has. */
+      if (object == TYPE_ARRAY && isLength) {
+        result = TYPE_NUMBER;
+        break;
+      }
+
+      if (object != TYPE_OBJECT && object != TYPE_ARRAY &&
           csTypeFindMethod(object, node->as.property.name,
                      node->as.property.length) != NULL) {
         result = TYPE_FUNCTION;
@@ -196,11 +241,12 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
        * the case being handled rather than a mistake. */
       if (node->as.property.optional &&
           (object == TYPE_NULL || object == TYPE_UNDEFINED)) {
-        result = TYPE_ANY;
+        result = TYPE_DYNAMIC;
         break;
       }
 
-      if (csTypeIsKnown(object) && object != TYPE_OBJECT && object != TYPE_FUNCTION) {
+      if (csTypeIsKnown(object) && object != TYPE_OBJECT && object != TYPE_ARRAY &&
+          object != TYPE_FUNCTION) {
         csTypeError(checker, node->line, "cannot read property '%.*s' of %s",
                   node->as.property.length, node->as.property.name, csTypeName(object));
         result = TYPE_ERROR;
@@ -213,7 +259,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
        * and being wrong about a type is worse than not knowing it. A string's
        * `length` is handled above, where it really is guaranteed. */
       (void)isLength;
-      result = TYPE_ANY;
+      result = TYPE_DYNAMIC;
       break;
     }
 
@@ -225,7 +271,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
       TypeKind callee;
       if (node->as.call.optional && node->as.call.callee->type == AST_PROPERTY) {
         checkNode(checker, node->as.call.callee->as.property.object);
-        callee = TYPE_ANY;
+        callee = TYPE_DYNAMIC;
       } else {
         callee = checkNode(checker, node->as.call.callee);
       }
@@ -238,7 +284,14 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
 
       if (node->as.call.optional &&
           (callee == TYPE_NULL || callee == TYPE_UNDEFINED)) {
-        result = TYPE_ANY;
+        result = TYPE_DYNAMIC;
+        break;
+      }
+
+      /* Calling a `value` is calling something that might be a number. */
+      if (csTypeRefuseUnnarrowed(checker, callee, node->line, "calling",
+                                 node->as.call.callee)) {
+        result = TYPE_ERROR;
         break;
       }
 
@@ -255,7 +308,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
         const MethodSignature *builtin =
             csTypeFindMethod(property->as.property.object->resolvedType,
                        property->as.property.name, property->as.property.length);
-        result = builtin != NULL ? builtin->returns : TYPE_ANY;
+        result = builtin != NULL ? builtin->returns : TYPE_DYNAMIC;
         break;
       }
 
@@ -269,7 +322,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
       }
 
       if (signature == NULL) {
-        result = TYPE_ANY;
+        result = TYPE_DYNAMIC;
         break;
       }
 
@@ -299,11 +352,24 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
       }
 
       for (int i = 0; i < node->as.call.argCount && i < UINT8_MAX; i++) {
-        if (!csTypeAssignable(argTypes[i], signature->paramTypes[i])) {
-          csTypeError(checker, node->line,
-                    "argument %d is %s but the parameter is %s", i + 1,
-                    csTypeName(argTypes[i]), csTypeName(signature->paramTypes[i]));
+        /* Everything past the last declared parameter is collected by the rest
+         * parameter, whose annotation describes one argument — so they are all
+         * checked against it. Without a rest parameter there is nothing left to
+         * check against, and the arity check above has already spoken. */
+        int at = i;
+        if (at >= signature->paramCount) {
+          if (!signature->hasRest) break;
+          at = signature->paramCount - 1;
         }
+        if (csTypeAssignable(argTypes[i], signature->paramTypes[at])) continue;
+        /* `f(undefined)` asks for the default, which is what the language
+         * already says an absent argument means. */
+        if (argTypes[i] == TYPE_UNDEFINED && signature->paramHasDefault[at]) continue;
+        csTypeError(checker, node->line,
+                    "argument %d of '%.*s' is %s but the parameter is %s", i + 1,
+                    node->as.call.callee->as.identifier.length,
+                    node->as.call.callee->as.identifier.name,
+                    csTypeName(argTypes[i]), csTypeName(signature->paramTypes[at]));
       }
 
       result = signature->returnType;
@@ -316,16 +382,22 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
       /* `?.[` says the target may be absent; that is the case being handled. */
       if (node->as.index.optional &&
           (target == TYPE_NULL || target == TYPE_UNDEFINED)) {
-        result = TYPE_ANY;
+        result = TYPE_DYNAMIC;
         break;
       }
-      if (csTypeIsKnown(target) && target != TYPE_OBJECT && target != TYPE_STRING) {
+      if (csTypeRefuseUnnarrowed(checker, target, node->line, "indexing",
+                                 node->as.index.target)) {
+        result = TYPE_ERROR;
+        break;
+      }
+      if (csTypeIsKnown(target) && target != TYPE_OBJECT && target != TYPE_ARRAY &&
+          target != TYPE_STRING) {
         csTypeError(checker, node->line, "cannot index %s", csTypeName(target));
         result = TYPE_ERROR;
         break;
       }
       /* Element types are not modelled, so an index is dynamic. */
-      result = TYPE_ANY;
+      result = TYPE_DYNAMIC;
       break;
     }
 
@@ -340,8 +412,9 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
       for (int i = 0; i < node->as.arrayLiteral.count; i++) {
         checkNode(checker, node->as.arrayLiteral.elements[i]);
       }
-      /* Arrays are objects for typing purposes until element types exist. */
-      result = TYPE_OBJECT;
+      /* An array, not an object: the two answer different questions, and the
+       * element type is still unknown. */
+      result = TYPE_ARRAY;
       break;
 
     case AST_CONDITIONAL: {
@@ -349,13 +422,13 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
       TypeKind thenType = checkNode(checker, node->as.conditional.thenValue);
       TypeKind elseType = checkNode(checker, node->as.conditional.elseValue);
       /* Without union types the result is only known when both arms agree. */
-      result = thenType == elseType ? thenType : TYPE_ANY;
+      result = thenType == elseType ? thenType : TYPE_DYNAMIC;
       break;
     }
 
     case AST_SPREAD:
       checkNode(checker, node->as.spread);
-      result = TYPE_ANY;
+      result = TYPE_DYNAMIC;
       break;
 
     case AST_DESTRUCTURE:
@@ -365,7 +438,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
         /* Element and property types are not modelled, so each binding is
          * dynamic. */
         csTypeDeclareVariable(checker, node->as.destructure.bindings[i].name,
-                        node->as.destructure.bindings[i].nameLength, TYPE_ANY);
+                        node->as.destructure.bindings[i].nameLength, TYPE_DYNAMIC);
       }
       result = TYPE_UNDEFINED;
       break;
@@ -376,13 +449,13 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
 
     case AST_DYNAMIC_IMPORT:
       checkNode(checker, node->as.unary.operand);
-      result = TYPE_ANY; /* a promise, which the lattice does not model */
+      result = TYPE_DYNAMIC; /* a promise, which the lattice does not model */
       break;
 
     case AST_THIS:
     case AST_NEW_TARGET:
     case AST_SUPER:
-      result = TYPE_ANY;
+      result = TYPE_DYNAMIC;
       break;
 
     /* What a promise resolves to is not modelled, so awaiting one is dynamic.
@@ -390,7 +463,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
      * rather than what calling it produces, so it is not checked either. */
     case AST_AWAIT:
       checkNode(checker, node->as.unary.operand);
-      result = TYPE_ANY;
+      result = TYPE_DYNAMIC;
       break;
 
     /* Types do not cross a module boundary yet: the checker runs per file and

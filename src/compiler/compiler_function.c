@@ -194,7 +194,7 @@ void compileFunctionAs(const AstNode *node, FunctionKind kind) {
     for (int i = 0; i < node->as.function.paramCount; i++) {
       const AstParam *param = &node->as.function.params[i];
       compiler.function->paramTypes[i] =
-          (uint8_t)(param->hasAnnotation ? param->type : TYPE_ANY);
+          (uint8_t)(param->hasAnnotation ? param->type : TYPE_DYNAMIC);
     }
   }
 

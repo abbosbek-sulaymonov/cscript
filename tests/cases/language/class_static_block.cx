@@ -24,7 +24,7 @@ console.log(Order.a, Order.b);
 
 // Methods are installed before any block runs, so a block can call one.
 class Uses {
-  static double(n) { return n * 2; }
+  static double(n: number) { return n * 2; }
   static computed;
   static {
     Uses.computed = Uses.double(21);

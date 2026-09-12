@@ -102,8 +102,18 @@ Two things come out of it. The obvious one is errors the programmer sees before
 the program runs. The less obvious one is that `resolvedType` stays on the AST,
 so the compiler can specialise against it — the types are **consumed, not
 erased**. `a + b` where both sides resolved to `number` emits `OP_ADD_NUM`,
-which does no type dispatch; the same expression on `any` values emits the
-generic `OP_ADD`.
+which does no type dispatch; the same expression on values the checker could
+not resolve — an array's elements, an object's properties — emits the generic
+`OP_ADD`.
+
+The lattice is flat, and two of its members carry the weight of the design.
+`value` is the top type a program can **write**: everything is assignable to
+one, nothing is assignable from one, and nothing may be read off one until a
+`typeof` has said what it holds. Beside it sits a type that cannot be written
+at all — the checker's own "I could not tell", which flows both ways and is
+where the runtime does the checking instead. Keeping the two apart is what
+makes `value` a type rather than an escape hatch: `any` would be the second one
+with a name, and naming it is what lets it spread.
 
 The checker keeps its own scope stack rather than sharing the compiler's. That
 duplication is deliberate: it means the compiler can be changed without silently
@@ -120,7 +130,7 @@ The checks cost almost nothing because they always go the same way, so the
 branch predictor gets them right every time. The bottleneck is dispatch and
 16-byte stack traffic, and an annotation touches neither.
 
-That is the honest case for gradual typing here: it is worth doing **for
+That is the honest case for static typing here: it is worth doing **for
 correctness and tooling**, and the speed argument only becomes real one step
 later, when the types are used to change *representation* rather than to skip a
 predictable branch:
@@ -1116,7 +1126,7 @@ answer to that one, and it is not written.
 | `bench/globals.cx` | 211 ms | **41 ms** | **5.2×** | 7 ms |
 
 None of these has a type annotation in it. Their types come from the checker's
-inference of `let a = 0` — which is the whole argument for gradual typing made
+inference of `let a = 0` — which is the whole argument for inference made
 concrete: annotate nothing, and the compiler still knows.
 
 ### Whole functions were the wrong unit
