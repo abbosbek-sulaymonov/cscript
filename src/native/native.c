@@ -60,8 +60,7 @@ static bool consoleError(Value receiver, int argCount, Value *args, Value *resul
  * time — a progress line, a column, a file being assembled on the way out.
  * Without this, `std:io`'s writers would have to buffer a line and hand it to
  * console.log, which makes a partial line invisible until it is finished. */
-static bool writeExactly(FILE *out, const char *forWhat, int argCount, Value *args,
-                         Value *result) {
+static bool writeExactly(FILE *out, const char *forWhat, int argCount, Value *args, Value *result) {
   if (argCount != 1 || !IS_STRING(args[0])) {
     csVMRuntimeError("%s expects exactly one string", forWhat);
     return false;
@@ -114,10 +113,8 @@ static bool arrayFrom(Value receiver, int argCount, Value *args, Value *result) 
 
   Value mapper = argCount > 1 ? args[1] : UNDEFINED_VAL;
   bool hasMapper = !IS_UNDEFINED(mapper) && !IS_NULL(mapper);
-  if (hasMapper && !IS_CLOSURE(mapper) && !IS_NATIVE(mapper) &&
-      !IS_BOUND_METHOD(mapper)) {
-    csVMRuntimeError("Array.from expects a function as its second argument, got %s",
-                     csValueTypeName(mapper));
+  if (hasMapper && !IS_CLOSURE(mapper) && !IS_NATIVE(mapper) && !IS_BOUND_METHOD(mapper)) {
+    csVMRuntimeError("Array.from expects a function as its second argument, got %s", csValueTypeName(mapper));
     return false;
   }
 
@@ -165,11 +162,11 @@ static bool arrayFrom(Value receiver, int argCount, Value *args, Value *result) 
     /* An array-like: `{ length: 2 }` becomes two undefineds, and `{ 0: "a",
      * length: 1 }` becomes `["a"]`. */
     Value length;
-    if (!csObjectGet(AS_OBJECT(args[0]), csStringCopy("length", 6), &length) ||
-        !IS_NUMBER(length)) {
+    if (!csObjectGet(AS_OBJECT(args[0]), csStringCopy("length", 6), &length) || !IS_NUMBER(length)) {
       csPopTempRoot();
-      csVMRuntimeError("Array.from cannot convert an object without a numeric "
-                       "'length'");
+      csVMRuntimeError(
+          "Array.from cannot convert an object without a numeric "
+          "'length'");
       return false;
     }
     int count = (int)AS_NUMBER(length);
@@ -256,11 +253,9 @@ Value csAggregateError(ObjArray *errors) {
   return OBJ_VAL(error);
 }
 
-static bool aggregateErrorConstruct(Value receiver, int argCount, Value *args,
-                                    Value *result) {
+static bool aggregateErrorConstruct(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
-  ObjArray *errors = argCount >= 1 && IS_ARRAY(args[0]) ? AS_ARRAY(args[0])
-                                                        : csArrayNew();
+  ObjArray *errors = argCount >= 1 && IS_ARRAY(args[0]) ? AS_ARRAY(args[0]) : csArrayNew();
   csPushTempRoot((Obj *)errors);
   Value error = csAggregateError(errors);
   csPopTempRoot();
@@ -299,8 +294,7 @@ ObjObject *csNativeDefineNamespace(const char *name) {
   return object;
 }
 
-void csNativeDefineMethod(ObjObject *object, const char *name, NativeFn function,
-                         int arity) {
+void csNativeDefineMethod(ObjObject *object, const char *name, NativeFn function, int arity) {
   ObjNative *native = csNativeNew(function, name, arity);
   csPushTempRoot((Obj *)native);
   csObjectSetProperty(object, name, OBJ_VAL(native));
@@ -318,8 +312,7 @@ void csNativeDefineFunction(const char *name, NativeFn function, int arity) {
  * `Symbol.iterator`, `new Date()` and `Date.now()`. The function carries the
  * statics rather than the two being separate globals, which is how JavaScript
  * has it and therefore how a program written against it expects it. */
-static void installCallableNamespace(const char *name, NativeFn constructor,
-                                     void (*installStatics)(ObjObject *)) {
+static void installCallableNamespace(const char *name, NativeFn constructor, void (*installStatics)(ObjObject *)) {
   ObjNative *callable = csNativeNew(constructor, name, -1);
   csPushTempRoot((Obj *)callable);
   ObjObject *statics = csObjectNew(name);

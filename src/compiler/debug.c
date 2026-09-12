@@ -48,12 +48,10 @@ static void emit(const char *format, ...) {
 const char *csOpcodeName(OpCode opcode) {
   switch (opcode) {
 #define CS_OPCODE_NAME(name) \
-  case name:                 \
-    return #name;
+  case name: return #name;
     CS_OPCODE_LIST(CS_OPCODE_NAME)
 #undef CS_OPCODE_NAME
-    case OP_COUNT:
-      break;
+    case OP_COUNT: break;
   }
   return "OP_UNKNOWN";
 }
@@ -147,32 +145,31 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
 
   uint8_t instruction = chunk->code[offset];
   switch (instruction) {
-    case OP_CONSTANT:          return constantInstruction("OP_CONSTANT", chunk, offset);
-    case OP_NULL:              return simpleInstruction("OP_NULL", offset);
-    case OP_UNDEFINED:         return simpleInstruction("OP_UNDEFINED", offset);
-    case OP_TRUE:              return simpleInstruction("OP_TRUE", offset);
-    case OP_FALSE:             return simpleInstruction("OP_FALSE", offset);
-    case OP_POP:               return simpleInstruction("OP_POP", offset);
-    case OP_POP_N:             return byteInstruction("OP_POP_N", chunk, offset);
-    case OP_DUP:               return simpleInstruction("OP_DUP", offset);
-    case OP_DUP2:              return simpleInstruction("OP_DUP2", offset);
-    case OP_POP_UNDER:         return simpleInstruction("OP_POP_UNDER", offset);
-    case OP_DEFINE_GLOBAL:     return constantInstruction("OP_DEFINE_GLOBAL", chunk, offset);
-    case OP_DEFINE_CONST:      return constantInstruction("OP_DEFINE_CONST", chunk, offset);
-    case OP_GET_GLOBAL:        return cachedInstruction("OP_GET_GLOBAL", chunk, offset);
-    case OP_SET_GLOBAL:        return cachedInstruction("OP_SET_GLOBAL", chunk, offset);
-    case OP_GET_LOCAL:         return byteInstruction("OP_GET_LOCAL", chunk, offset);
-    case OP_SET_LOCAL:         return byteInstruction("OP_SET_LOCAL", chunk, offset);
-    case OP_GET_LOCAL_CONST:   return slotConstantInstruction("OP_GET_LOCAL_CONST", chunk, offset);
-    case OP_SET_LOCAL_POP:     return byteInstruction("OP_SET_LOCAL_POP", chunk, offset);
-    case OP_SET_GLOBAL_POP:    return cachedInstruction("OP_SET_GLOBAL_POP", chunk, offset);
-    case OP_INC_LOCAL:         return byteInstruction("OP_INC_LOCAL", chunk, offset);
-    case OP_DEC_LOCAL:         return byteInstruction("OP_DEC_LOCAL", chunk, offset);
-    case OP_GET_PROPERTY:      return cachedInstruction("OP_GET_PROPERTY", chunk, offset);
-    case OP_SET_PROPERTY_POP:  return cachedInstruction("OP_SET_PROPERTY_POP", chunk, offset);
+    case OP_CONSTANT: return constantInstruction("OP_CONSTANT", chunk, offset);
+    case OP_NULL: return simpleInstruction("OP_NULL", offset);
+    case OP_UNDEFINED: return simpleInstruction("OP_UNDEFINED", offset);
+    case OP_TRUE: return simpleInstruction("OP_TRUE", offset);
+    case OP_FALSE: return simpleInstruction("OP_FALSE", offset);
+    case OP_POP: return simpleInstruction("OP_POP", offset);
+    case OP_POP_N: return byteInstruction("OP_POP_N", chunk, offset);
+    case OP_DUP: return simpleInstruction("OP_DUP", offset);
+    case OP_DUP2: return simpleInstruction("OP_DUP2", offset);
+    case OP_POP_UNDER: return simpleInstruction("OP_POP_UNDER", offset);
+    case OP_DEFINE_GLOBAL: return constantInstruction("OP_DEFINE_GLOBAL", chunk, offset);
+    case OP_DEFINE_CONST: return constantInstruction("OP_DEFINE_CONST", chunk, offset);
+    case OP_GET_GLOBAL: return cachedInstruction("OP_GET_GLOBAL", chunk, offset);
+    case OP_SET_GLOBAL: return cachedInstruction("OP_SET_GLOBAL", chunk, offset);
+    case OP_GET_LOCAL: return byteInstruction("OP_GET_LOCAL", chunk, offset);
+    case OP_SET_LOCAL: return byteInstruction("OP_SET_LOCAL", chunk, offset);
+    case OP_GET_LOCAL_CONST: return slotConstantInstruction("OP_GET_LOCAL_CONST", chunk, offset);
+    case OP_SET_LOCAL_POP: return byteInstruction("OP_SET_LOCAL_POP", chunk, offset);
+    case OP_SET_GLOBAL_POP: return cachedInstruction("OP_SET_GLOBAL_POP", chunk, offset);
+    case OP_INC_LOCAL: return byteInstruction("OP_INC_LOCAL", chunk, offset);
+    case OP_DEC_LOCAL: return byteInstruction("OP_DEC_LOCAL", chunk, offset);
+    case OP_GET_PROPERTY: return cachedInstruction("OP_GET_PROPERTY", chunk, offset);
+    case OP_SET_PROPERTY_POP: return cachedInstruction("OP_SET_PROPERTY_POP", chunk, offset);
     case OP_GET_LOCAL_LOCAL: {
-      emit("%-22s %4d %d\n", "OP_GET_LOCAL_LOCAL", chunk->code[offset + 1],
-             chunk->code[offset + 2]);
+      emit("%-22s %4d %d\n", "OP_GET_LOCAL_LOCAL", chunk->code[offset + 1], chunk->code[offset + 2]);
       return offset + 3;
     }
     case OP_GET_LOCAL_PROPERTY: {
@@ -183,18 +180,16 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
       emit("'  cache %d\n", readConstantIndex(chunk, offset + 4));
       return offset + 6;
     }
-    case OP_SET_PROPERTY:      return cachedInstruction("OP_SET_PROPERTY", chunk, offset);
-    case OP_GET_INDEX:         return simpleInstruction("OP_GET_INDEX", offset);
-    case OP_DESTRUCTURE_PREPARE:
-      return byteInstruction("OP_DESTRUCTURE_PREPARE", chunk, offset);
-    case OP_ITER_STEP:         return jumpInstruction("OP_ITER_STEP", 1, chunk, offset);
-    case OP_JUMP_IF_ASYNC_ITER:
-      return jumpInstruction("OP_JUMP_IF_ASYNC_ITER", 1, chunk, offset);
-    case OP_ASYNC_NEXT:        return simpleInstruction("OP_ASYNC_NEXT", offset);
-    case OP_ITER_UNPACK:       return jumpInstruction("OP_ITER_UNPACK", 1, chunk, offset);
-    case OP_ITER_LENGTH:       return simpleInstruction("OP_ITER_LENGTH", offset);
-    case OP_ENUM_KEYS:         return simpleInstruction("OP_ENUM_KEYS", offset);
-    case OP_ITER_PREPARE:      return byteInstruction("OP_ITER_PREPARE", chunk, offset);
+    case OP_SET_PROPERTY: return cachedInstruction("OP_SET_PROPERTY", chunk, offset);
+    case OP_GET_INDEX: return simpleInstruction("OP_GET_INDEX", offset);
+    case OP_DESTRUCTURE_PREPARE: return byteInstruction("OP_DESTRUCTURE_PREPARE", chunk, offset);
+    case OP_ITER_STEP: return jumpInstruction("OP_ITER_STEP", 1, chunk, offset);
+    case OP_JUMP_IF_ASYNC_ITER: return jumpInstruction("OP_JUMP_IF_ASYNC_ITER", 1, chunk, offset);
+    case OP_ASYNC_NEXT: return simpleInstruction("OP_ASYNC_NEXT", offset);
+    case OP_ITER_UNPACK: return jumpInstruction("OP_ITER_UNPACK", 1, chunk, offset);
+    case OP_ITER_LENGTH: return simpleInstruction("OP_ITER_LENGTH", offset);
+    case OP_ENUM_KEYS: return simpleInstruction("OP_ENUM_KEYS", offset);
+    case OP_ITER_PREPARE: return byteInstruction("OP_ITER_PREPARE", chunk, offset);
     case OP_REGEX: {
       emit("%-22s /", "OP_REGEX");
       debugPrintValue(chunk->constants.values[readConstantIndex(chunk, offset + 1)]);
@@ -203,27 +198,26 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
       emit("\n");
       return offset + 5;
     }
-    case OP_SET_INDEX:         return simpleInstruction("OP_SET_INDEX", offset);
-    case OP_OBJECT:            return byteInstruction("OP_OBJECT", chunk, offset);
-    case OP_ARRAY:             return byteInstruction("OP_ARRAY", chunk, offset);
-    case OP_SPREAD_MARK:       return simpleInstruction("OP_SPREAD_MARK", offset);
-    case OP_ARRAY_SPREAD:      return byteInstruction("OP_ARRAY_SPREAD", chunk, offset);
-    case OP_GET_PRIVATE:       return constantInstruction("OP_GET_PRIVATE", chunk, offset);
-    case OP_SET_PRIVATE:       return constantInstruction("OP_SET_PRIVATE", chunk, offset);
-    case OP_DELETE_PROPERTY:
-      return constantInstruction("OP_DELETE_PROPERTY", chunk, offset);
-    case OP_DELETE_INDEX:      return simpleInstruction("OP_DELETE_INDEX", offset);
-    case OP_OBJECT_SET:        return simpleInstruction("OP_OBJECT_SET", offset);
-    case OP_SET_PROTOTYPE:     return simpleInstruction("OP_SET_PROTOTYPE", offset);
-    case OP_NEW_TARGET:        return simpleInstruction("OP_NEW_TARGET", offset);
-    case OP_DYNAMIC_IMPORT:    return simpleInstruction("OP_DYNAMIC_IMPORT", offset);
-    case OP_INVOKE_INDEX:      return byteInstruction("OP_INVOKE_INDEX", chunk, offset);
-    case OP_OBJECT_ACCESSOR:   return byteInstruction("OP_OBJECT_ACCESSOR", chunk, offset);
-    case OP_OBJECT_MERGE:      return simpleInstruction("OP_OBJECT_MERGE", offset);
-    case OP_OBJECT_REST:       return byteInstruction("OP_OBJECT_REST", chunk, offset);
-    case OP_TEMPLATE_STRINGS:  return simpleInstruction("OP_TEMPLATE_STRINGS", offset);
-    case OP_ARRAY_REST:        return byteInstruction("OP_ARRAY_REST", chunk, offset);
-    case OP_CALL_SPREAD:       return simpleInstruction("OP_CALL_SPREAD", offset);
+    case OP_SET_INDEX: return simpleInstruction("OP_SET_INDEX", offset);
+    case OP_OBJECT: return byteInstruction("OP_OBJECT", chunk, offset);
+    case OP_ARRAY: return byteInstruction("OP_ARRAY", chunk, offset);
+    case OP_SPREAD_MARK: return simpleInstruction("OP_SPREAD_MARK", offset);
+    case OP_ARRAY_SPREAD: return byteInstruction("OP_ARRAY_SPREAD", chunk, offset);
+    case OP_GET_PRIVATE: return constantInstruction("OP_GET_PRIVATE", chunk, offset);
+    case OP_SET_PRIVATE: return constantInstruction("OP_SET_PRIVATE", chunk, offset);
+    case OP_DELETE_PROPERTY: return constantInstruction("OP_DELETE_PROPERTY", chunk, offset);
+    case OP_DELETE_INDEX: return simpleInstruction("OP_DELETE_INDEX", offset);
+    case OP_OBJECT_SET: return simpleInstruction("OP_OBJECT_SET", offset);
+    case OP_SET_PROTOTYPE: return simpleInstruction("OP_SET_PROTOTYPE", offset);
+    case OP_NEW_TARGET: return simpleInstruction("OP_NEW_TARGET", offset);
+    case OP_DYNAMIC_IMPORT: return simpleInstruction("OP_DYNAMIC_IMPORT", offset);
+    case OP_INVOKE_INDEX: return byteInstruction("OP_INVOKE_INDEX", chunk, offset);
+    case OP_OBJECT_ACCESSOR: return byteInstruction("OP_OBJECT_ACCESSOR", chunk, offset);
+    case OP_OBJECT_MERGE: return simpleInstruction("OP_OBJECT_MERGE", offset);
+    case OP_OBJECT_REST: return byteInstruction("OP_OBJECT_REST", chunk, offset);
+    case OP_TEMPLATE_STRINGS: return simpleInstruction("OP_TEMPLATE_STRINGS", offset);
+    case OP_ARRAY_REST: return byteInstruction("OP_ARRAY_REST", chunk, offset);
+    case OP_CALL_SPREAD: return simpleInstruction("OP_CALL_SPREAD", offset);
     case OP_CLOSURE: {
       /* Followed by one (isLocal, index) pair per upvalue, which are operands
        * rather than instructions. */
@@ -236,59 +230,58 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
       Value function = chunk->constants.values[constant];
       if (IS_FUNCTION(function)) {
         for (int i = 0; i < AS_FUNCTION(function)->upvalueCount; i++) {
-          emit("%04d      |                     %s %d\n", next,
-                 chunk->code[next] ? "local" : "upvalue", chunk->code[next + 1]);
+          emit("%04d      |                     %s %d\n", next, chunk->code[next] ? "local" : "upvalue", chunk->code[next + 1]);
           next += 2;
         }
       }
       return next;
     }
-    case OP_GET_UPVALUE:       return byteInstruction("OP_GET_UPVALUE", chunk, offset);
-    case OP_SET_UPVALUE:       return byteInstruction("OP_SET_UPVALUE", chunk, offset);
-    case OP_CLOSE_UPVALUE:     return simpleInstruction("OP_CLOSE_UPVALUE", offset);
-    case OP_CALL:              return byteInstruction("OP_CALL", chunk, offset);
-    case OP_CLASS:             return constantInstruction("OP_CLASS", chunk, offset);
-    case OP_INHERIT:           return simpleInstruction("OP_INHERIT", offset);
-    case OP_CONSTRUCTOR:       return simpleInstruction("OP_CONSTRUCTOR", offset);
-    case OP_FIELD_INIT:        return simpleInstruction("OP_FIELD_INIT", offset);
-    case OP_IN:                return simpleInstruction("OP_IN", offset);
-    case OP_INSTANCEOF:        return simpleInstruction("OP_INSTANCEOF", offset);
-    case OP_IMPORT_NAME:       return constantInstruction("OP_IMPORT_NAME", chunk, offset);
-    case OP_IMPORT_NAMESPACE:  return simpleInstruction("OP_IMPORT_NAMESPACE", offset);
-    case OP_YIELD:             return simpleInstruction("OP_YIELD", offset);
-    case OP_AWAIT:             return simpleInstruction("OP_AWAIT", offset);
-    case OP_NEW:               return byteInstruction("OP_NEW", chunk, offset);
-    case OP_SUPER_CALL:        return byteInstruction("OP_SUPER_CALL", chunk, offset);
-    case OP_METHOD:            return constantInstruction("OP_METHOD", chunk, offset);
-    case OP_STATIC_METHOD:     return constantInstruction("OP_STATIC_METHOD", chunk, offset);
-    case OP_STATIC_FIELD:      return constantInstruction("OP_STATIC_FIELD", chunk, offset);
-    case OP_GETTER:            return constantInstruction("OP_GETTER", chunk, offset);
-    case OP_CLASS_MEMBER:       return byteInstruction("OP_CLASS_MEMBER", chunk, offset);
-    case OP_SETTER:            return constantInstruction("OP_SETTER", chunk, offset);
-    case OP_STATIC_GETTER:     return constantInstruction("OP_STATIC_GETTER", chunk, offset);
-    case OP_STATIC_SETTER:     return constantInstruction("OP_STATIC_SETTER", chunk, offset);
-    case OP_GET_SUPER:         return constantInstruction("OP_GET_SUPER", chunk, offset);
-    case OP_SUPER_INVOKE:      return invokeInstruction("OP_SUPER_INVOKE", chunk, offset);
-    case OP_INVOKE:            return invokeInstruction("OP_INVOKE", chunk, offset);
-    case OP_ADD:               return simpleInstruction("OP_ADD", offset);
-    case OP_ADD_NUM:           return simpleInstruction("OP_ADD_NUM", offset);
-    case OP_SUBTRACT:          return simpleInstruction("OP_SUBTRACT", offset);
-    case OP_MULTIPLY:          return simpleInstruction("OP_MULTIPLY", offset);
-    case OP_DIVIDE:            return simpleInstruction("OP_DIVIDE", offset);
-    case OP_MODULO:            return simpleInstruction("OP_MODULO", offset);
-    case OP_EXPONENT:          return simpleInstruction("OP_EXPONENT", offset);
-    case OP_NEGATE:            return simpleInstruction("OP_NEGATE", offset);
-    case OP_NOT:               return simpleInstruction("OP_NOT", offset);
-    case OP_TYPEOF:            return simpleInstruction("OP_TYPEOF", offset);
-    case OP_EQUAL:             return simpleInstruction("OP_EQUAL", offset);
-    case OP_NOT_EQUAL:         return simpleInstruction("OP_NOT_EQUAL", offset);
-    case OP_GREATER:           return simpleInstruction("OP_GREATER", offset);
-    case OP_GREATER_EQUAL:     return simpleInstruction("OP_GREATER_EQUAL", offset);
-    case OP_LESS:              return simpleInstruction("OP_LESS", offset);
-    case OP_LESS_EQUAL:        return simpleInstruction("OP_LESS_EQUAL", offset);
-    case OP_JUMP:              return jumpInstruction("OP_JUMP", 1, chunk, offset);
-    case OP_JUMP_IF_FALSE:     return jumpInstruction("OP_JUMP_IF_FALSE", 1, chunk, offset);
-    case OP_JUMP_IF_TRUE:      return jumpInstruction("OP_JUMP_IF_TRUE", 1, chunk, offset);
+    case OP_GET_UPVALUE: return byteInstruction("OP_GET_UPVALUE", chunk, offset);
+    case OP_SET_UPVALUE: return byteInstruction("OP_SET_UPVALUE", chunk, offset);
+    case OP_CLOSE_UPVALUE: return simpleInstruction("OP_CLOSE_UPVALUE", offset);
+    case OP_CALL: return byteInstruction("OP_CALL", chunk, offset);
+    case OP_CLASS: return constantInstruction("OP_CLASS", chunk, offset);
+    case OP_INHERIT: return simpleInstruction("OP_INHERIT", offset);
+    case OP_CONSTRUCTOR: return simpleInstruction("OP_CONSTRUCTOR", offset);
+    case OP_FIELD_INIT: return simpleInstruction("OP_FIELD_INIT", offset);
+    case OP_IN: return simpleInstruction("OP_IN", offset);
+    case OP_INSTANCEOF: return simpleInstruction("OP_INSTANCEOF", offset);
+    case OP_IMPORT_NAME: return constantInstruction("OP_IMPORT_NAME", chunk, offset);
+    case OP_IMPORT_NAMESPACE: return simpleInstruction("OP_IMPORT_NAMESPACE", offset);
+    case OP_YIELD: return simpleInstruction("OP_YIELD", offset);
+    case OP_AWAIT: return simpleInstruction("OP_AWAIT", offset);
+    case OP_NEW: return byteInstruction("OP_NEW", chunk, offset);
+    case OP_SUPER_CALL: return byteInstruction("OP_SUPER_CALL", chunk, offset);
+    case OP_METHOD: return constantInstruction("OP_METHOD", chunk, offset);
+    case OP_STATIC_METHOD: return constantInstruction("OP_STATIC_METHOD", chunk, offset);
+    case OP_STATIC_FIELD: return constantInstruction("OP_STATIC_FIELD", chunk, offset);
+    case OP_GETTER: return constantInstruction("OP_GETTER", chunk, offset);
+    case OP_CLASS_MEMBER: return byteInstruction("OP_CLASS_MEMBER", chunk, offset);
+    case OP_SETTER: return constantInstruction("OP_SETTER", chunk, offset);
+    case OP_STATIC_GETTER: return constantInstruction("OP_STATIC_GETTER", chunk, offset);
+    case OP_STATIC_SETTER: return constantInstruction("OP_STATIC_SETTER", chunk, offset);
+    case OP_GET_SUPER: return constantInstruction("OP_GET_SUPER", chunk, offset);
+    case OP_SUPER_INVOKE: return invokeInstruction("OP_SUPER_INVOKE", chunk, offset);
+    case OP_INVOKE: return invokeInstruction("OP_INVOKE", chunk, offset);
+    case OP_ADD: return simpleInstruction("OP_ADD", offset);
+    case OP_ADD_NUM: return simpleInstruction("OP_ADD_NUM", offset);
+    case OP_SUBTRACT: return simpleInstruction("OP_SUBTRACT", offset);
+    case OP_MULTIPLY: return simpleInstruction("OP_MULTIPLY", offset);
+    case OP_DIVIDE: return simpleInstruction("OP_DIVIDE", offset);
+    case OP_MODULO: return simpleInstruction("OP_MODULO", offset);
+    case OP_EXPONENT: return simpleInstruction("OP_EXPONENT", offset);
+    case OP_NEGATE: return simpleInstruction("OP_NEGATE", offset);
+    case OP_NOT: return simpleInstruction("OP_NOT", offset);
+    case OP_TYPEOF: return simpleInstruction("OP_TYPEOF", offset);
+    case OP_EQUAL: return simpleInstruction("OP_EQUAL", offset);
+    case OP_NOT_EQUAL: return simpleInstruction("OP_NOT_EQUAL", offset);
+    case OP_GREATER: return simpleInstruction("OP_GREATER", offset);
+    case OP_GREATER_EQUAL: return simpleInstruction("OP_GREATER_EQUAL", offset);
+    case OP_LESS: return simpleInstruction("OP_LESS", offset);
+    case OP_LESS_EQUAL: return simpleInstruction("OP_LESS_EQUAL", offset);
+    case OP_JUMP: return jumpInstruction("OP_JUMP", 1, chunk, offset);
+    case OP_JUMP_IF_FALSE: return jumpInstruction("OP_JUMP_IF_FALSE", 1, chunk, offset);
+    case OP_JUMP_IF_TRUE: return jumpInstruction("OP_JUMP_IF_TRUE", 1, chunk, offset);
     case OP_JUMP_IF_NO_METHOD: {
       /* [const16][hi][lo] — a name and then an offset. */
       uint16_t constant = (uint16_t)((chunk->code[offset + 1] << 8) | chunk->code[offset + 2]);
@@ -298,25 +291,21 @@ int csDisassembleInstruction(const Chunk *chunk, int offset) {
       emit("' -> %d\n", offset + 5 + jump);
       return offset + 5;
     }
-    case OP_JUMP_IF_NULLISH:
-      return jumpInstruction("OP_JUMP_IF_NULLISH", 1, chunk, offset);
-    case OP_JUMP_IF_NOT_NULLISH:
-      return jumpInstruction("OP_JUMP_IF_NOT_NULLISH", 1, chunk, offset);
+    case OP_JUMP_IF_NULLISH: return jumpInstruction("OP_JUMP_IF_NULLISH", 1, chunk, offset);
+    case OP_JUMP_IF_NOT_NULLISH: return jumpInstruction("OP_JUMP_IF_NOT_NULLISH", 1, chunk, offset);
     case OP_POP_JUMP_IF_FALSE: return jumpInstruction("OP_POP_JUMP_IF_FALSE", 1, chunk, offset);
-    case OP_LOOP:              return jumpInstruction("OP_LOOP", -1, chunk, offset);
-    case OP_TRY:               return jumpInstruction("OP_TRY", 1, chunk, offset);
-    case OP_END_TRY:           return simpleInstruction("OP_END_TRY", offset);
-    case OP_THROW:             return simpleInstruction("OP_THROW", offset);
-    case OP_JUMP_IF_NOT_LESS:          return jumpInstruction("OP_JUMP_IF_NOT_LESS", 1, chunk, offset);
-    case OP_JUMP_IF_NOT_LESS_EQUAL:    return jumpInstruction("OP_JUMP_IF_NOT_LESS_EQUAL", 1, chunk, offset);
-    case OP_JUMP_IF_NOT_GREATER:       return jumpInstruction("OP_JUMP_IF_NOT_GREATER", 1, chunk, offset);
+    case OP_LOOP: return jumpInstruction("OP_LOOP", -1, chunk, offset);
+    case OP_TRY: return jumpInstruction("OP_TRY", 1, chunk, offset);
+    case OP_END_TRY: return simpleInstruction("OP_END_TRY", offset);
+    case OP_THROW: return simpleInstruction("OP_THROW", offset);
+    case OP_JUMP_IF_NOT_LESS: return jumpInstruction("OP_JUMP_IF_NOT_LESS", 1, chunk, offset);
+    case OP_JUMP_IF_NOT_LESS_EQUAL: return jumpInstruction("OP_JUMP_IF_NOT_LESS_EQUAL", 1, chunk, offset);
+    case OP_JUMP_IF_NOT_GREATER: return jumpInstruction("OP_JUMP_IF_NOT_GREATER", 1, chunk, offset);
     case OP_JUMP_IF_NOT_GREATER_EQUAL: return jumpInstruction("OP_JUMP_IF_NOT_GREATER_EQUAL", 1, chunk, offset);
-    case OP_JUMP_IF_NOT_EQUAL:         return jumpInstruction("OP_JUMP_IF_NOT_EQUAL", 1, chunk, offset);
-    case OP_JUMP_IF_EQUAL:             return jumpInstruction("OP_JUMP_IF_EQUAL", 1, chunk, offset);
-    case OP_RETURN:            return simpleInstruction("OP_RETURN", offset);
-    default:
-      emit("unknown opcode %d\n", instruction);
-      return offset + 1;
+    case OP_JUMP_IF_NOT_EQUAL: return jumpInstruction("OP_JUMP_IF_NOT_EQUAL", 1, chunk, offset);
+    case OP_JUMP_IF_EQUAL: return jumpInstruction("OP_JUMP_IF_EQUAL", 1, chunk, offset);
+    case OP_RETURN: return simpleInstruction("OP_RETURN", offset);
+    default: emit("unknown opcode %d\n", instruction); return offset + 1;
   }
 }
 

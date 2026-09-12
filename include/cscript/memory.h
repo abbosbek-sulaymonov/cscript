@@ -11,17 +11,13 @@
 
 #define CS_GROW_CAPACITY(cap) ((cap) < 8 ? 8 : (cap) * 2)
 
-#define CS_ALLOCATE(type, count) \
-  ((type *)csReallocate(NULL, 0, sizeof(type) * (size_t)(count)))
+#define CS_ALLOCATE(type, count) ((type *)csReallocate(NULL, 0, sizeof(type) * (size_t)(count)))
 
 #define CS_FREE(type, pointer) csReallocate(pointer, sizeof(type), 0)
 
-#define CS_GROW_ARRAY(type, pointer, oldCount, newCount)     \
-  ((type *)csReallocate(pointer, sizeof(type) * (size_t)(oldCount), \
-                        sizeof(type) * (size_t)(newCount)))
+#define CS_GROW_ARRAY(type, pointer, oldCount, newCount) ((type *)csReallocate(pointer, sizeof(type) * (size_t)(oldCount), sizeof(type) * (size_t)(newCount)))
 
-#define CS_FREE_ARRAY(type, pointer, oldCount) \
-  csReallocate(pointer, sizeof(type) * (size_t)(oldCount), 0)
+#define CS_FREE_ARRAY(type, pointer, oldCount) csReallocate(pointer, sizeof(type) * (size_t)(oldCount), 0)
 
 /* Grow, shrink, allocate (oldSize 0) or free (newSize 0). Aborts on OOM. */
 void *csReallocate(void *pointer, size_t oldSize, size_t newSize);

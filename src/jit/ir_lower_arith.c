@@ -86,8 +86,7 @@ LowerResult csIrLowerArith(LowerAt *at) {
       break;
     }
 
-    default:
-      return LOWER_UNHANDLED;
+    default: return LOWER_UNHANDLED;
   }
   return LOWER_OK;
 }

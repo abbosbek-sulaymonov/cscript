@@ -13,8 +13,7 @@
 
 #include "cscript/diagnostic.h"
 
-void csDiagnosticsInit(Diagnostics *diag, const char *source,
-                       const char *sourceName) {
+void csDiagnosticsInit(Diagnostics *diag, const char *source, const char *sourceName) {
   diag->source = source;
   diag->sourceName = sourceName;
   diag->errorCount = 0;
@@ -35,8 +34,7 @@ static int lineLength(const char *start) {
   return (int)(end - start);
 }
 
-void csDiagnosticError(Diagnostics *diag, int line, const char *at, int length,
-                       const char *format, ...) {
+void csDiagnosticError(Diagnostics *diag, int line, const char *at, int length, const char *format, ...) {
   /* One syntax error usually knocks the parser off the rails; stay quiet until
    * it resynchronises so the user sees the real problem, not the aftershocks. */
   if (diag->panicMode) return;

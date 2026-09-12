@@ -28,10 +28,8 @@
  * a nested parser over a NUL-terminated copy. Its diagnostics share this
  * parser's, and line numbers are reported relative to the template's own line,
  * which is exact unless the template spans lines. */
-static bool scanTemplate(Parser *parser, const char *start, int length, int line,
-                         AstNode ***cookedOut, AstNode ***rawOut,
-                         AstNode ***expressionsOut, int *pieceCount) {
-  const char *cursor = start + 1;      /* skip the opening backtick */
+static bool scanTemplate(Parser *parser, const char *start, int length, int line, AstNode ***cookedOut, AstNode ***rawOut, AstNode ***expressionsOut, int *pieceCount) {
+  const char *cursor = start + 1;       /* skip the opening backtick */
   const char *end = start + length - 1; /* and the closing one */
 
   AstNode **cooked = NULL;
@@ -61,18 +59,15 @@ static bool scanTemplate(Parser *parser, const char *start, int length, int line
       if (chunkLength < (int)sizeof(chunk) - 1) chunk[chunkLength++] = c;
     }
 
-    AstNode **grownCooked =
-        (AstNode **)csAstArenaAlloc(parser->arena, sizeof(AstNode *) * (size_t)(pieces + 1));
-    AstNode **grownRaw =
-        (AstNode **)csAstArenaAlloc(parser->arena, sizeof(AstNode *) * (size_t)(pieces + 1));
+    AstNode **grownCooked = (AstNode **)csAstArenaAlloc(parser->arena, sizeof(AstNode *) * (size_t)(pieces + 1));
+    AstNode **grownRaw = (AstNode **)csAstArenaAlloc(parser->arena, sizeof(AstNode *) * (size_t)(pieces + 1));
     if (grownCooked == NULL || grownRaw == NULL) return false;
     if (pieces > 0) {
       memcpy(grownCooked, cooked, sizeof(AstNode *) * (size_t)pieces);
       memcpy(grownRaw, raw, sizeof(AstNode *) * (size_t)pieces);
     }
     grownCooked[pieces] = csAstString(parser->arena, line, chunk, chunkLength);
-    grownRaw[pieces] =
-        csAstString(parser->arena, line, rawStart, (int)(cursor - rawStart));
+    grownRaw[pieces] = csAstString(parser->arena, line, rawStart, (int)(cursor - rawStart));
     cooked = grownCooked;
     raw = grownRaw;
     pieces++;
@@ -88,8 +83,7 @@ static bool scanTemplate(Parser *parser, const char *start, int length, int line
       if (depth > 0) cursor++;
     }
     if (depth != 0) {
-      csDiagnosticError(parser->diag, line, start, length,
-                        "unterminated '${' in template literal");
+      csDiagnosticError(parser->diag, line, start, length, "unterminated '${' in template literal");
       return false;
     }
 
@@ -111,13 +105,11 @@ static bool scanTemplate(Parser *parser, const char *start, int length, int line
     AstNode *expression = parseExpression(&nested);
     if (expression == NULL) return false;
     if (!check(&nested, TOKEN_EOF)) {
-      csDiagnosticError(parser->diag, line, start, length,
-                        "unexpected trailing text in a template interpolation");
+      csDiagnosticError(parser->diag, line, start, length, "unexpected trailing text in a template interpolation");
       return false;
     }
 
-    AstNode **grown = (AstNode **)csAstArenaAlloc(
-        parser->arena, sizeof(AstNode *) * (size_t)pieces);
+    AstNode **grown = (AstNode **)csAstArenaAlloc(parser->arena, sizeof(AstNode *) * (size_t)pieces);
     if (grown == NULL) return false;
     if (pieces > 1) memcpy(grown, expressions, sizeof(AstNode *) * (size_t)(pieces - 1));
     grown[pieces - 1] = expression;
@@ -141,8 +133,7 @@ AstNode *parseTemplate(Parser *parser, const char *start, int length, int line) 
   AstNode **raw;
   AstNode **expressions;
   int pieces;
-  if (!scanTemplate(parser, start, length, line, &cooked, &raw, &expressions,
-                    &pieces)) {
+  if (!scanTemplate(parser, start, length, line, &cooked, &raw, &expressions, &pieces)) {
     return NULL;
   }
 
@@ -159,14 +150,12 @@ AstNode *parseTemplate(Parser *parser, const char *start, int length, int line) 
 }
 
 /* `` tag`a${x}b` `` — a call, with the pieces as its first argument. */
-AstNode *parseTaggedTemplate(Parser *parser, AstNode *tag, const char *start,
-                             int length, int line) {
+AstNode *parseTaggedTemplate(Parser *parser, AstNode *tag, const char *start, int length, int line) {
   AstNode **cooked;
   AstNode **raw;
   AstNode **expressions;
   int pieces;
-  if (!scanTemplate(parser, start, length, line, &cooked, &raw, &expressions,
-                    &pieces)) {
+  if (!scanTemplate(parser, start, length, line, &cooked, &raw, &expressions, &pieces)) {
     return NULL;
   }
 
@@ -260,8 +249,7 @@ AstNode *finishArrow(Parser *parser, AstNode *function, int line) {
 /* Everything after the name: the parameter list, the return annotation and the
  * body. Shared by function declarations and class methods, which differ only
  * in how their name is introduced. */
-AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
-                                  int nameLength, bool isMethod) {
+AstNode *parseFunctionRest(Parser *parser, int line, const char *name, int nameLength, bool isMethod) {
   AstNode *function = csAstFunction(parser->arena, line, name, nameLength);
   function->as.function.isAsync = parser->pendingAsync;
   function->as.function.isGenerator = parser->pendingGenerator;
@@ -273,9 +261,7 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
   (void)wasAsync;
   (void)wasGenerator;
 
-  consume(parser, TOKEN_LEFT_PAREN,
-          isMethod ? "expected '(' after the method name"
-                   : "expected '(' after the function name");
+  consume(parser, TOKEN_LEFT_PAREN, isMethod ? "expected '(' after the method name" : "expected '(' after the function name");
   if (parser->diag->panicMode) return NULL;
 
   if (!check(parser, TOKEN_RIGHT_PAREN)) {
@@ -292,8 +278,7 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
 
         char generated[16];
         int generatedLength = snprintf(generated, sizeof generated, " arg%d", patternIndex++);
-        csAstFunctionAddParam(parser->arena, function, generated, generatedLength,
-                              TYPE_DYNAMIC, false);
+        csAstFunctionAddParam(parser->arena, function, generated, generatedLength, TYPE_DYNAMIC, false);
         csAstParamPattern(function, pattern);
         continue;
       }
@@ -311,8 +296,7 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
       bool annotated;
       if (!parseTypeAnnotation(parser, &paramType, &annotated)) return NULL;
 
-      csAstFunctionAddParam(parser->arena, function, paramName, paramLength, paramType,
-                            annotated);
+      csAstFunctionAddParam(parser->arena, function, paramName, paramLength, paramType, annotated);
       if (isRest) {
         function->as.function.hasRest = true;
         if (check(parser, TOKEN_COMMA)) {
@@ -327,8 +311,7 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
       if (matchToken(parser, TOKEN_EQUAL)) {
         AstNode *fallback = parsePrecedence(parser, PREC_ASSIGNMENT);
         if (fallback == NULL) return NULL;
-        function->as.function.params[function->as.function.paramCount - 1]
-            .defaultValue = fallback;
+        function->as.function.params[function->as.function.paramCount - 1].defaultValue = fallback;
       }
     } while (matchToken(parser, TOKEN_COMMA));
   }

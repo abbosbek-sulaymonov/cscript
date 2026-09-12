@@ -26,27 +26,22 @@ static int clampIndex(double raw, int length) {
   return index;
 }
 
-bool csNativeStringArg(int argCount, Value *args, int position, const char *method,
-                      ObjString **out) {
+bool csNativeStringArg(int argCount, Value *args, int position, const char *method, ObjString **out) {
   if (argCount <= position || !IS_STRING(args[position])) {
-    csVMRuntimeError("%s expects a string, got %s", method,
-                     argCount > position ? csValueTypeName(args[position])
-                                         : "no argument");
+    csVMRuntimeError("%s expects a string, got %s", method, argCount > position ? csValueTypeName(args[position]) : "no argument");
     return false;
   }
   *out = AS_STRING(args[position]);
   return true;
 }
 
-static bool numberArg(int argCount, Value *args, int position, double fallback,
-                      const char *method, double *out) {
+static bool numberArg(int argCount, Value *args, int position, double fallback, const char *method, double *out) {
   if (argCount <= position || IS_UNDEFINED(args[position])) {
     *out = fallback;
     return true;
   }
   if (!IS_NUMBER(args[position])) {
-    csVMRuntimeError("%s expects a number, got %s", method,
-                     csValueTypeName(args[position]));
+    csVMRuntimeError("%s expects a number, got %s", method, csValueTypeName(args[position]));
     return false;
   }
   *out = AS_NUMBER(args[position]);
@@ -258,8 +253,7 @@ static bool stringStartsWith(Value receiver, int argCount, Value *args, Value *r
   if (!csNativeStringArg(argCount, args, 0, "startsWith", &needle)) return false;
   ObjString *string = AS_STRING(receiver);
 
-  *result = BOOL_VAL(needle->length <= string->length &&
-                     memcmp(string->chars, needle->chars, (size_t)needle->length) == 0);
+  *result = BOOL_VAL(needle->length <= string->length && memcmp(string->chars, needle->chars, (size_t)needle->length) == 0);
   return true;
 }
 
@@ -269,9 +263,7 @@ static bool stringEndsWith(Value receiver, int argCount, Value *args, Value *res
   ObjString *string = AS_STRING(receiver);
 
   int offset = string->length - needle->length;
-  *result = BOOL_VAL(offset >= 0 &&
-                     memcmp(string->chars + offset, needle->chars,
-                            (size_t)needle->length) == 0);
+  *result = BOOL_VAL(offset >= 0 && memcmp(string->chars + offset, needle->chars, (size_t)needle->length) == 0);
   return true;
 }
 
@@ -291,16 +283,13 @@ static bool stringRepeat(Value receiver, int argCount, Value *args, Value *resul
   if (buffer == NULL) return csNativeFinishString(NULL, 0, result);
 
   for (int i = 0; i < times; i++) {
-    memcpy(buffer + (size_t)i * (size_t)string->length, string->chars,
-           (size_t)string->length);
+    memcpy(buffer + (size_t)i * (size_t)string->length, string->chars, (size_t)string->length);
   }
   buffer[length] = '\0';
   return csNativeFinishString(buffer, (int)length, result);
 }
 
-
-static bool stringPad(Value receiver, int argCount, Value *args, Value *result,
-                      bool atStart, const char *method) {
+static bool stringPad(Value receiver, int argCount, Value *args, Value *result, bool atStart, const char *method) {
   ObjString *string = AS_STRING(receiver);
 
   double raw;
@@ -315,8 +304,7 @@ static bool stringPad(Value receiver, int argCount, Value *args, Value *result,
   int fillerLength = 1;
   if (argCount >= 2 && !IS_UNDEFINED(args[1])) {
     if (!IS_STRING(args[1])) {
-      csVMRuntimeError("%s expects a string, got %s", method,
-                       csValueTypeName(args[1]));
+      csVMRuntimeError("%s expects a string, got %s", method, csValueTypeName(args[1]));
       return false;
     }
     filler = AS_CSTRING(args[1]);

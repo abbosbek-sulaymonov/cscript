@@ -46,10 +46,19 @@ typedef enum {
   IR_LOAD_LOCAL,  /* a := slot[b]                           */
   IR_STORE_LOCAL, /* slot[a] := b                           */
 
-  IR_ADD, IR_SUB, IR_MUL, IR_DIV, IR_MOD,
+  IR_ADD,
+  IR_SUB,
+  IR_MUL,
+  IR_DIV,
+  IR_MOD,
   IR_NEG,
 
-  IR_LT, IR_LE, IR_GT, IR_GE, IR_EQ, IR_NE,
+  IR_LT,
+  IR_LE,
+  IR_GT,
+  IR_GE,
+  IR_EQ,
+  IR_NE,
 
   /* A module-level binding. `a` is the index of its name in the constant
    * pool, which is how the address is found again at compile time.
@@ -94,9 +103,9 @@ typedef enum {
    * constructor body runs. */
   IR_STORE_PROPERTY,
 
-  IR_JUMP,        /* -> block a                             */
-  IR_BRANCH,      /* if a then block b else block c         */
-  IR_RETURN,      /* return a                               */
+  IR_JUMP,   /* -> block a                             */
+  IR_BRANCH, /* if a then block b else block c         */
+  IR_RETURN, /* return a                               */
   /* Hand this frame back to the interpreter at bytecode offset `a`, with the
    * operand stack `b` values deep.
    *
@@ -124,9 +133,9 @@ typedef struct {
  * simply not run when it does not hold — which is the cheapest possible
  * deoptimisation: nothing has happened yet, so there is nothing to undo. */
 typedef struct {
-  int slot;            /* the frame slot holding the object */
-  Shape *shape;        /* the layout it must still have */
-  int property;        /* the storage index the reads and writes use */
+  int slot;     /* the frame slot holding the object */
+  Shape *shape; /* the layout it must still have */
+  int property; /* the storage index the reads and writes use */
   /* Whether the property has to *hold* a number at entry. A read needs that —
    * its result is used as one. A write does not: it only needs the slot to be
    * where the shape says, and what was there before is about to be replaced.
@@ -268,8 +277,7 @@ const char *csIrOpName(IrOp op);
  * first arithmetic operand nothing could prove a number, and the arithmetic
  * that wanted it. Both are written as names; `NULL` when the function *is*
  * fully typed. Returns false when it is fully typed. */
-bool csIrFirstUntyped(const IrFunction *ir, const char **producer,
-                      const char **consumer);
+bool csIrFirstUntyped(const IrFunction *ir, const char **producer, const char **consumer);
 
 /* Do a frame's slots still match what the body was lowered to assume? Both
  * entries ask this, and neither may skip it. */

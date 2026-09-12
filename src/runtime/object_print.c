@@ -38,20 +38,13 @@ static void printNested(Value value) {
 
 void csObjectPrint(Value value) {
   switch (OBJ_TYPE(value)) {
-    case OBJ_STRING:
-      printf("%s", AS_CSTRING(value));
-      break;
-    case OBJ_NATIVE:
-      printf("[Function: %s]", AS_NATIVE(value)->name->chars);
-      break;
-    case OBJ_OBJECT:
-      printf("[Object: %s]", AS_OBJECT(value)->name->chars);
-      break;
+    case OBJ_STRING: printf("%s", AS_CSTRING(value)); break;
+    case OBJ_NATIVE: printf("[Function: %s]", AS_NATIVE(value)->name->chars); break;
+    case OBJ_OBJECT: printf("[Object: %s]", AS_OBJECT(value)->name->chars); break;
     case OBJ_CLASS: {
       ObjClass *klass = AS_CLASS(value);
       if (klass->superclass != NULL) {
-        printf("[class %s extends %s]", klass->name->chars,
-               klass->superclass->name->chars);
+        printf("[class %s extends %s]", klass->name->chars, klass->superclass->name->chars);
       } else {
         printf("[class %s]", klass->name->chars);
       }
@@ -66,12 +59,8 @@ void csObjectPrint(Value value) {
       }
       break;
     }
-    case OBJ_MODULE:
-      printf("[Module: %s]", AS_MODULE(value)->path->chars);
-      break;
-    case OBJ_REGEX:
-      printf("/%s/%s", AS_REGEX(value)->source->chars, AS_REGEX(value)->flags->chars);
-      break;
+    case OBJ_MODULE: printf("[Module: %s]", AS_MODULE(value)->path->chars); break;
+    case OBJ_REGEX: printf("/%s/%s", AS_REGEX(value)->source->chars, AS_REGEX(value)->flags->chars); break;
 
     case OBJ_MAP: {
       /* `Map(2) { 'a' => 1 }` and `Set(2) { 1, 2 }`, as Node prints them. */
@@ -102,12 +91,8 @@ void csObjectPrint(Value value) {
       break;
     }
 
-    case OBJ_FIBER:
-      printf("[internal]");
-      break;
-    case OBJ_GENERATOR:
-      printf("Object [Generator] {}");
-      break;
+    case OBJ_FIBER: printf("[internal]"); break;
+    case OBJ_GENERATOR: printf("Object [Generator] {}"); break;
     case OBJ_BIGINT: {
       char *text = csBigToText(&AS_BIGINT(value)->value, 10);
       printf("%sn", text != NULL ? text : "0");
@@ -116,8 +101,7 @@ void csObjectPrint(Value value) {
     }
     case OBJ_SYMBOL: {
       ObjSymbol *symbol = AS_SYMBOL(value);
-      printf("Symbol(%s)",
-             symbol->description != NULL ? symbol->description->chars : "");
+      printf("Symbol(%s)", symbol->description != NULL ? symbol->description->chars : "");
       break;
     }
     case OBJ_DATE: {
@@ -146,12 +130,8 @@ void csObjectPrint(Value value) {
       }
       break;
     }
-    case OBJ_FUNCTION:
-      printFunctionName((ObjFunction *)AS_OBJ(value));
-      break;
-    case OBJ_CLOSURE:
-      printFunctionName(AS_CLOSURE(value)->function);
-      break;
+    case OBJ_FUNCTION: printFunctionName((ObjFunction *)AS_OBJ(value)); break;
+    case OBJ_CLOSURE: printFunctionName(AS_CLOSURE(value)->function); break;
     case OBJ_UPVALUE:
     case OBJ_SHAPE:
       /* Never reachable from user code; only the collector sees these. */

@@ -31,16 +31,14 @@
  * accessors of an object literal's `get x()` already live: a class made for
  * that object alone. That is why an accessor never enters a shape and the
  * inline caches never see one. */
-static bool readFlag(ObjObject *descriptor, const char *name, int length,
-                     bool *out) {
+static bool readFlag(ObjObject *descriptor, const char *name, int length, bool *out) {
   Value flag;
   if (!csObjectGet(descriptor, csStringCopy(name, length), &flag)) return false;
   *out = csValueIsTruthy(flag);
   return true;
 }
 
-static bool readMember(ObjObject *descriptor, const char *name, int length,
-                       Value *out) {
+static bool readMember(ObjObject *descriptor, const char *name, int length, Value *out) {
   return csObjectGet(descriptor, csStringCopy(name, length), out);
 }
 
@@ -51,15 +49,13 @@ static bool isCallable(Value value) {
 
 static bool defineOne(ObjObject *object, ObjString *key, Value describedBy) {
   if (!IS_OBJECT(describedBy)) {
-    csVMRuntimeError("a property descriptor must be an object, got %s",
-                     csValueTypeName(describedBy));
+    csVMRuntimeError("a property descriptor must be an object, got %s", csValueTypeName(describedBy));
     return false;
   }
   ObjObject *descriptor = AS_OBJECT(describedBy);
 
   if (object->frozen) {
-    csVMRuntimeError("'%s' is frozen, so its properties cannot be redefined",
-                     object->name->chars);
+    csVMRuntimeError("'%s' is frozen, so its properties cannot be redefined", object->name->chars);
     return false;
   }
 
@@ -69,8 +65,7 @@ static bool defineOne(ObjObject *object, ObjString *key, Value describedBy) {
   Value existing;
   bool present = csObjectGet(object, key, &existing);
   if (present && (csObjectAttributes(object, key) & CS_PROP_CONFIGURABLE) == 0) {
-    csVMRuntimeError("'%s' is not configurable and cannot be redefined",
-                     key->chars);
+    csVMRuntimeError("'%s' is not configurable and cannot be redefined", key->chars);
     return false;
   }
 
@@ -82,8 +77,9 @@ static bool defineOne(ObjObject *object, ObjString *key, Value describedBy) {
   Value described;
   bool hasValue = readMember(descriptor, "value", 5, &described);
   if ((hasGetter || hasSetter) && hasValue) {
-    csVMRuntimeError("a property descriptor cannot have both a value and an "
-                     "accessor");
+    csVMRuntimeError(
+        "a property descriptor cannot have both a value and an "
+        "accessor");
     return false;
   }
 
@@ -107,12 +103,12 @@ static bool defineOne(ObjObject *object, ObjString *key, Value describedBy) {
       csVMRuntimeError("a descriptor's 'set' must be a function");
       return false;
     }
-    if ((hasGetter && !IS_UNDEFINED(getter) && !IS_CLOSURE(getter)) ||
-        (hasSetter && !IS_UNDEFINED(setter) && !IS_CLOSURE(setter))) {
+    if ((hasGetter && !IS_UNDEFINED(getter) && !IS_CLOSURE(getter)) || (hasSetter && !IS_UNDEFINED(setter) && !IS_CLOSURE(setter))) {
       /* The accessor tables hold closures, because that is what a class body
        * puts there and what the property paths call. */
-      csVMRuntimeError("a descriptor's accessor must be a function written in "
-                       "CScript");
+      csVMRuntimeError(
+          "a descriptor's accessor must be a function written in "
+          "CScript");
       return false;
     }
 
@@ -136,9 +132,7 @@ static bool defineOne(ObjObject *object, ObjString *key, Value describedBy) {
     csObjectPut(object, key, OBJ_VAL(vm.accessorMarker));
     /* An accessor is never writable in its own right — whether it can be
      * assigned to is decided by having a setter. */
-    csObjectSetAttributes(object, key,
-                          (enumerable ? CS_PROP_ENUMERABLE : 0u) |
-                              (configurable ? CS_PROP_CONFIGURABLE : 0u));
+    csObjectSetAttributes(object, key, (enumerable ? CS_PROP_ENUMERABLE : 0u) | (configurable ? CS_PROP_CONFIGURABLE : 0u));
     return true;
   }
 
@@ -151,24 +145,20 @@ static bool defineOne(ObjObject *object, ObjString *key, Value describedBy) {
   if (!writable) csObjectLeaveShapeMode(object);
 
   csObjectPut(object, key, described);
-  csObjectSetAttributes(object, key,
-                        (writable ? CS_PROP_WRITABLE : 0u) |
-                            (enumerable ? CS_PROP_ENUMERABLE : 0u) |
-                            (configurable ? CS_PROP_CONFIGURABLE : 0u));
+  csObjectSetAttributes(object, key, (writable ? CS_PROP_WRITABLE : 0u) | (enumerable ? CS_PROP_ENUMERABLE : 0u) | (configurable ? CS_PROP_CONFIGURABLE : 0u));
   return true;
 }
 
-static bool objectDefineProperty(Value receiver, int argCount, Value *args,
-                                 Value *result) {
+static bool objectDefineProperty(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   if (argCount < 3 || !IS_OBJECT(args[0])) {
-    csVMRuntimeError("Object.defineProperty expects an object, a key and a "
-                     "descriptor");
+    csVMRuntimeError(
+        "Object.defineProperty expects an object, a key and a "
+        "descriptor");
     return false;
   }
   if (!IS_STRING(args[1])) {
-    csVMRuntimeError("Object.defineProperty expects a string key, got %s",
-                     csValueTypeName(args[1]));
+    csVMRuntimeError("Object.defineProperty expects a string key, got %s", csValueTypeName(args[1]));
     return false;
   }
   if (!defineOne(AS_OBJECT(args[0]), AS_STRING(args[1]), args[2])) return false;
@@ -179,8 +169,7 @@ static bool objectDefineProperty(Value receiver, int argCount, Value *args,
 /* Each own key of the second argument names a property to define. */
 bool csNativeDefineFromMap(ObjObject *object, Value describedBy) {
   if (!IS_OBJECT(describedBy)) {
-    csVMRuntimeError("expected an object of property descriptors, got %s",
-                     csValueTypeName(describedBy));
+    csVMRuntimeError("expected an object of property descriptors, got %s", csValueTypeName(describedBy));
     return false;
   }
   ObjObject *map = AS_OBJECT(describedBy);
@@ -196,12 +185,12 @@ bool csNativeDefineFromMap(ObjObject *object, Value describedBy) {
   return true;
 }
 
-static bool objectDefineProperties(Value receiver, int argCount, Value *args,
-                                   Value *result) {
+static bool objectDefineProperties(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   if (argCount < 2 || !IS_OBJECT(args[0])) {
-    csVMRuntimeError("Object.defineProperties expects an object and a map of "
-                     "descriptors");
+    csVMRuntimeError(
+        "Object.defineProperties expects an object and a map of "
+        "descriptors");
     return false;
   }
   if (!csNativeDefineFromMap(AS_OBJECT(args[0]), args[1])) return false;
@@ -236,35 +225,31 @@ static bool describeOne(ObjObject *object, ObjString *key, Value *out) {
   csPushTempRoot((Obj *)descriptor);
   if (isData) {
     csObjectSetProperty(descriptor, "value", stored);
-    csObjectSetProperty(descriptor, "writable",
-                        BOOL_VAL((attributes & CS_PROP_WRITABLE) != 0));
+    csObjectSetProperty(descriptor, "writable", BOOL_VAL((attributes & CS_PROP_WRITABLE) != 0));
   } else {
     csObjectSetProperty(descriptor, "get", getter);
     csObjectSetProperty(descriptor, "set", setter);
   }
-  csObjectSetProperty(descriptor, "enumerable",
-                      BOOL_VAL((attributes & CS_PROP_ENUMERABLE) != 0));
-  csObjectSetProperty(descriptor, "configurable",
-                      BOOL_VAL((attributes & CS_PROP_CONFIGURABLE) != 0));
+  csObjectSetProperty(descriptor, "enumerable", BOOL_VAL((attributes & CS_PROP_ENUMERABLE) != 0));
+  csObjectSetProperty(descriptor, "configurable", BOOL_VAL((attributes & CS_PROP_CONFIGURABLE) != 0));
   csPopTempRoot();
 
   *out = OBJ_VAL(descriptor);
   return true;
 }
 
-static bool objectGetOwnPropertyDescriptor(Value receiver, int argCount,
-                                           Value *args, Value *result) {
+static bool objectGetOwnPropertyDescriptor(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   if (argCount < 2 || !IS_OBJECT(args[0]) || !IS_STRING(args[1])) {
-    csVMRuntimeError("Object.getOwnPropertyDescriptor expects an object and a "
-                     "string");
+    csVMRuntimeError(
+        "Object.getOwnPropertyDescriptor expects an object and a "
+        "string");
     return false;
   }
   return describeOne(AS_OBJECT(args[0]), AS_STRING(args[1]), result);
 }
 
-static bool objectGetOwnPropertyDescriptors(Value receiver, int argCount,
-                                            Value *args, Value *result) {
+static bool objectGetOwnPropertyDescriptors(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   if (argCount < 1 || !IS_OBJECT(args[0])) {
     csVMRuntimeError("Object.getOwnPropertyDescriptors expects an object");
@@ -295,8 +280,6 @@ static bool objectGetOwnPropertyDescriptors(Value receiver, int argCount,
 void csNativeInstallDescriptors(ObjObject *objectNamespace) {
   csNativeDefineMethod(objectNamespace, "defineProperty", objectDefineProperty, 3);
   csNativeDefineMethod(objectNamespace, "defineProperties", objectDefineProperties, 2);
-  csNativeDefineMethod(objectNamespace, "getOwnPropertyDescriptor",
-                       objectGetOwnPropertyDescriptor, 2);
-  csNativeDefineMethod(objectNamespace, "getOwnPropertyDescriptors",
-                       objectGetOwnPropertyDescriptors, 1);
+  csNativeDefineMethod(objectNamespace, "getOwnPropertyDescriptor", objectGetOwnPropertyDescriptor, 2);
+  csNativeDefineMethod(objectNamespace, "getOwnPropertyDescriptors", objectGetOwnPropertyDescriptors, 1);
 }

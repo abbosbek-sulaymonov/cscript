@@ -21,8 +21,7 @@
 /* Replaces the first match, or every match when `all` is set. A pattern that
  * is a regex hands off to the regex side, which knows the rules about groups
  * and the `g` flag. */
-static bool stringReplaceImpl(Value receiver, int argCount, Value *args, Value *result,
-                              bool all, const char *method) {
+static bool stringReplaceImpl(Value receiver, int argCount, Value *args, Value *result, bool all, const char *method) {
   if (argCount > 0 && IS_REGEX(args[0])) {
     return csRegexStringReplace(receiver, argCount, args, result, all);
   }

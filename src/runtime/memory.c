@@ -112,8 +112,7 @@ static void markRoots(void) {
 
   /* Upvalues still pointing into the stack. Their `closed` field is empty while
    * they are open, but the object itself must survive. */
-  for (ObjUpvalue *upvalue = vm.openUpvalues; upvalue != NULL;
-       upvalue = upvalue->next) {
+  for (ObjUpvalue *upvalue = vm.openUpvalues; upvalue != NULL; upvalue = upvalue->next) {
     csMarkObject((Obj *)upvalue);
   }
 
@@ -295,8 +294,7 @@ void csCollectGarbage(void) {
   if (vm.nextGC < 1024 * 1024) vm.nextGC = 1024 * 1024;
 
 #ifdef CS_DEBUG_LOG_GC
-  printf("-- gc end: collected %zu bytes (%zu -> %zu), next at %zu\n",
-         before - vm.bytesAllocated, before, vm.bytesAllocated, vm.nextGC);
+  printf("-- gc end: collected %zu bytes (%zu -> %zu), next at %zu\n", before - vm.bytesAllocated, before, vm.bytesAllocated, vm.nextGC);
 #endif
 }
 

@@ -34,9 +34,7 @@ LowerResult csIrLowerData(LowerAt *at) {
     case OP_CONSTANT: {
       int index = (chunk->code[offset + 1] << 8) | chunk->code[offset + 2];
       Value constant = chunk->constants.values[index];
-      IrType type = IS_NUMBER(constant)  ? IR_TYPE_NUMBER
-                    : IS_BOOL(constant)  ? IR_TYPE_BOOL
-                                         : IR_TYPE_UNKNOWN;
+      IrType type = IS_NUMBER(constant) ? IR_TYPE_NUMBER : IS_BOOL(constant) ? IR_TYPE_BOOL : IR_TYPE_UNKNOWN;
       int result = csIrNewRegister(ir, type);
       IrInst *inst = csIrAppend(block, IR_CONST, line);
       inst->result = result;
@@ -65,8 +63,7 @@ LowerResult csIrLowerData(LowerAt *at) {
          * lowering has always done here. */
         int argCount = 0;
         int callAt = csIrCallSiteFor(chunk, leader, offset, &argCount);
-        ObjClosure *closure =
-            callAt < 0 ? NULL : csIrGlobalCallable(function, chunk, index);
+        ObjClosure *closure = callAt < 0 ? NULL : csIrGlobalCallable(function, chunk, index);
         if (closure == NULL || !csIrCalleeIsInlinable(closure->function, argCount)) {
           return LOWER_HAND_OVER;
         }
@@ -108,14 +105,12 @@ LowerResult csIrLowerData(LowerAt *at) {
         low->reason = "operand stack underflow while lowering";
         return LOWER_FAILED;
       }
-      if (low->stack[low->stackTop - 1] < 0 ||
-          ir->registerTypes[low->stack[low->stackTop - 1]] != IR_TYPE_NUMBER) {
+      if (low->stack[low->stackTop - 1] < 0 || ir->registerTypes[low->stack[low->stackTop - 1]] != IR_TYPE_NUMBER) {
         return LOWER_HAND_OVER;
       }
 
       /* OP_SET_GLOBAL leaves the value; the other three consume it. */
-      int value = opcode == OP_SET_GLOBAL ? low->stack[low->stackTop - 1]
-                                          : csIrPop(low, block, line);
+      int value = opcode == OP_SET_GLOBAL ? low->stack[low->stackTop - 1] : csIrPop(low, block, line);
       if (low->reason != NULL) return LOWER_FAILED;
 
       IrInst *inst = csIrAppend(block, IR_STORE_GLOBAL, line);
@@ -178,13 +173,16 @@ LowerResult csIrLowerData(LowerAt *at) {
       /* Stores and leaves the value: assignment is an expression. */
       int slot = chunk->code[offset + 1];
       int value = low->stackTop > 0 ? low->stack[low->stackTop - 1] : -1;
-      if (value < 0) { low->reason = "operand stack underflow while lowering"; return LOWER_FAILED; }
+      if (value < 0) {
+        low->reason = "operand stack underflow while lowering";
+        return LOWER_FAILED;
+      }
       IrInst *inst = csIrAppend(block, IR_STORE_LOCAL, line);
       inst->a = slot;
       inst->b = value;
       low->slotType[slot] = low->slotType[slot] == IR_TYPE_UNKNOWN && ir->registerTypes[value] != IR_TYPE_UNKNOWN
-                               ? ir->registerTypes[value]
-                               : (low->slotType[slot] == ir->registerTypes[value] ? low->slotType[slot] : IR_TYPE_UNKNOWN);
+                                ? ir->registerTypes[value]
+                                : (low->slotType[slot] == ir->registerTypes[value] ? low->slotType[slot] : IR_TYPE_UNKNOWN);
       if (slot + 1 > ir->slotCount) ir->slotCount = slot + 1;
       break;
     }
@@ -193,15 +191,11 @@ LowerResult csIrLowerData(LowerAt *at) {
     case OP_FALSE:
     case OP_NULL:
     case OP_UNDEFINED: {
-      IrType type = (opcode == OP_TRUE || opcode == OP_FALSE) ? IR_TYPE_BOOL
-                                                              : IR_TYPE_UNKNOWN;
+      IrType type = (opcode == OP_TRUE || opcode == OP_FALSE) ? IR_TYPE_BOOL : IR_TYPE_UNKNOWN;
       int result = csIrNewRegister(ir, type);
       IrInst *inst = csIrAppend(block, IR_CONST, line);
       inst->result = result;
-      inst->constant = opcode == OP_TRUE    ? BOOL_VAL(true)
-                       : opcode == OP_FALSE ? BOOL_VAL(false)
-                       : opcode == OP_NULL  ? NULL_VAL
-                                            : UNDEFINED_VAL;
+      inst->constant = opcode == OP_TRUE ? BOOL_VAL(true) : opcode == OP_FALSE ? BOOL_VAL(false) : opcode == OP_NULL ? NULL_VAL : UNDEFINED_VAL;
       inst->type = type;
       if (!csIrPush(low, block, result, line)) return LOWER_FAILED;
       break;
@@ -215,7 +209,10 @@ LowerResult csIrLowerData(LowerAt *at) {
       break;
 
     case OP_DUP: {
-      if (low->stackTop == 0) { low->reason = "operand stack underflow while lowering"; return LOWER_FAILED; }
+      if (low->stackTop == 0) {
+        low->reason = "operand stack underflow while lowering";
+        return LOWER_FAILED;
+      }
       if (!csIrPush(low, block, low->stack[low->stackTop - 1], line)) return LOWER_FAILED;
       break;
     }
@@ -228,8 +225,8 @@ LowerResult csIrLowerData(LowerAt *at) {
       inst->a = slot;
       inst->b = value;
       low->slotType[slot] = low->slotType[slot] == IR_TYPE_UNKNOWN && ir->registerTypes[value] != IR_TYPE_UNKNOWN
-                               ? ir->registerTypes[value]
-                               : (low->slotType[slot] == ir->registerTypes[value] ? low->slotType[slot] : IR_TYPE_UNKNOWN);
+                                ? ir->registerTypes[value]
+                                : (low->slotType[slot] == ir->registerTypes[value] ? low->slotType[slot] : IR_TYPE_UNKNOWN);
       if (slot + 1 > ir->slotCount) ir->slotCount = slot + 1;
       break;
     }
@@ -267,8 +264,7 @@ LowerResult csIrLowerData(LowerAt *at) {
       if (low->reason != NULL) return LOWER_FAILED;
       break;
 
-    default:
-      return LOWER_UNHANDLED;
+    default: return LOWER_UNHANDLED;
   }
   return LOWER_OK;
 }

@@ -15,8 +15,7 @@ AstNode *parseClass(Parser *parser) {
 
   consume(parser, TOKEN_IDENTIFIER, "expected a class name");
   if (parser->diag->panicMode) return NULL;
-  return parseClassBody(parser, line, parser->previous.start,
-                        parser->previous.length);
+  return parseClassBody(parser, line, parser->previous.start, parser->previous.length);
 }
 
 /* Everything after the name, which a class expression has none of. */
@@ -28,15 +27,13 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
     if (parser->diag->panicMode) return NULL;
     superName = parser->previous.start;
     superLength = parser->previous.length;
-    if (superLength == nameLength &&
-        memcmp(superName, name, (size_t)superLength) == 0) {
+    if (superLength == nameLength && memcmp(superName, name, (size_t)superLength) == 0) {
       errorAtCurrent(parser, "a class cannot extend itself");
       return NULL;
     }
   }
 
-  AstNode *node =
-      csAstClass(parser->arena, line, name, nameLength, superName, superLength);
+  AstNode *node = csAstClass(parser->arena, line, name, nameLength, superName, superLength);
 
   consume(parser, TOKEN_LEFT_BRACE, "expected '{' to open the class body");
   if (parser->diag->panicMode) return NULL;
@@ -44,7 +41,6 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
   while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
     /* A stray ';' between members is legal and means nothing. */
     if (matchToken(parser, TOKEN_SEMICOLON)) continue;
-
 
     bool isStatic = matchToken(parser, TOKEN_STATIC);
     if (isStatic && check(parser, TOKEN_LEFT_BRACE)) {
@@ -70,8 +66,7 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
     if (checkWord(parser, "async")) {
       Lexer probe = parser->lexer;
       Token next = csLexerNext(&probe);
-      if (next.type != TOKEN_LEFT_PAREN && next.type != TOKEN_EQUAL &&
-          next.type != TOKEN_SEMICOLON && next.type != TOKEN_COLON) {
+      if (next.type != TOKEN_LEFT_PAREN && next.type != TOKEN_EQUAL && next.type != TOKEN_SEMICOLON && next.type != TOKEN_COLON) {
         advanceToken(parser);
         isAsyncMember = true;
       }
@@ -109,9 +104,7 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
      * `get() {}` is a method called `get`, and `get = ...` is a field called
      * `get` — the same rule the object-literal parser follows, and without it
      * a field may not be named after an accessor keyword. */
-    if ((nameIs(memberName, memberLength, "get") ||
-         nameIs(memberName, memberLength, "set")) &&
-        !check(parser, TOKEN_LEFT_PAREN) && !check(parser, TOKEN_EQUAL) &&
+    if ((nameIs(memberName, memberLength, "get") || nameIs(memberName, memberLength, "set")) && !check(parser, TOKEN_LEFT_PAREN) && !check(parser, TOKEN_EQUAL) &&
         !check(parser, TOKEN_SEMICOLON)) {
       memberKind = memberName[0] == 'g' ? MEMBER_GETTER : MEMBER_SETTER;
 
@@ -143,10 +136,7 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
       }
       parser->pendingAsync = isAsyncMember;
       parser->pendingGenerator = isGeneratorMember;
-      AstNode *method = parseFunctionRest(parser, memberLine,
-                                          isConstructor ? name : memberName,
-                                          isConstructor ? nameLength : memberLength,
-                                          true);
+      AstNode *method = parseFunctionRest(parser, memberLine, isConstructor ? name : memberName, isConstructor ? nameLength : memberLength, true);
       if (method == NULL) return NULL;
 
       if (isConstructor) {
@@ -161,8 +151,7 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
         node->as.classDecl.constructor = method;
       } else {
         csAstClassAddMember(parser->arena, node, method, isStatic, memberKind);
-        node->as.classDecl.members[node->as.classDecl.memberCount - 1].computedKey =
-            computedKey;
+        node->as.classDecl.members[node->as.classDecl.memberCount - 1].computedKey = computedKey;
       }
       continue;
     }
@@ -179,10 +168,8 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
     consume(parser, TOKEN_SEMICOLON, "expected ';' after the field declaration");
     if (parser->diag->panicMode) return NULL;
 
-    csAstClassAddField(parser->arena, node, memberName, memberLength, initializer,
-                       fieldType, annotated, isStatic);
-    node->as.classDecl.fields[node->as.classDecl.fieldCount - 1].computedKey =
-        computedKey;
+    csAstClassAddField(parser->arena, node, memberName, memberLength, initializer, fieldType, annotated, isStatic);
+    node->as.classDecl.fields[node->as.classDecl.fieldCount - 1].computedKey = computedKey;
   }
 
   consume(parser, TOKEN_RIGHT_BRACE, "expected '}' after the class body");

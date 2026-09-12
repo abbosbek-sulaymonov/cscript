@@ -41,12 +41,12 @@ LowerResult csIrLowerFlow(LowerAt *at) {
     case OP_JUMP_IF_NOT_GREATER_EQUAL:
     case OP_JUMP_IF_NOT_EQUAL:
     case OP_JUMP_IF_EQUAL: {
-      IrOp comparison = opcode == OP_JUMP_IF_NOT_LESS          ? IR_LT
-                        : opcode == OP_JUMP_IF_NOT_LESS_EQUAL  ? IR_LE
-                        : opcode == OP_JUMP_IF_NOT_GREATER     ? IR_GT
+      IrOp comparison = opcode == OP_JUMP_IF_NOT_LESS            ? IR_LT
+                        : opcode == OP_JUMP_IF_NOT_LESS_EQUAL    ? IR_LE
+                        : opcode == OP_JUMP_IF_NOT_GREATER       ? IR_GT
                         : opcode == OP_JUMP_IF_NOT_GREATER_EQUAL ? IR_GE
-                        : opcode == OP_JUMP_IF_EQUAL           ? IR_NE
-                                                               : IR_EQ;
+                        : opcode == OP_JUMP_IF_EQUAL             ? IR_NE
+                                                                 : IR_EQ;
       if (!csIrLowerBinary(low, block, comparison, IR_TYPE_BOOL, line)) return LOWER_FAILED;
       int condition = csIrPop(low, block, line);
 
@@ -152,13 +152,8 @@ LowerResult csIrLowerFlow(LowerAt *at) {
         }
       }
 
-      int result = loaded ? csIrInlineCallee(ir, block, closure->function, args,
-                                         argCount, line)
-                          : -1;
-      if (result >= 0 &&
-          !csIrRememberInlinedCall(ir, &function->module->globals,
-                               AS_STRING(chunk->constants.values[low->pendingName[base]]),
-                               closure)) {
+      int result = loaded ? csIrInlineCallee(ir, block, closure->function, args, argCount, line) : -1;
+      if (result >= 0 && !csIrRememberInlinedCall(ir, &function->module->globals, AS_STRING(chunk->constants.values[low->pendingName[base]]), closure)) {
         result = -1;
       }
       if (result < 0) {
@@ -186,8 +181,7 @@ LowerResult csIrLowerFlow(LowerAt *at) {
       break;
     }
 
-    default:
-      return LOWER_UNHANDLED;
+    default: return LOWER_UNHANDLED;
   }
   return LOWER_OK;
 }

@@ -20,11 +20,17 @@ void csLexerInit(Lexer *lexer, const char *source, Diagnostics *diag) {
   lexer->diag = diag;
 }
 
-static bool isAtEnd(const Lexer *lexer) { return *lexer->current == '\0'; }
+static bool isAtEnd(const Lexer *lexer) {
+  return *lexer->current == '\0';
+}
 
-static char advance(Lexer *lexer) { return *lexer->current++; }
+static char advance(Lexer *lexer) {
+  return *lexer->current++;
+}
 
-static char peek(const Lexer *lexer) { return *lexer->current; }
+static char peek(const Lexer *lexer) {
+  return *lexer->current;
+}
 
 static char peekNext(const Lexer *lexer) {
   return isAtEnd(lexer) ? '\0' : lexer->current[1];
@@ -36,7 +42,9 @@ static bool match(Lexer *lexer, char expected) {
   return true;
 }
 
-static bool isDigit(char c) { return c >= '0' && c <= '9'; }
+static bool isDigit(char c) {
+  return c >= '0' && c <= '9';
+}
 
 static bool isHexDigit(char c) {
   return isDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
@@ -57,8 +65,7 @@ static Token makeToken(const Lexer *lexer, TokenType type) {
 }
 
 static Token errorToken(Lexer *lexer, const char *message) {
-  csDiagnosticError(lexer->diag, lexer->line, lexer->start,
-                    (int)(lexer->current - lexer->start), "%s", message);
+  csDiagnosticError(lexer->diag, lexer->line, lexer->start, (int)(lexer->current - lexer->start), "%s", message);
   Token token;
   token.type = TOKEN_ERROR;
   token.start = message;
@@ -73,9 +80,7 @@ static void skipWhitespaceAndComments(Lexer *lexer) {
     switch (c) {
       case ' ':
       case '\r':
-      case '\t':
-        advance(lexer);
-        break;
+      case '\t': advance(lexer); break;
       case '\n':
         lexer->line++;
         advance(lexer);
@@ -98,8 +103,7 @@ static void skipWhitespaceAndComments(Lexer *lexer) {
           return; /* a division operator, not a comment */
         }
         break;
-      default:
-        return;
+      default: return;
     }
   }
 }
@@ -112,8 +116,12 @@ static Token identifier(Lexer *lexer) {
 /* A digit, or the `_` that may sit between two of them. The separator is only
  * ever punctuation: parseNumberLiteral drops it before anything reads the
  * value, so `1_000` and `1000` are the same token in every other respect. */
-static bool isDigitPart(char c) { return isDigit(c) || c == '_'; }
-static bool isHexPart(char c) { return isHexDigit(c) || c == '_'; }
+static bool isDigitPart(char c) {
+  return isDigit(c) || c == '_';
+}
+static bool isHexPart(char c) {
+  return isHexDigit(c) || c == '_';
+}
 
 static Token number(Lexer *lexer) {
   /* Hex literals: 0x1F. */
@@ -234,9 +242,12 @@ Token csLexerScanRegex(Lexer *lexer) {
       advance(lexer);
       continue;
     }
-    if (c == '[') inClass = true;
-    else if (c == ']') inClass = false;
-    else if (c == '/' && !inClass) break;
+    if (c == '[')
+      inClass = true;
+    else if (c == ']')
+      inClass = false;
+    else if (c == '/' && !inClass)
+      break;
   }
 
   while (isAlpha(peek(lexer))) advance(lexer);
@@ -319,16 +330,14 @@ Token csLexerNext(Lexer *lexer) {
 
     case '!':
       if (match(lexer, '=')) {
-        return makeToken(lexer, match(lexer, '=') ? TOKEN_BANG_EQUAL_EQUAL
-                                                  : TOKEN_BANG_EQUAL);
+        return makeToken(lexer, match(lexer, '=') ? TOKEN_BANG_EQUAL_EQUAL : TOKEN_BANG_EQUAL);
       }
       return makeToken(lexer, TOKEN_BANG);
 
     case '=':
       if (match(lexer, '>')) return makeToken(lexer, TOKEN_ARROW);
       if (match(lexer, '=')) {
-        return makeToken(lexer, match(lexer, '=') ? TOKEN_EQUAL_EQUAL_EQUAL
-                                                  : TOKEN_EQUAL_EQUAL);
+        return makeToken(lexer, match(lexer, '=') ? TOKEN_EQUAL_EQUAL_EQUAL : TOKEN_EQUAL_EQUAL);
       }
       return makeToken(lexer, TOKEN_EQUAL);
 
@@ -350,11 +359,9 @@ Token csLexerNext(Lexer *lexer) {
       return errorToken(lexer, "unexpected '|' (did you mean '||'?)");
 
     case '"':
-    case '\'':
-      return string(lexer, c);
+    case '\'': return string(lexer, c);
 
-    case '`':
-      return templateLiteral(lexer);
+    case '`': return templateLiteral(lexer);
   }
 
   return errorToken(lexer, "unexpected character");

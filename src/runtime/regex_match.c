@@ -22,9 +22,13 @@ void csRegexFree(Regex *regex) {
   free(regex);
 }
 
-int csRegexGroupCount(const Regex *regex) { return regex->groupCount; }
+int csRegexGroupCount(const Regex *regex) {
+  return regex->groupCount;
+}
 
-int csRegexNameCount(const Regex *regex) { return regex->nameCount; }
+int csRegexNameCount(const Regex *regex) {
+  return regex->nameCount;
+}
 
 const char *csRegexNameAt(const Regex *regex, int index, int *group) {
   *group = regex->names[index].group;
@@ -33,8 +37,7 @@ const char *csRegexNameAt(const Regex *regex, int index, int *group) {
 
 int csRegexGroupNamed(const Regex *regex, const char *name, int length) {
   for (int i = 0; i < regex->nameCount; i++) {
-    if ((int)strlen(regex->names[i].name) == length &&
-        memcmp(regex->names[i].name, name, (size_t)length) == 0) {
+    if ((int)strlen(regex->names[i].name) == length && memcmp(regex->names[i].name, name, (size_t)length) == 0) {
       return regex->names[i].group;
     }
   }
@@ -76,9 +79,7 @@ static bool sameByte(unsigned char a, unsigned char b, bool ignoreCase) {
  *
  * `stopOp` is what counts as success — RE_MATCH for the whole pattern, and
  * RE_LOOK_END for a lookahead body. */
-static bool matchFrom(const Regex *regex, const char *subject, int length,
-                      int pc, int sp, int *slots, long *steps, bool *exhausted,
-                      ReOp stopOp, int *endSp) {
+static bool matchFrom(const Regex *regex, const char *subject, int length, int pc, int sp, int *slots, long *steps, bool *exhausted, ReOp stopOp, int *endSp) {
   Thread threadsInline[64];
   Thread *threads = threadsInline;
   int threadCapacity = 64;
@@ -114,8 +115,7 @@ static bool matchFrom(const Regex *regex, const char *subject, int length,
         break;
 
       case RE_CLASS:
-        alive = sp < length &&
-                csRegexClassHas(&regex->classes[inst->x], (unsigned char)subject[sp]);
+        alive = sp < length && csRegexClassHas(&regex->classes[inst->x], (unsigned char)subject[sp]);
         if (alive) sp++;
         pc++;
         break;
@@ -132,8 +132,7 @@ static bool matchFrom(const Regex *regex, const char *subject, int length,
         int span = to - from;
         alive = sp + span <= length;
         for (int i = 0; alive && i < span; i++) {
-          alive = sameByte((unsigned char)subject[sp + i],
-                           (unsigned char)subject[from + i], regex->ignoreCase);
+          alive = sameByte((unsigned char)subject[sp + i], (unsigned char)subject[from + i], regex->ignoreCase);
         }
         if (alive) sp += span;
         pc++;
@@ -148,9 +147,11 @@ static bool matchFrom(const Regex *regex, const char *subject, int length,
         memcpy(saved, slots, sizeof(int) * (size_t)(regex->groupCount * 2));
 
         int ignored = sp;
-        bool held = matchFrom(regex, subject, length, pc + 1, sp, slots, steps,
-                              exhausted, RE_LOOK_END, &ignored);
-        if (*exhausted) { alive = false; break; }
+        bool held = matchFrom(regex, subject, length, pc + 1, sp, slots, steps, exhausted, RE_LOOK_END, &ignored);
+        if (*exhausted) {
+          alive = false;
+          break;
+        }
 
         bool wanted = inst->x == 0;
         alive = held == wanted;
@@ -171,8 +172,7 @@ static bool matchFrom(const Regex *regex, const char *subject, int length,
         bool held = false;
         for (int from = sp; from >= 0 && !held; from--) {
           int ended = from;
-          if (!matchFrom(regex, subject, length, pc + 1, from, slots, steps,
-                         exhausted, RE_LOOK_END, &ended)) {
+          if (!matchFrom(regex, subject, length, pc + 1, from, slots, steps, exhausted, RE_LOOK_END, &ended)) {
             if (*exhausted) break;
             memcpy(slots, saved, sizeof(int) * (size_t)(regex->groupCount * 2));
             continue;
@@ -183,7 +183,10 @@ static bool matchFrom(const Regex *regex, const char *subject, int length,
             memcpy(slots, saved, sizeof(int) * (size_t)(regex->groupCount * 2));
           }
         }
-        if (*exhausted) { alive = false; break; }
+        if (*exhausted) {
+          alive = false;
+          break;
+        }
 
         bool wanted = inst->x == 0;
         alive = held == wanted;
@@ -244,9 +247,7 @@ static bool matchFrom(const Regex *regex, const char *subject, int length,
         pc = inst->x;
         break;
 
-      case RE_JUMP:
-        pc = inst->x;
-        break;
+      case RE_JUMP: pc = inst->x; break;
 
       case RE_LOOK_END:
       case RE_MATCH:
@@ -283,8 +284,7 @@ static bool matchFrom(const Regex *regex, const char *subject, int length,
   return matched;
 }
 
-bool csRegexSearch(const Regex *regex, const char *subject, int length, int start,
-                   RegexMatch *match, bool *outOfSteps) {
+bool csRegexSearch(const Regex *regex, const char *subject, int length, int start, RegexMatch *match, bool *outOfSteps) {
   if (outOfSteps != NULL) *outOfSteps = false;
 
   int slots[CS_REGEX_MAX_GROUPS * 2];
@@ -298,8 +298,7 @@ bool csRegexSearch(const Regex *regex, const char *subject, int length, int star
     for (int i = 0; i < regex->groupCount * 2; i++) slots[i] = -1;
 
     int endSp = at;
-    matched = matchFrom(regex, subject, length, 0, at, slots, &steps, &exhausted,
-                        RE_MATCH, &endSp);
+    matched = matchFrom(regex, subject, length, 0, at, slots, &steps, &exhausted, RE_MATCH, &endSp);
 
     if (matched) {
       match->groupCount = regex->groupCount;

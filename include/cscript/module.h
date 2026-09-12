@@ -30,8 +30,7 @@ char *csReadFile(const char *path, bool quiet);
  * and for a `std:` specifier the one thing that would explain it. */
 const char *csModuleResolutionHint(const char *specifier);
 
-bool csModuleResolve(const char *fromPath, const char *specifier, char *out,
-                     size_t outSize);
+bool csModuleResolve(const char *fromPath, const char *specifier, char *out, size_t outSize);
 
 /* How a file is named in output: relative to where the program was started
  * when it sits underneath, absolute otherwise. The returned pointer points
@@ -45,15 +44,13 @@ ObjModule *csModuleFind(const char *resolvedPath);
  * already happened. Errors are reported against `from` when one is given — so
  * a missing file is reported at the import that named it — and printed plainly
  * when it is the entry file. */
-ObjModule *csModuleLoadResolved(const char *resolvedPath, const char *shownAs,
-                                Diagnostics *from, int line);
+ObjModule *csModuleLoadResolved(const char *resolvedPath, const char *shownAs, Diagnostics *from, int line);
 
 /* Loads every module the top level of `program` imports, resolved against
  * `fromPath`. The loader calls this for each file it reads; csInterpret calls
  * it so that `-e` and the REPL can import too, relative to the working
  * directory. */
-bool csModuleLoadImports(const AstNode *program, const char *fromPath,
-                         Diagnostics *diag);
+bool csModuleLoadImports(const AstNode *program, const char *fromPath, Diagnostics *diag);
 
 /* Loads and runs a file as the entry point of a program. */
 InterpretResult csRunFile(const char *path);

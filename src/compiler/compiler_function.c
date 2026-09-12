@@ -23,29 +23,18 @@ bool containsFunction(const AstNode *node) {
   if (node == NULL) return false;
 
   switch (node->type) {
-    case AST_FUNCTION:
-      return true;
+    case AST_FUNCTION: return true;
 
-    case AST_UNARY:    return containsFunction(node->as.unary.operand);
+    case AST_UNARY: return containsFunction(node->as.unary.operand);
     case AST_GROUPING: return containsFunction(node->as.grouping);
-    case AST_BINARY:
-      return containsFunction(node->as.binary.left) ||
-             containsFunction(node->as.binary.right);
-    case AST_LOGICAL:
-      return containsFunction(node->as.logical.left) ||
-             containsFunction(node->as.logical.right);
-    case AST_ASSIGN:
-      return containsFunction(node->as.assign.target) ||
-             containsFunction(node->as.assign.value);
-    case AST_UPDATE:   return containsFunction(node->as.update.target);
+    case AST_BINARY: return containsFunction(node->as.binary.left) || containsFunction(node->as.binary.right);
+    case AST_LOGICAL: return containsFunction(node->as.logical.left) || containsFunction(node->as.logical.right);
+    case AST_ASSIGN: return containsFunction(node->as.assign.target) || containsFunction(node->as.assign.value);
+    case AST_UPDATE: return containsFunction(node->as.update.target);
     case AST_PROPERTY: return containsFunction(node->as.property.object);
-    case AST_INDEX:
-      return containsFunction(node->as.index.target) ||
-             containsFunction(node->as.index.index);
+    case AST_INDEX: return containsFunction(node->as.index.target) || containsFunction(node->as.index.index);
     case AST_CONDITIONAL:
-      return containsFunction(node->as.conditional.condition) ||
-             containsFunction(node->as.conditional.thenValue) ||
-             containsFunction(node->as.conditional.elseValue);
+      return containsFunction(node->as.conditional.condition) || containsFunction(node->as.conditional.thenValue) || containsFunction(node->as.conditional.elseValue);
 
     case AST_CALL: {
       if (containsFunction(node->as.call.callee)) return true;
@@ -68,23 +57,15 @@ bool containsFunction(const AstNode *node) {
     }
 
     case AST_EXPRESSION_STMT: return containsFunction(node->as.expression);
-    case AST_RETURN_STMT:     return containsFunction(node->as.returnValue);
-    case AST_VAR_DECL:        return containsFunction(node->as.varDecl.initializer);
+    case AST_RETURN_STMT: return containsFunction(node->as.returnValue);
+    case AST_VAR_DECL: return containsFunction(node->as.varDecl.initializer);
     case AST_IF_STMT:
-      return containsFunction(node->as.ifStmt.condition) ||
-             containsFunction(node->as.ifStmt.thenBranch) ||
-             containsFunction(node->as.ifStmt.elseBranch);
-    case AST_WHILE_STMT:
-      return containsFunction(node->as.whileStmt.condition) ||
-             containsFunction(node->as.whileStmt.body);
+      return containsFunction(node->as.ifStmt.condition) || containsFunction(node->as.ifStmt.thenBranch) || containsFunction(node->as.ifStmt.elseBranch);
+    case AST_WHILE_STMT: return containsFunction(node->as.whileStmt.condition) || containsFunction(node->as.whileStmt.body);
     case AST_FOR_STMT:
-      return containsFunction(node->as.forStmt.initializer) ||
-             containsFunction(node->as.forStmt.condition) ||
-             containsFunction(node->as.forStmt.increment) ||
+      return containsFunction(node->as.forStmt.initializer) || containsFunction(node->as.forStmt.condition) || containsFunction(node->as.forStmt.increment) ||
              containsFunction(node->as.forStmt.body);
-    case AST_FOR_OF_STMT:
-      return containsFunction(node->as.forOf.iterable) ||
-             containsFunction(node->as.forOf.body);
+    case AST_FOR_OF_STMT: return containsFunction(node->as.forOf.iterable) || containsFunction(node->as.forOf.body);
     case AST_SWITCH_STMT: {
       if (containsFunction(node->as.switchStmt.subject)) return true;
       for (int i = 0; i < node->as.switchStmt.caseCount; i++) {
@@ -105,8 +86,7 @@ bool containsFunction(const AstNode *node) {
       return false;
     }
 
-    default:
-      return false;
+    default: return false;
   }
 }
 
@@ -153,8 +133,7 @@ void compileFunctionAs(const AstNode *node, FunctionKind kind) {
   currentTry = NULL;
 
   Compiler compiler;
-  beginFunction(&compiler, kind, node->as.function.name,
-                node->as.function.nameLength);
+  beginFunction(&compiler, kind, node->as.function.name, node->as.function.nameLength);
   compiler.function->isAsync = node->as.function.isAsync;
   compiler.function->isGenerator = node->as.function.isGenerator;
   beginScope();
@@ -189,19 +168,16 @@ void compileFunctionAs(const AstNode *node, FunctionKind kind) {
    * needs them: an annotation that stops at the compiler cannot tell a code
    * generator that an argument is a number. */
   if (node->as.function.paramCount > 0) {
-    compiler.function->paramTypes =
-        (uint8_t *)malloc((size_t)node->as.function.paramCount);
+    compiler.function->paramTypes = (uint8_t *)malloc((size_t)node->as.function.paramCount);
     for (int i = 0; i < node->as.function.paramCount; i++) {
       const AstParam *param = &node->as.function.params[i];
-      compiler.function->paramTypes[i] =
-          (uint8_t)(param->hasAnnotation ? param->type : TYPE_DYNAMIC);
+      compiler.function->paramTypes[i] = (uint8_t)(param->hasAnnotation ? param->type : TYPE_DYNAMIC);
     }
   }
 
   compileParameterPrologue(node, line);
 
-  compileStatements(node->as.function.body->as.block.statements,
-                    node->as.function.body->as.block.count);
+  compileStatements(node->as.function.body->as.block.statements, node->as.function.body->as.block.count);
 
   /* No endScope(): the whole frame is discarded by OP_RETURN, so popping the
    * locals first would be wasted work. */
@@ -212,8 +188,10 @@ void compileFunctionAs(const AstNode *node, FunctionKind kind) {
 
 void compileFunction(const AstNode *node) {
   FunctionKind kind = FUNCTION_BODY;
-  if (node->as.function.isMethod) kind = FUNCTION_METHOD;
-  else if (node->as.function.isArrow) kind = FUNCTION_ARROW;
+  if (node->as.function.isMethod)
+    kind = FUNCTION_METHOD;
+  else if (node->as.function.isArrow)
+    kind = FUNCTION_ARROW;
   compileFunctionAs(node, kind);
 }
 
@@ -241,8 +219,9 @@ bool compileThisLoad(int line) {
     emitBytes(OP_GET_UPVALUE, (uint8_t)upvalue, line);
     return true;
   }
-  errorAt(line, "'this' is only valid inside a function or a method, and the "
-                "top level of a module is neither");
+  errorAt(line,
+          "'this' is only valid inside a function or a method, and the "
+          "top level of a module is neither");
   return false;
 }
 

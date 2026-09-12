@@ -24,8 +24,7 @@
  * profiling put it at 14-18% of everything executed in loop-heavy code. */
 void compileOperandPair(const AstNode *left, const AstNode *right, int line) {
   if (left->type == AST_IDENTIFIER && right->type == AST_NUMBER_LITERAL) {
-    int slot = resolveLocal(current, left->as.identifier.name,
-                            left->as.identifier.length);
+    int slot = resolveLocal(current, left->as.identifier.name, left->as.identifier.length);
     if (slot != -1) {
       emitByte(OP_GET_LOCAL_CONST, line);
       emitByte((uint8_t)slot, line);
@@ -35,10 +34,8 @@ void compileOperandPair(const AstNode *left, const AstNode *right, int line) {
   }
 
   if (left->type == AST_IDENTIFIER && right->type == AST_IDENTIFIER) {
-    int leftSlot = resolveLocal(current, left->as.identifier.name,
-                                left->as.identifier.length);
-    int rightSlot = resolveLocal(current, right->as.identifier.name,
-                                 right->as.identifier.length);
+    int leftSlot = resolveLocal(current, left->as.identifier.name, left->as.identifier.length);
+    int rightSlot = resolveLocal(current, right->as.identifier.name, right->as.identifier.length);
     if (leftSlot != -1 && rightSlot != -1) {
       emitByte(OP_GET_LOCAL_LOCAL, line);
       emitByte((uint8_t)leftSlot, line);
@@ -56,20 +53,20 @@ void compileOperandPair(const AstNode *left, const AstNode *right, int line) {
  * AST_BINARY node to hang resolved types off. */
 uint8_t binaryOpcode(BinaryOp op) {
   switch (op) {
-    case BINARY_ADD:           return OP_ADD;
-    case BINARY_SUBTRACT:      return OP_SUBTRACT;
-    case BINARY_MULTIPLY:      return OP_MULTIPLY;
-    case BINARY_DIVIDE:        return OP_DIVIDE;
-    case BINARY_MODULO:        return OP_MODULO;
-    case BINARY_EXPONENT:      return OP_EXPONENT;
-    case BINARY_EQUAL:         return OP_EQUAL;
-    case BINARY_NOT_EQUAL:     return OP_NOT_EQUAL;
-    case BINARY_GREATER:       return OP_GREATER;
+    case BINARY_ADD: return OP_ADD;
+    case BINARY_SUBTRACT: return OP_SUBTRACT;
+    case BINARY_MULTIPLY: return OP_MULTIPLY;
+    case BINARY_DIVIDE: return OP_DIVIDE;
+    case BINARY_MODULO: return OP_MODULO;
+    case BINARY_EXPONENT: return OP_EXPONENT;
+    case BINARY_EQUAL: return OP_EQUAL;
+    case BINARY_NOT_EQUAL: return OP_NOT_EQUAL;
+    case BINARY_GREATER: return OP_GREATER;
     case BINARY_GREATER_EQUAL: return OP_GREATER_EQUAL;
-    case BINARY_LESS:          return OP_LESS;
-    case BINARY_LESS_EQUAL:    return OP_LESS_EQUAL;
-    case BINARY_INSTANCEOF:    return OP_INSTANCEOF;
-    case BINARY_IN:            return OP_IN;
+    case BINARY_LESS: return OP_LESS;
+    case BINARY_LESS_EQUAL: return OP_LESS_EQUAL;
+    case BINARY_INSTANCEOF: return OP_INSTANCEOF;
+    case BINARY_IN: return OP_IN;
   }
   return OP_ADD;
 }
@@ -82,8 +79,7 @@ void compileBinary(const AstNode *node) {
   /* Where the checker resolved both sides to `number`, the generic OP_ADD's
    * string test is dead weight. This is the hook the rest of the specialisation
    * work hangs off: the types are consumed, not erased. */
-  bool bothNumbers = node->as.binary.left->resolvedType == TYPE_NUMBER &&
-                     node->as.binary.right->resolvedType == TYPE_NUMBER;
+  bool bothNumbers = node->as.binary.left->resolvedType == TYPE_NUMBER && node->as.binary.right->resolvedType == TYPE_NUMBER;
 
   /* Recorded for tiering: an operation whose operand types are known is one a
    * compiler could emit unboxed, with no guard and nothing to deoptimise to.
@@ -95,10 +91,7 @@ void compileBinary(const AstNode *node) {
     current->function->genericSites++;
   }
 
-  emitByte(node->as.binary.op == BINARY_ADD && bothNumbers
-               ? OP_ADD_NUM
-               : binaryOpcode(node->as.binary.op),
-           line);
+  emitByte(node->as.binary.op == BINARY_ADD && bothNumbers ? OP_ADD_NUM : binaryOpcode(node->as.binary.op), line);
 }
 
 /* Optional chaining.
@@ -185,9 +178,7 @@ void compileLogical(const AstNode *node) {
 
   /* `??` asks a different question from `||`: whether the left side is
    * *present*, not whether it is truthy. `0 ?? 1` is 0. */
-  uint8_t jumpOp = node->as.logical.op == LOGICAL_AND    ? OP_JUMP_IF_FALSE
-                   : node->as.logical.op == LOGICAL_OR   ? OP_JUMP_IF_TRUE
-                                                         : OP_JUMP_IF_NOT_NULLISH;
+  uint8_t jumpOp = node->as.logical.op == LOGICAL_AND ? OP_JUMP_IF_FALSE : node->as.logical.op == LOGICAL_OR ? OP_JUMP_IF_TRUE : OP_JUMP_IF_NOT_NULLISH;
   int endJump = emitJump(jumpOp, line);
 
   /* Not short-circuiting: drop the left value, the right one is the result. */
@@ -198,8 +189,10 @@ void compileLogical(const AstNode *node) {
 
 void compileIdentifierLoad(const char *name, int length, int line) {
   if (isPrivateName(name, length)) {
-    errorAt(line, "'%.*s' is a private name, which is only valid as a property "
-                  "inside the class that declares it", length, name);
+    errorAt(line,
+            "'%.*s' is a private name, which is only valid as a property "
+            "inside the class that declares it",
+            length, name);
     return;
   }
 
@@ -224,13 +217,13 @@ bool fusedConditionJump(const AstNode *condition, uint8_t *opcode) {
   if (condition == NULL || condition->type != AST_BINARY) return false;
 
   switch (condition->as.binary.op) {
-    case BINARY_LESS:          *opcode = OP_JUMP_IF_NOT_LESS; return true;
-    case BINARY_LESS_EQUAL:    *opcode = OP_JUMP_IF_NOT_LESS_EQUAL; return true;
-    case BINARY_GREATER:       *opcode = OP_JUMP_IF_NOT_GREATER; return true;
+    case BINARY_LESS: *opcode = OP_JUMP_IF_NOT_LESS; return true;
+    case BINARY_LESS_EQUAL: *opcode = OP_JUMP_IF_NOT_LESS_EQUAL; return true;
+    case BINARY_GREATER: *opcode = OP_JUMP_IF_NOT_GREATER; return true;
     case BINARY_GREATER_EQUAL: *opcode = OP_JUMP_IF_NOT_GREATER_EQUAL; return true;
-    case BINARY_EQUAL:         *opcode = OP_JUMP_IF_NOT_EQUAL; return true;
-    case BINARY_NOT_EQUAL:     *opcode = OP_JUMP_IF_EQUAL; return true;
-    default:                   return false;
+    case BINARY_EQUAL: *opcode = OP_JUMP_IF_NOT_EQUAL; return true;
+    case BINARY_NOT_EQUAL: *opcode = OP_JUMP_IF_EQUAL; return true;
+    default: return false;
   }
 }
 

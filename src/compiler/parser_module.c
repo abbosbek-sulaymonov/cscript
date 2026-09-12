@@ -58,14 +58,12 @@ bool parseModuleSpecifier(Parser *parser, const char **out, int *outLength) {
   consume(parser, TOKEN_STRING, "expected a quoted module path after 'from'");
   if (parser->diag->panicMode) return false;
 
-  AstNode *literal = makeStringLiteral(parser, parser->previous.start,
-                                       parser->previous.length, parser->previous.line);
+  AstNode *literal = makeStringLiteral(parser, parser->previous.start, parser->previous.length, parser->previous.line);
   if (literal == NULL) return false;
 
   const char *text = literal->as.string.chars;
   int length = literal->as.string.length;
-  bool relative = (length > 2 && text[0] == '.' && text[1] == '/') ||
-                  (length > 3 && text[0] == '.' && text[1] == '.' && text[2] == '/');
+  bool relative = (length > 2 && text[0] == '.' && text[1] == '/') || (length > 3 && text[0] == '.' && text[1] == '.' && text[2] == '/');
   /* The one specifier that is not a path: `std:iter` names a module in the
    * library that ships with the language, wherever that has been installed.
    * Everything else has to be relative, so that reading an import tells you
@@ -178,8 +176,7 @@ AstNode *parseExport(Parser *parser) {
       errorAtCurrent(parser, "expected 'from' after 'export *'");
       return NULL;
     }
-    if (!parseModuleSpecifier(parser, &node->as.export.specifier,
-                              &node->as.export.specifierLength)) {
+    if (!parseModuleSpecifier(parser, &node->as.export.specifier, &node->as.export.specifierLength)) {
       return NULL;
     }
     consume(parser, TOKEN_SEMICOLON, "expected ';' after the export");
@@ -215,8 +212,7 @@ AstNode *parseExport(Parser *parser) {
     /* `export { a, b as c } from "./m.cx";` — the names come from there and
      * are never bound here under their own names. */
     if (checkContextual(parser, "from")) {
-      if (!parseModuleSpecifier(parser, &node->as.export.specifier,
-                                &node->as.export.specifierLength)) {
+      if (!parseModuleSpecifier(parser, &node->as.export.specifier, &node->as.export.specifierLength)) {
         return NULL;
       }
       consume(parser, TOKEN_SEMICOLON, "expected ';' after the export list");
@@ -229,9 +225,7 @@ AstNode *parseExport(Parser *parser) {
   }
 
   bool exportsAsyncFunction = checkWord(parser, "async") && nextStartsFunction(parser);
-  if (!exportsAsyncFunction && !check(parser, TOKEN_LET) &&
-      !check(parser, TOKEN_CONST) && !check(parser, TOKEN_FUNCTION) &&
-      !check(parser, TOKEN_CLASS)) {
+  if (!exportsAsyncFunction && !check(parser, TOKEN_LET) && !check(parser, TOKEN_CONST) && !check(parser, TOKEN_FUNCTION) && !check(parser, TOKEN_CLASS)) {
     errorAtCurrent(parser, "'export' must be followed by a declaration or '{'");
     return NULL;
   }
@@ -247,8 +241,7 @@ AstNode *parseExport(Parser *parser) {
  * Split out from parseVarDeclaration because `for (const x of xs)` and
  * `for (let i = 0; ...)` only diverge after the name, so the caller has to read
  * it before it knows which form it is looking at. */
-AstNode *finishVarDeclaration(Parser *parser, int line, const char *name,
-                                     int nameLength, bool isConst) {
+AstNode *finishVarDeclaration(Parser *parser, int line, const char *name, int nameLength, bool isConst) {
   TypeKind declaredType;
   bool hasAnnotation;
   if (!parseTypeAnnotation(parser, &declaredType, &hasAnnotation)) return NULL;
@@ -259,18 +252,15 @@ AstNode *finishVarDeclaration(Parser *parser, int line, const char *name,
     if (initializer == NULL) return NULL;
   } else if (isConst) {
     /* A const with no value could never be given one, so it is always a mistake. */
-    csDiagnosticError(parser->diag, line, name, nameLength,
-                      "'const' declarations must be initialised");
+    csDiagnosticError(parser->diag, line, name, nameLength, "'const' declarations must be initialised");
     return NULL;
   }
-
 
   /* `const f = () => ...` names the function `f`, the way JavaScript infers a
    * name for an anonymous function assigned straight to a binding. It shows up
    * only in diagnostics and in what console.log prints, which is exactly where
    * an unnamed function is least helpful. */
-  if (initializer != NULL && initializer->type == AST_FUNCTION &&
-      initializer->as.function.name == NULL) {
+  if (initializer != NULL && initializer->type == AST_FUNCTION && initializer->as.function.name == NULL) {
     AstNode *named = csAstFunction(parser->arena, initializer->line, name, nameLength);
     if (named != NULL) {
       /* Everything the function already was, and then the name.
@@ -291,8 +281,7 @@ AstNode *finishVarDeclaration(Parser *parser, int line, const char *name,
     }
   }
 
-  return csAstVarDecl(parser->arena, line, name, nameLength, initializer, isConst,
-                      declaredType, hasAnnotation);
+  return csAstVarDecl(parser->arena, line, name, nameLength, initializer, isConst, declaredType, hasAnnotation);
 }
 
 /* One pattern — `[a, b]` or `{ x, y: z = 1 }` — with the opening bracket

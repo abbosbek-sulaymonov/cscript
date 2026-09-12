@@ -154,16 +154,11 @@ static bool entryIsOpen(const char *source) {
     switch (token.type) {
       case TOKEN_LEFT_BRACE:
       case TOKEN_LEFT_BRACKET:
-      case TOKEN_LEFT_PAREN:
-        depth++;
-        break;
+      case TOKEN_LEFT_PAREN: depth++; break;
       case TOKEN_RIGHT_BRACE:
       case TOKEN_RIGHT_BRACKET:
-      case TOKEN_RIGHT_PAREN:
-        depth--;
-        break;
-      default:
-        break;
+      case TOKEN_RIGHT_PAREN: depth--; break;
+      default: break;
     }
   }
   return depth > 0;
@@ -186,8 +181,7 @@ static bool entryParses(const char *source, bool *expression) {
   AstNode *program = csParse(source, &arena, &diag);
 
   bool ok = program != NULL && !csDiagnosticsFailed(&diag);
-  *expression = ok && program->as.program.count == 1 &&
-                program->as.program.statements[0]->type == AST_EXPRESSION_STMT;
+  *expression = ok && program->as.program.count == 1 && program->as.program.statements[0]->type == AST_EXPRESSION_STMT;
 
   csAstArenaFree(&arena);
   return ok;
@@ -327,8 +321,7 @@ static int codeFor(InterpretResult result) {
 
 /* Reads the option that takes a value, which may be attached with `=` or be
  * the next word. Returns NULL when it is missing, having said so. */
-static const char *optionValue(const char *option, const char *inlineValue,
-                               int argc, const char *argv[], int *index) {
+static const char *optionValue(const char *option, const char *inlineValue, int argc, const char *argv[], int *index) {
   if (inlineValue != NULL) return inlineValue;
   if (*index + 1 < argc) return argv[++(*index)];
   fprintf(stderr, "cscript: %s needs a value\n", option);
@@ -412,8 +405,7 @@ static int parseOptions(int argc, const char *argv[], Options *options) {
       char *end = NULL;
       long threshold = strtol(value, &end, 10);
       if (end == value || *end != '\0' || threshold < 1) {
-        fprintf(stderr, "cscript: --jit-threshold wants a positive number, got '%s'\n",
-                value);
+        fprintf(stderr, "cscript: --jit-threshold wants a positive number, got '%s'\n", value);
         return EXIT_USAGE;
       }
       csJitSetThreshold((int)threshold);
@@ -446,8 +438,7 @@ int main(int argc, const char *argv[]) {
 
   const char *executable = argc > 0 ? argv[0] : "cscript";
   bool fromStdin = options.script != NULL && strcmp(options.script, "-") == 0;
-  csVMSetScriptArgs(executable, fromStdin ? NULL : options.script, options.args,
-                    options.argCount);
+  csVMSetScriptArgs(executable, fromStdin ? NULL : options.script, options.args, options.argCount);
 
   struct timespec started;
   if (options.time) clock_gettime(CLOCK_MONOTONIC, &started);
@@ -456,16 +447,14 @@ int main(int argc, const char *argv[]) {
   char *stdinSource = NULL;
 
   if (options.eval != NULL) {
-    exitCode = codeFor(options.check ? csCheck(options.eval, "<argv>")
-                                     : csInterpret(options.eval, "<argv>"));
+    exitCode = codeFor(options.check ? csCheck(options.eval, "<argv>") : csInterpret(options.eval, "<argv>"));
   } else if (fromStdin) {
     stdinSource = readStream(stdin);
     if (stdinSource == NULL) {
       fprintf(stderr, "cscript: could not read stdin\n");
       exitCode = EXIT_NO_INPUT;
     } else {
-      exitCode = codeFor(options.check ? csCheck(stdinSource, "<stdin>")
-                                       : csInterpret(stdinSource, "<stdin>"));
+      exitCode = codeFor(options.check ? csCheck(stdinSource, "<stdin>") : csInterpret(stdinSource, "<stdin>"));
     }
   } else if (options.script != NULL) {
     /* Said before the loader gets a chance to blame the compiler for it: a
@@ -476,8 +465,7 @@ int main(int argc, const char *argv[]) {
       exitCode = EXIT_NO_INPUT;
     } else {
       fclose(probe);
-      exitCode = codeFor(options.check ? csCheckFile(options.script)
-                                       : csRunFile(options.script));
+      exitCode = codeFor(options.check ? csCheckFile(options.script) : csRunFile(options.script));
     }
   } else if (options.check) {
     fprintf(stderr, "cscript: --check needs a script, -e <code>, or -\n");
@@ -489,8 +477,7 @@ int main(int argc, const char *argv[]) {
   if (options.time) {
     struct timespec ended;
     clock_gettime(CLOCK_MONOTONIC, &ended);
-    double ms = (double)(ended.tv_sec - started.tv_sec) * 1000.0 +
-                (double)(ended.tv_nsec - started.tv_nsec) / 1.0e6;
+    double ms = (double)(ended.tv_sec - started.tv_sec) * 1000.0 + (double)(ended.tv_nsec - started.tv_nsec) / 1.0e6;
     fprintf(stderr, "cscript: %.1f ms\n", ms);
   }
 

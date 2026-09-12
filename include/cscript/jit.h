@@ -71,8 +71,8 @@ typedef enum {
  * it is even break-even.
  */
 #ifdef CS_DEBUG_JIT
-#define CS_JIT_TICK(fn)                                        \
-  do {                                                         \
+#define CS_JIT_TICK(fn)                                         \
+  do {                                                          \
     if (++(fn)->hotness == CS_JIT_THRESHOLD) csJitConsider(fn); \
   } while (false)
 #else
@@ -107,8 +107,7 @@ void csJitMarkRoots(void);
  * assuming undefined is what lets a method be answered from compiled code —
  * the entry checks read slot 0 like any other, and a method's property reads
  * are mostly through it. */
-bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args,
-                 int argCount, Value *out);
+bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int argCount, Value *out);
 
 /* Takes over a loop that is already running, at `bytecodeOffset`.
  *
@@ -125,8 +124,7 @@ bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args,
  * ran to completion and `out` holds its result. Otherwise the compiled code
  * reached something it does not implement and handed the frame back: resume
  * the bytecode at `*resumeAt` with the operand stack `*resumeHeight` deep. */
-bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *out,
-              int *resumeAt, int *resumeHeight);
+bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *out, int *resumeAt, int *resumeHeight);
 
 /* Why a function was refused, or NULL when it was not. */
 const char *csJitRefusalReason(const ObjFunction *function);

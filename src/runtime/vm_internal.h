@@ -17,7 +17,6 @@
 #include "cscript/object.h"
 #include "cscript/vm.h"
 
-
 /* What a throw could do at this level of the interpreter. */
 typedef enum {
   THROW_HANDLED,   /* a handler in this loop took it; keep executing */
@@ -43,8 +42,7 @@ bool runFieldInitializers(ObjClass *klass, ObjClass *stopAt, Value instance);
 ObjClosure *findConstructor(ObjClass *klass);
 
 /* src/vm_event.c */
-void csVMQueueMicrotask(Value callback, Value argument, ObjPromise *result,
-                        bool isRejection);
+void csVMQueueMicrotask(Value callback, Value argument, ObjPromise *result, bool isRejection);
 Microtask *csVMLastMicrotask(void);
 void runCombine(const Microtask *task);
 void csVMNoteRejection(ObjPromise *promise);
@@ -76,8 +74,7 @@ bool csGeneratorNext(ObjGenerator *generator, Value sent, Value *value, bool *do
 ObjPromise *csGeneratorNextAsync(ObjGenerator *generator, Value sent);
 
 /* Settles a pending `next()` after the event loop resumed the body. */
-void csGeneratorResumed(ObjGenerator *generator, bool yielded, bool failed,
-                        Value reason);
+void csGeneratorResumed(ObjGenerator *generator, bool yielded, bool failed, Value reason);
 
 /* `{ value, done }`. */
 Value csIterationResult(Value value, bool done);

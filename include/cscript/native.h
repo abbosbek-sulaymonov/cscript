@@ -55,8 +55,7 @@ void csMapMethodsInstall(void);
 void csRegexMethodsInstall(void);
 bool csRegexStringSearch(Value receiver, int argCount, Value *args, Value *result);
 bool csRegexStringMatch(Value receiver, int argCount, Value *args, Value *result);
-bool csRegexStringReplace(Value receiver, int argCount, Value *args, Value *result,
-                          bool all);
+bool csRegexStringReplace(Value receiver, int argCount, Value *args, Value *result, bool all);
 bool csRegexStringSplit(Value receiver, int argCount, Value *args, Value *result);
 NativeFn csMapConstructorFn(void);
 NativeFn csSetConstructorFn(void);

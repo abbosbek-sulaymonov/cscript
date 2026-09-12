@@ -72,8 +72,7 @@ AstNode *parsePrefixPrimary(Parser *parser, int line) {
     /* `yield;` and `yield}` produce undefined. Anything that could start an
      * expression is the value. */
     AstNode *value = NULL;
-    if (!check(parser, TOKEN_SEMICOLON) && !check(parser, TOKEN_RIGHT_BRACE) &&
-        !check(parser, TOKEN_RIGHT_PAREN) && !check(parser, TOKEN_RIGHT_BRACKET) &&
+    if (!check(parser, TOKEN_SEMICOLON) && !check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_RIGHT_PAREN) && !check(parser, TOKEN_RIGHT_BRACKET) &&
         !check(parser, TOKEN_COMMA) && !check(parser, TOKEN_EOF)) {
       value = parsePrecedence(parser, PREC_ASSIGNMENT);
       if (value == NULL) return NULL;
@@ -86,8 +85,7 @@ AstNode *parsePrefixPrimary(Parser *parser, int line) {
 
   if (matchToken(parser, TOKEN_AWAIT)) {
     if (parser->asyncDepth == 0) {
-      csDiagnosticError(parser->diag, line, NULL, 0,
-                        "'await' is only allowed inside an async function");
+      csDiagnosticError(parser->diag, line, NULL, 0, "'await' is only allowed inside an async function");
       return NULL;
     }
     AstNode *operand = parsePrecedence(parser, PREC_UNARY);
@@ -102,8 +100,7 @@ AstNode *parsePrefixPrimary(Parser *parser, int line) {
     AstNode *target = parsePrecedence(parser, PREC_UNARY);
     if (target == NULL) return NULL;
     if (target->type != AST_IDENTIFIER) {
-      csDiagnosticError(parser->diag, line, NULL, 0, "'%s' needs a variable to update",
-                        isIncrement ? "++" : "--");
+      csDiagnosticError(parser->diag, line, NULL, 0, "'%s' needs a variable to update", isIncrement ? "++" : "--");
       return NULL;
     }
     return csAstUpdate(parser->arena, line, target, isIncrement, true);
@@ -146,9 +143,7 @@ AstNode *parsePrefixPrimary(Parser *parser, int line) {
     int closing = literal.length - 1;
     while (closing > 0 && text[closing] != '/') closing--;
 
-    return parseCallSuffixes(
-        parser, csAstRegex(parser->arena, literal.line, text + 1, closing - 1,
-                           text + closing + 1, literal.length - closing - 1));
+    return parseCallSuffixes(parser, csAstRegex(parser->arena, literal.line, text + 1, closing - 1, text + closing + 1, literal.length - closing - 1));
   }
 
   return NULL;

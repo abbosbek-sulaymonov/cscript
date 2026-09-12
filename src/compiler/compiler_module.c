@@ -16,7 +16,6 @@
 #include "cscript/vm.h"
 #include "compiler/compiler_internal.h"
 
-
 /* Binds one name at module top level. Imports and the classes and functions
  * around them all land in the module's own global table. */
 void defineModuleBinding(const char *name, int length, int line) {
@@ -36,10 +35,8 @@ void compileImport(const AstNode *node) {
    * the module being named is already registered — and its export list is
    * known, which is what turns a missing export into a compile error. */
   char resolved[4096];
-  if (!csModuleResolve(currentUnit->module->path->chars, node->as.import.specifier,
-                       resolved, sizeof resolved)) {
-    errorAt(line, "cannot find module '%s'%s", node->as.import.specifier,
-            csModuleResolutionHint(node->as.import.specifier));
+  if (!csModuleResolve(currentUnit->module->path->chars, node->as.import.specifier, resolved, sizeof resolved)) {
+    errorAt(line, "cannot find module '%s'%s", node->as.import.specifier, csModuleResolutionHint(node->as.import.specifier));
     return;
   }
 
@@ -54,8 +51,7 @@ void compileImport(const AstNode *node) {
   if (node->as.import.namespaceName != NULL) {
     emitConstantOp(OP_CONSTANT, moduleConstant, line);
     emitByte(OP_IMPORT_NAMESPACE, line);
-    defineModuleBinding(node->as.import.namespaceName, node->as.import.namespaceLength,
-                        line);
+    defineModuleBinding(node->as.import.namespaceName, node->as.import.namespaceLength, line);
   }
 
   if (node->as.import.defaultName != NULL) {
@@ -65,8 +61,7 @@ void compileImport(const AstNode *node) {
     } else {
       emitConstantOp(OP_CONSTANT, moduleConstant, line);
       emitConstantOp(OP_IMPORT_NAME, identifierConstant("default", 7, line), line);
-      defineModuleBinding(node->as.import.defaultName, node->as.import.defaultLength,
-                          line);
+      defineModuleBinding(node->as.import.defaultName, node->as.import.defaultLength, line);
     }
   }
 
@@ -74,14 +69,12 @@ void compileImport(const AstNode *node) {
     const AstModuleName *entry = &node->as.import.names[i];
     ObjString *exported = csStringCopy(entry->name, entry->nameLength);
     if (!csTableGet(&imported->exports, exported, NULL)) {
-      errorAt(line, "'%s' has no export named '%.*s'", node->as.import.specifier,
-              entry->nameLength, entry->name);
+      errorAt(line, "'%s' has no export named '%.*s'", node->as.import.specifier, entry->nameLength, entry->name);
       continue;
     }
 
     emitConstantOp(OP_CONSTANT, moduleConstant, line);
-    emitConstantOp(OP_IMPORT_NAME,
-                   identifierConstant(entry->name, entry->nameLength, line), line);
+    emitConstantOp(OP_IMPORT_NAME, identifierConstant(entry->name, entry->nameLength, line), line);
     defineModuleBinding(entry->alias, entry->aliasLength, line);
   }
 }
@@ -110,10 +103,8 @@ void compileExport(const AstNode *node) {
    * same guarantee a plain import gets. */
   if (node->as.export.specifier != NULL) {
     char resolved[4096];
-    if (!csModuleResolve(currentUnit->module->path->chars, node->as.export.specifier,
-                         resolved, sizeof resolved)) {
-      errorAt(line, "cannot find module '%s'%s", node->as.export.specifier,
-              csModuleResolutionHint(node->as.export.specifier));
+    if (!csModuleResolve(currentUnit->module->path->chars, node->as.export.specifier, resolved, sizeof resolved)) {
+      errorAt(line, "cannot find module '%s'%s", node->as.export.specifier, csModuleResolutionHint(node->as.export.specifier));
       return;
     }
     ObjModule *from = csModuleFind(resolved);
@@ -137,8 +128,7 @@ void compileExport(const AstNode *node) {
         if (findGlobal(name->chars, name->length) != NULL) continue;
 
         emitConstantOp(OP_CONSTANT, moduleConstant, line);
-        emitConstantOp(OP_IMPORT_NAME,
-                       identifierConstant(name->chars, name->length, line), line);
+        emitConstantOp(OP_IMPORT_NAME, identifierConstant(name->chars, name->length, line), line);
         defineModuleBinding(name->chars, name->length, line);
         markExported(name->chars, name->length, line);
       }
@@ -149,13 +139,11 @@ void compileExport(const AstNode *node) {
       const AstModuleName *entry = &node->as.export.names[i];
       ObjString *exported = csStringCopy(entry->name, entry->nameLength);
       if (!csTableGet(&from->exports, exported, NULL)) {
-        errorAt(line, "'%s' has no export named '%.*s'", node->as.export.specifier,
-                entry->nameLength, entry->name);
+        errorAt(line, "'%s' has no export named '%.*s'", node->as.export.specifier, entry->nameLength, entry->name);
         continue;
       }
       emitConstantOp(OP_CONSTANT, moduleConstant, line);
-      emitConstantOp(OP_IMPORT_NAME,
-                     identifierConstant(entry->name, entry->nameLength, line), line);
+      emitConstantOp(OP_IMPORT_NAME, identifierConstant(entry->name, entry->nameLength, line), line);
       defineModuleBinding(entry->alias, entry->aliasLength, line);
       markExported(entry->alias, entry->aliasLength, line);
     }
@@ -172,11 +160,9 @@ void compileExport(const AstNode *node) {
        * declaration is compiled once and its binding loaded back. */
       compileNode(declaration);
       if (declaration->type == AST_FUNCTION) {
-        compileIdentifierLoad(declaration->as.function.name,
-                              declaration->as.function.nameLength, line);
+        compileIdentifierLoad(declaration->as.function.name, declaration->as.function.nameLength, line);
       } else {
-        compileIdentifierLoad(declaration->as.classDecl.name,
-                              declaration->as.classDecl.nameLength, line);
+        compileIdentifierLoad(declaration->as.classDecl.name, declaration->as.classDecl.nameLength, line);
       }
     } else {
       /* An expression. Only its value is wanted, so the statement wrapper —
@@ -195,20 +181,17 @@ void compileExport(const AstNode *node) {
     for (int i = 0; i < node->as.export.nameCount; i++) {
       const AstModuleName *entry = &node->as.export.names[i];
       if (findGlobal(entry->name, entry->nameLength) == NULL) {
-        errorAt(line, "'%.*s' is not declared in this file", entry->nameLength,
-                entry->name);
+        errorAt(line, "'%.*s' is not declared in this file", entry->nameLength, entry->name);
         continue;
       }
       /* An alias exports the binding under a different name, so the export
        * table records the alias and the import reads it back through it. */
       markExported(entry->alias, entry->aliasLength, line);
-      if (entry->aliasLength != entry->nameLength ||
-          memcmp(entry->alias, entry->name, (size_t)entry->nameLength) != 0) {
+      if (entry->aliasLength != entry->nameLength || memcmp(entry->alias, entry->name, (size_t)entry->nameLength) != 0) {
         /* Bind the alias to the same value so the read has somewhere to go. */
         compileIdentifierLoad(entry->name, entry->nameLength, line);
         addGlobal(entry->alias, entry->aliasLength, true, line);
-        emitConstantOp(OP_DEFINE_CONST,
-                       identifierConstant(entry->alias, entry->aliasLength, line), line);
+        emitConstantOp(OP_DEFINE_CONST, identifierConstant(entry->alias, entry->aliasLength, line), line);
       }
     }
     return;
@@ -218,25 +201,15 @@ void compileExport(const AstNode *node) {
   compileNode(declaration);
 
   switch (declaration->type) {
-    case AST_VAR_DECL:
-      markExported(declaration->as.varDecl.name, declaration->as.varDecl.length, line);
-      break;
-    case AST_FUNCTION:
-      markExported(declaration->as.function.name, declaration->as.function.nameLength,
-                   line);
-      break;
-    case AST_CLASS_DECL:
-      markExported(declaration->as.classDecl.name, declaration->as.classDecl.nameLength,
-                   line);
-      break;
+    case AST_VAR_DECL: markExported(declaration->as.varDecl.name, declaration->as.varDecl.length, line); break;
+    case AST_FUNCTION: markExported(declaration->as.function.name, declaration->as.function.nameLength, line); break;
+    case AST_CLASS_DECL: markExported(declaration->as.classDecl.name, declaration->as.classDecl.nameLength, line); break;
     case AST_DESTRUCTURE:
       for (int i = 0; i < declaration->as.destructure.count; i++) {
         const AstBinding *binding = &declaration->as.destructure.bindings[i];
         markExported(binding->name, binding->nameLength, line);
       }
       break;
-    default:
-      errorAt(line, "this declaration cannot be exported");
-      break;
+    default: errorAt(line, "this declaration cannot be exported"); break;
   }
 }

@@ -24,17 +24,16 @@ typedef enum {
   PREC_COMMA,       /* ,                 (left-associative) */
   PREC_ASSIGNMENT,  /* = += -= *= /= %=  (right-associative) */
   PREC_CONDITIONAL, /* ?:                (right-associative) */
-  PREC_OR,         /* ||               */
-  PREC_AND,        /* &&               */
-  PREC_EQUALITY,   /* === !==          */
-  PREC_COMPARISON, /* < > <= >=        */
-  PREC_TERM,       /* + -              */
-  PREC_FACTOR,     /* * / %            */
-  PREC_EXPONENT,   /* **  (right-assoc)*/
-  PREC_UNARY,      /* ! - typeof ++ -- */
-  PREC_CALL,       /* . ( )            */
+  PREC_OR,          /* ||               */
+  PREC_AND,         /* &&               */
+  PREC_EQUALITY,    /* === !==          */
+  PREC_COMPARISON,  /* < > <= >=        */
+  PREC_TERM,        /* + -              */
+  PREC_FACTOR,      /* * / %            */
+  PREC_EXPONENT,    /* **  (right-assoc)*/
+  PREC_UNARY,       /* ! - typeof ++ -- */
+  PREC_CALL,        /* . ( )            */
 } Precedence;
-
 
 /* parser.c — token plumbing and the shared tables, used by all four units */
 void advanceToken(Parser *parser);
@@ -45,8 +44,7 @@ void consume(Parser *parser, TokenType type, const char *message);
 void synchronize(Parser *parser);
 Precedence binaryPrecedence(TokenType type);
 BinaryOp binaryOpFor(TokenType type);
-AstNode *makeStringLiteral(Parser *parser, const char *start, int length,
-                                  int line);
+AstNode *makeStringLiteral(Parser *parser, const char *start, int length, int line);
 double parseNumberLiteral(const char *start, int length);
 bool rejectLooseEquality(Parser *parser);
 bool consumePropertyName(Parser *parser, const char *message);
@@ -71,12 +69,10 @@ AstNode *parsePrefixPrimary(Parser *parser, int line);
 AstNode *parsePrecedence(Parser *parser, Precedence minPrecedence);
 AstNode *parseExpression(Parser *parser);
 AstNode *parseTemplate(Parser *parser, const char *start, int length, int line);
-AstNode *parseTaggedTemplate(Parser *parser, AstNode *tag, const char *start,
-                             int length, int line);
+AstNode *parseTaggedTemplate(Parser *parser, AstNode *tag, const char *start, int length, int line);
 bool looksLikeArrowParams(Parser *parser);
 AstNode *finishArrow(Parser *parser, AstNode *function, int line);
-AstNode *parseFunctionRest(Parser *parser, int line, const char *name,
-                                  int nameLength, bool isMethod);
+AstNode *parseFunctionRest(Parser *parser, int line, const char *name, int nameLength, bool isMethod);
 AstNode *parseFunction(Parser *parser, bool requireName);
 
 /* src/parser_declaration.c */
@@ -92,8 +88,7 @@ AstNode *parseExport(Parser *parser);
 AstNode *parsePattern(Parser *parser, bool isObject, bool isConst);
 AstNode *parseDestructuring(Parser *parser, bool isObject, bool isConst);
 AstNode *parseDeclaratorList(Parser *parser, int line, bool isConst);
-AstNode *finishVarDeclaration(Parser *parser, int line, const char *name,
-                                     int nameLength, bool isConst);
+AstNode *finishVarDeclaration(Parser *parser, int line, const char *name, int nameLength, bool isConst);
 AstNode *parseVarDeclaration(Parser *parser, bool isConst);
 
 /* src/parser_statement.c */

@@ -8,6 +8,12 @@ indent_size = 2
 insert_final_newline = true
 trim_trailing_whitespace = true
 
+# The C sources are formatted by .clang-format, whose column limit is the
+# length of the longest function signature in the tree — so that no signature
+# has to be broken across lines.
+[*.{c,h,inc}]
+max_line_length = 168
+
 [Makefile]
 indent_style = tab
 

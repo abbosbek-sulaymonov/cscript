@@ -112,10 +112,10 @@ typedef struct CallFrame {
  * is why all three depths are recorded rather than just the resume point: a
  * throw may cross any number of calls and leave any amount of stack behind. */
 typedef struct ExceptionHandler {
-  int frameCount;      /* frames live when the handler was installed */
-  Value *stackTop;     /* value stack depth at the same moment */
-  const uint8_t *ip;   /* where to resume — the catch, or the finally */
-  int handlerCount;    /* handlers below this one, for nested try blocks */
+  int frameCount;    /* frames live when the handler was installed */
+  Value *stackTop;   /* value stack depth at the same moment */
+  const uint8_t *ip; /* where to resume — the catch, or the finally */
+  int handlerCount;  /* handlers below this one, for nested try blocks */
 } ExceptionHandler;
 
 typedef struct {
@@ -306,8 +306,7 @@ InterpretResult csCheck(const char *source, const char *sourceName);
  * Called once, after csVMInit and before anything runs. `process` is frozen
  * like every other namespace, which stops a program reassigning it; this goes
  * through the C API, which is below where that is enforced. */
-void csVMSetScriptArgs(const char *executable, const char *script,
-                       const char *const *args, int count);
+void csVMSetScriptArgs(const char *executable, const char *script, const char *const *args, int count);
 
 /* Marks a built-in as constant. Module-level `const` marks its own table. */
 void csVMMarkBuiltinConst(ObjString *name);
@@ -319,16 +318,14 @@ InterpretResult csVMRunBody(ObjFunction *body);
 InterpretResult csVMRunPendingModules(void);
 
 /* Queues a reaction to run once the current call finishes. */
-void csVMQueueMicrotask(Value callback, Value argument, ObjPromise *result,
-                        bool isRejection);
+void csVMQueueMicrotask(Value callback, Value argument, ObjPromise *result, bool isRejection);
 
 /* The last queued microtask, so a caller can mark it as a combinator, a
  * suspended await, or a `.finally`. */
 Microtask *csVMLastMicrotask(void);
 
 /* Queues a Promise.all / Promise.race settlement. */
-void csVMQueueCombine(struct ObjArray *state, int index, Value argument,
-                      bool isRejection);
+void csVMQueueCombine(struct ObjArray *state, int index, Value argument, bool isRejection);
 
 /* Drains microtasks, then timers, until neither has anything left. Reports an
  * unhandled rejection and fails if one is outstanding when it finishes. */

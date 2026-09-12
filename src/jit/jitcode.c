@@ -94,7 +94,10 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   bool callSafe = false;
   for (int b = 0; b < ir->blockCount && !callSafe; b++) {
     for (int i = 0; i < ir->blocks[b].count; i++) {
-      if (ir->blocks[b].instructions[i].op == IR_MOD) { callSafe = true; break; }
+      if (ir->blocks[b].instructions[i].op == IR_MOD) {
+        callSafe = true;
+        break;
+      }
     }
   }
   int pool = csJitPoolSize(callSafe);
@@ -111,9 +114,8 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   }
   free(promotable);
   if (getenv("CS_JIT_DUMP_IR") != NULL) {
-    printf("  compiling %s: %d of %d slots promoted to registers\n",
-           ir->source->name != NULL ? ir->source->name->chars : "<top level>",
-           promotedCount, ir->slotCount + 1);
+    printf("  compiling %s: %d of %d slots promoted to registers\n", ir->source->name != NULL ? ir->source->name->chars : "<top level>", promotedCount,
+           ir->slotCount + 1);
   }
 
   /* Constants get registers too, materialised once on entry.
@@ -134,13 +136,15 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
 
       bool seen = false;
       for (int k = 0; k < constantCount; k++) {
-        if (constantValue[k] == bits) { seen = true; break; }
+        if (constantValue[k] == bits) {
+          seen = true;
+          break;
+        }
       }
       if (seen) continue;
       if (promotedCount + constantCount >= pool / 2) break;
       constantValue[constantCount] = bits;
-      constantHome[constantCount] =
-          csJitAllocPool(pool - 1 - promotedCount - constantCount, callSafe);
+      constantHome[constantCount] = csJitAllocPool(pool - 1 - promotedCount - constantCount, callSafe);
       constantCount++;
     }
   }
@@ -151,8 +155,7 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   int globalName[CS_JIT_MAX_GLOBALS];
   Value *globalAddress[CS_JIT_MAX_GLOBALS];
   int globalCount = 0;
-  Table *globalTable =
-      ir->source->module != NULL ? &ir->source->module->globals : NULL;
+  Table *globalTable = ir->source->module != NULL ? &ir->source->module->globals : NULL;
 
   for (int b = 0; b < ir->blockCount; b++) {
     for (int i = 0; i < ir->blocks[b].count; i++) {
@@ -161,7 +164,10 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
 
       bool seen = false;
       for (int g = 0; g < globalCount; g++) {
-        if (globalName[g] == inst->a) { seen = true; break; }
+        if (globalName[g] == inst->a) {
+          seen = true;
+          break;
+        }
       }
       if (seen) continue;
       if (globalCount >= CS_JIT_MAX_GLOBALS || globalTable == NULL) {
@@ -170,8 +176,7 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
       }
 
       Value name = ir->source->chunk.constants.values[inst->a];
-      Entry *entry = IS_STRING(name) ? csTableFindEntry(globalTable, AS_STRING(name))
-                                     : NULL;
+      Entry *entry = IS_STRING(name) ? csTableFindEntry(globalTable, AS_STRING(name)) : NULL;
       if (entry == NULL || entry->key == NULL) {
         *why = "a global that is not there yet";
         return NULL;
@@ -210,13 +215,9 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
     for (int i = 0; i < ir->blocks[b].count; i++) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
 
-      EmitAt at = {&encoder,     ir,            inst,
-                   home,         slotHome,      constantValue,
-                   constantHome, constantCount, globalName,
-                   globalCount,  &exits,        &exitCount,
-                   &exitCapacity, &fixups,      &fixupCount,
-                   &fixupCapacity, b,           &i,
-                   why};
+      EmitAt at = {&encoder,   ir,          inst,   home,       slotHome,      constantValue, constantHome, constantCount,
+                   globalName, globalCount, &exits, &exitCount, &exitCapacity, &fixups,       &fixupCount,  &fixupCapacity,
+                   b,          &i,          why};
       if (!csJitEmitInstruction(&at)) goto unsupported;
     }
   }
@@ -252,8 +253,7 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
         csJitFmovToDouble(&encoder, constantHome[k], REG_TEMP);
       }
       for (int g = 0; g < globalCount; g++) {
-        csJitMovImmediate(&encoder, REG_FIRST_GLOBAL + g,
-                     (uint64_t)(uintptr_t)globalAddress[g]);
+        csJitMovImmediate(&encoder, REG_FIRST_GLOBAL + g, (uint64_t)(uintptr_t)globalAddress[g]);
       }
 
       if (fixupCapacity < fixupCount + 1) {
@@ -274,11 +274,16 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
     int target = blockStart[fixups[f].block];
     int delta = target - fixups[f].at;
     if (fixups[f].conditional) {
-      if (delta < -(1 << 18) || delta >= (1 << 18)) { *why = "branch out of range"; goto unsupported; }
-      encoder.words[fixups[f].at] =
-          0x54000000u | (((uint32_t)delta & 0x7ffffu) << 5) | fixups[f].condition;
+      if (delta < -(1 << 18) || delta >= (1 << 18)) {
+        *why = "branch out of range";
+        goto unsupported;
+      }
+      encoder.words[fixups[f].at] = 0x54000000u | (((uint32_t)delta & 0x7ffffu) << 5) | fixups[f].condition;
     } else {
-      if (delta < -(1 << 25) || delta >= (1 << 25)) { *why = "branch out of range"; goto unsupported; }
+      if (delta < -(1 << 25) || delta >= (1 << 25)) {
+        *why = "branch out of range";
+        goto unsupported;
+      }
       encoder.words[fixups[f].at] = 0x14000000u | ((uint32_t)delta & 0x3ffffffu);
     }
   }

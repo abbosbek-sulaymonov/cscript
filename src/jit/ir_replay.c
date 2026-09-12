@@ -16,9 +16,7 @@
 
 /* The IR's view of what a constant holds. */
 IrType csIrTypeOfConstant(Value constant) {
-  return IS_NUMBER(constant) ? IR_TYPE_NUMBER
-         : IS_BOOL(constant) ? IR_TYPE_BOOL
-                             : IR_TYPE_UNKNOWN;
+  return IS_NUMBER(constant) ? IR_TYPE_NUMBER : IS_BOOL(constant) ? IR_TYPE_BOOL : IR_TYPE_UNKNOWN;
 }
 
 /* ---- replaying a hand-over ----------------------------------------------
@@ -81,12 +79,8 @@ static bool jumpEffect(uint8_t opcode, int *pops, bool *fallsThrough) {
     /* These test the value and leave it, because the expression they are part
      * of still wants it — `a && b` yields an operand, not a boolean. */
     case OP_JUMP_IF_FALSE:
-    case OP_JUMP_IF_TRUE:
-      *pops = 0;
-      return true;
-    case OP_POP_JUMP_IF_FALSE:
-      *pops = 1;
-      return true;
+    case OP_JUMP_IF_TRUE: *pops = 0; return true;
+    case OP_POP_JUMP_IF_FALSE: *pops = 1; return true;
     /* The fused compare-and-branch forms consume both operands on either arm,
      * so the two arrive at the same depth. */
     case OP_JUMP_IF_NOT_LESS:
@@ -94,11 +88,8 @@ static bool jumpEffect(uint8_t opcode, int *pops, bool *fallsThrough) {
     case OP_JUMP_IF_NOT_GREATER:
     case OP_JUMP_IF_NOT_GREATER_EQUAL:
     case OP_JUMP_IF_EQUAL:
-    case OP_JUMP_IF_NOT_EQUAL:
-      *pops = 2;
-      return true;
-    default:
-      return false;
+    case OP_JUMP_IF_NOT_EQUAL: *pops = 2; return true;
+    default: return false;
   }
 }
 
@@ -107,8 +98,7 @@ static bool jumpEffect(uint8_t opcode, int *pops, bool *fallsThrough) {
  * up on halfway leaves the lowering's view of the frame untouched. `jump`
  * receives the taken arm of the run's final jump, if it has one, and `refusal`
  * the opcode it could not model, for the tiering report. */
-int csIrReplayHandedOver(const Chunk *chunk, IrType *slotType, int from, int to,
-                            int height, ReplayJump *jump, const char **refusal) {
+int csIrReplayHandedOver(const Chunk *chunk, IrType *slotType, int from, int to, int height, ReplayJump *jump, const char **refusal) {
   IrType replayed[IR_MAX_STACK];
   memcpy(replayed, slotType, sizeof replayed);
 
@@ -129,17 +119,13 @@ int csIrReplayHandedOver(const Chunk *chunk, IrType *slotType, int from, int to,
         break;
       }
       case OP_TRUE:
-      case OP_FALSE:
-        ok = replayPush(replayed, &height, IR_TYPE_BOOL);
-        break;
+      case OP_FALSE: ok = replayPush(replayed, &height, IR_TYPE_BOOL); break;
       case OP_NULL:
       case OP_UNDEFINED:
       /* A closure, and a global whose value at this moment says nothing about
        * its value when the interpreter gets here. */
       case OP_CLOSURE:
-      case OP_GET_GLOBAL:
-        ok = replayPush(replayed, &height, IR_TYPE_UNKNOWN);
-        break;
+      case OP_GET_GLOBAL: ok = replayPush(replayed, &height, IR_TYPE_UNKNOWN); break;
 
       /* Values moved from somewhere the model already knows about. */
       case OP_GET_LOCAL:
@@ -154,8 +140,7 @@ int csIrReplayHandedOver(const Chunk *chunk, IrType *slotType, int from, int to,
         if (ok && opcode == OP_GET_LOCAL_CONST) {
           int index = (chunk->code[offset + 2] << 8) | chunk->code[offset + 3];
           if (index < 0 || index >= chunk->constants.count) return -1;
-          ok = replayPush(replayed, &height,
-                          csIrTypeOfConstant(chunk->constants.values[index]));
+          ok = replayPush(replayed, &height, csIrTypeOfConstant(chunk->constants.values[index]));
         }
         break;
       }
@@ -168,12 +153,8 @@ int csIrReplayHandedOver(const Chunk *chunk, IrType *slotType, int from, int to,
       case OP_POP:
       case OP_DEFINE_GLOBAL:
       case OP_DEFINE_CONST:
-      case OP_SET_GLOBAL_POP:
-        ok = replayPop(&height, 1);
-        break;
-      case OP_POP_N:
-        ok = replayPop(&height, chunk->code[offset + 1]);
-        break;
+      case OP_SET_GLOBAL_POP: ok = replayPop(&height, 1); break;
+      case OP_POP_N: ok = replayPop(&height, chunk->code[offset + 1]); break;
       /* Leaves what it stored, so the height is unchanged. */
       case OP_SET_GLOBAL:
         if (height < 1) return -1;
@@ -206,36 +187,24 @@ int csIrReplayHandedOver(const Chunk *chunk, IrType *slotType, int from, int to,
       case OP_SUBTRACT:
       case OP_MULTIPLY:
       case OP_DIVIDE:
-      case OP_MODULO:
-        ok = replayPop(&height, 2) && replayPush(replayed, &height, IR_TYPE_NUMBER);
-        break;
-      case OP_NEGATE:
-        ok = replayPop(&height, 1) && replayPush(replayed, &height, IR_TYPE_NUMBER);
-        break;
-      case OP_ADD:
-        ok = replayPop(&height, 2) && replayPush(replayed, &height, IR_TYPE_UNKNOWN);
-        break;
-      case OP_LESS: case OP_LESS_EQUAL: case OP_GREATER: case OP_GREATER_EQUAL:
-      case OP_EQUAL: case OP_NOT_EQUAL:
-        ok = replayPop(&height, 2) && replayPush(replayed, &height, IR_TYPE_BOOL);
-        break;
-      case OP_NOT:
-        ok = replayPop(&height, 1) && replayPush(replayed, &height, IR_TYPE_BOOL);
-        break;
+      case OP_MODULO: ok = replayPop(&height, 2) && replayPush(replayed, &height, IR_TYPE_NUMBER); break;
+      case OP_NEGATE: ok = replayPop(&height, 1) && replayPush(replayed, &height, IR_TYPE_NUMBER); break;
+      case OP_ADD: ok = replayPop(&height, 2) && replayPush(replayed, &height, IR_TYPE_UNKNOWN); break;
+      case OP_LESS:
+      case OP_LESS_EQUAL:
+      case OP_GREATER:
+      case OP_GREATER_EQUAL:
+      case OP_EQUAL:
+      case OP_NOT_EQUAL: ok = replayPop(&height, 2) && replayPush(replayed, &height, IR_TYPE_BOOL); break;
+      case OP_NOT: ok = replayPop(&height, 1) && replayPush(replayed, &height, IR_TYPE_BOOL); break;
 
       /* A completed call leaves one value where the callee and its arguments
        * were, whatever it did in between. What it did in between is the
        * interpreter's business: every assumption the compiled code holds —
        * the global table's version, the shapes, the inlined callees — is
        * checked on the way in, which is after all of this has run. */
-      case OP_CALL:
-        ok = replayPop(&height, chunk->code[offset + 1] + 1) &&
-             replayPush(replayed, &height, IR_TYPE_UNKNOWN);
-        break;
-      case OP_INVOKE:
-        ok = replayPop(&height, chunk->code[offset + 3] + 1) &&
-             replayPush(replayed, &height, IR_TYPE_UNKNOWN);
-        break;
+      case OP_CALL: ok = replayPop(&height, chunk->code[offset + 1] + 1) && replayPush(replayed, &height, IR_TYPE_UNKNOWN); break;
+      case OP_INVOKE: ok = replayPop(&height, chunk->code[offset + 3] + 1) && replayPush(replayed, &height, IR_TYPE_UNKNOWN); break;
 
       /* A return, after which nothing flows anywhere: the interpreter leaves
        * the function, so the end of the run is not reached along this path and
@@ -280,9 +249,7 @@ int csIrReplayHandedOver(const Chunk *chunk, IrType *slotType, int from, int to,
         break;
       }
 
-      default:
-        *refusal = csOpcodeName((OpCode)opcode);
-        return -1;
+      default: *refusal = csOpcodeName((OpCode)opcode); return -1;
     }
     if (!ok) {
       *refusal = csOpcodeName((OpCode)opcode);

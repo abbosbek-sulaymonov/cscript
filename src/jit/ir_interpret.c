@@ -54,8 +54,7 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
        * as a refusal — and a failing test — rather than as a crash, which says
        * far less about where it came from. */
       if (inst->result >= ir->registerCount) goto done;
-      if ((inst->op == IR_LOAD_LOCAL || inst->op == IR_STORE_LOCAL) &&
-          (inst->a < 0 || inst->a >= ir->slotCount)) {
+      if ((inst->op == IR_LOAD_LOCAL || inst->op == IR_STORE_LOCAL) && (inst->a < 0 || inst->a >= ir->slotCount)) {
         goto done;
       }
       /* Every register operand, not only the result. A negative one means the
@@ -64,16 +63,13 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
         goto done;
       }
       if (inst->op == IR_EXIT) goto done;
-      if (inst->op == IR_STORE_GLOBAL &&
-          (inst->b < 0 || inst->b >= ir->registerCount)) {
+      if (inst->op == IR_STORE_GLOBAL && (inst->b < 0 || inst->b >= ir->registerCount)) {
         goto done;
       }
-      if (inst->op != IR_CONST && inst->op != IR_LOAD_LOCAL &&
-          inst->op != IR_STORE_LOCAL && inst->op != IR_JUMP &&
-          inst->op != IR_LOAD_GLOBAL && inst->op != IR_STORE_GLOBAL) {
+      if (inst->op != IR_CONST && inst->op != IR_LOAD_LOCAL && inst->op != IR_STORE_LOCAL && inst->op != IR_JUMP && inst->op != IR_LOAD_GLOBAL &&
+          inst->op != IR_STORE_GLOBAL) {
         if (inst->a < 0 || inst->a >= ir->registerCount) goto done;
-        if (inst->op != IR_NEG && inst->op != IR_RETURN && inst->op != IR_BRANCH &&
-            (inst->b < 0 || inst->b >= ir->registerCount)) {
+        if (inst->op != IR_NEG && inst->op != IR_RETURN && inst->op != IR_BRANCH && (inst->b < 0 || inst->b >= ir->registerCount)) {
           goto done;
         }
       }
@@ -100,26 +96,15 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
         case IR_ADD:
           /* The one operator that is not arithmetic when a string is involved.
            * The lowering records which case it is in the result type. */
-          if (inst->type != IR_TYPE_NUMBER &&
-              (!IS_NUMBER(registers[inst->a]) || !IS_NUMBER(registers[inst->b]))) {
+          if (inst->type != IR_TYPE_NUMBER && (!IS_NUMBER(registers[inst->a]) || !IS_NUMBER(registers[inst->b]))) {
             goto done; /* leave it to the bytecode VM */
           }
-          registers[inst->result] =
-              NUMBER_VAL(AS_NUMBER(registers[inst->a]) + AS_NUMBER(registers[inst->b]));
+          registers[inst->result] = NUMBER_VAL(AS_NUMBER(registers[inst->a]) + AS_NUMBER(registers[inst->b]));
           break;
 
-        case IR_SUB:
-          registers[inst->result] =
-              NUMBER_VAL(AS_NUMBER(registers[inst->a]) - AS_NUMBER(registers[inst->b]));
-          break;
-        case IR_MUL:
-          registers[inst->result] =
-              NUMBER_VAL(AS_NUMBER(registers[inst->a]) * AS_NUMBER(registers[inst->b]));
-          break;
-        case IR_DIV:
-          registers[inst->result] =
-              NUMBER_VAL(AS_NUMBER(registers[inst->a]) / AS_NUMBER(registers[inst->b]));
-          break;
+        case IR_SUB: registers[inst->result] = NUMBER_VAL(AS_NUMBER(registers[inst->a]) - AS_NUMBER(registers[inst->b])); break;
+        case IR_MUL: registers[inst->result] = NUMBER_VAL(AS_NUMBER(registers[inst->a]) * AS_NUMBER(registers[inst->b])); break;
+        case IR_DIV: registers[inst->result] = NUMBER_VAL(AS_NUMBER(registers[inst->a]) / AS_NUMBER(registers[inst->b])); break;
         case IR_MOD: {
           double x = AS_NUMBER(registers[inst->a]);
           double y = AS_NUMBER(registers[inst->b]);
@@ -131,46 +116,21 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
           }
           break;
         }
-        case IR_NEG:
-          registers[inst->result] = NUMBER_VAL(-AS_NUMBER(registers[inst->a]));
-          break;
+        case IR_NEG: registers[inst->result] = NUMBER_VAL(-AS_NUMBER(registers[inst->a])); break;
 
-        case IR_LT:
-          registers[inst->result] =
-              BOOL_VAL(AS_NUMBER(registers[inst->a]) < AS_NUMBER(registers[inst->b]));
-          break;
-        case IR_LE:
-          registers[inst->result] =
-              BOOL_VAL(AS_NUMBER(registers[inst->a]) <= AS_NUMBER(registers[inst->b]));
-          break;
-        case IR_GT:
-          registers[inst->result] =
-              BOOL_VAL(AS_NUMBER(registers[inst->a]) > AS_NUMBER(registers[inst->b]));
-          break;
-        case IR_GE:
-          registers[inst->result] =
-              BOOL_VAL(AS_NUMBER(registers[inst->a]) >= AS_NUMBER(registers[inst->b]));
-          break;
-        case IR_EQ:
-          registers[inst->result] =
-              BOOL_VAL(csValuesStrictEqual(registers[inst->a], registers[inst->b]));
-          break;
-        case IR_NE:
-          registers[inst->result] =
-              BOOL_VAL(!csValuesStrictEqual(registers[inst->a], registers[inst->b]));
-          break;
+        case IR_LT: registers[inst->result] = BOOL_VAL(AS_NUMBER(registers[inst->a]) < AS_NUMBER(registers[inst->b])); break;
+        case IR_LE: registers[inst->result] = BOOL_VAL(AS_NUMBER(registers[inst->a]) <= AS_NUMBER(registers[inst->b])); break;
+        case IR_GT: registers[inst->result] = BOOL_VAL(AS_NUMBER(registers[inst->a]) > AS_NUMBER(registers[inst->b])); break;
+        case IR_GE: registers[inst->result] = BOOL_VAL(AS_NUMBER(registers[inst->a]) >= AS_NUMBER(registers[inst->b])); break;
+        case IR_EQ: registers[inst->result] = BOOL_VAL(csValuesStrictEqual(registers[inst->a], registers[inst->b])); break;
+        case IR_NE: registers[inst->result] = BOOL_VAL(!csValuesStrictEqual(registers[inst->a], registers[inst->b])); break;
 
-        case IR_JUMP:
-          nextBlock = inst->a;
-          goto blockDone;
-        case IR_BRANCH:
-          nextBlock = AS_BOOL(registers[inst->a]) ? inst->b : inst->c;
-          goto blockDone;
+        case IR_JUMP: nextBlock = inst->a; goto blockDone;
+        case IR_BRANCH: nextBlock = AS_BOOL(registers[inst->a]) ? inst->b : inst->c; goto blockDone;
         case IR_LOAD_GLOBAL: {
           Value key = ir->source->chunk.constants.values[inst->a];
           Value held;
-          if (!IS_STRING(key) || ir->source->module == NULL ||
-              !csTableGet(&ir->source->module->globals, AS_STRING(key), &held)) {
+          if (!IS_STRING(key) || ir->source->module == NULL || !csTableGet(&ir->source->module->globals, AS_STRING(key), &held)) {
             goto done;
           }
           registers[inst->result] = held;
@@ -180,8 +140,7 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
         case IR_STORE_GLOBAL: {
           Value key = ir->source->chunk.constants.values[inst->a];
           if (!IS_STRING(key) || ir->source->module == NULL) goto done;
-          csTableSet(&ir->source->module->globals, AS_STRING(key),
-                     registers[inst->b]);
+          csTableSet(&ir->source->module->globals, AS_STRING(key), registers[inst->b]);
           break;
         }
 

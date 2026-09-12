@@ -30,8 +30,7 @@ static int emit(Regex *regex, ReOp op, int x, int y) {
 static int addClass(Regex *regex, const ReClass *set) {
   if (regex->classCapacity < regex->classCount + 1) {
     regex->classCapacity = regex->classCapacity < 8 ? 8 : regex->classCapacity * 2;
-    regex->classes =
-        (ReClass *)realloc(regex->classes, sizeof(ReClass) * (size_t)regex->classCapacity);
+    regex->classes = (ReClass *)realloc(regex->classes, sizeof(ReClass) * (size_t)regex->classCapacity);
   }
   regex->classes[regex->classCount] = *set;
   return regex->classCount++;
@@ -50,8 +49,7 @@ static void classAddRange(ReClass *set, unsigned char from, unsigned char to) {
 }
 
 bool csRegexIsWordByte(unsigned char c) {
-  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-         c == '_';
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
 }
 
 /* ---- the parser -------------------------------------------------------- */
@@ -73,11 +71,15 @@ static void fail(ReParser *parser, const char *message) {
   }
 }
 
-static bool atEnd(const ReParser *parser) { return parser->position >= parser->length; }
+static bool atEnd(const ReParser *parser) {
+  return parser->position >= parser->length;
+}
 static char peekChar(const ReParser *parser) {
   return atEnd(parser) ? '\0' : parser->pattern[parser->position];
 }
-static char nextChar(ReParser *parser) { return parser->pattern[parser->position++]; }
+static char nextChar(ReParser *parser) {
+  return parser->pattern[parser->position++];
+}
 
 static void parseAlternation(ReParser *parser);
 
@@ -158,7 +160,10 @@ static void parseClass(ReParser *parser) {
 
     if (peekChar(parser) == '\\') {
       parser->position++;
-      if (atEnd(parser)) { fail(parser, "trailing '\\' in a character class"); return; }
+      if (atEnd(parser)) {
+        fail(parser, "trailing '\\' in a character class");
+        return;
+      }
       char escape = nextChar(parser);
       if (addEscapeClass(&set, escape)) continue;
       if (escape == 'D' || escape == 'W' || escape == 'S') {
@@ -173,18 +178,23 @@ static void parseClass(ReParser *parser) {
     }
 
     /* `a-z`, but a `-` at the end of a class is a literal. */
-    if (peekChar(parser) == '-' && parser->position + 1 < parser->length &&
-        parser->pattern[parser->position + 1] != ']') {
+    if (peekChar(parser) == '-' && parser->position + 1 < parser->length && parser->pattern[parser->position + 1] != ']') {
       parser->position++;
       unsigned char high;
       if (peekChar(parser) == '\\') {
         parser->position++;
-        if (atEnd(parser)) { fail(parser, "trailing '\\' in a character class"); return; }
+        if (atEnd(parser)) {
+          fail(parser, "trailing '\\' in a character class");
+          return;
+        }
         escapedByte(nextChar(parser), &high);
       } else {
         high = (unsigned char)nextChar(parser);
       }
-      if (high < low) { fail(parser, "a character range runs backwards"); return; }
+      if (high < low) {
+        fail(parser, "a character range runs backwards");
+        return;
+      }
       classAddRange(&set, low, high);
       continue;
     }
@@ -192,7 +202,10 @@ static void parseClass(ReParser *parser) {
     classAdd(&set, low);
   }
 
-  if (atEnd(parser)) { fail(parser, "unterminated character class: missing ']'"); return; }
+  if (atEnd(parser)) {
+    fail(parser, "unterminated character class: missing ']'");
+    return;
+  }
   parser->position++; /* the ']' */
 
   if (parser->regex->ignoreCase) {
@@ -210,12 +223,10 @@ static void parseClass(ReParser *parser) {
 }
 
 /* Records `name` as another way to ask for group `group`. */
-static void addGroupName(ReParser *parser, const char *name, int length,
-                         int group) {
+static void addGroupName(ReParser *parser, const char *name, int length, int group) {
   Regex *regex = parser->regex;
   for (int i = 0; i < regex->nameCount; i++) {
-    if ((int)strlen(regex->names[i].name) == length &&
-        memcmp(regex->names[i].name, name, (size_t)length) == 0) {
+    if ((int)strlen(regex->names[i].name) == length && memcmp(regex->names[i].name, name, (size_t)length) == 0) {
       fail(parser, "two groups cannot share a name");
       return;
     }
@@ -223,8 +234,7 @@ static void addGroupName(ReParser *parser, const char *name, int length,
 
   if (regex->nameCount == regex->nameCapacity) {
     int capacity = regex->nameCapacity < 4 ? 4 : regex->nameCapacity * 2;
-    ReGroupName *grown =
-        (ReGroupName *)realloc(regex->names, sizeof(ReGroupName) * (size_t)capacity);
+    ReGroupName *grown = (ReGroupName *)realloc(regex->names, sizeof(ReGroupName) * (size_t)capacity);
     if (grown == NULL) {
       fail(parser, "out of memory recording a group name");
       return;
@@ -275,8 +285,7 @@ static int parseAtom(ReParser *parser) {
           regex->code[look].y = regex->count;
           return start;
         } else if (kind == '<' && parser->position + 2 < parser->length &&
-                   (parser->pattern[parser->position + 2] == '=' ||
-                    parser->pattern[parser->position + 2] == '!')) {
+                   (parser->pattern[parser->position + 2] == '=' || parser->pattern[parser->position + 2] == '!')) {
           bool negated = parser->pattern[parser->position + 2] == '!';
           parser->position += 3;
           int look = emit(regex, RE_LOOKBEHIND, negated ? 1 : 0, 0);
@@ -337,24 +346,19 @@ static int parseAtom(ReParser *parser) {
       return start;
     }
 
-    case '[':
-      parseClass(parser);
-      return start;
+    case '[': parseClass(parser); return start;
 
-    case '.':
-      emit(regex, RE_ANY, 0, 0);
-      return start;
+    case '.': emit(regex, RE_ANY, 0, 0); return start;
 
-    case '^':
-      emit(regex, RE_ASSERT_BOL, 0, 0);
-      return start;
+    case '^': emit(regex, RE_ASSERT_BOL, 0, 0); return start;
 
-    case '$':
-      emit(regex, RE_ASSERT_EOL, 0, 0);
-      return start;
+    case '$': emit(regex, RE_ASSERT_EOL, 0, 0); return start;
 
     case '\\': {
-      if (atEnd(parser)) { fail(parser, "trailing '\\'"); return start; }
+      if (atEnd(parser)) {
+        fail(parser, "trailing '\\'");
+        return start;
+      }
       char escape = nextChar(parser);
 
       if (escape == 'b' || escape == 'B') {
@@ -386,9 +390,7 @@ static int parseAtom(ReParser *parser) {
       return start;
     }
 
-    default:
-      emitByte(parser, (unsigned char)c);
-      return start;
+    default: emitByte(parser, (unsigned char)c); return start;
   }
 }
 
@@ -399,8 +401,7 @@ static void parseRepetition(ReParser *parser) {
   int atomEnd = regex->count;
 
   char quantifier = peekChar(parser);
-  if (quantifier != '*' && quantifier != '+' && quantifier != '?' &&
-      quantifier != '{') {
+  if (quantifier != '*' && quantifier != '+' && quantifier != '?' && quantifier != '{') {
     return;
   }
 
@@ -417,7 +418,10 @@ static void parseRepetition(ReParser *parser) {
       n = n * 10 + (nextChar(parser) - '0');
       sawDigit = true;
     }
-    if (!sawDigit) { parser->position = save; return; }
+    if (!sawDigit) {
+      parser->position = save;
+      return;
+    }
     least = n;
     most = n;
     if (peekChar(parser) == ',') {
@@ -432,18 +436,31 @@ static void parseRepetition(ReParser *parser) {
         most = m;
       }
     }
-    if (peekChar(parser) != '}') { parser->position = save; return; }
+    if (peekChar(parser) != '}') {
+      parser->position = save;
+      return;
+    }
     parser->position++;
-    if (most != -1 && most < least) { fail(parser, "a {n,m} range runs backwards"); return; }
+    if (most != -1 && most < least) {
+      fail(parser, "a {n,m} range runs backwards");
+      return;
+    }
     if (most > 1000 || least > 1000) {
       fail(parser, "a {n,m} repetition is limited to 1000");
       return;
     }
   } else {
     parser->position++;
-    if (quantifier == '*') { least = 0; most = -1; }
-    else if (quantifier == '+') { least = 1; most = -1; }
-    else { least = 0; most = 1; }
+    if (quantifier == '*') {
+      least = 0;
+      most = -1;
+    } else if (quantifier == '+') {
+      least = 1;
+      most = -1;
+    } else {
+      least = 0;
+      most = 1;
+    }
   }
 
   /* A trailing `?` makes the quantifier lazy, which swaps the two arms of the
@@ -536,8 +553,7 @@ static void parseAlternation(ReParser *parser) {
     /* The left side has already been emitted, so making room for its split
      * means shifting it up by one and relocating what it holds. */
     emit(regex, RE_JUMP, 0, 0);
-    memmove(regex->code + start + 1, regex->code + start,
-            sizeof(ReInst) * (size_t)(regex->count - start - 1));
+    memmove(regex->code + start + 1, regex->code + start, sizeof(ReInst) * (size_t)(regex->count - start - 1));
     for (int i = start + 1; i < regex->count; i++) {
       if (regex->code[i].op == RE_SPLIT || regex->code[i].op == RE_JUMP) {
         if (regex->code[i].x >= start) regex->code[i].x++;
@@ -557,8 +573,7 @@ static void parseAlternation(ReParser *parser) {
   }
 }
 
-Regex *csRegexCompile(const char *pattern, int length, bool ignoreCase, bool multiline,
-                      bool dotAll, char *error, size_t errorSize) {
+Regex *csRegexCompile(const char *pattern, int length, bool ignoreCase, bool multiline, bool dotAll, char *error, size_t errorSize) {
   Regex *regex = (Regex *)calloc(1, sizeof(Regex));
   regex->groupCount = 1; /* group 0 is the whole match */
   regex->ignoreCase = ignoreCase;

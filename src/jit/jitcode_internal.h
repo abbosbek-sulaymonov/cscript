@@ -163,14 +163,13 @@ typedef struct {
   int *fixupCount;
   int *fixupCapacity;
 
-  int block;   /* the block being emitted */
-  int *index;  /* the instruction's position in it */
+  int block;  /* the block being emitted */
+  int *index; /* the instruction's position in it */
   const char **why;
 } EmitAt;
 
 /* Records a branch to a block that is not laid out yet. */
-void csJitAddFixup(EmitAt *at, int instructionAt, int block, bool conditional,
-                   uint32_t condition);
+void csJitAddFixup(EmitAt *at, int instructionAt, int block, bool conditional, uint32_t condition);
 
 /* Records where the interpreter picks the frame up, and how deep its operand
  * stack is there. Returns the index the compiled code writes back. */

@@ -15,8 +15,7 @@
 #include "cscript/object.h"
 #include "cscript/vm.h"
 
-static bool digitsArg(int argCount, Value *args, int index, int fallback,
-                      const char *method, int low, int high, int *out) {
+static bool digitsArg(int argCount, Value *args, int index, int fallback, const char *method, int low, int high, int *out) {
   if (argCount <= index) {
     *out = fallback;
     return true;
@@ -27,8 +26,7 @@ static bool digitsArg(int argCount, Value *args, int index, int fallback,
   }
   double raw = AS_NUMBER(args[index]);
   if (raw < low || raw > high || raw != raw) {
-    csVMRuntimeError("%s expects a value between %d and %d, got %g", method, low,
-                     high, raw);
+    csVMRuntimeError("%s expects a value between %d and %d, got %g", method, low, high, raw);
     return false;
   }
   *out = (int)raw;
@@ -49,8 +47,7 @@ static bool numberToFixed(Value receiver, int argCount, Value *args, Value *resu
   return true;
 }
 
-static bool numberToPrecision(Value receiver, int argCount, Value *args,
-                              Value *result) {
+static bool numberToPrecision(Value receiver, int argCount, Value *args, Value *result) {
   /* With no argument it is `toString`, which is what the specification says
    * and is easy to get wrong by treating the default as zero. */
   if (argCount == 0) {

@@ -19,14 +19,12 @@
 
 static bool requireCallable(Value receiver, const char *method) {
   if (csValueIsCallable(receiver)) return true;
-  csVMRuntimeError("'%s' needs a function, got %s", method,
-                   csValueTypeName(receiver));
+  csVMRuntimeError("'%s' needs a function, got %s", method, csValueTypeName(receiver));
   return false;
 }
 
 /* Calls `target` with `receiver` in slot 0 and `args` after it. */
-static bool invokeWith(Value target, Value receiver, Value *args, int argCount,
-                       Value *result) {
+static bool invokeWith(Value target, Value receiver, Value *args, int argCount, Value *result) {
   Value forwarded[UINT8_MAX];
   if (argCount > UINT8_MAX) {
     csVMRuntimeError("too many arguments (limit %d)", UINT8_MAX);
@@ -39,8 +37,7 @@ static bool invokeWith(Value target, Value receiver, Value *args, int argCount,
    * the same thing. A plain function counts here too when its body says
    * `this`: `Animal.call(this, name)` is how a constructor function delegates
    * to another, and the receiver is the entire point of the call. */
-  if (IS_CLOSURE(target) && (AS_CLOSURE(target)->function->isMethod ||
-                             AS_CLOSURE(target)->function->usesThis)) {
+  if (IS_CLOSURE(target) && (AS_CLOSURE(target)->function->isMethod || AS_CLOSURE(target)->function->usesThis)) {
     ObjBoundMethod *bound = csBoundMethodNew(receiver, AS_OBJ(target));
     csPushTempRoot((Obj *)bound);
     bool ok = csVMCallAdapted(OBJ_VAL(bound), forwarded, argCount, result);
@@ -54,8 +51,7 @@ static bool invokeWith(Value target, Value receiver, Value *args, int argCount,
 static bool functionCall(Value receiver, int argCount, Value *args, Value *result) {
   if (!requireCallable(receiver, "call")) return false;
   Value bindTo = argCount > 0 ? args[0] : UNDEFINED_VAL;
-  return invokeWith(receiver, bindTo, args + (argCount > 0 ? 1 : 0),
-                    argCount > 0 ? argCount - 1 : 0, result);
+  return invokeWith(receiver, bindTo, args + (argCount > 0 ? 1 : 0), argCount > 0 ? argCount - 1 : 0, result);
 }
 
 static bool functionApply(Value receiver, int argCount, Value *args, Value *result) {
@@ -66,14 +62,12 @@ static bool functionApply(Value receiver, int argCount, Value *args, Value *resu
     return invokeWith(receiver, bindTo, NULL, 0, result);
   }
   if (!IS_ARRAY(args[1])) {
-    csVMRuntimeError("'apply' expects an array of arguments, got %s",
-                     csValueTypeName(args[1]));
+    csVMRuntimeError("'apply' expects an array of arguments, got %s", csValueTypeName(args[1]));
     return false;
   }
 
   ObjArray *list = AS_ARRAY(args[1]);
-  return invokeWith(receiver, bindTo, list->elements.values, list->elements.count,
-                    result);
+  return invokeWith(receiver, bindTo, list->elements.values, list->elements.count, result);
 }
 
 static bool functionBind(Value receiver, int argCount, Value *args, Value *result) {

@@ -48,14 +48,12 @@ static bool sbAppendMap(StringBuilder *builder, ObjMap *map) {
   /* A weak one shows nothing, not even how many: the count would say when the
    * collector last ran, and that is not something a program may find out. */
   if (map->isWeak) {
-    const char *opaque = map->isSet ? "WeakSet { <items unknown> }"
-                                    : "WeakMap { <items unknown> }";
+    const char *opaque = map->isSet ? "WeakSet { <items unknown> }" : "WeakMap { <items unknown> }";
     return sbAppend(builder, opaque, strlen(opaque));
   }
 
   char header[32];
-  int length = snprintf(header, sizeof header, "%s(%d)",
-                        map->isSet ? "Set" : "Map", map->liveCount);
+  int length = snprintf(header, sizeof header, "%s(%d)", map->isSet ? "Set" : "Map", map->liveCount);
   if (!sbAppend(builder, header, (size_t)length)) return false;
   if (map->liveCount == 0) return sbAppend(builder, " {}", 3);
   if (!sbAppend(builder, " { ", 3)) return false;
@@ -80,8 +78,7 @@ static bool sbAppendPromise(StringBuilder *builder, ObjPromise *promise) {
     return sbAppend(builder, "Promise { <pending> }", 21);
   }
   if (!sbAppend(builder, "Promise { ", 10)) return false;
-  if (promise->state == PROMISE_REJECTED &&
-      !sbAppend(builder, "<rejected> ", 11)) {
+  if (promise->state == PROMISE_REJECTED && !sbAppend(builder, "<rejected> ", 11)) {
     return false;
   }
   return sbAppendValue(builder, promise->value, true) && sbAppend(builder, " }", 2);
@@ -94,8 +91,7 @@ static bool sbAppendArray(StringBuilder *builder, ObjArray *array) {
     /* Strings are quoted inside a container so `[ '1' ]` and `[ 1 ]` differ. */
     if (!sbAppendValue(builder, array->elements.values[i], true)) return false;
   }
-  return sbAppend(builder, array->elements.count > 0 ? " ]" : "]",
-                  array->elements.count > 0 ? 2 : 1);
+  return sbAppend(builder, array->elements.count > 0 ? " ]" : "]", array->elements.count > 0 ? 2 : 1);
 }
 
 static bool sbAppendObject(StringBuilder *builder, ObjObject *object) {
@@ -133,10 +129,7 @@ static bool sbAppendObject(StringBuilder *builder, ObjObject *object) {
      * same reason. */
     if (csVMIsAccessorSlot(value)) {
       unsigned kind = csVMAccessorKind(object, key);
-      const char *shown = kind == (CS_ACCESSOR_GET | CS_ACCESSOR_SET)
-                              ? "[Getter/Setter]"
-                          : kind == CS_ACCESSOR_SET ? "[Setter]"
-                                                    : "[Getter]";
+      const char *shown = kind == (CS_ACCESSOR_GET | CS_ACCESSOR_SET) ? "[Getter/Setter]" : kind == CS_ACCESSOR_SET ? "[Setter]" : "[Getter]";
       if (!sbAppend(builder, shown, strlen(shown))) return false;
       continue;
     }
@@ -147,9 +140,7 @@ static bool sbAppendObject(StringBuilder *builder, ObjObject *object) {
 }
 
 /* Every value that reports as a function, whatever shape it has underneath. */
-#define IS_CALLABLE(v)                                                    \
-  (IS_NATIVE(v) || IS_FUNCTION(v) || IS_CLOSURE(v) || IS_BOUND_METHOD(v) || \
-   IS_CLASS(v))
+#define IS_CALLABLE(v) (IS_NATIVE(v) || IS_FUNCTION(v) || IS_CLOSURE(v) || IS_BOUND_METHOD(v) || IS_CLASS(v))
 
 /* `[Function: name]`, `[Function (anonymous)]` or `[class Name extends Base]`,
  * matching what Node prints — which is the only reason to prefer any of these
@@ -169,8 +160,7 @@ static char *renderCallable(Value value, size_t *lengthOut) {
     name = AS_CLOSURE(value)->function->name;
   } else if (IS_BOUND_METHOD(value)) {
     Obj *method = AS_BOUND_METHOD(value)->method;
-    name = method->type == OBJ_NATIVE ? ((ObjNative *)method)->name
-                                      : ((ObjClosure *)method)->function->name;
+    name = method->type == OBJ_NATIVE ? ((ObjNative *)method)->name : ((ObjClosure *)method)->function->name;
   } else {
     klass = AS_CLASS(value);
     name = klass->name;
@@ -179,20 +169,15 @@ static char *renderCallable(Value value, size_t *lengthOut) {
   StringBuilder builder = {NULL, 0, 0};
   bool ok;
   if (klass != NULL) {
-    ok = sbAppend(&builder, "[class ", 7) &&
-         sbAppend(&builder, name->chars, (size_t)name->length);
+    ok = sbAppend(&builder, "[class ", 7) && sbAppend(&builder, name->chars, (size_t)name->length);
     if (ok && klass->superclass != NULL) {
-      ok = sbAppend(&builder, " extends ", 9) &&
-           sbAppend(&builder, klass->superclass->name->chars,
-                    (size_t)klass->superclass->name->length);
+      ok = sbAppend(&builder, " extends ", 9) && sbAppend(&builder, klass->superclass->name->chars, (size_t)klass->superclass->name->length);
     }
     ok = ok && sbAppend(&builder, "]", 1);
   } else if (name == NULL) {
     ok = sbAppend(&builder, "[Function (anonymous)]", 22);
   } else {
-    ok = sbAppend(&builder, "[Function: ", 11) &&
-         sbAppend(&builder, name->chars, (size_t)name->length) &&
-         sbAppend(&builder, "]", 1);
+    ok = sbAppend(&builder, "[Function: ", 11) && sbAppend(&builder, name->chars, (size_t)name->length) && sbAppend(&builder, "]", 1);
   }
 
   if (!ok) {
@@ -218,8 +203,7 @@ static bool sbAppendValue(StringBuilder *builder, Value value, bool quoteStrings
      * they go through csValueToCString instead. */
     char *rendered = csBigToText(&AS_BIGINT(value)->value, 10);
     if (rendered == NULL) return false;
-    bool ok = sbAppend(builder, rendered, strlen(rendered)) &&
-              sbAppend(builder, "n", 1);
+    bool ok = sbAppend(builder, rendered, strlen(rendered)) && sbAppend(builder, "n", 1);
     free(rendered);
     return ok;
   }
@@ -232,16 +216,12 @@ static bool sbAppendValue(StringBuilder *builder, Value value, bool quoteStrings
     if (IS_REGEX(value)) {
       /* `/a\d+/gi` — the source as written, which is why the object keeps it. */
       ObjRegex *regex = AS_REGEX(value);
-      return sbAppend(builder, "/", 1) &&
-             sbAppend(builder, regex->source->chars, (size_t)regex->source->length) &&
-             sbAppend(builder, "/", 1) &&
+      return sbAppend(builder, "/", 1) && sbAppend(builder, regex->source->chars, (size_t)regex->source->length) && sbAppend(builder, "/", 1) &&
              sbAppend(builder, regex->flags->chars, (size_t)regex->flags->length);
     }
     if (IS_STRING(value) && quoteStrings) {
       ObjString *string = AS_STRING(value);
-      return sbAppend(builder, "'", 1) &&
-             sbAppend(builder, string->chars, (size_t)string->length) &&
-             sbAppend(builder, "'", 1);
+      return sbAppend(builder, "'", 1) && sbAppend(builder, string->chars, (size_t)string->length) && sbAppend(builder, "'", 1);
     }
   }
 
@@ -313,77 +293,74 @@ char *csValueToCString(Value value, size_t *lengthOut) {
     text = "undefined";
     length = 9;
   } else {
-      if (IS_STRING(value)) {
-        ObjString *string = AS_STRING(value);
-        text = string->chars;
-        length = (size_t)string->length;
-      } else if (IS_CALLABLE(value)) {
-        return renderCallable(value, lengthOut);
-      } else if (IS_BIGINT(value)) {
-        /* Without the trailing `n`: that is how a BigInt is *written*, not
-         * what it says when a program asks for its text. `String(1n)` is "1"
-         * in JavaScript too, and printing it shows the `n`. */
-        char *rendered = csBigToText(&AS_BIGINT(value)->value, 10);
-        if (rendered == NULL) return NULL;
-        if (lengthOut != NULL) *lengthOut = strlen(rendered);
-        return rendered;
-      } else if (IS_SYMBOL(value)) {
-        /* `String(symbol)` is `Symbol(description)`. JavaScript throws for an
-         * implicit conversion and allows the explicit one; here there is one
-         * conversion and it always says what the value is. */
-        ObjSymbol *symbol = AS_SYMBOL(value);
-        const char *described =
-            symbol->description != NULL ? symbol->description->chars : "";
-        size_t needed = strlen(described) + 10;
-        char *rendered = (char *)malloc(needed);
-        if (rendered == NULL) return NULL;
-        int written = snprintf(rendered, needed, "Symbol(%s)", described);
-        if (lengthOut != NULL) *lengthOut = (size_t)written;
-        return rendered;
-      } else if (IS_DATE(value)) {
-        /* The ISO form, which is the one a Date has that does not depend on
-         * where the program is running. JavaScript's `String(date)` gives a
-         * local, human, locale-shaped string instead; this one is the same
-         * everywhere, and is what `toISOString` and JSON already produce. */
-        char iso[64];
-        if (!csDateToISO(AS_DATE(value)->ms, iso, sizeof iso)) {
-          text = "Invalid Date";
-          length = 12;
-        } else {
-          size_t isoLength = strlen(iso);
-          char *copy = (char *)malloc(isoLength + 1);
-          if (copy == NULL) return NULL;
-          memcpy(copy, iso, isoLength + 1);
-          if (lengthOut != NULL) *lengthOut = isoLength;
-          return copy;
-        }
-      } else if (!IS_ARRAY(value) && !IS_OBJECT(value) && !IS_PROMISE(value) &&
-                 !IS_MAP(value) && !IS_REGEX(value)) {
-        /* A heap type with no rendering of its own — a module, a shape, a
-         * fiber. Naming it stops the fall-through below from calling back into
-         * this function and recursing until the stack runs out, which is what
-         * a new object type used to do until someone added a case here. */
-        text = "[internal]";
-        length = 10;
+    if (IS_STRING(value)) {
+      ObjString *string = AS_STRING(value);
+      text = string->chars;
+      length = (size_t)string->length;
+    } else if (IS_CALLABLE(value)) {
+      return renderCallable(value, lengthOut);
+    } else if (IS_BIGINT(value)) {
+      /* Without the trailing `n`: that is how a BigInt is *written*, not
+       * what it says when a program asks for its text. `String(1n)` is "1"
+       * in JavaScript too, and printing it shows the `n`. */
+      char *rendered = csBigToText(&AS_BIGINT(value)->value, 10);
+      if (rendered == NULL) return NULL;
+      if (lengthOut != NULL) *lengthOut = strlen(rendered);
+      return rendered;
+    } else if (IS_SYMBOL(value)) {
+      /* `String(symbol)` is `Symbol(description)`. JavaScript throws for an
+       * implicit conversion and allows the explicit one; here there is one
+       * conversion and it always says what the value is. */
+      ObjSymbol *symbol = AS_SYMBOL(value);
+      const char *described = symbol->description != NULL ? symbol->description->chars : "";
+      size_t needed = strlen(described) + 10;
+      char *rendered = (char *)malloc(needed);
+      if (rendered == NULL) return NULL;
+      int written = snprintf(rendered, needed, "Symbol(%s)", described);
+      if (lengthOut != NULL) *lengthOut = (size_t)written;
+      return rendered;
+    } else if (IS_DATE(value)) {
+      /* The ISO form, which is the one a Date has that does not depend on
+       * where the program is running. JavaScript's `String(date)` gives a
+       * local, human, locale-shaped string instead; this one is the same
+       * everywhere, and is what `toISOString` and JSON already produce. */
+      char iso[64];
+      if (!csDateToISO(AS_DATE(value)->ms, iso, sizeof iso)) {
+        text = "Invalid Date";
+        length = 12;
       } else {
-        StringBuilder builder = {NULL, 0, 0};
-        bool ok = IS_ARRAY(value) ? sbAppendArrayAsString(&builder, AS_ARRAY(value))
-                                  : sbAppendValue(&builder, value, false);
-        if (!ok) {
-          free(builder.data);
-          return NULL;
-        }
-        /* An empty array joins to an empty string, which writes nothing — so
-         * the builder never allocated and there is no buffer to hand back. */
-        if (builder.data == NULL) {
-          builder.data = (char *)malloc(1);
-          if (builder.data == NULL) return NULL;
-          builder.data[0] = '\0';
-          builder.length = 0;
-        }
-        if (lengthOut != NULL) *lengthOut = builder.length;
-        return builder.data;
+        size_t isoLength = strlen(iso);
+        char *copy = (char *)malloc(isoLength + 1);
+        if (copy == NULL) return NULL;
+        memcpy(copy, iso, isoLength + 1);
+        if (lengthOut != NULL) *lengthOut = isoLength;
+        return copy;
       }
+    } else if (!IS_ARRAY(value) && !IS_OBJECT(value) && !IS_PROMISE(value) && !IS_MAP(value) && !IS_REGEX(value)) {
+      /* A heap type with no rendering of its own — a module, a shape, a
+       * fiber. Naming it stops the fall-through below from calling back into
+       * this function and recursing until the stack runs out, which is what
+       * a new object type used to do until someone added a case here. */
+      text = "[internal]";
+      length = 10;
+    } else {
+      StringBuilder builder = {NULL, 0, 0};
+      bool ok = IS_ARRAY(value) ? sbAppendArrayAsString(&builder, AS_ARRAY(value)) : sbAppendValue(&builder, value, false);
+      if (!ok) {
+        free(builder.data);
+        return NULL;
+      }
+      /* An empty array joins to an empty string, which writes nothing — so
+       * the builder never allocated and there is no buffer to hand back. */
+      if (builder.data == NULL) {
+        builder.data = (char *)malloc(1);
+        if (builder.data == NULL) return NULL;
+        builder.data[0] = '\0';
+        builder.length = 0;
+      }
+      if (lengthOut != NULL) *lengthOut = builder.length;
+      return builder.data;
+    }
   }
 
   char *result = (char *)malloc(length + 1);

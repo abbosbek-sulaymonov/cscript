@@ -28,8 +28,7 @@
 static bool slotIsNeverWritten(const Chunk *chunk, int slot) {
   for (int offset = 0; offset < chunk->count;) {
     uint8_t opcode = chunk->code[offset];
-    if ((opcode == OP_SET_LOCAL || opcode == OP_SET_LOCAL_POP) &&
-        chunk->code[offset + 1] == slot) {
+    if ((opcode == OP_SET_LOCAL || opcode == OP_SET_LOCAL_POP) && chunk->code[offset + 1] == slot) {
       return false;
     }
     int next = csInstructionLength(chunk, offset);
@@ -42,8 +41,7 @@ static bool slotIsNeverWritten(const Chunk *chunk, int slot) {
 /* Records what a property read takes for granted, merging with an assumption
  * already made about the same slot and property. Two reads of the same field
  * cost one check. */
-static bool rememberEntryShape(IrFunction *ir, int slot, Shape *shape, int property,
-                               bool expectsNumber) {
+static bool rememberEntryShape(IrFunction *ir, int slot, Shape *shape, int property, bool expectsNumber) {
   for (int i = 0; i < ir->entryShapeCount; i++) {
     IrEntryShape *existing = &ir->entryShapes[i];
     if (existing->slot != slot) continue;
@@ -59,8 +57,7 @@ static bool rememberEntryShape(IrFunction *ir, int slot, Shape *shape, int prope
 
   if (ir->entryShapeCount == ir->entryShapeCapacity) {
     int capacity = ir->entryShapeCapacity < 4 ? 4 : ir->entryShapeCapacity * 2;
-    IrEntryShape *grown = (IrEntryShape *)realloc(
-        ir->entryShapes, sizeof(IrEntryShape) * (size_t)capacity);
+    IrEntryShape *grown = (IrEntryShape *)realloc(ir->entryShapes, sizeof(IrEntryShape) * (size_t)capacity);
     if (grown == NULL) return false;
     ir->entryShapes = grown;
     ir->entryShapeCapacity = capacity;
@@ -83,8 +80,7 @@ bool csIrEntryShapesHold(const IrFunction *ir, const Value *slots) {
     ObjObject *object = AS_OBJECT(held);
     if (object->shape != assumed->shape) return false;
     if (assumed->property >= object->shape->slotCount) return false;
-    if (assumed->expectsNumber &&
-        !IS_NUMBER(object->as.slots.values[assumed->property])) {
+    if (assumed->expectsNumber && !IS_NUMBER(object->as.slots.values[assumed->property])) {
       return false;
     }
   }
@@ -118,8 +114,7 @@ LowerResult csIrLowerObject(LowerAt *at) {
 
       int value = low->stack[low->stackTop - 1];
       int object = low->stack[low->stackTop - 2];
-      if (value < 0 || object < 0 ||
-          ir->registerTypes[value] != IR_TYPE_NUMBER) {
+      if (value < 0 || object < 0 || ir->registerTypes[value] != IR_TYPE_NUMBER) {
         low->reason = csOpcodeName((OpCode)opcode);
         return LOWER_FAILED;
       }
@@ -132,8 +127,7 @@ LowerResult csIrLowerObject(LowerAt *at) {
       }
 
       const PropertyCache *cache = &chunk->propertyCaches[cacheIndex];
-      if (slot < 0 || cache->shape == NULL || cache->shape == vm.absentShape ||
-          cache->slot < 0 || !slotIsNeverWritten(chunk, slot) ||
+      if (slot < 0 || cache->shape == NULL || cache->shape == vm.absentShape || cache->slot < 0 || !slotIsNeverWritten(chunk, slot) ||
           !rememberEntryShape(ir, slot, cache->shape, cache->slot, false)) {
         low->reason = csOpcodeName((OpCode)opcode);
         return LOWER_FAILED;
@@ -188,8 +182,7 @@ LowerResult csIrLowerObject(LowerAt *at) {
       }
 
       const PropertyCache *cache = &chunk->propertyCaches[cacheIndex];
-      if (slot < 0 || cache->shape == NULL || cache->shape == vm.absentShape ||
-          cache->slot < 0 || !slotIsNeverWritten(chunk, slot) ||
+      if (slot < 0 || cache->shape == NULL || cache->shape == vm.absentShape || cache->slot < 0 || !slotIsNeverWritten(chunk, slot) ||
           !rememberEntryShape(ir, slot, cache->shape, cache->slot, true)) {
         low->reason = csOpcodeName((OpCode)opcode);
         return LOWER_FAILED;
@@ -225,8 +218,7 @@ LowerResult csIrLowerObject(LowerAt *at) {
       }
 
       const PropertyCache *cache = &chunk->propertyCaches[cacheIndex];
-      if (cache->shape == NULL || cache->shape == vm.absentShape ||
-          cache->slot < 0 || !slotIsNeverWritten(chunk, slot)) {
+      if (cache->shape == NULL || cache->shape == vm.absentShape || cache->slot < 0 || !slotIsNeverWritten(chunk, slot)) {
         low->reason = csOpcodeName((OpCode)opcode);
         return LOWER_FAILED;
       }
@@ -247,8 +239,7 @@ LowerResult csIrLowerObject(LowerAt *at) {
       break;
     }
 
-    default:
-      return LOWER_UNHANDLED;
+    default: return LOWER_UNHANDLED;
   }
   return LOWER_OK;
 }

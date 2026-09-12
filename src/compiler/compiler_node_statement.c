@@ -26,9 +26,7 @@ bool compileStatementNode(const AstNode *node, int line) {
       compileForEffect(node->as.expression);
       break;
 
-    case AST_VAR_DECL:
-      compileVarDecl(node);
-      break;
+    case AST_VAR_DECL: compileVarDecl(node); break;
 
     case AST_BLOCK:
       beginScope();
@@ -36,21 +34,13 @@ bool compileStatementNode(const AstNode *node, int line) {
       endScope(line);
       break;
 
-    case AST_IF_STMT:
-      compileIf(node);
-      break;
+    case AST_IF_STMT: compileIf(node); break;
 
-    case AST_WHILE_STMT:
-      compileWhile(node);
-      break;
+    case AST_WHILE_STMT: compileWhile(node); break;
 
-    case AST_FOR_STMT:
-      compileFor(node);
-      break;
+    case AST_FOR_STMT: compileFor(node); break;
 
-    case AST_FOR_OF_STMT:
-      compileForOf(node);
-      break;
+    case AST_FOR_OF_STMT: compileForOf(node); break;
 
     case AST_FUNCTION:
       /* A declaration binds the closure to its name; an expression leaves it
@@ -73,19 +63,15 @@ bool compileStatementNode(const AstNode *node, int line) {
       compileFunction(node);
       if (node->as.function.isDeclaration) {
         addGlobal(node->as.function.name, node->as.function.nameLength, false, line);
-        emitConstantOp(OP_DEFINE_GLOBAL, identifierConstant(node->as.function.name,
-                                     node->as.function.nameLength, line),
-                  line);
+        emitConstantOp(OP_DEFINE_GLOBAL, identifierConstant(node->as.function.name, node->as.function.nameLength, line), line);
       }
       break;
 
     case AST_BREAK_STMT: {
-      Loop *target =
-          compilerTargetLoop(node->as.jump.label, node->as.jump.labelLength, false, line);
+      Loop *target = compilerTargetLoop(node->as.jump.label, node->as.jump.labelLength, false, line);
       if (target == NULL) break;
       if (target->breakCount >= MAX_LOOP_EXITS) {
-        errorAt(line, "too many 'break' statements in one loop (limit %d)",
-                MAX_LOOP_EXITS);
+        errorAt(line, "too many 'break' statements in one loop (limit %d)", MAX_LOOP_EXITS);
         break;
       }
       unwindTryBlocks(target->scopeDepth, line);
@@ -95,12 +81,10 @@ bool compileStatementNode(const AstNode *node, int line) {
     }
 
     case AST_CONTINUE_STMT: {
-      Loop *target =
-          compilerTargetLoop(node->as.jump.label, node->as.jump.labelLength, true, line);
+      Loop *target = compilerTargetLoop(node->as.jump.label, node->as.jump.labelLength, true, line);
       if (target == NULL) break;
       if (target->continueCount >= MAX_LOOP_EXITS) {
-        errorAt(line, "too many 'continue' statements in one loop (limit %d)",
-                MAX_LOOP_EXITS);
+        errorAt(line, "too many 'continue' statements in one loop (limit %d)", MAX_LOOP_EXITS);
         break;
       }
       unwindTryBlocks(target->scopeDepth, line);
@@ -115,8 +99,7 @@ bool compileStatementNode(const AstNode *node, int line) {
       /* A label on a loop or a switch belongs to that construct, so it is
        * handed over for beginLoop to adopt — which is what lets `continue
        * outer` reach the right increment. */
-      if (body->type == AST_WHILE_STMT || body->type == AST_FOR_STMT ||
-          body->type == AST_FOR_OF_STMT || body->type == AST_SWITCH_STMT) {
+      if (body->type == AST_WHILE_STMT || body->type == AST_FOR_STMT || body->type == AST_FOR_OF_STMT || body->type == AST_SWITCH_STMT) {
         pendingLabel = node->as.labeled.name;
         pendingLabelLength = node->as.labeled.length;
         compileNode(body);
@@ -169,8 +152,7 @@ bool compileStatementNode(const AstNode *node, int line) {
       emitByte(OP_POP, line); /* the subject */
       if (node->as.switchStmt.defaultBody != NULL) {
         beginScope();
-        compileStatements(node->as.switchStmt.defaultBody->as.block.statements,
-                          node->as.switchStmt.defaultBody->as.block.count);
+        compileStatements(node->as.switchStmt.defaultBody->as.block.statements, node->as.switchStmt.defaultBody->as.block.count);
         endScope(line);
       }
       afterDefault = emitJump(OP_JUMP, line);
@@ -179,8 +161,7 @@ bool compileStatementNode(const AstNode *node, int line) {
         patchJump(bodyJumps[i], line);
         emitByte(OP_POP, line); /* the subject */
         beginScope();
-        compileStatements(node->as.switchStmt.cases[i].body->as.block.statements,
-                          node->as.switchStmt.cases[i].body->as.block.count);
+        compileStatements(node->as.switchStmt.cases[i].body->as.block.statements, node->as.switchStmt.cases[i].body->as.block.count);
         endScope(line);
         /* Arms do not fall through, so each one jumps to the end. */
         if (loop.breakCount < MAX_LOOP_EXITS) {
@@ -193,9 +174,7 @@ bool compileStatementNode(const AstNode *node, int line) {
       break;
     }
 
-    case AST_TRY_STMT:
-      compileTry(node);
-      break;
+    case AST_TRY_STMT: compileTry(node); break;
 
     case AST_THROW_STMT:
       compileNode(node->as.thrown);
@@ -208,8 +187,9 @@ bool compileStatementNode(const AstNode *node, int line) {
         break;
       }
       if (current->kind == FUNCTION_CONSTRUCTOR && node->as.returnValue != NULL) {
-        errorAt(line, "a constructor cannot return a value; it always yields "
-                      "the new instance");
+        errorAt(line,
+                "a constructor cannot return a value; it always yields "
+                "the new instance");
         break;
       }
       /* The value is computed first so the finally blocks run with it already
@@ -225,24 +205,15 @@ bool compileStatementNode(const AstNode *node, int line) {
       emitByte(OP_RETURN, line);
       break;
 
-    case AST_CLASS_DECL:
-      compileClassDecl(node);
-      break;
+    case AST_CLASS_DECL: compileClassDecl(node); break;
 
-    case AST_IMPORT:
-      compileImport(node);
-      break;
+    case AST_IMPORT: compileImport(node); break;
 
-    case AST_EXPORT:
-      compileExport(node);
-      break;
+    case AST_EXPORT: compileExport(node); break;
 
-    case AST_PROGRAM:
-      compileStatements(node->as.program.statements, node->as.program.count);
-      break;
+    case AST_PROGRAM: compileStatements(node->as.program.statements, node->as.program.count); break;
 
-    default:
-      return false;
+    default: return false;
   }
   return true;
 }

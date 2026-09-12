@@ -101,8 +101,7 @@ bool *csJitPromotableSlots(const IrFunction *ir) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
       if (inst->op != IR_STORE_LOCAL) continue;
       if (inst->a < 0 || inst->a > ir->slotCount) continue;
-      if (inst->b < 0 || inst->b >= ir->registerCount ||
-          ir->registerTypes[inst->b] != IR_TYPE_NUMBER) {
+      if (inst->b < 0 || inst->b >= ir->registerCount || ir->registerTypes[inst->b] != IR_TYPE_NUMBER) {
         promotable[inst->a] = false;
       }
     }
@@ -110,8 +109,7 @@ bool *csJitPromotableSlots(const IrFunction *ir) {
 
   /* A parameter is only known to be a number if it was declared one. */
   for (int s = 1; s <= ir->slotCount; s++) {
-    if (ir->slotTypes != NULL && s <= ir->slotCount &&
-        ir->slotTypes[s] != IR_TYPE_NUMBER) {
+    if (ir->slotTypes != NULL && s <= ir->slotCount && ir->slotTypes[s] != IR_TYPE_NUMBER) {
       /* Still promotable if nothing outside the function put a value there —
        * that is, if it is a temporary rather than an argument. */
       if (s <= ir->source->arity) promotable[s] = false;
@@ -151,8 +149,7 @@ int *csJitAllocateRegisters(const IrFunction *ir, int reserved, bool callSafe) {
       if (inst->op == IR_STORE_LOCAL || inst->op == IR_EXIT) operands[0] = -1;
       if (inst->op == IR_LOAD_GLOBAL || inst->op == IR_STORE_GLOBAL) operands[0] = -1;
       if (inst->op == IR_EXIT || inst->op == IR_LOAD_GLOBAL) operands[1] = -1;
-      if (inst->op == IR_BRANCH || inst->op == IR_RETURN || inst->op == IR_NEG ||
-          inst->op == IR_CONST || inst->op == IR_LOAD_LOCAL) {
+      if (inst->op == IR_BRANCH || inst->op == IR_RETURN || inst->op == IR_NEG || inst->op == IR_CONST || inst->op == IR_LOAD_LOCAL) {
         operands[1] = -1;
       }
       for (int k = 0; k < 2; k++) {
@@ -171,15 +168,13 @@ int *csJitAllocateRegisters(const IrFunction *ir, int reserved, bool callSafe) {
     for (int r = 0; r <= ir->registerCount; r++) lastUse[r] = -1;
     for (int i = 0; i < ir->blocks[b].count; i++) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
-      if (inst->a >= 0 && inst->a < ir->registerCount && inst->op != IR_LOAD_LOCAL &&
-          inst->op != IR_STORE_LOCAL && inst->op != IR_JUMP) {
+      if (inst->a >= 0 && inst->a < ir->registerCount && inst->op != IR_LOAD_LOCAL && inst->op != IR_STORE_LOCAL && inst->op != IR_JUMP) {
         lastUse[inst->a] = i;
       }
       if (inst->op == IR_STORE_LOCAL && inst->b >= 0 && inst->b < ir->registerCount) {
         lastUse[inst->b] = i;
       }
-      if (inst->b >= 0 && inst->b < ir->registerCount && inst->op != IR_STORE_LOCAL &&
-          inst->op != IR_BRANCH && inst->op != IR_RETURN && inst->op != IR_NEG &&
+      if (inst->b >= 0 && inst->b < ir->registerCount && inst->op != IR_STORE_LOCAL && inst->op != IR_BRANCH && inst->op != IR_RETURN && inst->op != IR_NEG &&
           inst->op != IR_CONST && inst->op != IR_LOAD_LOCAL && inst->op != IR_JUMP) {
         lastUse[inst->b] = i;
       }
@@ -188,15 +183,17 @@ int *csJitAllocateRegisters(const IrFunction *ir, int reserved, bool callSafe) {
     int pool = csJitPoolSize(callSafe);
     bool taken[ALLOC_POOL_SIZE];
     int holder[ALLOC_POOL_SIZE];
-    for (int k = 0; k < pool; k++) { taken[k] = false; holder[k] = -1; }
+    for (int k = 0; k < pool; k++) {
+      taken[k] = false;
+      holder[k] = -1;
+    }
 
     for (int i = 0; i < ir->blocks[b].count; i++) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
 
       /* Free anything whose last use was the previous instruction. */
       for (int k = 0; k < pool; k++) {
-        if (taken[k] && holder[k] >= 0 && lastUse[holder[k]] >= 0 &&
-            lastUse[holder[k]] < i) {
+        if (taken[k] && holder[k] >= 0 && lastUse[holder[k]] >= 0 && lastUse[holder[k]] < i) {
           taken[k] = false;
           holder[k] = -1;
         }
@@ -204,8 +201,7 @@ int *csJitAllocateRegisters(const IrFunction *ir, int reserved, bool callSafe) {
 
       if (inst->result < 0 || escapes[inst->result]) continue;
       /* Comparison results live in memory; see the encoder. */
-      if (inst->op == IR_LT || inst->op == IR_LE || inst->op == IR_GT ||
-          inst->op == IR_GE || inst->op == IR_EQ || inst->op == IR_NE) {
+      if (inst->op == IR_LT || inst->op == IR_LE || inst->op == IR_GT || inst->op == IR_GE || inst->op == IR_EQ || inst->op == IR_NE) {
         continue;
       }
       if (lastUse[inst->result] < 0) continue; /* never read: no register needed */

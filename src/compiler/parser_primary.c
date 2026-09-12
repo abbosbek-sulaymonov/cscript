@@ -19,25 +19,17 @@
 
 AstNode *parseOperandPrimary(Parser *parser, int line) {
   if (matchToken(parser, TOKEN_NUMBER)) {
-    return parseCallSuffixes(
-        parser, csAstNumber(parser->arena, line,
-                            parseNumberLiteral(parser->previous.start,
-                                               parser->previous.length)));
+    return parseCallSuffixes(parser, csAstNumber(parser->arena, line, parseNumberLiteral(parser->previous.start, parser->previous.length)));
   }
   if (matchToken(parser, TOKEN_BIGINT)) {
     /* Minus the `n`, which the lexer included and the digits do not want. */
-    return parseCallSuffixes(
-        parser, csAstBigInt(parser->arena, line, parser->previous.start,
-                            parser->previous.length - 1));
+    return parseCallSuffixes(parser, csAstBigInt(parser->arena, line, parser->previous.start, parser->previous.length - 1));
   }
   if (matchToken(parser, TOKEN_STRING)) {
-    return parseCallSuffixes(
-        parser, makeStringLiteral(parser, parser->previous.start,
-                                  parser->previous.length, line));
+    return parseCallSuffixes(parser, makeStringLiteral(parser, parser->previous.start, parser->previous.length, line));
   }
   if (matchToken(parser, TOKEN_TEMPLATE)) {
-    AstNode *template = parseTemplate(parser, parser->previous.start,
-                                      parser->previous.length, line);
+    AstNode *template = parseTemplate(parser, parser->previous.start, parser->previous.length, line);
     if (template == NULL) return NULL;
     return parseCallSuffixes(parser, template);
   }
@@ -65,9 +57,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
     if (matchToken(parser, TOKEN_DOT)) {
       consume(parser, TOKEN_IDENTIFIER, "expected a method name after 'super.'");
       if (parser->diag->panicMode) return NULL;
-      return parseCallSuffixes(
-          parser, csAstSuper(parser->arena, line, parser->previous.start,
-                             parser->previous.length));
+      return parseCallSuffixes(parser, csAstSuper(parser->arena, line, parser->previous.start, parser->previous.length));
     }
     if (check(parser, TOKEN_LEFT_PAREN)) {
       /* `super(...)` — the call suffix below turns it into the constructor
@@ -90,8 +80,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
       if (specifier == NULL) return NULL;
       consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the module name");
       if (parser->diag->panicMode) return NULL;
-      return parseCallSuffixes(parser,
-                               csAstDynamicImport(parser->arena, line, specifier));
+      return parseCallSuffixes(parser, csAstDynamicImport(parser->arena, line, specifier));
     }
   }
 
@@ -105,8 +94,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
     if (check(parser, TOKEN_DOT)) {
       advanceToken(parser);
       if (!consumePropertyName(parser, "expected 'target' after 'new.'")) return NULL;
-      if (parser->previous.length != 6 ||
-          memcmp(parser->previous.start, "target", 6) != 0) {
+      if (parser->previous.length != 6 || memcmp(parser->previous.start, "target", 6) != 0) {
         errorAtCurrent(parser, "'new.' is only followed by 'target'");
         return NULL;
       }
@@ -121,8 +109,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
     } else {
       consume(parser, TOKEN_IDENTIFIER, "expected a class after 'new'");
       if (parser->diag->panicMode) return NULL;
-      callee = csAstIdentifier(parser->arena, line, parser->previous.start,
-                               parser->previous.length);
+      callee = csAstIdentifier(parser->arena, line, parser->previous.start, parser->previous.length);
     }
 
     /* `new a.B()` and `new registry[0]()`. */
@@ -132,8 +119,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
           return NULL;
         }
         if (parser->diag->panicMode) return NULL;
-        callee = csAstProperty(parser->arena, line, callee, parser->previous.start,
-                               parser->previous.length);
+        callee = csAstProperty(parser->arena, line, callee, parser->previous.start, parser->previous.length);
         continue;
       }
       if (matchToken(parser, TOKEN_LEFT_BRACKET)) {
@@ -221,8 +207,9 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
         /* `[1, , 2]` is a hole. Arrays here are dense on purpose — holes are
          * the reason engines need a second, slower array representation. */
         if (check(parser, TOKEN_COMMA)) {
-          errorAtCurrent(parser, "an array element cannot be left empty; arrays "
-                                 "are dense and have no holes");
+          errorAtCurrent(parser,
+                         "an array element cannot be left empty; arrays "
+                         "are dense and have no holes");
           return NULL;
         }
 
@@ -261,8 +248,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
         if (checkWord(parser, "async")) {
           Lexer probe = parser->lexer;
           Token next = csLexerNext(&probe);
-          if (next.type != TOKEN_COLON && next.type != TOKEN_LEFT_PAREN &&
-              next.type != TOKEN_COMMA && next.type != TOKEN_RIGHT_BRACE) {
+          if (next.type != TOKEN_COLON && next.type != TOKEN_LEFT_PAREN && next.type != TOKEN_COMMA && next.type != TOKEN_RIGHT_BRACE) {
             advanceToken(parser);
             isAsyncEntry = true;
           }
@@ -279,8 +265,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
           Lexer probe = parser->lexer;
           Token next = csLexerNext(&probe);
           if (next.type == TOKEN_IDENTIFIER || next.type == TOKEN_STRING) {
-            entryKind = parser->current.start[0] == 'g' ? OBJECT_ENTRY_GETTER
-                                                        : OBJECT_ENTRY_SETTER;
+            entryKind = parser->current.start[0] == 'g' ? OBJECT_ENTRY_GETTER : OBJECT_ENTRY_SETTER;
             advanceToken(parser);
           }
         }
@@ -313,18 +298,15 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
           continue;
         }
         if (matchToken(parser, TOKEN_STRING)) {
-          key = makeStringLiteral(parser, parser->previous.start,
-                                  parser->previous.length, parser->previous.line);
+          key = makeStringLiteral(parser, parser->previous.start, parser->previous.length, parser->previous.line);
         } else if (matchToken(parser, TOKEN_NUMBER)) {
           /* `{ 1: x }`. The key is the number's *string* form, because that is
            * what `o[1]` and `o["1"]` both look up. */
-          key = csAstString(parser->arena, parser->previous.line,
-                            parser->previous.start, parser->previous.length);
+          key = csAstString(parser->arena, parser->previous.line, parser->previous.start, parser->previous.length);
         } else {
           if (!consumePropertyName(parser, "expected a property name")) return NULL;
           if (parser->diag->panicMode) return NULL;
-          key = csAstString(parser->arena, parser->previous.line,
-                            parser->previous.start, parser->previous.length);
+          key = csAstString(parser->arena, parser->previous.line, parser->previous.start, parser->previous.length);
         }
 
         /* `{ m() {} }` is `{ m: function m() {} }`. Named after the key, so a
@@ -332,8 +314,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
         if (check(parser, TOKEN_LEFT_PAREN)) {
           parser->pendingAsync = isAsyncEntry;
           parser->pendingGenerator = isGeneratorEntry;
-          AstNode *method = parseFunctionRest(parser, key->line, key->as.string.chars,
-                                              key->as.string.length, true);
+          AstNode *method = parseFunctionRest(parser, key->line, key->as.string.chars, key->as.string.length, true);
           if (method == NULL) return NULL;
           method->as.function.isMethod = true;
           csAstObjectLiteralAddKind(parser->arena, object, key, method, entryKind);
@@ -350,8 +331,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
         AstNode *value;
         bool shorthand = check(parser, TOKEN_COMMA) || check(parser, TOKEN_RIGHT_BRACE);
         if (shorthand) {
-          value = csAstIdentifier(parser->arena, key->line, key->as.string.chars,
-                                  key->as.string.length);
+          value = csAstIdentifier(parser->arena, key->line, key->as.string.chars, key->as.string.length);
         } else {
           consume(parser, TOKEN_COLON, "expected ':' after the property name");
           if (parser->diag->panicMode) return NULL;
@@ -362,11 +342,9 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
         /* Only the written-out `__proto__: v` links. The shorthand `{ __proto__ }`
          * and the method form `{ __proto__() {} }` are ordinary properties,
          * which is the distinction JavaScript draws too. */
-        bool linksPrototype = !shorthand && key->as.string.length == 9 &&
-                              memcmp(key->as.string.chars, "__proto__", 9) == 0;
+        bool linksPrototype = !shorthand && key->as.string.length == 9 && memcmp(key->as.string.chars, "__proto__", 9) == 0;
         if (linksPrototype) {
-          csAstObjectLiteralAddKind(parser->arena, object, key, value,
-                                    OBJECT_ENTRY_PROTO);
+          csAstObjectLiteralAddKind(parser->arena, object, key, value, OBJECT_ENTRY_PROTO);
         } else {
           csAstObjectLiteralAdd(parser->arena, object, key, value);
         }
@@ -392,10 +370,8 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
             if (pattern == NULL) return NULL;
 
             char generated[16];
-            int generatedLength =
-                snprintf(generated, sizeof generated, " arg%d", patternIndex++);
-            csAstFunctionAddParam(parser->arena, arrow, generated, generatedLength,
-                                  TYPE_DYNAMIC, false);
+            int generatedLength = snprintf(generated, sizeof generated, " arg%d", patternIndex++);
+            csAstFunctionAddParam(parser->arena, arrow, generated, generatedLength, TYPE_DYNAMIC, false);
             csAstParamPattern(arrow, pattern);
             continue;
           }
@@ -409,8 +385,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
           TypeKind paramType;
           bool annotated;
           if (!parseTypeAnnotation(parser, &paramType, &annotated)) return NULL;
-          csAstFunctionAddParam(parser->arena, arrow, paramName, paramLength,
-                                paramType, annotated);
+          csAstFunctionAddParam(parser->arena, arrow, paramName, paramLength, paramType, annotated);
           if (isRest) {
             arrow->as.function.hasRest = true;
             if (check(parser, TOKEN_COMMA)) {
@@ -422,8 +397,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
           if (matchToken(parser, TOKEN_EQUAL)) {
             AstNode *fallback = parsePrecedence(parser, PREC_ASSIGNMENT);
             if (fallback == NULL) return NULL;
-            arrow->as.function.params[arrow->as.function.paramCount - 1]
-                .defaultValue = fallback;
+            arrow->as.function.params[arrow->as.function.paramCount - 1].defaultValue = fallback;
           }
         } while (matchToken(parser, TOKEN_COMMA));
       }

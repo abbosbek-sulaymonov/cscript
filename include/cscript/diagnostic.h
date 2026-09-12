@@ -23,13 +23,11 @@ typedef struct {
   bool quiet;
 } Diagnostics;
 
-void csDiagnosticsInit(Diagnostics *diag, const char *source,
-                       const char *sourceName);
+void csDiagnosticsInit(Diagnostics *diag, const char *source, const char *sourceName);
 
 /* Reports at a source span. `at`/`length` point into `source`. Suppressed while
  * panic mode is set, so one syntax error does not produce ten messages. */
-void csDiagnosticError(Diagnostics *diag, int line, const char *at, int length,
-                       const char *format, ...);
+void csDiagnosticError(Diagnostics *diag, int line, const char *at, int length, const char *format, ...);
 
 static inline bool csDiagnosticsFailed(const Diagnostics *diag) {
   return diag->errorCount > 0;

@@ -25,12 +25,10 @@
 
 /* ---- the buffer -------------------------------------------------------- */
 
-
 void csJitWord(Encoder *encoder, uint32_t instruction) {
   if (encoder->capacity < encoder->count + 1) {
     encoder->capacity = encoder->capacity < 64 ? 64 : encoder->capacity * 2;
-    encoder->words =
-        (uint32_t *)realloc(encoder->words, sizeof(uint32_t) * (size_t)encoder->capacity);
+    encoder->words = (uint32_t *)realloc(encoder->words, sizeof(uint32_t) * (size_t)encoder->capacity);
   }
   encoder->words[encoder->count++] = instruction;
 }
@@ -48,8 +46,7 @@ void csJitLdrDouble(Encoder *encoder, int destination, int base, int byteOffset)
     encoder->failed = true;
     return;
   }
-  csJitWord(encoder, 0xFD400000u | ((uint32_t)(byteOffset / 8) << 10) |
-                    ((uint32_t)base << 5) | (uint32_t)destination);
+  csJitWord(encoder, 0xFD400000u | ((uint32_t)(byteOffset / 8) << 10) | ((uint32_t)base << 5) | (uint32_t)destination);
 }
 
 /* STR <Dt>, [<Xn>, #imm] */
@@ -58,8 +55,7 @@ void csJitStrDouble(Encoder *encoder, int source, int base, int byteOffset) {
     encoder->failed = true;
     return;
   }
-  csJitWord(encoder, 0xFD000000u | ((uint32_t)(byteOffset / 8) << 10) |
-                    ((uint32_t)base << 5) | (uint32_t)source);
+  csJitWord(encoder, 0xFD000000u | ((uint32_t)(byteOffset / 8) << 10) | ((uint32_t)base << 5) | (uint32_t)source);
 }
 
 void csJitFadd(Encoder *e, int d, int n, int m) {
@@ -107,8 +103,7 @@ void csJitLdrGeneral(Encoder *e, int destination, int base, int byteOffset) {
     e->failed = true;
     return;
   }
-  csJitWord(e, 0xF9400000u | ((uint32_t)(byteOffset / 8) << 10) | ((uint32_t)base << 5) |
-              (uint32_t)destination);
+  csJitWord(e, 0xF9400000u | ((uint32_t)(byteOffset / 8) << 10) | ((uint32_t)base << 5) | (uint32_t)destination);
 }
 
 /* FCVTZS <Xd>, <Dn> — a double truncated toward zero into a 64-bit integer. */
@@ -131,8 +126,7 @@ void csJitSdiv(Encoder *e, int d, int n, int m) {
 /* MSUB <Xd>, <Xn>, <Xm>, <Xa> — a - n*m, which with a=dividend gives the
  * remainder once the quotient is in hand. */
 void csJitMsub(Encoder *e, int d, int n, int m, int a) {
-  csJitWord(e, 0x9B008000u | ((uint32_t)m << 16) | ((uint32_t)a << 10) |
-              ((uint32_t)n << 5) | (uint32_t)d);
+  csJitWord(e, 0x9B008000u | ((uint32_t)m << 16) | ((uint32_t)a << 10) | ((uint32_t)n << 5) | (uint32_t)d);
 }
 
 /* CBZ <Xt>, . — the offset is patched by the caller, which knows it. */
@@ -180,8 +174,7 @@ void csJitStrGeneral(Encoder *e, int source, int base, int byteOffset) {
     e->failed = true;
     return;
   }
-  csJitWord(e, 0xF9000000u | ((uint32_t)(byteOffset / 8) << 10) | ((uint32_t)base << 5) |
-              (uint32_t)source);
+  csJitWord(e, 0xF9000000u | ((uint32_t)(byteOffset / 8) << 10) | ((uint32_t)base << 5) | (uint32_t)source);
 }
 
 /* STR <Wt>, [<Xn>] — one 32-bit word, for writing the exit index back through
@@ -197,8 +190,7 @@ void csJitCmpGeneral(Encoder *e, int n, int m) {
 
 /* CSEL <Xd>, <Xn>, <Xm>, cond — d = cond ? n : m */
 void csJitCsel(Encoder *e, int d, int n, int m, uint32_t condition) {
-  csJitWord(e, 0x9A800000u | ((uint32_t)m << 16) | (condition << 12) | ((uint32_t)n << 5) |
-              (uint32_t)d);
+  csJitWord(e, 0x9A800000u | ((uint32_t)m << 16) | (condition << 12) | ((uint32_t)n << 5) | (uint32_t)d);
 }
 
 /* FMOV <Dd>, <Dn> — a register-to-register move. */
@@ -213,7 +205,9 @@ void csJitFmovDouble(Encoder *e, int d, int n) {
  * on entry rather than at every call — four instructions an iteration for a
  * value that never changes is the same waste hoisting the constants fixed. */
 
-static void ret(Encoder *e) { csJitWord(e, 0xD65F03C0u); }
+static void ret(Encoder *e) {
+  csJitWord(e, 0xD65F03C0u);
+}
 
 /* MOV <Xd>, <Xn> — really ORR <Xd>, XZR, <Xn>. */
 void csJitMovRegister(Encoder *e, int destination, int source) {
@@ -228,14 +222,21 @@ static void pairOp(Encoder *e, uint32_t base, int first, int second, int byteOff
     e->failed = true;
     return;
   }
-  csJitWord(e, base | (((uint32_t)scaled & 0x7fu) << 15) | ((uint32_t)second << 10) |
-              (31u << 5) | (uint32_t)first);
+  csJitWord(e, base | (((uint32_t)scaled & 0x7fu) << 15) | ((uint32_t)second << 10) | (31u << 5) | (uint32_t)first);
 }
 
-static void storePair(Encoder *e, int a, int b, int at) { pairOp(e, 0xA9000000u, a, b, at); }
-static void loadPair(Encoder *e, int a, int b, int at) { pairOp(e, 0xA9400000u, a, b, at); }
-static void storePairDouble(Encoder *e, int a, int b, int at) { pairOp(e, 0x6D000000u, a, b, at); }
-static void loadPairDouble(Encoder *e, int a, int b, int at) { pairOp(e, 0x6D400000u, a, b, at); }
+static void storePair(Encoder *e, int a, int b, int at) {
+  pairOp(e, 0xA9000000u, a, b, at);
+}
+static void loadPair(Encoder *e, int a, int b, int at) {
+  pairOp(e, 0xA9400000u, a, b, at);
+}
+static void storePairDouble(Encoder *e, int a, int b, int at) {
+  pairOp(e, 0x6D000000u, a, b, at);
+}
+static void loadPairDouble(Encoder *e, int a, int b, int at) {
+  pairOp(e, 0x6D400000u, a, b, at);
+}
 
 /* The frame this code keeps.
  *

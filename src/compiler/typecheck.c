@@ -16,7 +16,6 @@
 
 #include "compiler/typecheck_internal.h"
 
-
 void csTypeError(Checker *checker, int line, const char *format, ...) {
   char message[256];
   va_list args;
@@ -30,12 +29,13 @@ void csTypeError(Checker *checker, int line, const char *format, ...) {
   csDiagnosticError(checker->diag, line, NULL, 0, "%s", message);
 }
 
-void csTypeBeginScope(Checker *checker) { checker->scopeDepth++; }
+void csTypeBeginScope(Checker *checker) {
+  checker->scopeDepth++;
+}
 
 void csTypeEndScope(Checker *checker) {
   checker->scopeDepth--;
-  while (checker->count > 0 &&
-         checker->variables[checker->count - 1].depth > checker->scopeDepth) {
+  while (checker->count > 0 && checker->variables[checker->count - 1].depth > checker->scopeDepth) {
     checker->count--;
   }
 }
@@ -44,16 +44,14 @@ void csTypeEndScope(Checker *checker) {
 Variable *csTypeFindVariable(Checker *checker, const char *name, int length) {
   for (int i = checker->count - 1; i >= 0; i--) {
     Variable *variable = &checker->variables[i];
-    if (variable->length == length &&
-        memcmp(variable->name, name, (size_t)length) == 0) {
+    if (variable->length == length && memcmp(variable->name, name, (size_t)length) == 0) {
       return variable;
     }
   }
   return NULL;
 }
 
-void csTypeDeclareVariable(Checker *checker, const char *name, int length,
-                            TypeKind type) {
+void csTypeDeclareVariable(Checker *checker, const char *name, int length, TypeKind type) {
   if (checker->count >= MAX_SCOPED_VARIABLES) return; /* compiler reports the limit */
   Variable *variable = &checker->variables[checker->count++];
   variable->name = name;
@@ -79,8 +77,7 @@ void csTypeDeclareAwaiting(Checker *checker, const char *name, int length) {
  * in, and recognising exactly that shape keeps the rule one sentence long. */
 static bool alwaysLeaves(const AstNode *node) {
   if (node == NULL) return false;
-  if (node->type == AST_RETURN_STMT || node->type == AST_THROW_STMT ||
-      node->type == AST_BREAK_STMT || node->type == AST_CONTINUE_STMT) {
+  if (node->type == AST_RETURN_STMT || node->type == AST_THROW_STMT || node->type == AST_BREAK_STMT || node->type == AST_CONTINUE_STMT) {
     return true;
   }
   if (node->type != AST_BLOCK) return false;
@@ -98,22 +95,18 @@ bool csTypeBranchAlwaysLeaves(const AstNode *node) {
  * halves false, and a guard written that way — which is how a two-argument
  * function checks its arguments — should prove both. Answers how many were
  * recorded, so a caller can put them all back. */
-int csTypeNarrowAll(Checker *checker, AstNode *condition, bool whenTrue,
-                    Variable **narrowed, TypeKind *saved, int limit) {
+int csTypeNarrowAll(Checker *checker, AstNode *condition, bool whenTrue, Variable **narrowed, TypeKind *saved, int limit) {
   if (condition == NULL || limit <= 0) return 0;
 
   if (condition->type == AST_GROUPING) {
-    return csTypeNarrowAll(checker, condition->as.grouping, whenTrue, narrowed,
-                           saved, limit);
+    return csTypeNarrowAll(checker, condition->as.grouping, whenTrue, narrowed, saved, limit);
   }
 
   if (condition->type == AST_LOGICAL) {
     bool carries = condition->as.logical.op == LOGICAL_AND ? whenTrue : !whenTrue;
     if (!carries) return 0;
-    int count = csTypeNarrowAll(checker, condition->as.logical.left, whenTrue,
-                                narrowed, saved, limit);
-    count += csTypeNarrowAll(checker, condition->as.logical.right, whenTrue,
-                             narrowed + count, saved + count, limit - count);
+    int count = csTypeNarrowAll(checker, condition->as.logical.left, whenTrue, narrowed, saved, limit);
+    count += csTypeNarrowAll(checker, condition->as.logical.right, whenTrue, narrowed + count, saved + count, limit - count);
     return count;
   }
 
@@ -132,8 +125,7 @@ int csTypeNarrowAll(Checker *checker, AstNode *condition, bool whenTrue,
  * it means the rule a reader has to know is one line long. `!==` proves the
  * same thing about the *other* branch, which is why `whenTrue` is a parameter
  * rather than the caller inverting anything. */
-Variable *csTypeNarrow(Checker *checker, AstNode *condition, bool whenTrue,
-                       TypeKind *saved) {
+Variable *csTypeNarrow(Checker *checker, AstNode *condition, bool whenTrue, TypeKind *saved) {
   if (condition == NULL) return NULL;
 
   /* `(…)` is not part of the shape. */
@@ -162,18 +154,12 @@ Variable *csTypeNarrow(Checker *checker, AstNode *condition, bool whenTrue,
    * have. */
   if (condition->type == AST_CALL && whenTrue) {
     AstNode *callee = condition->as.call.callee;
-    if (callee != NULL && callee->type == AST_PROPERTY &&
-        callee->as.property.length == 7 &&
-        memcmp(callee->as.property.name, "isArray", 7) == 0 &&
-        callee->as.property.object != NULL &&
-        callee->as.property.object->type == AST_IDENTIFIER &&
-        callee->as.property.object->as.identifier.length == 5 &&
-        memcmp(callee->as.property.object->as.identifier.name, "Array", 5) == 0 &&
-        condition->as.call.argCount == 1 &&
+    if (callee != NULL && callee->type == AST_PROPERTY && callee->as.property.length == 7 && memcmp(callee->as.property.name, "isArray", 7) == 0 &&
+        callee->as.property.object != NULL && callee->as.property.object->type == AST_IDENTIFIER && callee->as.property.object->as.identifier.length == 5 &&
+        memcmp(callee->as.property.object->as.identifier.name, "Array", 5) == 0 && condition->as.call.argCount == 1 &&
         condition->as.call.arguments[0]->type == AST_IDENTIFIER) {
       AstNode *subject = condition->as.call.arguments[0];
-      Variable *variable = csTypeFindVariable(checker, subject->as.identifier.name,
-                                              subject->as.identifier.length);
+      Variable *variable = csTypeFindVariable(checker, subject->as.identifier.name, subject->as.identifier.length);
       if (variable == NULL) return NULL;
       *saved = variable->type;
       variable->type = TYPE_ARRAY;
@@ -203,13 +189,11 @@ Variable *csTypeNarrow(Checker *checker, AstNode *condition, bool whenTrue,
   if (subject == NULL || subject->type != AST_IDENTIFIER) return NULL;
 
   TypeKind proved;
-  if (!csTypeFromTypeofName(right->as.string.chars, right->as.string.length,
-                            &proved)) {
+  if (!csTypeFromTypeofName(right->as.string.chars, right->as.string.length, &proved)) {
     return NULL;
   }
 
-  Variable *variable = csTypeFindVariable(checker, subject->as.identifier.name,
-                                          subject->as.identifier.length);
+  Variable *variable = csTypeFindVariable(checker, subject->as.identifier.name, subject->as.identifier.length);
   if (variable == NULL) return NULL;
 
   /* Narrowing only ever makes a type more specific. A variable already known
@@ -227,13 +211,11 @@ static void declareBuiltins(Checker *checker) {
     const char *name;
     TypeKind type;
   } builtins[] = {
-      {"console", TYPE_OBJECT}, {"Math", TYPE_OBJECT},   {"Number", TYPE_FUNCTION},
-      {"String", TYPE_FUNCTION}, {"Boolean", TYPE_FUNCTION}, {"NaN", TYPE_NUMBER},
-      {"Infinity", TYPE_NUMBER}, {"Error", TYPE_FUNCTION},
+      {"console", TYPE_OBJECT},   {"Math", TYPE_OBJECT}, {"Number", TYPE_FUNCTION}, {"String", TYPE_FUNCTION},
+      {"Boolean", TYPE_FUNCTION}, {"NaN", TYPE_NUMBER},  {"Infinity", TYPE_NUMBER}, {"Error", TYPE_FUNCTION},
   };
   for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
-    csTypeDeclareVariable(checker, builtins[i].name, (int)strlen(builtins[i].name),
-                    builtins[i].type);
+    csTypeDeclareVariable(checker, builtins[i].name, (int)strlen(builtins[i].name), builtins[i].type);
   }
 }
 
@@ -306,19 +288,16 @@ static const MethodSignature BUILTIN_METHODS[] = {
 };
 
 /* Returns the signature for `name` on `receiver`, or NULL. */
-const MethodSignature *csTypeFindMethod(TypeKind receiver, const char *name,
-                                         int length) {
+const MethodSignature *csTypeFindMethod(TypeKind receiver, const char *name, int length) {
   for (size_t i = 0; i < sizeof(BUILTIN_METHODS) / sizeof(BUILTIN_METHODS[0]); i++) {
     const MethodSignature *entry = &BUILTIN_METHODS[i];
     if (entry->receiver != receiver) continue;
-    if ((int)strlen(entry->name) == length &&
-        memcmp(entry->name, name, (size_t)length) == 0) {
+    if ((int)strlen(entry->name) == length && memcmp(entry->name, name, (size_t)length) == 0) {
       return entry;
     }
   }
   return NULL;
 }
-
 
 /* Records a function's shape and binds its name, before the body is walked so
  * that recursive calls resolve. */
@@ -326,8 +305,7 @@ const Signature *csTypeDeclareFunction(Checker *checker, AstNode *node) {
   if (checker->signatureCount >= MAX_FUNCTIONS) return NULL;
 
   Signature *signature = &checker->signatures[checker->signatureCount++];
-  signature->returnType =
-      node->as.function.hasReturnAnnotation ? node->as.function.returnType : TYPE_DYNAMIC;
+  signature->returnType = node->as.function.hasReturnAnnotation ? node->as.function.returnType : TYPE_DYNAMIC;
   signature->hasReturnAnnotation = node->as.function.hasReturnAnnotation;
   signature->paramCount = node->as.function.paramCount;
   signature->hasRest = node->as.function.hasRest;
@@ -359,20 +337,17 @@ const Signature *csTypeDeclareFunction(Checker *checker, AstNode *node) {
   }
 
   if (node->as.function.isDeclaration) {
-    csTypeDeclareVariable(checker, node->as.function.name, node->as.function.nameLength,
-                    TYPE_FUNCTION);
+    csTypeDeclareVariable(checker, node->as.function.name, node->as.function.nameLength, TYPE_FUNCTION);
     checker->variables[checker->count - 1].signature = signature;
   }
   return signature;
 }
 
-void csTypeCheckFunctionBody(Checker *checker, AstNode *node,
-                              const Signature *signature) {
+void csTypeCheckFunctionBody(Checker *checker, AstNode *node, const Signature *signature) {
   TypeKind savedReturn = checker->currentReturn;
   bool savedAnnotated = checker->currentReturnAnnotated;
   checker->currentReturn = signature != NULL ? signature->returnType : TYPE_DYNAMIC;
-  checker->currentReturnAnnotated =
-      signature != NULL && signature->hasReturnAnnotation;
+  checker->currentReturnAnnotated = signature != NULL && signature->hasReturnAnnotation;
   checker->functionDepth++;
 
   csTypeBeginScope(checker);
@@ -384,10 +359,8 @@ void csTypeCheckFunctionBody(Checker *checker, AstNode *node,
      * caller passes strings and the body reads an array of them. Annotating
      * the array instead would say nothing about what is in it, which is the
      * half a caller needs checked. */
-    bool isRest = node->as.function.hasRest &&
-                  i == node->as.function.paramCount - 1;
-    csTypeDeclareVariable(checker, param->name, param->length,
-                          isRest ? TYPE_ARRAY : type);
+    bool isRest = node->as.function.hasRest && i == node->as.function.paramCount - 1;
+    csTypeDeclareVariable(checker, param->name, param->length, isRest ? TYPE_ARRAY : type);
   }
   /* The body is an AST_BLOCK, but its statements are checked in the scope that
    * already holds the parameters rather than in one nested inside it. */
@@ -407,8 +380,7 @@ void csTypeCheckFunctionBody(Checker *checker, AstNode *node,
  * BigInt and a number, so JavaScript throws rather than choose, and the checker
  * says so at compile time. Returns the result type, or TYPE_DYNAMIC when it cannot
  * tell yet and the VM must decide. */
-static bool arithmeticOnBigInts(Checker *checker, TypeKind left, TypeKind right,
-                                int line, const char *name, TypeKind *result) {
+static bool arithmeticOnBigInts(Checker *checker, TypeKind left, TypeKind right, int line, const char *name, TypeKind *result) {
   if (left != TYPE_BIGINT && right != TYPE_BIGINT) return false;
 
   if (left == TYPE_BIGINT && right == TYPE_BIGINT) {
@@ -416,14 +388,12 @@ static bool arithmeticOnBigInts(Checker *checker, TypeKind left, TypeKind right,
     return true;
   }
   /* `any` on the other side could still be a BigInt at run time. */
-  if (left == TYPE_DYNAMIC || right == TYPE_DYNAMIC || left == TYPE_ERROR ||
-      right == TYPE_ERROR) {
+  if (left == TYPE_DYNAMIC || right == TYPE_DYNAMIC || left == TYPE_ERROR || right == TYPE_ERROR) {
     *result = TYPE_DYNAMIC;
     return true;
   }
 
-  csTypeError(checker, line, "cannot mix BigInt and %s in '%s'",
-            csTypeName(left == TYPE_BIGINT ? right : left), name);
+  csTypeError(checker, line, "cannot mix BigInt and %s in '%s'", csTypeName(left == TYPE_BIGINT ? right : left), name);
   *result = TYPE_ERROR;
   return true;
 }
@@ -431,8 +401,7 @@ static bool arithmeticOnBigInts(Checker *checker, TypeKind left, TypeKind right,
 /* Requires a number, reporting against the operator that wanted one. */
 /* A `value` has to be narrowed before it can be used for anything. One message
  * for every place that happens, because the fix is always the same. */
-bool csTypeRefuseUnnarrowed(Checker *checker, TypeKind type, int line,
-                            const char *what, AstNode *subject) {
+bool csTypeRefuseUnnarrowed(Checker *checker, TypeKind type, int line, const char *what, AstNode *subject) {
   if (type != TYPE_VALUE) return false;
 
   /* Naming the thing that was not narrowed is most of the fix: the message has
@@ -442,8 +411,7 @@ bool csTypeRefuseUnnarrowed(Checker *checker, TypeKind type, int line,
     csTypeError(checker, line,
                 "%s needs to know what '%.*s' is: narrow it first, as in "
                 "`if (typeof %.*s === \"number\")`",
-                what, subject->as.identifier.length, subject->as.identifier.name,
-                subject->as.identifier.length, subject->as.identifier.name);
+                what, subject->as.identifier.length, subject->as.identifier.name, subject->as.identifier.length, subject->as.identifier.name);
     return true;
   }
   csTypeError(checker, line,
@@ -453,8 +421,7 @@ bool csTypeRefuseUnnarrowed(Checker *checker, TypeKind type, int line,
   return true;
 }
 
-TypeKind csTypeRequireNumber(Checker *checker, TypeKind type, int line,
-                              const char *operatorName, AstNode *subject) {
+TypeKind csTypeRequireNumber(Checker *checker, TypeKind type, int line, const char *operatorName, AstNode *subject) {
   if (type == TYPE_VALUE) {
     char what[64];
     snprintf(what, sizeof what, "the operand of '%s'", operatorName);
@@ -462,8 +429,7 @@ TypeKind csTypeRequireNumber(Checker *checker, TypeKind type, int line,
     return TYPE_ERROR;
   }
   if (csTypeAssignable(type, TYPE_NUMBER)) return TYPE_NUMBER;
-  csTypeError(checker, line, "operand of '%s' must be a number, got %s", operatorName,
-            csTypeName(type));
+  csTypeError(checker, line, "operand of '%s' must be a number, got %s", operatorName, csTypeName(type));
   return TYPE_ERROR;
 }
 
@@ -483,8 +449,7 @@ TypeKind csTypeCheckBinary(Checker *checker, AstNode *node) {
        * with neither. Saying so in the narrowing language keeps one answer for
        * the one question — what is this? — rather than two for two operators. */
       if (csTypeRefuseUnnarrowed(checker, left, line, "adding", node->as.binary.left) ||
-          csTypeRefuseUnnarrowed(checker, right, line, "adding",
-                                 node->as.binary.right)) {
+          csTypeRefuseUnnarrowed(checker, right, line, "adding", node->as.binary.right)) {
         return TYPE_ERROR;
       }
       if (left == TYPE_STRING || right == TYPE_STRING) return TYPE_STRING;
@@ -495,8 +460,7 @@ TypeKind csTypeCheckBinary(Checker *checker, AstNode *node) {
       }
       if (left == TYPE_DYNAMIC || right == TYPE_DYNAMIC) return TYPE_DYNAMIC;
       if (left == TYPE_NUMBER && right == TYPE_NUMBER) return TYPE_NUMBER;
-      csTypeError(checker, line, "cannot add %s and %s", csTypeName(left),
-                csTypeName(right));
+      csTypeError(checker, line, "cannot add %s and %s", csTypeName(left), csTypeName(right));
       return TYPE_ERROR;
 
     case BINARY_INSTANCEOF:
@@ -519,10 +483,8 @@ TypeKind csTypeCheckBinary(Checker *checker, AstNode *node) {
       if (arithmeticOnBigInts(checker, left, right, line, name, &onBigInts)) {
         return onBigInts;
       }
-      TypeKind a = csTypeRequireNumber(checker, left, line, name,
-                                       node->as.binary.left);
-      TypeKind b = csTypeRequireNumber(checker, right, line, name,
-                                       node->as.binary.right);
+      TypeKind a = csTypeRequireNumber(checker, left, line, name, node->as.binary.left);
+      TypeKind b = csTypeRequireNumber(checker, right, line, name, node->as.binary.right);
       return (a == TYPE_ERROR || b == TYPE_ERROR) ? TYPE_ERROR : TYPE_NUMBER;
     }
 
@@ -550,8 +512,7 @@ TypeKind csTypeCheckBinary(Checker *checker, AstNode *node) {
        * idiomatic, and without union types there is no way to write the type
        * of a variable that is "a string, or null" — so rejecting them would
        * punish correct code for a gap in the type system. */
-      bool involvesNullish = left == TYPE_NULL || right == TYPE_NULL ||
-                             left == TYPE_UNDEFINED || right == TYPE_UNDEFINED;
+      bool involvesNullish = left == TYPE_NULL || right == TYPE_NULL || left == TYPE_UNDEFINED || right == TYPE_UNDEFINED;
 
       /* A `value` is exempt as well, and for the same reason the other way
        * round: asking whether one equals a number is how a program finds out
@@ -559,12 +520,9 @@ TypeKind csTypeCheckBinary(Checker *checker, AstNode *node) {
        * the question is what narrowing would answer. */
       bool involvesValue = left == TYPE_VALUE || right == TYPE_VALUE;
 
-      if (!involvesNullish && !involvesValue && csTypeIsKnown(left) &&
-          csTypeIsKnown(right) && left != right) {
-        csTypeError(checker, line,
-                  "'%s' between %s and %s is always %s — the types can never match",
-                  name, csTypeName(left), csTypeName(right),
-                  node->as.binary.op == BINARY_EQUAL ? "false" : "true");
+      if (!involvesNullish && !involvesValue && csTypeIsKnown(left) && csTypeIsKnown(right) && left != right) {
+        csTypeError(checker, line, "'%s' between %s and %s is always %s — the types can never match", name, csTypeName(left), csTypeName(right),
+                    node->as.binary.op == BINARY_EQUAL ? "false" : "true");
         return TYPE_ERROR;
       }
       return TYPE_BOOLEAN;

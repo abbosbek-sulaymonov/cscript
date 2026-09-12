@@ -6,9 +6,12 @@ static int failures = 0;
 
 static void check(const char *pattern, const char *subject, const char *expect) {
   char error[128];
-  Regex *re = csRegexCompile(pattern, (int)strlen(pattern), false, false, false,
-                             error, sizeof error);
-  if (re == NULL) { printf("FAIL /%s/ compile: %s\n", pattern, error); failures++; return; }
+  Regex *re = csRegexCompile(pattern, (int)strlen(pattern), false, false, false, error, sizeof error);
+  if (re == NULL) {
+    printf("FAIL /%s/ compile: %s\n", pattern, error);
+    failures++;
+    return;
+  }
 
   RegexMatch m;
   bool over = false;
@@ -26,14 +29,12 @@ static void check(const char *pattern, const char *subject, const char *expect) 
 
 static void group(const char *pattern, const char *subject, int g, const char *expect) {
   char error[128];
-  Regex *re = csRegexCompile(pattern, (int)strlen(pattern), false, false, false,
-                             error, sizeof error);
+  Regex *re = csRegexCompile(pattern, (int)strlen(pattern), false, false, false, error, sizeof error);
   RegexMatch m;
   char got[256] = "-";
   if (re && csRegexSearch(re, subject, (int)strlen(subject), 0, &m, NULL)) {
     if (m.groups[g].start >= 0) {
-      snprintf(got, sizeof got, "%.*s", m.groups[g].end - m.groups[g].start,
-               subject + m.groups[g].start);
+      snprintf(got, sizeof got, "%.*s", m.groups[g].end - m.groups[g].start, subject + m.groups[g].start);
     }
   }
   if (strcmp(got, expect) != 0) {
@@ -106,33 +107,34 @@ int main(void) {
 
   char error[128];
   Regex *bad = csRegexCompile("(a", 2, false, false, false, error, sizeof error);
-  if (bad != NULL) { printf("FAIL: unterminated group compiled\n"); failures++; }
+  if (bad != NULL) {
+    printf("FAIL: unterminated group compiled\n");
+    failures++;
+  }
 
-  Regex *unterminated =
-      csRegexCompile("(?<name", 7, false, false, false, error, sizeof error);
+  Regex *unterminated = csRegexCompile("(?<name", 7, false, false, false, error, sizeof error);
   if (unterminated != NULL) {
     printf("FAIL: unterminated group name compiled\n");
     failures++;
   }
 
-  Regex *duplicate = csRegexCompile("(?<n>a)(?<n>b)", 14, false, false, false,
-                                    error, sizeof error);
-  if (duplicate != NULL) { printf("FAIL: duplicate group name compiled\n"); failures++; }
+  Regex *duplicate = csRegexCompile("(?<n>a)(?<n>b)", 14, false, false, false, error, sizeof error);
+  if (duplicate != NULL) {
+    printf("FAIL: duplicate group name compiled\n");
+    failures++;
+  }
 
-  Regex *named = csRegexCompile("(?<y>\\d+)", 10, false, false, false, error,
-                                sizeof error);
+  Regex *named = csRegexCompile("(?<y>\\d+)", 10, false, false, false, error, sizeof error);
   if (named == NULL) {
     printf("FAIL: named group did not compile: %s\n", error);
     failures++;
   } else {
     int group = -1;
-    if (csRegexNameCount(named) != 1 ||
-        strcmp(csRegexNameAt(named, 0, &group), "y") != 0 || group != 1) {
+    if (csRegexNameCount(named) != 1 || strcmp(csRegexNameAt(named, 0, &group), "y") != 0 || group != 1) {
       printf("FAIL: named group not recorded\n");
       failures++;
     }
-    if (csRegexGroupNamed(named, "y", 1) != 1 ||
-        csRegexGroupNamed(named, "z", 1) != -1) {
+    if (csRegexGroupNamed(named, "y", 1) != 1 || csRegexGroupNamed(named, "z", 1) != -1) {
       printf("FAIL: lookup by name is wrong\n");
       failures++;
     }

@@ -53,8 +53,7 @@ static bool promiseCatch(Value receiver, int argCount, Value *args, Value *resul
 
   ObjPromise *derived = csPromiseNew();
   csPushTempRoot((Obj *)derived);
-  csPromiseAddReaction(AS_PROMISE(receiver), UNDEFINED_VAL,
-                       argCount > 0 ? args[0] : UNDEFINED_VAL, derived);
+  csPromiseAddReaction(AS_PROMISE(receiver), UNDEFINED_VAL, argCount > 0 ? args[0] : UNDEFINED_VAL, derived);
   csPopTempRoot();
   *result = OBJ_VAL(derived);
   return true;
@@ -100,8 +99,7 @@ static bool promiseResolve(Value receiver, int argCount, Value *args, Value *res
   return true;
 }
 
-static bool promiseRejectStatic(Value receiver, int argCount, Value *args,
-                                Value *result) {
+static bool promiseRejectStatic(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   ObjPromise *promise = csPromiseNew();
   csPushTempRoot((Obj *)promise);
@@ -110,7 +108,6 @@ static bool promiseRejectStatic(Value receiver, int argCount, Value *args,
   *result = OBJ_VAL(promise);
   return true;
 }
-
 
 /* The two functions `new Promise(executor)` hands its callback. Each is a
  * native bound to the promise it settles — see ObjBoundMethod for why binding
@@ -132,8 +129,7 @@ static ObjNative *rejectNative = NULL;
 
 static bool promiseConstruct(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
-  if (argCount != 1 || (!IS_CLOSURE(args[0]) && !IS_BOUND_METHOD(args[0]) &&
-                        !IS_NATIVE(args[0]))) {
+  if (argCount != 1 || (!IS_CLOSURE(args[0]) && !IS_BOUND_METHOD(args[0]) && !IS_NATIVE(args[0]))) {
     csVMRuntimeError("Promise expects a function taking (resolve, reject)");
     return false;
   }
@@ -181,8 +177,7 @@ static ObjArray *combineState(int count, ObjPromise *target, CombineMode mode) {
 }
 
 static bool combinator(int argCount, Value *args, Value *result, CombineMode mode) {
-  static const char *names[] = {"Promise.all", "Promise.race",
-                                "Promise.allSettled", "Promise.any"};
+  static const char *names[] = {"Promise.all", "Promise.race", "Promise.allSettled", "Promise.any"};
   const char *name = names[mode];
 
   if (argCount != 1 || !IS_ARRAY(args[0])) {
@@ -257,8 +252,7 @@ static bool promiseRace(Value receiver, int argCount, Value *args, Value *result
   return combinator(argCount, args, result, COMBINE_RACE);
 }
 
-static bool promiseAllSettled(Value receiver, int argCount, Value *args,
-                              Value *result) {
+static bool promiseAllSettled(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   return combinator(argCount, args, result, COMBINE_ALL_SETTLED);
 }
@@ -270,8 +264,7 @@ static bool promiseAny(Value receiver, int argCount, Value *args, Value *result)
 
 /* Timers. Kept sorted by due time, ties broken by registration order, so the
  * output of a program with several timers is reproducible. */
-static bool scheduleTimer(int argCount, Value *args, Value *result,
-                          const char *name, bool repeating) {
+static bool scheduleTimer(int argCount, Value *args, Value *result, const char *name, bool repeating) {
   if (argCount < 1) {
     csVMRuntimeError("%s expects a function and an optional delay", name);
     return false;
@@ -295,9 +288,7 @@ static bool scheduleTimer(int argCount, Value *args, Value *result,
   timer.repeatMs = repeating ? (delay > 1 ? delay : 1) : 0;
 
   int at = vm.timerCount;
-  while (at > 0 && (vm.timers[at - 1].dueMs > timer.dueMs ||
-                    (vm.timers[at - 1].dueMs == timer.dueMs &&
-                     vm.timers[at - 1].sequence > timer.sequence))) {
+  while (at > 0 && (vm.timers[at - 1].dueMs > timer.dueMs || (vm.timers[at - 1].dueMs == timer.dueMs && vm.timers[at - 1].sequence > timer.sequence))) {
     vm.timers[at] = vm.timers[at - 1];
     at--;
   }
@@ -313,14 +304,12 @@ static bool setTimeoutNative(Value receiver, int argCount, Value *args, Value *r
   return scheduleTimer(argCount, args, result, "setTimeout", false);
 }
 
-static bool setIntervalNative(Value receiver, int argCount, Value *args,
-                              Value *result) {
+static bool setIntervalNative(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   return scheduleTimer(argCount, args, result, "setInterval", true);
 }
 
-static bool clearTimeoutNative(Value receiver, int argCount, Value *args,
-                               Value *result) {
+static bool clearTimeoutNative(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   *result = UNDEFINED_VAL;
   if (argCount < 1 || !IS_NUMBER(args[0])) return true;
@@ -333,16 +322,14 @@ static bool clearTimeoutNative(Value receiver, int argCount, Value *args,
 
   for (int i = 0; i < vm.timerCount; i++) {
     if (vm.timers[i].id != id) continue;
-    memmove(&vm.timers[i], &vm.timers[i + 1],
-            sizeof(Timer) * (size_t)(vm.timerCount - i - 1));
+    memmove(&vm.timers[i], &vm.timers[i + 1], sizeof(Timer) * (size_t)(vm.timerCount - i - 1));
     vm.timerCount--;
     break;
   }
   return true;
 }
 
-static bool queueMicrotaskNative(Value receiver, int argCount, Value *args,
-                                 Value *result) {
+static bool queueMicrotaskNative(Value receiver, int argCount, Value *args, Value *result) {
   (void)receiver;
   if (argCount < 1) {
     csVMRuntimeError("queueMicrotask expects a function");
@@ -415,7 +402,15 @@ void csPromiseInstallStatics(ObjObject *statics) {
   csPopTempRoot();
 }
 
-NativeFn csSetTimeoutFn(void) { return setTimeoutNative; }
-NativeFn csSetIntervalFn(void) { return setIntervalNative; }
-NativeFn csClearTimeoutFn(void) { return clearTimeoutNative; }
-NativeFn csQueueMicrotaskFn(void) { return queueMicrotaskNative; }
+NativeFn csSetTimeoutFn(void) {
+  return setTimeoutNative;
+}
+NativeFn csSetIntervalFn(void) {
+  return setIntervalNative;
+}
+NativeFn csClearTimeoutFn(void) {
+  return clearTimeoutNative;
+}
+NativeFn csQueueMicrotaskFn(void) {
+  return queueMicrotaskNative;
+}

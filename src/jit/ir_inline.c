@@ -46,18 +46,33 @@
 static bool inlinableOpcode(uint8_t opcode) {
   switch (opcode) {
     case OP_CONSTANT:
-    case OP_NULL: case OP_UNDEFINED: case OP_TRUE: case OP_FALSE:
-    case OP_GET_LOCAL: case OP_GET_LOCAL_LOCAL: case OP_GET_LOCAL_CONST:
-    case OP_SET_LOCAL: case OP_SET_LOCAL_POP:
-    case OP_INC_LOCAL: case OP_DEC_LOCAL:
-    case OP_DUP: case OP_POP:
-    case OP_ADD: case OP_ADD_NUM: case OP_SUBTRACT: case OP_MULTIPLY:
-    case OP_DIVIDE: case OP_MODULO: case OP_NEGATE:
-    case OP_LESS: case OP_LESS_EQUAL: case OP_GREATER: case OP_GREATER_EQUAL:
-    case OP_EQUAL: case OP_NOT_EQUAL:
-      return true;
-    default:
-      return false;
+    case OP_NULL:
+    case OP_UNDEFINED:
+    case OP_TRUE:
+    case OP_FALSE:
+    case OP_GET_LOCAL:
+    case OP_GET_LOCAL_LOCAL:
+    case OP_GET_LOCAL_CONST:
+    case OP_SET_LOCAL:
+    case OP_SET_LOCAL_POP:
+    case OP_INC_LOCAL:
+    case OP_DEC_LOCAL:
+    case OP_DUP:
+    case OP_POP:
+    case OP_ADD:
+    case OP_ADD_NUM:
+    case OP_SUBTRACT:
+    case OP_MULTIPLY:
+    case OP_DIVIDE:
+    case OP_MODULO:
+    case OP_NEGATE:
+    case OP_LESS:
+    case OP_LESS_EQUAL:
+    case OP_GREATER:
+    case OP_GREATER_EQUAL:
+    case OP_EQUAL:
+    case OP_NOT_EQUAL: return true;
+    default: return false;
   }
 }
 
@@ -102,25 +117,33 @@ bool csIrCalleeIsInlinable(const ObjFunction *callee, int argCount) {
  * match, and the callee load hands the frame back exactly as it did before. */
 static bool argumentStackEffect(uint8_t opcode, int *effect) {
   switch (opcode) {
-    case OP_CONSTANT: case OP_NULL: case OP_UNDEFINED: case OP_TRUE:
-    case OP_FALSE: case OP_GET_LOCAL: case OP_GET_GLOBAL: case OP_DUP:
-    case OP_GET_LOCAL_PROPERTY:
-      *effect = 1;
-      return true;
-    case OP_GET_LOCAL_CONST: case OP_GET_LOCAL_LOCAL:
-      *effect = 2;
-      return true;
-    case OP_GET_PROPERTY: case OP_NEGATE:
-      *effect = 0;
-      return true;
-    case OP_ADD: case OP_ADD_NUM: case OP_SUBTRACT: case OP_MULTIPLY:
-    case OP_DIVIDE: case OP_MODULO: case OP_LESS: case OP_LESS_EQUAL:
-    case OP_GREATER: case OP_GREATER_EQUAL: case OP_EQUAL: case OP_NOT_EQUAL:
-    case OP_POP:
-      *effect = -1;
-      return true;
-    default:
-      return false;
+    case OP_CONSTANT:
+    case OP_NULL:
+    case OP_UNDEFINED:
+    case OP_TRUE:
+    case OP_FALSE:
+    case OP_GET_LOCAL:
+    case OP_GET_GLOBAL:
+    case OP_DUP:
+    case OP_GET_LOCAL_PROPERTY: *effect = 1; return true;
+    case OP_GET_LOCAL_CONST:
+    case OP_GET_LOCAL_LOCAL: *effect = 2; return true;
+    case OP_GET_PROPERTY:
+    case OP_NEGATE: *effect = 0; return true;
+    case OP_ADD:
+    case OP_ADD_NUM:
+    case OP_SUBTRACT:
+    case OP_MULTIPLY:
+    case OP_DIVIDE:
+    case OP_MODULO:
+    case OP_LESS:
+    case OP_LESS_EQUAL:
+    case OP_GREATER:
+    case OP_GREATER_EQUAL:
+    case OP_EQUAL:
+    case OP_NOT_EQUAL:
+    case OP_POP: *effect = -1; return true;
+    default: return false;
   }
 }
 
@@ -132,8 +155,7 @@ static bool argumentStackEffect(uint8_t opcode, int *effect) {
  * so the call is found first, in the same straight run, with the right number
  * of arguments between the two. Where it is not found the callee load hands
  * the frame back, which is what it did before inlining existed. */
-int csIrCallSiteFor(const Chunk *chunk, const bool *leader, int calleeOffset,
-                       int *argCountOut) {
+int csIrCallSiteFor(const Chunk *chunk, const bool *leader, int calleeOffset, int *argCountOut) {
   int depth = 0;
   int offset = csInstructionLength(chunk, calleeOffset);
 
@@ -169,8 +191,7 @@ int csIrCallSiteFor(const Chunk *chunk, const bool *leader, int calleeOffset,
 }
 
 /* Records the binding an inlined callee was read from, once per callee. */
-bool csIrRememberInlinedCall(IrFunction *ir, Table *globals, ObjString *name,
-                                ObjClosure *callee) {
+bool csIrRememberInlinedCall(IrFunction *ir, Table *globals, ObjString *name, ObjClosure *callee) {
   for (int i = 0; i < ir->inlinedCount; i++) {
     if (ir->inlined[i].name == name && ir->inlined[i].callee == callee) return true;
     /* One name, one callee. Two closures under the same binding would mean the
@@ -182,8 +203,7 @@ bool csIrRememberInlinedCall(IrFunction *ir, Table *globals, ObjString *name,
 
   if (ir->inlinedCount == ir->inlinedCapacity) {
     int capacity = ir->inlinedCapacity < 4 ? 4 : ir->inlinedCapacity * 2;
-    IrInlinedCall *grown =
-        (IrInlinedCall *)realloc(ir->inlined, sizeof(IrInlinedCall) * (size_t)capacity);
+    IrInlinedCall *grown = (IrInlinedCall *)realloc(ir->inlined, sizeof(IrInlinedCall) * (size_t)capacity);
     if (grown == NULL) return false;
     ir->inlined = grown;
     ir->inlinedCapacity = capacity;
@@ -228,8 +248,7 @@ void csIrMarkReferences(const IrFunction *ir) {
  * Returns the register holding the call's result, or -1 when the body turns
  * out to hold something this cannot express. Instructions may already have
  * been emitted in that case; the caller throws them away. */
-int csIrInlineCallee(IrFunction *ir, IrBlock *block, const ObjFunction *callee,
-                        const int *args, int argCount, int line) {
+int csIrInlineCallee(IrFunction *ir, IrBlock *block, const ObjFunction *callee, const int *args, int argCount, int line) {
   const Chunk *chunk = &callee->chunk;
 
   int map[IR_MAX_STACK];
@@ -254,15 +273,21 @@ int csIrInlineCallee(IrFunction *ir, IrBlock *block, const ObjFunction *callee,
     int wantsNumbers = 0;
     switch (opcode) {
       case OP_NEGATE: wantsNumbers = 1; break;
-      case OP_ADD: case OP_ADD_NUM: case OP_SUBTRACT: case OP_MULTIPLY:
-      case OP_DIVIDE: case OP_MODULO: case OP_LESS: case OP_LESS_EQUAL:
-      case OP_GREATER: case OP_GREATER_EQUAL:
+      case OP_ADD:
+      case OP_ADD_NUM:
+      case OP_SUBTRACT:
+      case OP_MULTIPLY:
+      case OP_DIVIDE:
+      case OP_MODULO:
+      case OP_LESS:
+      case OP_LESS_EQUAL:
+      case OP_GREATER:
+      case OP_GREATER_EQUAL:
       /* Equality is here and not in the outer lowering because the backend
        * compares two doubles: on anything else that is a floating-point
        * compare of NaN-boxed bits, which is not what `===` means. */
-      case OP_EQUAL: case OP_NOT_EQUAL:
-        wantsNumbers = 2;
-        break;
+      case OP_EQUAL:
+      case OP_NOT_EQUAL: wantsNumbers = 2; break;
       default: break;
     }
     for (int k = 0; k < wantsNumbers; k++) {
@@ -279,7 +304,10 @@ int csIrInlineCallee(IrFunction *ir, IrBlock *block, const ObjFunction *callee,
       }
 
       case OP_CONSTANT:
-      case OP_NULL: case OP_UNDEFINED: case OP_TRUE: case OP_FALSE: {
+      case OP_NULL:
+      case OP_UNDEFINED:
+      case OP_TRUE:
+      case OP_FALSE: {
         Value constant = UNDEFINED_VAL;
         if (opcode == OP_CONSTANT) {
           int index = (chunk->code[offset + 1] << 8) | chunk->code[offset + 2];
@@ -291,9 +319,7 @@ int csIrInlineCallee(IrFunction *ir, IrBlock *block, const ObjFunction *callee,
           constant = BOOL_VAL(opcode == OP_TRUE);
         }
 
-        IrType type = IS_NUMBER(constant)  ? IR_TYPE_NUMBER
-                      : IS_BOOL(constant)  ? IR_TYPE_BOOL
-                                           : IR_TYPE_UNKNOWN;
+        IrType type = IS_NUMBER(constant) ? IR_TYPE_NUMBER : IS_BOOL(constant) ? IR_TYPE_BOOL : IR_TYPE_UNKNOWN;
         if (top >= IR_MAX_STACK) return -1;
         int result = csIrNewRegister(ir, type);
         IrInst *inst = csIrAppend(block, IR_CONST, line);
@@ -318,9 +344,7 @@ int csIrInlineCallee(IrFunction *ir, IrBlock *block, const ObjFunction *callee,
           int index = (chunk->code[offset + 2] << 8) | chunk->code[offset + 3];
           if (index < 0 || index >= chunk->constants.count) return -1;
           Value constant = chunk->constants.values[index];
-          IrType type = IS_NUMBER(constant)  ? IR_TYPE_NUMBER
-                        : IS_BOOL(constant)  ? IR_TYPE_BOOL
-                                             : IR_TYPE_UNKNOWN;
+          IrType type = IS_NUMBER(constant) ? IR_TYPE_NUMBER : IS_BOOL(constant) ? IR_TYPE_BOOL : IR_TYPE_UNKNOWN;
           if (top >= IR_MAX_STACK) return -1;
           int result = csIrNewRegister(ir, type);
           IrInst *inst = csIrAppend(block, IR_CONST, line);
@@ -390,17 +414,36 @@ int csIrInlineCallee(IrFunction *ir, IrBlock *block, const ObjFunction *callee,
         IrOp op;
         IrType type = IR_TYPE_NUMBER;
         switch (opcode) {
-          case OP_ADD: case OP_ADD_NUM: op = IR_ADD; break;
+          case OP_ADD:
+          case OP_ADD_NUM: op = IR_ADD; break;
           case OP_SUBTRACT: op = IR_SUB; break;
           case OP_MULTIPLY: op = IR_MUL; break;
-          case OP_DIVIDE:   op = IR_DIV; break;
-          case OP_MODULO:   op = IR_MOD; break;
-          case OP_LESS:          op = IR_LT; type = IR_TYPE_BOOL; break;
-          case OP_LESS_EQUAL:    op = IR_LE; type = IR_TYPE_BOOL; break;
-          case OP_GREATER:       op = IR_GT; type = IR_TYPE_BOOL; break;
-          case OP_GREATER_EQUAL: op = IR_GE; type = IR_TYPE_BOOL; break;
-          case OP_EQUAL:         op = IR_EQ; type = IR_TYPE_BOOL; break;
-          case OP_NOT_EQUAL:     op = IR_NE; type = IR_TYPE_BOOL; break;
+          case OP_DIVIDE: op = IR_DIV; break;
+          case OP_MODULO: op = IR_MOD; break;
+          case OP_LESS:
+            op = IR_LT;
+            type = IR_TYPE_BOOL;
+            break;
+          case OP_LESS_EQUAL:
+            op = IR_LE;
+            type = IR_TYPE_BOOL;
+            break;
+          case OP_GREATER:
+            op = IR_GT;
+            type = IR_TYPE_BOOL;
+            break;
+          case OP_GREATER_EQUAL:
+            op = IR_GE;
+            type = IR_TYPE_BOOL;
+            break;
+          case OP_EQUAL:
+            op = IR_EQ;
+            type = IR_TYPE_BOOL;
+            break;
+          case OP_NOT_EQUAL:
+            op = IR_NE;
+            type = IR_TYPE_BOOL;
+            break;
           default: return -1;
         }
         if (top - 2 < floor) return -1;

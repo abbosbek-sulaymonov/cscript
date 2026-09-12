@@ -67,8 +67,7 @@ static int findSlot(const ObjMap *map, Value key) {
   for (;;) {
     int entry = map->index[slot];
     if (entry == -1) return (int)slot;
-    if (map->entries[entry].present &&
-        csValuesSameValueZero(map->entries[entry].key, key)) {
+    if (map->entries[entry].present && csValuesSameValueZero(map->entries[entry].key, key)) {
       return (int)slot;
     }
     slot = (slot + 1) & mask;
@@ -144,7 +143,9 @@ bool csMapGet(ObjMap *map, Value key, Value *out) {
   return true;
 }
 
-bool csMapHas(ObjMap *map, Value key) { return csMapGet(map, key, NULL); }
+bool csMapHas(ObjMap *map, Value key) {
+  return csMapGet(map, key, NULL);
+}
 
 void csMapSet(ObjMap *map, Value key, Value value) {
   if (map->indexCapacity == 0) rehash(map, 8);
@@ -249,8 +250,7 @@ static bool mapGet(Value receiver, int argCount, Value *args, Value *result) {
 
 static bool mapSet(Value receiver, int argCount, Value *args, Value *result) {
   if (!requireMap(receiver, "set", false)) return false;
-  csMapSet(AS_MAP(receiver), argCount > 0 ? args[0] : UNDEFINED_VAL,
-           argCount > 1 ? args[1] : UNDEFINED_VAL);
+  csMapSet(AS_MAP(receiver), argCount > 0 ? args[0] : UNDEFINED_VAL, argCount > 1 ? args[1] : UNDEFINED_VAL);
   *result = receiver; /* chainable, as in JavaScript */
   return true;
 }
@@ -277,8 +277,7 @@ static bool mapDelete(Value receiver, int argCount, Value *args, Value *result) 
     csVMRuntimeError("'delete' can only be called on a Map or a Set");
     return false;
   }
-  *result =
-      BOOL_VAL(csMapDelete(AS_MAP(receiver), argCount > 0 ? args[0] : UNDEFINED_VAL));
+  *result = BOOL_VAL(csMapDelete(AS_MAP(receiver), argCount > 0 ? args[0] : UNDEFINED_VAL));
   return true;
 }
 
@@ -334,15 +333,18 @@ static bool collect(Value receiver, Value *result, Want want, const char *method
 }
 
 static bool mapKeys(Value r, int c, Value *a, Value *out) {
-  (void)c; (void)a;
+  (void)c;
+  (void)a;
   return collect(r, out, WANT_KEYS, "keys");
 }
 static bool mapValues(Value r, int c, Value *a, Value *out) {
-  (void)c; (void)a;
+  (void)c;
+  (void)a;
   return collect(r, out, WANT_VALUES, "values");
 }
 static bool mapEntries(Value r, int c, Value *a, Value *out) {
-  (void)c; (void)a;
+  (void)c;
+  (void)a;
   /* A Set's entries are [v, v] in JavaScript, and storing the value as its own
    * key is what makes that fall out rather than needing a case. */
   return collect(r, out, WANT_ENTRIES, "entries");
@@ -386,8 +388,9 @@ static bool construct(int argCount, Value *args, Value *result, bool isSet) {
       ObjMap *from = AS_MAP(args[0]);
       if (from->isWeak) {
         csPopTempRoot();
-        csVMRuntimeError("a weak collection cannot be copied: what is left in it "
-                         "depends on when the collector last ran");
+        csVMRuntimeError(
+            "a weak collection cannot be copied: what is left in it "
+            "depends on when the collector last ran");
         return false;
       }
       for (int i = 0; i < from->count; i++) {
@@ -403,8 +406,7 @@ static bool construct(int argCount, Value *args, Value *result, bool isSet) {
           csPopTempRoot();
           continue;
         }
-        csMapSet(map, from->entries[i].key,
-                 isSet ? from->entries[i].key : from->entries[i].value);
+        csMapSet(map, from->entries[i].key, isSet ? from->entries[i].key : from->entries[i].value);
       }
       csPopTempRoot();
       *result = OBJ_VAL(map);
@@ -413,8 +415,7 @@ static bool construct(int argCount, Value *args, Value *result, bool isSet) {
 
     if (!IS_ARRAY(args[0])) {
       csPopTempRoot();
-      csVMRuntimeError("%s expects an array or another %s",
-                       isSet ? "Set" : "Map", isSet ? "Set" : "Map");
+      csVMRuntimeError("%s expects an array or another %s", isSet ? "Set" : "Map", isSet ? "Set" : "Map");
       return false;
     }
     ObjArray *source = AS_ARRAY(args[0]);
@@ -429,8 +430,7 @@ static bool construct(int argCount, Value *args, Value *result, bool isSet) {
         csVMRuntimeError("Map expects an array of [key, value] pairs");
         return false;
       }
-      csMapSet(map, AS_ARRAY(element)->elements.values[0],
-               AS_ARRAY(element)->elements.values[1]);
+      csMapSet(map, AS_ARRAY(element)->elements.values[0], AS_ARRAY(element)->elements.values[1]);
     }
   }
 
@@ -471,8 +471,12 @@ void csMapMethodsInstall(void) {
   defineMapMethod("forEach", mapForEach, -1);
 }
 
-NativeFn csMapConstructorFn(void) { return mapConstruct; }
-NativeFn csSetConstructorFn(void) { return setConstruct; }
+NativeFn csMapConstructorFn(void) {
+  return mapConstruct;
+}
+NativeFn csSetConstructorFn(void) {
+  return setConstruct;
+}
 
 /* ---- WeakMap and WeakSet ------------------------------------------------ */
 
@@ -486,12 +490,10 @@ NativeFn csSetConstructorFn(void) { return setConstruct; }
  * surface is four methods and no `size`.
  */
 static bool requireWeak(Value receiver, bool wantSet, const char *method) {
-  if (IS_MAP(receiver) && AS_MAP(receiver)->isWeak &&
-      AS_MAP(receiver)->isSet == wantSet) {
+  if (IS_MAP(receiver) && AS_MAP(receiver)->isWeak && AS_MAP(receiver)->isSet == wantSet) {
     return true;
   }
-  csVMRuntimeError("'%s' needs a %s, got %s", method, wantSet ? "WeakSet" : "WeakMap",
-                   csValueTypeName(receiver));
+  csVMRuntimeError("'%s' needs a %s, got %s", method, wantSet ? "WeakSet" : "WeakMap", csValueTypeName(receiver));
   return false;
 }
 
@@ -500,8 +502,7 @@ static bool requireWeak(Value receiver, bool wantSet, const char *method) {
  * would make it a strong map wearing the wrong name. */
 static bool requireHoldable(Value key, const char *method) {
   if (IS_OBJ(key) && !IS_STRING(key)) return true;
-  csVMRuntimeError("'%s' needs an object as its key, got %s", method,
-                   csValueTypeName(key));
+  csVMRuntimeError("'%s' needs an object as its key, got %s", method, csValueTypeName(key));
   return false;
 }
 
@@ -534,8 +535,7 @@ static bool weakSetAdd(Value receiver, int argCount, Value *args, Value *result)
 
 static bool weakHas(Value receiver, int argCount, Value *args, Value *result) {
   if (!IS_MAP(receiver) || !AS_MAP(receiver)->isWeak) {
-    csVMRuntimeError("'has' needs a WeakMap or a WeakSet, got %s",
-                     csValueTypeName(receiver));
+    csVMRuntimeError("'has' needs a WeakMap or a WeakSet, got %s", csValueTypeName(receiver));
     return false;
   }
   *result = BOOL_VAL(csMapHas(AS_MAP(receiver), argCount > 0 ? args[0] : UNDEFINED_VAL));
@@ -544,12 +544,10 @@ static bool weakHas(Value receiver, int argCount, Value *args, Value *result) {
 
 static bool weakDelete(Value receiver, int argCount, Value *args, Value *result) {
   if (!IS_MAP(receiver) || !AS_MAP(receiver)->isWeak) {
-    csVMRuntimeError("'delete' needs a WeakMap or a WeakSet, got %s",
-                     csValueTypeName(receiver));
+    csVMRuntimeError("'delete' needs a WeakMap or a WeakSet, got %s", csValueTypeName(receiver));
     return false;
   }
-  *result =
-      BOOL_VAL(csMapDelete(AS_MAP(receiver), argCount > 0 ? args[0] : UNDEFINED_VAL));
+  *result = BOOL_VAL(csMapDelete(AS_MAP(receiver), argCount > 0 ? args[0] : UNDEFINED_VAL));
   return true;
 }
 
@@ -563,8 +561,7 @@ static bool constructWeak(int argCount, Value *args, Value *result, bool isSet) 
   if (argCount > 0 && !IS_NULL(args[0]) && !IS_UNDEFINED(args[0])) {
     if (!IS_ARRAY(args[0])) {
       csPopTempRoot();
-      csVMRuntimeError("%s expects an array to start from",
-                       isSet ? "WeakSet" : "WeakMap");
+      csVMRuntimeError("%s expects an array to start from", isSet ? "WeakSet" : "WeakMap");
       return false;
     }
 
@@ -625,5 +622,9 @@ void csWeakMethodsInstall(void) {
   defineWeakMethod("delete", weakDelete, -1);
 }
 
-NativeFn csWeakMapConstructorFn(void) { return weakMapConstruct; }
-NativeFn csWeakSetConstructorFn(void) { return weakSetConstruct; }
+NativeFn csWeakMapConstructorFn(void) {
+  return weakMapConstruct;
+}
+NativeFn csWeakSetConstructorFn(void) {
+  return weakSetConstruct;
+}

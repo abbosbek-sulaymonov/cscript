@@ -17,7 +17,6 @@
 #include "cscript/vm.h"
 #include "compiler/compiler_internal.h"
 
-
 /* How many fields belong to an instance rather than to the class. */
 int instanceFieldCount(const AstNode *node) {
   int count = 0;
@@ -93,11 +92,8 @@ void compileFieldInitializer(const AstNode *node) {
 
 /* True for the `super(...);` a subclass constructor must open with. */
 bool isSuperCallStatement(const AstNode *statement) {
-  return statement != NULL && statement->type == AST_EXPRESSION_STMT &&
-         statement->as.expression != NULL &&
-         statement->as.expression->type == AST_CALL &&
-         statement->as.expression->as.call.callee != NULL &&
-         statement->as.expression->as.call.callee->type == AST_SUPER &&
+  return statement != NULL && statement->type == AST_EXPRESSION_STMT && statement->as.expression != NULL && statement->as.expression->type == AST_CALL &&
+         statement->as.expression->as.call.callee != NULL && statement->as.expression->as.call.callee->type == AST_SUPER &&
          statement->as.expression->as.call.callee->as.super.name == NULL;
 }
 
@@ -116,8 +112,7 @@ void compileConstructor(const AstNode *classNode) {
   currentTry = NULL;
 
   Compiler compiler;
-  beginFunction(&compiler, FUNCTION_CONSTRUCTOR, fn->as.function.name,
-                fn->as.function.nameLength);
+  beginFunction(&compiler, FUNCTION_CONSTRUCTOR, fn->as.function.name, fn->as.function.nameLength);
   beginScope();
 
   /* Same rule as any other function: a parameter with a default is optional,
@@ -149,10 +144,10 @@ void compileConstructor(const AstNode *classNode) {
     /* JavaScript only requires `super(...)` before the first use of `this`.
      * Requiring it first is stricter, and it is what makes the field
      * initialisers below land at a point the reader can see. */
-    if (!isSuperCallStatement(body->as.block.count > 0 ? body->as.block.statements[0]
-                                                       : NULL)) {
-      errorAt(line, "a subclass constructor must call super(...) as its first "
-                    "statement");
+    if (!isSuperCallStatement(body->as.block.count > 0 ? body->as.block.statements[0] : NULL)) {
+      errorAt(line,
+              "a subclass constructor must call super(...) as its first "
+              "statement");
     } else {
       compileNode(body->as.block.statements[0]);
       first = 1;
@@ -200,8 +195,7 @@ void compileClassDecl(const AstNode *node) {
 
   bool hasSuper = node->as.classDecl.superName != NULL;
   if (hasSuper) {
-    compileIdentifierLoad(node->as.classDecl.superName,
-                          node->as.classDecl.superLength, line);
+    compileIdentifierLoad(node->as.classDecl.superName, node->as.classDecl.superLength, line);
     /* The superclass stays on the stack as a hidden local for the whole class
      * body; OP_INHERIT reads it from there and leaves it behind. */
     beginScope();
@@ -254,10 +248,7 @@ void compileClassDecl(const AstNode *node) {
       continue;
     }
 
-    emitConstantOp(opcode,
-                   identifierConstant(member->function->as.function.name,
-                                      member->function->as.function.nameLength, line),
-                   line);
+    emitConstantOp(opcode, identifierConstant(member->function->as.function.name, member->function->as.function.nameLength, line), line);
   }
 
   /* Then the static fields and the static blocks, interleaved in the order
@@ -280,9 +271,7 @@ void compileClassDecl(const AstNode *node) {
       if (field->computedKey != NULL) {
         emitBytes(OP_CLASS_MEMBER, 4, fieldLine);
       } else {
-        emitConstantOp(OP_STATIC_FIELD,
-                       identifierConstant(field->name, field->length, fieldLine),
-                       fieldLine);
+        emitConstantOp(OP_STATIC_FIELD, identifierConstant(field->name, field->length, fieldLine), fieldLine);
       }
     }
 

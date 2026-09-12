@@ -76,9 +76,7 @@ ObjObject *csClosurePrototype(ObjClosure *closure) {
   if (closure->prototype != NULL) return closure->prototype;
 
   csPushTempRoot((Obj *)closure);
-  ObjObject *prototype = csObjectNew(closure->function->name != NULL
-                                         ? closure->function->name->chars
-                                         : "Object");
+  ObjObject *prototype = csObjectNew(closure->function->name != NULL ? closure->function->name->chars : "Object");
   closure->prototype = prototype;
 
   /* `F.prototype.constructor === F`, filed in the table beside the shape
@@ -130,15 +128,12 @@ ObjRegex *csRegexObjectNew(ObjString *source, ObjString *flags) {
       case 'i': ignoreCase = true; break;
       case 'm': multiline = true; break;
       case 's': dotAll = true; break;
-      default:
-        csVMRuntimeError("unsupported regular expression flag '%c'", flags->chars[i]);
-        return NULL;
+      default: csVMRuntimeError("unsupported regular expression flag '%c'", flags->chars[i]); return NULL;
     }
   }
 
   char error[128];
-  Regex *program = csRegexCompile(source->chars, source->length, ignoreCase, multiline,
-                                  dotAll, error, sizeof error);
+  Regex *program = csRegexCompile(source->chars, source->length, ignoreCase, multiline, dotAll, error, sizeof error);
   if (program == NULL) {
     csVMRuntimeError("bad regular expression /%s/: %s", source->chars, error);
     return NULL;
@@ -189,14 +184,11 @@ static void settle(ObjPromise *promise, PromiseState state, Value value) {
       continue;
     }
     if (reaction->combineState != NULL) {
-      csVMQueueCombine(reaction->combineState, reaction->combineIndex, value,
-                       state == PROMISE_REJECTED);
+      csVMQueueCombine(reaction->combineState, reaction->combineIndex, value, state == PROMISE_REJECTED);
       continue;
     }
-    Value handler =
-        state == PROMISE_FULFILLED ? reaction->onFulfilled : reaction->onRejected;
-    csVMQueueMicrotask(handler, value, reaction->result,
-                       state == PROMISE_REJECTED);
+    Value handler = state == PROMISE_FULFILLED ? reaction->onFulfilled : reaction->onRejected;
+    csVMQueueMicrotask(handler, value, reaction->result, state == PROMISE_REJECTED);
     csVMLastMicrotask()->isFinally = reaction->isFinally;
     csVMLastMicrotask()->extraHops = reaction->extraHops;
   }
@@ -235,23 +227,19 @@ void csPromiseReject(ObjPromise *promise, Value reason) {
   settle(promise, PROMISE_REJECTED, reason);
 }
 
-void csPromiseAddReaction(ObjPromise *promise, Value onFulfilled, Value onRejected,
-                          ObjPromise *result) {
+void csPromiseAddReaction(ObjPromise *promise, Value onFulfilled, Value onRejected, ObjPromise *result) {
   promise->handled = true;
 
   if (promise->state != PROMISE_PENDING) {
-    Value handler =
-        promise->state == PROMISE_FULFILLED ? onFulfilled : onRejected;
-    csVMQueueMicrotask(handler, promise->value, result,
-                       promise->state == PROMISE_REJECTED);
+    Value handler = promise->state == PROMISE_FULFILLED ? onFulfilled : onRejected;
+    csVMQueueMicrotask(handler, promise->value, result, promise->state == PROMISE_REJECTED);
     return;
   }
 
   if (promise->reactionCapacity < promise->reactionCount + 1) {
     int oldCapacity = promise->reactionCapacity;
     promise->reactionCapacity = CS_GROW_CAPACITY(oldCapacity);
-    promise->reactions = CS_GROW_ARRAY(Reaction, promise->reactions, oldCapacity,
-                                       promise->reactionCapacity);
+    promise->reactions = CS_GROW_ARRAY(Reaction, promise->reactions, oldCapacity, promise->reactionCapacity);
   }
   Reaction *reaction = &promise->reactions[promise->reactionCount++];
   reaction->onFulfilled = onFulfilled;
@@ -465,4 +453,6 @@ void csArrayPutExtra(ObjArray *array, const char *name, int length, Value value)
   csPopTempRoot();
 }
 
-void csObjectFreeze(ObjObject *object) { object->frozen = true; }
+void csObjectFreeze(ObjObject *object) {
+  object->frozen = true;
+}

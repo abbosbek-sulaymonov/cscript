@@ -17,25 +17,24 @@
 
 const char *csTypeName(TypeKind type) {
   switch (type) {
-    case TYPE_DYNAMIC:   return "unknown";
-    case TYPE_VALUE:     return "value";
-    case TYPE_NUMBER:    return "number";
-    case TYPE_BIGINT:    return "bigint";
-    case TYPE_STRING:    return "string";
-    case TYPE_BOOLEAN:   return "boolean";
-    case TYPE_NULL:      return "null";
+    case TYPE_DYNAMIC: return "unknown";
+    case TYPE_VALUE: return "value";
+    case TYPE_NUMBER: return "number";
+    case TYPE_BIGINT: return "bigint";
+    case TYPE_STRING: return "string";
+    case TYPE_BOOLEAN: return "boolean";
+    case TYPE_NULL: return "null";
     case TYPE_UNDEFINED: return "undefined";
-    case TYPE_FUNCTION:  return "Function";
-    case TYPE_ARRAY:     return "array";
-    case TYPE_OBJECT:    return "object";
-    case TYPE_ERROR:     return "<error>";
+    case TYPE_FUNCTION: return "Function";
+    case TYPE_ARRAY: return "array";
+    case TYPE_OBJECT: return "object";
+    case TYPE_ERROR: return "<error>";
   }
   return "<unknown>";
 }
 
 static bool named(const char *name, int length, const char *candidate) {
-  return (int)strlen(candidate) == length &&
-         memcmp(candidate, name, (size_t)length) == 0;
+  return (int)strlen(candidate) == length && memcmp(candidate, name, (size_t)length) == 0;
 }
 
 bool csTypeFromName(const char *name, int length, TypeKind *out) {
@@ -43,11 +42,8 @@ bool csTypeFromName(const char *name, int length, TypeKind *out) {
     const char *name;
     TypeKind type;
   } table[] = {
-      {"value", TYPE_VALUE},         {"number", TYPE_NUMBER},
-      {"bigint", TYPE_BIGINT},       {"string", TYPE_STRING},
-      {"boolean", TYPE_BOOLEAN},     {"null", TYPE_NULL},
-      {"undefined", TYPE_UNDEFINED}, {"Function", TYPE_FUNCTION},
-      {"array", TYPE_ARRAY},         {"object", TYPE_OBJECT},
+      {"value", TYPE_VALUE}, {"number", TYPE_NUMBER},       {"bigint", TYPE_BIGINT},     {"string", TYPE_STRING}, {"boolean", TYPE_BOOLEAN},
+      {"null", TYPE_NULL},   {"undefined", TYPE_UNDEFINED}, {"Function", TYPE_FUNCTION}, {"array", TYPE_ARRAY},   {"object", TYPE_OBJECT},
   };
 
   for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
@@ -73,8 +69,7 @@ const char *csTypeRejectedName(const char *name, int length) {
   if (named(name, length, "void")) {
     return "a function that answers nothing needs no return type at all";
   }
-  if (named(name, length, "int") || named(name, length, "float") ||
-      named(name, length, "double")) {
+  if (named(name, length, "int") || named(name, length, "float") || named(name, length, "double")) {
     return "there is one numeric type, and it is called 'number'";
   }
   if (named(name, length, "bool")) return "the type is called 'boolean'";
@@ -123,10 +118,8 @@ bool csTypeFromTypeofName(const char *name, int length, TypeKind *out) {
     const char *name;
     TypeKind type;
   } table[] = {
-      {"number", TYPE_NUMBER},       {"string", TYPE_STRING},
-      {"boolean", TYPE_BOOLEAN},     {"bigint", TYPE_BIGINT},
-      {"function", TYPE_FUNCTION},   {"undefined", TYPE_UNDEFINED},
-      {"object", TYPE_OBJECT},       {"null", TYPE_NULL},
+      {"number", TYPE_NUMBER},     {"string", TYPE_STRING},       {"boolean", TYPE_BOOLEAN}, {"bigint", TYPE_BIGINT},
+      {"function", TYPE_FUNCTION}, {"undefined", TYPE_UNDEFINED}, {"object", TYPE_OBJECT},   {"null", TYPE_NULL},
   };
 
   for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {

@@ -125,11 +125,9 @@ static bool executableDirectory(char *out, size_t size) {
  * source is what it does. The name is repeated rather than the file being
  * called `index` or `mod`, so that a stack frame or a grep names the module
  * and not the twenty files that would otherwise share a name. */
-static bool stdModuleIn(const char *directory, const char *name, char *out,
-                        size_t outSize) {
+static bool stdModuleIn(const char *directory, const char *name, char *out, size_t outSize) {
   char candidate[PATH_MAX];
-  if (snprintf(candidate, sizeof candidate, "%s/%s/%s.cx", directory, name, name) >=
-      (int)sizeof candidate) {
+  if (snprintf(candidate, sizeof candidate, "%s/%s/%s.cx", directory, name, name) >= (int)sizeof candidate) {
     return false;
   }
 
@@ -168,8 +166,7 @@ static bool stdLibraryDirectory(char *out, size_t outSize) {
   static const char *const relative[] = {"../lib/cscript", "../../library", "library"};
   for (size_t i = 0; i < sizeof relative / sizeof relative[0]; i++) {
     char candidate[PATH_MAX];
-    if (snprintf(candidate, sizeof candidate, "%s/%s", executable, relative[i]) >=
-        (int)sizeof candidate) {
+    if (snprintf(candidate, sizeof candidate, "%s/%s", executable, relative[i]) >= (int)sizeof candidate) {
       continue;
     }
     char resolved[PATH_MAX];
@@ -206,21 +203,17 @@ const char *csModuleResolutionHint(const char *specifier) {
   if (!stdLibraryDirectory(directory, sizeof directory)) {
     const char *override = getenv("CSCRIPT_STD_PATH");
     if (override != NULL) {
-      snprintf(hint, sizeof hint,
-               " — CSCRIPT_STD_PATH is set to '%s', which is not a directory",
-               override);
+      snprintf(hint, sizeof hint, " — CSCRIPT_STD_PATH is set to '%s', which is not a directory", override);
       return hint;
     }
     return " — the standard library was not found; set CSCRIPT_STD_PATH to the"
            " directory holding it";
   }
-  snprintf(hint, sizeof hint, " — no module of that name in the standard library at %s",
-           directory);
+  snprintf(hint, sizeof hint, " — no module of that name in the standard library at %s", directory);
   return hint;
 }
 
-bool csModuleResolve(const char *fromPath, const char *specifier, char *out,
-                     size_t outSize) {
+bool csModuleResolve(const char *fromPath, const char *specifier, char *out, size_t outSize) {
   if (strncmp(specifier, CS_STD_PREFIX, CS_STD_PREFIX_LENGTH) == 0) {
     return stdModulePath(specifier + CS_STD_PREFIX_LENGTH, out, outSize);
   }
@@ -229,8 +222,7 @@ bool csModuleResolve(const char *fromPath, const char *specifier, char *out,
   directoryOf(fromPath, directory, sizeof directory);
 
   char joined[PATH_MAX];
-  if (snprintf(joined, sizeof joined, "%s/%s", directory, specifier) >=
-      (int)sizeof joined) {
+  if (snprintf(joined, sizeof joined, "%s/%s", directory, specifier) >= (int)sizeof joined) {
     return false;
   }
 
@@ -280,8 +272,7 @@ static void moduleError(Diagnostics *from, int line, const char *format, ...) {
 
 /* Loads every module the top level of `program` imports. Depth-first, so by
  * the time this returns every dependency is compiled and registered. */
-bool csModuleLoadImports(const AstNode *program, const char *fromPath,
-                         Diagnostics *diag) {
+bool csModuleLoadImports(const AstNode *program, const char *fromPath, Diagnostics *diag) {
   if (program == NULL || program->type != AST_PROGRAM) return true;
 
   bool ok = true;
@@ -290,25 +281,21 @@ bool csModuleLoadImports(const AstNode *program, const char *fromPath,
     if (statement == NULL || statement->type != AST_IMPORT) continue;
 
     char resolved[PATH_MAX];
-    if (!csModuleResolve(fromPath, statement->as.import.specifier, resolved,
-                         sizeof resolved)) {
-      csDiagnosticError(diag, statement->line, NULL, 0, "cannot find module '%s'%s",
-                        statement->as.import.specifier,
+    if (!csModuleResolve(fromPath, statement->as.import.specifier, resolved, sizeof resolved)) {
+      csDiagnosticError(diag, statement->line, NULL, 0, "cannot find module '%s'%s", statement->as.import.specifier,
                         csModuleResolutionHint(statement->as.import.specifier));
       ok = false;
       continue;
     }
 
-    if (csModuleLoadResolved(resolved, statement->as.import.specifier, diag,
-                             statement->line) == NULL) {
+    if (csModuleLoadResolved(resolved, statement->as.import.specifier, diag, statement->line) == NULL) {
       ok = false;
     }
   }
   return ok;
 }
 
-ObjModule *csModuleLoadResolved(const char *resolvedPath, const char *shownAs,
-                                Diagnostics *from, int line) {
+ObjModule *csModuleLoadResolved(const char *resolvedPath, const char *shownAs, Diagnostics *from, int line) {
   ObjString *key = csStringCopy(resolvedPath, (int)strlen(resolvedPath));
   csPushTempRoot((Obj *)key);
 
@@ -319,8 +306,10 @@ ObjModule *csModuleLoadResolved(const char *resolvedPath, const char *shownAs,
     if (found->loading) {
       /* Named as it was written rather than as it resolved: the absolute path
        * is longer and says less about which line to go and look at. */
-      moduleError(from, line, "import cycle: '%s' imports something that is "
-                              "already being loaded", shownAs);
+      moduleError(from, line,
+                  "import cycle: '%s' imports something that is "
+                  "already being loaded",
+                  shownAs);
       return NULL;
     }
     return found;
@@ -336,8 +325,7 @@ ObjModule *csModuleLoadResolved(const char *resolvedPath, const char *shownAs,
   if (vm.pendingCount >= CS_MODULES_MAX) {
     csPopTempRoot();
     free(source);
-    moduleError(from, line, "too many modules in one program (limit %d)",
-                CS_MODULES_MAX);
+    moduleError(from, line, "too many modules in one program (limit %d)", CS_MODULES_MAX);
     return NULL;
   }
 
@@ -407,4 +395,6 @@ InterpretResult csRunFile(const char *path) {
   return csVMRunEventLoop();
 }
 
-InterpretResult csCheckFile(const char *path) { return loadEntryPoint(path); }
+InterpretResult csCheckFile(const char *path) {
+  return loadEntryPoint(path);
+}

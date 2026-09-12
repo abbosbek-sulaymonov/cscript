@@ -34,7 +34,9 @@ static Shape *allocateShape(void) {
   return shape;
 }
 
-Shape *csShapeNewRoot(void) { return allocateShape(); }
+Shape *csShapeNewRoot(void) {
+  return allocateShape();
+}
 
 bool csShapeLookup(Shape *shape, ObjString *key, int *slot) {
   Value index;

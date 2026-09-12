@@ -10,41 +10,40 @@
 
 #include "cscript/ast.h"
 
-
 const char *csUnaryOpName(UnaryOp op) {
   switch (op) {
     case UNARY_NEGATE: return "-";
-    case UNARY_NOT:    return "!";
+    case UNARY_NOT: return "!";
     case UNARY_TYPEOF: return "typeof";
-    case UNARY_VOID:   return "void";
+    case UNARY_VOID: return "void";
   }
   return "?";
 }
 
 const char *csBinaryOpName(BinaryOp op) {
   switch (op) {
-    case BINARY_ADD:              return "+";
-    case BINARY_SUBTRACT:         return "-";
-    case BINARY_MULTIPLY:         return "*";
-    case BINARY_DIVIDE:           return "/";
-    case BINARY_MODULO:           return "%";
-    case BINARY_EXPONENT:         return "**";
-    case BINARY_EQUAL:            return "===";
-    case BINARY_NOT_EQUAL:        return "!==";
-    case BINARY_GREATER:          return ">";
-    case BINARY_GREATER_EQUAL:    return ">=";
-    case BINARY_LESS:             return "<";
-    case BINARY_LESS_EQUAL:       return "<=";
-    case BINARY_INSTANCEOF:       return "instanceof";
-    case BINARY_IN:               return "in";
+    case BINARY_ADD: return "+";
+    case BINARY_SUBTRACT: return "-";
+    case BINARY_MULTIPLY: return "*";
+    case BINARY_DIVIDE: return "/";
+    case BINARY_MODULO: return "%";
+    case BINARY_EXPONENT: return "**";
+    case BINARY_EQUAL: return "===";
+    case BINARY_NOT_EQUAL: return "!==";
+    case BINARY_GREATER: return ">";
+    case BINARY_GREATER_EQUAL: return ">=";
+    case BINARY_LESS: return "<";
+    case BINARY_LESS_EQUAL: return "<=";
+    case BINARY_INSTANCEOF: return "instanceof";
+    case BINARY_IN: return "in";
   }
   return "?";
 }
 
 const char *csLogicalOpName(LogicalOp op) {
   switch (op) {
-    case LOGICAL_AND:     return "&&";
-    case LOGICAL_OR:      return "||";
+    case LOGICAL_AND: return "&&";
+    case LOGICAL_OR: return "||";
     case LOGICAL_NULLISH: return "?\?";
   }
   return "?";

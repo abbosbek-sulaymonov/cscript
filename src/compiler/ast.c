@@ -131,8 +131,7 @@ AstNode *csAstUnary(AstArena *arena, int line, UnaryOp op, AstNode *operand) {
   return node;
 }
 
-AstNode *csAstBinary(AstArena *arena, int line, BinaryOp op, AstNode *left,
-                     AstNode *right) {
+AstNode *csAstBinary(AstArena *arena, int line, BinaryOp op, AstNode *left, AstNode *right) {
   AstNode *node = csAstNewNode(arena, AST_BINARY, line);
   if (node == NULL) return NULL;
   node->as.binary.op = op;
@@ -141,8 +140,7 @@ AstNode *csAstBinary(AstArena *arena, int line, BinaryOp op, AstNode *left,
   return node;
 }
 
-AstNode *csAstLogical(AstArena *arena, int line, LogicalOp op, AstNode *left,
-                      AstNode *right) {
+AstNode *csAstLogical(AstArena *arena, int line, LogicalOp op, AstNode *left, AstNode *right) {
   AstNode *node = csAstNewNode(arena, AST_LOGICAL, line);
   if (node == NULL) return NULL;
   node->as.logical.op = op;
@@ -158,8 +156,7 @@ AstNode *csAstGrouping(AstArena *arena, int line, AstNode *inner) {
 }
 
 /* Copies a NUL-terminated name into the arena so it outlives the token. */
-const char *csAstInternName(AstArena *arena, const char *name, int length,
-                              int *lengthOut) {
+const char *csAstInternName(AstArena *arena, const char *name, int length, int *lengthOut) {
   char *copy = (char *)csAstArenaAlloc(arena, (size_t)length + 1);
   if (copy == NULL) return NULL;
   memcpy(copy, name, (size_t)length);
@@ -171,8 +168,7 @@ const char *csAstInternName(AstArena *arena, const char *name, int length,
 AstNode *csAstIdentifier(AstArena *arena, int line, const char *name, int length) {
   AstNode *node = csAstNewNode(arena, AST_IDENTIFIER, line);
   if (node == NULL) return NULL;
-  node->as.identifier.name =
-      csAstInternName(arena, name, length, &node->as.identifier.length);
+  node->as.identifier.name = csAstInternName(arena, name, length, &node->as.identifier.length);
   return node;
 }
 
@@ -184,8 +180,7 @@ AstNode *csAstAssign(AstArena *arena, int line, AstNode *target, AstNode *value)
   return node;
 }
 
-AstNode *csAstAssignKind(AstArena *arena, int line, AstNode *target,
-                         AstNode *value, AssignKind kind, BinaryOp compoundOp) {
+AstNode *csAstAssignKind(AstArena *arena, int line, AstNode *target, AstNode *value, AssignKind kind, BinaryOp compoundOp) {
   AstNode *node = csAstAssign(arena, line, target, value);
   if (node == NULL) return NULL;
   node->as.assign.kind = kind;
@@ -193,8 +188,7 @@ AstNode *csAstAssignKind(AstArena *arena, int line, AstNode *target,
   return node;
 }
 
-AstNode *csAstTemplateStrings(AstArena *arena, int line, AstNode *cooked,
-                              AstNode *raw) {
+AstNode *csAstTemplateStrings(AstArena *arena, int line, AstNode *cooked, AstNode *raw) {
   AstNode *node = csAstNewNode(arena, AST_TEMPLATE_STRINGS, line);
   if (node == NULL) return NULL;
   node->as.templateStrings.cooked = cooked;
@@ -232,8 +226,7 @@ AstNode *csAstOptionalChain(AstArena *arena, int line, AstNode *expression) {
   return node;
 }
 
-AstNode *csAstUpdate(AstArena *arena, int line, AstNode *target, bool isIncrement,
-                     bool isPrefix) {
+AstNode *csAstUpdate(AstArena *arena, int line, AstNode *target, bool isIncrement, bool isPrefix) {
   AstNode *node = csAstNewNode(arena, AST_UPDATE, line);
   if (node == NULL) return NULL;
   node->as.update.target = target;
@@ -257,20 +250,17 @@ void csAstCallAddArgument(AstArena *arena, AstNode *call, AstNode *argument) {
 
   /* Argument lists are tiny, so a fresh copy per append is cheaper than
    * carrying a capacity field around. */
-  AstNode **grown = (AstNode **)csAstArenaAlloc(
-      arena, sizeof(AstNode *) * (size_t)(call->as.call.argCount + 1));
+  AstNode **grown = (AstNode **)csAstArenaAlloc(arena, sizeof(AstNode *) * (size_t)(call->as.call.argCount + 1));
   if (grown == NULL) return;
   if (call->as.call.arguments != NULL) {
-    memcpy(grown, call->as.call.arguments,
-           sizeof(AstNode *) * (size_t)call->as.call.argCount);
+    memcpy(grown, call->as.call.arguments, sizeof(AstNode *) * (size_t)call->as.call.argCount);
   }
   grown[call->as.call.argCount] = argument;
   call->as.call.arguments = grown;
   call->as.call.argCount++;
 }
 
-AstNode *csAstProperty(AstArena *arena, int line, AstNode *object, const char *name,
-                       int length) {
+AstNode *csAstProperty(AstArena *arena, int line, AstNode *object, const char *name, int length) {
   AstNode *node = csAstNewNode(arena, AST_PROPERTY, line);
   if (node == NULL) return NULL;
   node->as.property.object = object;
@@ -278,9 +268,7 @@ AstNode *csAstProperty(AstArena *arena, int line, AstNode *object, const char *n
   return node;
 }
 
-AstNode *csAstVarDecl(AstArena *arena, int line, const char *name, int length,
-                      AstNode *initializer, bool isConst, TypeKind declaredType,
-                      bool hasAnnotation) {
+AstNode *csAstVarDecl(AstArena *arena, int line, const char *name, int length, AstNode *initializer, bool isConst, TypeKind declaredType, bool hasAnnotation) {
   AstNode *node = csAstNewNode(arena, AST_VAR_DECL, line);
   if (node == NULL) return NULL;
   node->as.varDecl.name = csAstInternName(arena, name, length, &node->as.varDecl.length);

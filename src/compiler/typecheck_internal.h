@@ -13,7 +13,6 @@
 #include "cscript/type.h"
 #include "cscript/typecheck.h"
 
-
 #define MAX_SCOPED_VARIABLES 512
 
 /* A function's declared shape. Parameter and return types are kept here rather
@@ -81,22 +80,18 @@ typedef struct {
 } MethodSignature;
 
 /* The method that name refers to on that receiver type, or NULL. */
-const MethodSignature *csTypeFindMethod(TypeKind receiver, const char *name,
-                                        int length);
+const MethodSignature *csTypeFindMethod(TypeKind receiver, const char *name, int length);
 
 /* Requires a number, reporting against the operator that wanted one. Answers
  * TYPE_NUMBER either way, so one bad operand does not cascade. */
-TypeKind csTypeRequireNumber(Checker *checker, TypeKind type, int line,
-                             const char *what, AstNode *subject);
+TypeKind csTypeRequireNumber(Checker *checker, TypeKind type, int line, const char *what, AstNode *subject);
 
 /* Reports, and answers true, when the type is a `value` that has not been
  * narrowed — which is what makes `value` a type rather than an escape hatch. */
-bool csTypeRefuseUnnarrowed(Checker *checker, TypeKind type, int line,
-                            const char *what, AstNode *subject);
+bool csTypeRefuseUnnarrowed(Checker *checker, TypeKind type, int line, const char *what, AstNode *subject);
 
 void csTypeBeginScope(Checker *checker);
-void csTypeDeclareVariable(Checker *checker, const char *name, int length,
-                           TypeKind type);
+void csTypeDeclareVariable(Checker *checker, const char *name, int length, TypeKind type);
 
 /* The same, for a `let x;` that has nothing to take a type from yet. */
 void csTypeDeclareAwaiting(Checker *checker, const char *name, int length);
@@ -105,13 +100,11 @@ void csTypeDeclareAwaiting(Checker *checker, const char *name, int length);
  * that branch and nothing outside it. Answers the variable whose type was
  * changed, with its old type in `saved`, or NULL when the condition is not of
  * that shape. */
-Variable *csTypeNarrow(Checker *checker, AstNode *condition, bool whenTrue,
-                       TypeKind *saved);
+Variable *csTypeNarrow(Checker *checker, AstNode *condition, bool whenTrue, TypeKind *saved);
 
 /* Every narrowing a condition carries. See csTypeNarrow for the shape each
  * one has to be in. */
-int csTypeNarrowAll(Checker *checker, AstNode *condition, bool whenTrue,
-                    Variable **narrowed, TypeKind *saved, int limit);
+int csTypeNarrowAll(Checker *checker, AstNode *condition, bool whenTrue, Variable **narrowed, TypeKind *saved, int limit);
 
 /* Whether a branch always leaves — a throw, a return, a break, a continue, or
  * a block ending in one. What makes `if (typeof x !== "number") return;` prove
@@ -139,8 +132,7 @@ TypeKind csTypeCheckBinary(Checker *checker, AstNode *node);
 const Signature *csTypeDeclareFunction(Checker *checker, AstNode *node);
 
 /* Walks a function's body with its own return type in scope. */
-void csTypeCheckFunctionBody(Checker *checker, AstNode *node,
-                             const Signature *signature);
+void csTypeCheckFunctionBody(Checker *checker, AstNode *node, const Signature *signature);
 
 /* The two halves checkNode asks, in order. Each answers false for a node
  * belonging to the other. */
