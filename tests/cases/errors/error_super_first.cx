@@ -1,11 +1,11 @@
 class Base {
-  constructor(v: value) {
+  constructor(v: unknown) {
     this.v = v;
   }
 }
 
 class Derived extends Base {
-  constructor(v: value) {
+  constructor(v: unknown) {
     this.extra = 1;
     super(v);
   }

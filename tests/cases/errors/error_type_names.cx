@@ -1,0 +1,7 @@
+// The names a reader reaches for that this language does not have, each
+// answered with the one it does.
+let a: any = 1;
+let b: value = 2;
+let c: unknown = 3;
+const ok: unknown = c;
+console.log(ok);

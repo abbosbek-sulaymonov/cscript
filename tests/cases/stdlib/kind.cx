@@ -51,5 +51,5 @@ ok(isCollection(new Map())); ok(isCollection(new Set()));
 notOk(isCollection(new WeakMap()), "a weak one cannot be iterated at all");
 
 const shapes = [{}, [], new Map(), new Set(), new Date(0), new Point()];
-console.log(shapes.map((v: value) => kindOf(v)));
+console.log(shapes.map((v: unknown) => kindOf(v)));
 console.log("kind ok");

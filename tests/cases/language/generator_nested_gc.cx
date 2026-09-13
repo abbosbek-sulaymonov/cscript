@@ -22,7 +22,7 @@ function* source() {
   }
 }
 
-function* limit(iterable: value, howMany: number) {
+function* limit(iterable: unknown, howMany: number) {
   let taken = 0;
   for (const element of iterable) {
     yield [taken, element];
@@ -39,7 +39,7 @@ for (const pair of limit(source(), 7)) collected.push(pair);
 console.log(JSON.stringify(collected));
 
 /* Three deep, to check the chain and not only one link. */
-function* passThrough(iterable: value) {
+function* passThrough(iterable: unknown) {
   for (const element of iterable) yield element;
 }
 console.log(JSON.stringify([...limit(passThrough(source()), 5)]));

@@ -19,7 +19,7 @@
 import { kindOf } from "std:kind";
 
 /* A copy of the top level. Everything one level down is shared. */
-export function shallow(value: value) {
+export function shallow(value: unknown) {
   /* Narrowed once, at the top: everything copied structurally is an object,
    * and a primitive is its own copy. After this the walk can read keys and
    * call methods without the checker having to be told again. */
@@ -42,11 +42,11 @@ export function shallow(value: value) {
  * what makes `a.self = a` come back as a copy whose `self` is that same copy,
  * and it is also what stops the walk from recursing for ever. A Map keyed by
  * object works here because Map compares keys by identity. */
-export function deep(value: value) {
+export function deep(value: unknown) {
   return copyInto(value, new Map());
 }
 
-function copyInto(value: value, seen: object) {
+function copyInto(value: unknown, seen: object) {
   /* Narrowed once, at the top: a primitive is its own copy and everything
    * below this line is an object of some kind. */
   if (typeof value !== "object" || value === null) return value;
@@ -102,13 +102,13 @@ function copyInto(value: value, seen: object) {
  * This exists because the alternative is a silent half-copy: a deep clone that
  * quietly shares a class instance is the failure mode this whole project is
  * written against. */
-export function deepReport(value: value) {
+export function deepReport(value: unknown) {
   const shared = [];
   const copy = copyReporting(value, new Map(), shared, "");
   return { value: copy, shared: shared };
 }
 
-function copyReporting(value: value, seen: object, shared: array, path: string) {
+function copyReporting(value: unknown, seen: object, shared: array, path: string) {
   const kind = kindOf(value);
   if (typeof value !== "object" || value === null) {
     /* A primitive has nothing to share and nothing to copy. */

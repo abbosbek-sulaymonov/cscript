@@ -211,9 +211,9 @@ export class Stopwatch {
   /* Undefined rather than 0 for "not started": 0 is a real instant — the first
    * of January 1970 — so a stopwatch that had never been started would
    * otherwise report fifty-odd years of elapsed time. */
-  #startedAt: value = undefined;
-  #lappedAt: value = undefined;
-  #stoppedAt: value = undefined;
+  #startedAt: unknown= undefined;
+  #lappedAt: unknown= undefined;
+  #stoppedAt: unknown= undefined;
 
   constructor(startNow: boolean = true) {
     if (startNow) this.start();

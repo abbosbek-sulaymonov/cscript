@@ -40,7 +40,7 @@ export function kind(name: string) {
  * cause. The new error takes the kind of the one it wraps unless told
  * otherwise, so a handler asking `isKind(e, "NotFound")` still finds it after
  * three layers have added context. */
-export function wrap(error: value, message: string, asKind: value = null) {
+export function wrap(error: unknown, message: string, asKind: unknown = null) {
   const wrapped = new Error(message);
   wrapped.name = asKind === null ? kindOf(error) : asKind;
   wrapped.cause = error;
@@ -51,14 +51,14 @@ export function wrap(error: value, message: string, asKind: value = null) {
 
 /* The kind of anything that was thrown, including a plain string or an object
  * that is not an Error at all — a thrown value is whatever the program threw. */
-export function kindOf(error: value): string {
+export function kindOf(error: unknown): string {
   if (typeof error === "string") return "Error";
   if (typeof error !== "object" || error === null) return "Error";
   const name = error?.name;
   return typeof name === "string" ? name : "Error";
 }
 
-export function messageOf(error: value): string {
+export function messageOf(error: unknown): string {
   if (typeof error === "string") return error;
   if (typeof error === "object" && error !== null) {
     const message = error?.message;
@@ -67,7 +67,7 @@ export function messageOf(error: value): string {
   return String(error);
 }
 
-export function detailsOf(error: value) {
+export function detailsOf(error: unknown) {
   if (typeof error !== "object" || error === null) return undefined;
   return error?.details;
 }
@@ -75,7 +75,7 @@ export function detailsOf(error: value) {
 /* Whether this error, or anything under it, is of `name`. Walking the chain is
  * what makes wrapping safe: a caller that cares about the original failure
  * does not have to know how many layers added context on the way up. */
-export function isKind(error: value, name: string): boolean {
+export function isKind(error: unknown, name: string): boolean {
   for (const link of chain(error)) {
     if (kindOf(link) === name) return true;
   }
@@ -89,7 +89,7 @@ export function isKind(error: value, name: string): boolean {
  * the innermost is the failure itself — which is where the details are. A
  * handler asking `find(e, "NotFound")` wants the one that knows the id, not
  * the one that knows it could not start. */
-export function find(error: value, name: string) {
+export function find(error: unknown, name: string) {
   const links = chain(error);
   for (let i = links.length - 1; i >= 0; i--) {
     if (kindOf(links[i]) === name) return links[i];
@@ -101,7 +101,7 @@ export function find(error: value, name: string) {
  *
  * A cycle is stopped rather than followed: `a.cause = b; b.cause = a` is a
  * mistake, and a walk that hung on it would be a worse one. */
-export function chain(error: value) {
+export function chain(error: unknown) {
   const out = [];
   const seen = new Set();
   let at = error;
@@ -119,7 +119,7 @@ export function chain(error: value) {
 
 /* The error underneath everything, which is usually the one that says what
  * actually went wrong. */
-export function rootCause(error: value) {
+export function rootCause(error: unknown) {
   const links = chain(error);
   return links.length === 0 ? error : links[links.length - 1];
 }
@@ -128,7 +128,7 @@ export function rootCause(error: value) {
 
 /* One line: `NotFound: no user 7`. The kind is left out when it is the plain
  * "Error", because `Error: x` says nothing `x` did not. */
-export function describe(error: value): string {
+export function describe(error: unknown): string {
   const name = kindOf(error);
   const message = messageOf(error);
   return name === "Error" ? message : name + ": " + message;
@@ -140,7 +140,7 @@ export function describe(error: value): string {
  *     caused by Write: cannot write /etc/app.conf
  *     caused by NotFound: no such file or directory
  */
-export function format(error: value, indent: string = "  "): string {
+export function format(error: unknown, indent: string = "  "): string {
   const links = chain(error);
   const out = [describe(links[0])];
   for (let i = 1; i < links.length; i++) {

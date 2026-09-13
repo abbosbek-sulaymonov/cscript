@@ -22,7 +22,7 @@ console.log(1n === 1n, 1n === 2n);
 // A BigInt never equals a number. Written as a pair of literals the checker
 // rejects it outright, so the cross-type comparison goes through a `value`,
 // which is the one type `===` may ask about without narrowing first.
-function sameValue(a: bigint, b: value) {
+function sameValue(a: bigint, b: unknown) {
   return a === b;
 }
 console.log(sameValue(1n, 1), sameValue(1n, 1n));

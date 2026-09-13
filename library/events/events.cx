@@ -33,7 +33,7 @@ export class EventEmitter {
      * cannot see its own binding from inside itself, and this one has to, in
      * order to take itself off the list. */
     let wrapper = null;
-    wrapper = (payload: value) => {
+    wrapper = (payload: unknown) => {
       this.off(event, wrapper);
       return callListener(listener, payload);
     };
@@ -71,7 +71,7 @@ export class EventEmitter {
   /* Walks a copy of the list, so a listener that adds or removes one does not
    * change what this emit delivers — the alternative is a listener that is
    * skipped or run twice depending on where it was in the array. */
-  emit(event: string, payload: value = undefined): boolean {
+  emit(event: string, payload: unknown = undefined): boolean {
     if (!this.#listeners.has(event)) return false;
     const registered = this.#listeners.get(event).slice(0);
     for (const listener of registered) callListener(listener, payload);
@@ -89,7 +89,7 @@ export class EventEmitter {
     return names;
   }
 
-  removeAllListeners(event: value = null) {
+  removeAllListeners(event: unknown = null) {
     if (event === null) {
       this.#listeners = new Map();
       return;
@@ -102,7 +102,7 @@ export class EventEmitter {
    * a single occurrence rather than reacting to a stream of them. */
   next(event: string) {
     return new Promise((resolve: Function) => {
-      this.once(event, (payload: value) => resolve(payload));
+      this.once(event, (payload: unknown) => resolve(payload));
     });
   }
 }
@@ -110,7 +110,7 @@ export class EventEmitter {
 /* A listener is called with as many arguments as it declared: none for
  * `() => …`, the payload for `(x) => …`. Passing a payload to a listener that
  * takes no parameters would be a runtime error, not an ignored extra. */
-function callListener(listener: Function, payload: value) {
+function callListener(listener: Function, payload: unknown) {
   if (listener.length >= 1) return listener(payload);
   return listener();
 }

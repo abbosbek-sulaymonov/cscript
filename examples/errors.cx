@@ -20,7 +20,7 @@ for (const candidate of ["8080", "notaport", "99999"]) {
 }
 
 // finally runs whichever way the block is left — including a return.
-function withCleanup(shouldFail: value) {
+function withCleanup(shouldFail: unknown) {
   try {
     if (shouldFail) {
       throw "failed";

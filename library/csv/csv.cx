@@ -178,7 +178,7 @@ export function formatObjects(records: array, options: object = null): string {
   return format(rows, options);
 }
 
-function quote(value: value, delimiter: string, always: boolean): string {
+function quote(value: unknown, delimiter: string, always: boolean): string {
   const text = value === null || value === undefined ? "" : String(value);
   const needs = always || text.includes(delimiter) || text.includes("\"") ||
                 text.includes("\n") || text.includes("\r");

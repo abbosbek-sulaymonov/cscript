@@ -21,7 +21,7 @@ class Shape {
 class Rectangle extends Shape {
   sides = 4;
 
-  constructor(w: value, h: Function) {
+  constructor(w: unknown, h: Function) {
     super("rectangle");
     this.w = w;
     this.h = h;
@@ -37,7 +37,7 @@ class Rectangle extends Shape {
 }
 
 class Square extends Rectangle {
-  constructor(side: value) {
+  constructor(side: unknown) {
     super(side, side);
     this.name = "square";
   }
@@ -95,8 +95,8 @@ console.log([r, q].map((s: object) => s.name).join(","));
 // Field initialisers run where JavaScript runs them: at the top of a base
 // constructor, and directly after super(...) in a derived one. That ordering
 // is observable through the key order.
-class O1 { a = 1; constructor(t: value) { this.t = t; } }
-class O2 extends O1 { b = 2; constructor(t: value) { super(t); this.z = 9; } }
+class O1 { a = 1; constructor(t: unknown) { this.t = t; } }
+class O2 extends O1 { b = 2; constructor(t: unknown) { super(t); this.z = 9; } }
 class O3 extends O2 { c = 3; }
 class O4 extends O3 {}
 console.log(Object.keys(new O2("x")).join(","));

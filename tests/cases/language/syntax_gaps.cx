@@ -1,11 +1,11 @@
 // Default parameters, evaluated at the top of the body so a later one can see
 // an earlier one — and an argument written as `undefined` counts as absent.
-function greet(name: string = "world", greeting: value = "hello " + name) {
+function greet(name: string = "world", greeting: unknown = "hello " + name) {
   return greeting;
 }
 console.log(greet(), greet("you"), greet("you", "hi"), greet(undefined));
 
-function span(a: number, b: number = a * 2, c: value = a + b) { return [a, b, c].join(","); }
+function span(a: number, b: number = a * 2, c: unknown = a + b) { return [a, b, c].join(","); }
 console.log(span(1), span(1, 10), span(1, 10, 100));
 
 const arrow = (a: number = 7, b: number = 8) => a * b;
@@ -17,7 +17,7 @@ class Box {
 }
 console.log(new Box().scaled(), new Box(3).scaled(4));
 
-async function later(value: value = "default") { return value; }
+async function later(value: unknown = "default") { return value; }
 console.log(await later(), await later("given"));
 
 function* counted(upTo: number = 3) { for (let i = 0; i < upTo; i++) yield i; }

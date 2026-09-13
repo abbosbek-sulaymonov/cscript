@@ -1,4 +1,4 @@
-function later(value: value, ms: number) {
+function later(value: unknown, ms: number) {
   return new Promise((resolve: Function) => setTimeout(() => resolve(value), ms));
 }
 export const ready = await later("loaded", 5);

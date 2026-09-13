@@ -5,7 +5,7 @@ function add(a: number, b: number): number {
   return a + b;
 }
 
-function applyTwice(f: Function, value: value) {
+function applyTwice(f: Function, value: unknown) {
   return f(f(value));
 }
 

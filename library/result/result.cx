@@ -25,29 +25,29 @@
  * is given, which is how a Result gets used for its ok-ness alone — would
  * otherwise be an error rather than a transform. The same adaptation the rest
  * of the library makes. */
-function callWith(callback: Function, value: value) {
+function callWith(callback: Function, value: unknown) {
   if (callback.length >= 1) return callback(value);
   return callback();
 }
 
 export class Result {
   #ok: boolean;
-  #value: value;
-  #error: value;
+  #value: unknown;
+  #error: unknown;
 
   /* The constructor is not the interface — `Result.ok` and `Result.err` are,
    * because `new Result(true, v, null)` says nothing at a call site. */
-  constructor(ok: boolean, value: value, error: value) {
+  constructor(ok: boolean, value: unknown, error: unknown) {
     this.#ok = ok;
     this.#value = value;
     this.#error = error;
   }
 
-  static ok(value: value = undefined) {
+  static ok(value: unknown = undefined) {
     return new Result(true, value, null);
   }
 
-  static err(error: value) {
+  static err(error: unknown) {
     return new Result(false, undefined, error);
   }
 
@@ -115,7 +115,7 @@ export class Result {
     return callWith(recover, this.#error);
   }
 
-  unwrapOr(fallback: value) {
+  unwrapOr(fallback: unknown) {
     return this.#ok ? this.#value : fallback;
   }
 
@@ -142,14 +142,14 @@ export class Result {
 
 export class Option {
   #present: boolean;
-  #value: value;
+  #value: unknown;
 
-  constructor(present: boolean, value: value) {
+  constructor(present: boolean, value: unknown) {
     this.#present = present;
     this.#value = value;
   }
 
-  static some(value: value) {
+  static some(value: unknown) {
     return new Option(true, value);
   }
 
@@ -159,7 +159,7 @@ export class Option {
 
   /* `undefined` and `null` become none, anything else some — the bridge from
    * an ordinary API that answers one of those for "nothing". */
-  static from(value: value) {
+  static from(value: unknown) {
     if (value === undefined || value === null) return Option.none();
     return Option.some(value);
   }
@@ -199,7 +199,7 @@ export class Option {
     return build();
   }
 
-  unwrapOr(fallback: value) {
+  unwrapOr(fallback: unknown) {
     return this.#present ? this.#value : fallback;
   }
 
@@ -213,7 +213,7 @@ export class Option {
 
   /* An Option needs an error to become a Result, and only the caller knows
    * what the absence means. */
-  toResult(error: value) {
+  toResult(error: unknown) {
     return this.#present ? Result.ok(this.#value) : Result.err(error);
   }
 

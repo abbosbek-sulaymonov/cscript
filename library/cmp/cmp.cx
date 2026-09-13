@@ -57,7 +57,7 @@ export function compareBooleans(a: boolean, b: boolean): number {
 /* Whatever it is handed: numbers numerically, strings lexicographically,
  * booleans false-first. Anything else is compared by its text, which is at
  * least stable and is why the specific functions above exist. */
-export function compare(a: value, b: value): number {
+export function compare(a: unknown, b: unknown): number {
   if (typeof a === "number" && typeof b === "number") return compareNumbers(a, b);
   if (typeof a === "string" && typeof b === "string") return compareStrings(a, b);
   if (typeof a === "boolean" && typeof b === "boolean") return compareBooleans(a, b);
@@ -69,7 +69,7 @@ export function compare(a: value, b: value): number {
 /* Orders by what `keyOf` answers: `sort(cmp.by(p => p.age))`. */
 export function by(keyOf: Function, order: Function = null) {
   const inner = order === null ? compare : order;
-  return (a: value, b: value) => inner(keyOf(a), keyOf(b));
+  return (a: unknown, b: unknown) => inner(keyOf(a), keyOf(b));
 }
 
 export function byDescending(keyOf: Function, order: Function = null) {
@@ -77,7 +77,7 @@ export function byDescending(keyOf: Function, order: Function = null) {
 }
 
 export function reversed(order: Function) {
-  return (a: value, b: value) => order(b, a);
+  return (a: unknown, b: unknown) => order(b, a);
 }
 
 /* The first order that has an opinion decides: `then(by(lastName), by(age))`.
@@ -85,7 +85,7 @@ export function reversed(order: Function) {
  * answering 0 is falsy and the shorter spelling would then be wrong for a tie
  * in the middle. */
 export function then(...orders: Function) {
-  return (a: value, b: value) => {
+  return (a: unknown, b: unknown) => {
     for (const order of orders) {
       const side = order(a, b);
       if (side !== 0) return side;
@@ -99,7 +99,7 @@ export function then(...orders: Function) {
  * which answers 0 and leaves them wherever they happened to be. */
 export function nullsFirst(order: Function = null) {
   const inner = order === null ? compare : order;
-  return (a: value, b: value) => {
+  return (a: unknown, b: unknown) => {
     const aMissing = a === null || a === undefined;
     const bMissing = b === null || b === undefined;
     if (aMissing && bMissing) return 0;

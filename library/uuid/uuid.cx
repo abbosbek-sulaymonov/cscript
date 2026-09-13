@@ -41,7 +41,7 @@ export function v4(source: Function = null): string {
  *
  * `at` is injectable for the same reason the random source is — and because a
  * v7 made at a known instant is the only kind that can be checked. */
-export function v7(source: Function = null, at: value = null): string {
+export function v7(source: Function = null, at: unknown = null): string {
   const when = at === null ? Date.now() : at;
   const bytes = randomBytes(16, source);
 

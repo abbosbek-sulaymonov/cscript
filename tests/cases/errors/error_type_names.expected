@@ -1,0 +1,6 @@
+error_type_names.cx:3: error: there is no 'any' in CScript: write 'unknown' and narrow it with typeof, or name the type
+      3 | let a: any = 1;
+        |        ^^^
+error_type_names.cx:4: error: the type that holds anything is called 'unknown', as in TypeScript
+      4 | let b: value = 2;
+        |        ^^^^^

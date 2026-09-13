@@ -13,7 +13,7 @@ includes([1, 2, 3], 2); includes("hello", "ell");
 hasLength([1, 2], 2);
 const e = throws(() => { throw new Error("boom"); }, "boom");
 equal(messageOf(e), "boom");
-throws(() => { throw new Error("nope"); }, (x: value) => messageOf(x) === "nope");
+throws(() => { throw new Error("nope"); }, (x: unknown) => messageOf(x) === "nope");
 equal(doesNotThrow(() => 42), 42);
 console.log(describe([1, "a", { b: null }]), isDeepEqual([1], [1]));
 console.log(messageOf(throws(() => { equal(1, 2, "counts must match"); })));

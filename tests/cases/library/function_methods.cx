@@ -7,7 +7,7 @@ console.log(add.call(null, 1, 2), add.apply(null, [3, 4]));
 const increment = add.bind(null, 1);
 console.log(increment(5), increment(9));
 
-function three(a: number, b: number, c: value) { return [a, b, c].join("-"); }
+function three(a: number, b: number, c: unknown) { return [a, b, c].join("-"); }
 console.log(three.bind(null, 1, 2)(3), three.bind(null, 1)(2, 3));
 
 // A function written as a method has somewhere to put a receiver.
@@ -22,7 +22,7 @@ console.log(typeof add.bind(null));
 function count(...xs: number) { return xs.length + ":" + xs.join(","); }
 console.log(count(), count(1), count(1, 2, 3));
 
-function tail(first: number, ...rest: value) { return first + "|" + rest.join(","); }
+function tail(first: number, ...rest: unknown) { return first + "|" + rest.join(","); }
 console.log(tail(1), tail(1, 2, 3));
 
 const spread = (...xs: array) => xs.length;
@@ -34,7 +34,7 @@ console.log(new Collector().take("a", "b"));
 console.log(count(...[1, 2], 3));
 
 // Tagged templates: the pieces as an array, the interpolations after them.
-function describe(strings: object, ...values: value) {
+function describe(strings: object, ...values: unknown) {
   return strings.join("|") + " :: " + values.join(",");
 }
 console.log(describe`a${1}b${2}c`);

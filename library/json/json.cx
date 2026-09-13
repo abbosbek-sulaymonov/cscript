@@ -40,7 +40,7 @@ export function parse(text: string) {
 
 /* The same thing for a caller who would rather have a fallback than a Result.
  * `parseOr(text, {})` is the shape most configuration reading takes. */
-export function parseOr(text: string, fallback: value) {
+export function parseOr(text: string, fallback: unknown) {
   return parse(text).unwrapOr(fallback);
 }
 
@@ -94,7 +94,7 @@ function parseValue(state: object) {
   return undefined;
 }
 
-function parseWord(state: object, word: string, value: value) {
+function parseWord(state: object, word: string, value: unknown) {
   if (state.text.slice(state.at, state.at + word.length) !== word) {
     fail(state, "expected '" + word + "'");
     return undefined;
@@ -285,7 +285,7 @@ function parseNumber(state: object) {
   return value;
 }
 
-function isDigit(character: value): boolean {
+function isDigit(character: unknown): boolean {
   if (character === undefined) return false;
   const code = String(character).charCodeAt(0);
   return code >= 48 && code <= 57;
@@ -333,21 +333,21 @@ function hexValue(digits: string): number {
  * `stable` sorts the keys of every object, which is what makes two runs
  * comparable: insertion order is not part of what JSON means, so output that
  * depends on it produces a diff for a change nobody made. */
-export function stringify(value: value, indent: number = 0, stable: boolean = false): string {
+export function stringify(value: unknown, indent: number = 0, stable: boolean = false): string {
   return write(value, indent, stable, 0);
 }
 
-export function pretty(value: value, indent: number = 2): string {
+export function pretty(value: unknown, indent: number = 2): string {
   return write(value, indent, false, 0);
 }
 
 /* Sorted keys and two-space indentation: the shape for a file under version
  * control. */
-export function stringifyStable(value: value, indent: number = 2): string {
+export function stringifyStable(value: unknown, indent: number = 2): string {
   return write(value, indent, true, 0);
 }
 
-function write(value: value, indent: number, stable: boolean, depth: number): string {
+function write(value: unknown, indent: number, stable: boolean, depth: number): string {
   const kind = kindOf(value);
 
   if (kind === "null" || kind === "undefined") return "null";

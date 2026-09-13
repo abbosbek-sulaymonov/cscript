@@ -224,6 +224,14 @@ AstNode *parseExport(Parser *parser) {
     return node;
   }
 
+  /* An interface is erased, and types do not cross a module boundary yet, so
+   * exporting one would export nothing. Saying so beats "expected a
+   * declaration", which reads as though the syntax were wrong. */
+  if (startsInterfaceDeclaration(parser) || startsTypeAlias(parser)) {
+    errorAtCurrent(parser, "a type is file-local: types do not cross a module boundary yet, so there is nothing to export");
+    return NULL;
+  }
+
   bool exportsAsyncFunction = checkWord(parser, "async") && nextStartsFunction(parser);
   if (!exportsAsyncFunction && !check(parser, TOKEN_LET) && !check(parser, TOKEN_CONST) && !check(parser, TOKEN_FUNCTION) && !check(parser, TOKEN_CLASS)) {
     errorAtCurrent(parser, "'export' must be followed by a declaration or '{'");

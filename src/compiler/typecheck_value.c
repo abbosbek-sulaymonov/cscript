@@ -22,6 +22,68 @@
 
 #include "compiler/typecheck_internal.h"
 
+/* An object literal given to an interface, checked member by member.
+ *
+ * This is the one place a shape is proved rather than assumed, and it is
+ * deliberately the *literal* that is checked rather than the type `object`: a
+ * literal is written at the point it is given away, so its members are still
+ * visible here. A value already typed `object` has lost them, and calling it a
+ * Point later would be a claim nothing checked.
+ *
+ * Excess members are refused, as TypeScript refuses them on a fresh literal: a
+ * name the interface does not have is nearly always a misspelling of one it
+ * does. Answers the type the literal should be treated as having.
+ */
+TypeKind csTypeCheckShape(Checker *checker, AstNode *value, TypeKind expected) {
+  if (value == NULL) return expected;
+  if (!csTypeIsInterface(expected) || value->type != AST_OBJECT_LITERAL) return value->resolvedType;
+
+  const InterfaceType *required = csTypeInterface(checker->types, expected);
+  if (required == NULL) return value->resolvedType;
+
+  /* A spread, an accessor or a computed key hides what the literal holds, so
+   * there is nothing to prove either way and the annotation is taken at its
+   * word. */
+  for (int i = 0; i < value->as.objectLiteral.count; i++) {
+    if (value->as.objectLiteral.kinds[i] != OBJECT_ENTRY_VALUE) return expected;
+    if (value->as.objectLiteral.keys[i] == NULL) return expected;
+    if (value->as.objectLiteral.keys[i]->type != AST_STRING_LITERAL) return expected;
+  }
+
+  bool ok = true;
+  for (int i = 0; i < value->as.objectLiteral.count; i++) {
+    AstNode *key = value->as.objectLiteral.keys[i];
+    const InterfaceMember *member = csTypeFindInterfaceMember(checker->types, expected, key->as.string.chars, key->as.string.length);
+    if (member == NULL) {
+      csTypeError(checker, value->line, "%s has no member '%.*s'", csTypeNameIn(checker->types, expected), key->as.string.length, key->as.string.chars);
+      ok = false;
+      continue;
+    }
+    /* A member that is itself an interface takes a literal of its own, so the
+     * check recurses into nested shapes. */
+    TypeKind given = csTypeCheckShape(checker, value->as.objectLiteral.values[i], member->type);
+    if (csTypeAssignableIn(checker->types, given, member->type)) continue;
+    csTypeError(checker, value->line, "member '%.*s' is %s but %s declares it %s", key->as.string.length, key->as.string.chars, csTypeNameIn(checker->types, given),
+                csTypeNameIn(checker->types, expected), csTypeNameIn(checker->types, member->type));
+    ok = false;
+  }
+
+  for (int i = 0; i < required->memberCount; i++) {
+    const InterfaceMember *member = &required->members[i];
+    if (member->optional) continue;
+    bool present = false;
+    for (int j = 0; j < value->as.objectLiteral.count && !present; j++) {
+      AstNode *key = value->as.objectLiteral.keys[j];
+      present = key->as.string.length == member->length && memcmp(key->as.string.chars, member->name, (size_t)member->length) == 0;
+    }
+    if (present) continue;
+    csTypeError(checker, value->line, "%s needs a member '%.*s' and this has none", csTypeNameIn(checker->types, expected), member->length, member->name);
+    ok = false;
+  }
+
+  return ok ? expected : TYPE_ERROR;
+}
+
 bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
   TypeKind result = TYPE_DYNAMIC;
 
@@ -70,9 +132,12 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
 
       if (variable != NULL) {
         target->resolvedType = variable->type;
-        if (!csTypeAssignable(valueType, variable->type)) {
-          csTypeError(checker, node->line, "cannot assign %s to '%.*s', which is %s and cannot change type", csTypeName(valueType), target->as.identifier.length,
-                      target->as.identifier.name, csTypeName(variable->type));
+        /* A literal assigned to something an interface named is proved here,
+         * the same way a declaration's initialiser is. */
+        valueType = csTypeCheckShape(checker, node->as.assign.value, variable->type);
+        if (!csTypeAssignableIn(checker->types, valueType, variable->type)) {
+          csTypeError(checker, node->line, "cannot assign %s to '%.*s', which is %s and cannot change type", csTypeNameIn(checker->types, valueType),
+                      target->as.identifier.length, target->as.identifier.name, csTypeNameIn(checker->types, variable->type));
           result = TYPE_ERROR;
           break;
         }
@@ -168,6 +233,21 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
       }
       bool isLength = node->as.property.length == 6 && memcmp(node->as.property.name, "length", 6) == 0;
 
+      /* An interface is the one object type whose members are known, so this
+       * is the one property read that answers something better than "an
+       * object, contents unknown" — and the one that can say a name is wrong
+       * before the program runs. */
+      if (csTypeIsInterface(object)) {
+        const InterfaceMember *member = csTypeFindInterfaceMember(checker->types, object, node->as.property.name, node->as.property.length);
+        if (member == NULL) {
+          csTypeError(checker, node->line, "%s has no member '%.*s'", csTypeNameIn(checker->types, object), node->as.property.length, node->as.property.name);
+          result = TYPE_ERROR;
+          break;
+        }
+        result = member->type;
+        break;
+      }
+
       /* `length` is a number on every container; a known method name resolves
        * to a function, and its result type is applied at the call site. */
       if (object == TYPE_STRING) {
@@ -220,7 +300,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
       }
 
       if (csTypeIsKnown(object) && object != TYPE_OBJECT && object != TYPE_ARRAY && object != TYPE_FUNCTION) {
-        csTypeError(checker, node->line, "cannot read property '%.*s' of %s", node->as.property.length, node->as.property.name, csTypeName(object));
+        csTypeError(checker, node->line, "cannot read property '%.*s' of %s", node->as.property.length, node->as.property.name, csTypeNameIn(checker->types, object));
         result = TYPE_ERROR;
         break;
       }
@@ -266,9 +346,21 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
       }
 
       if (csTypeIsKnown(callee) && callee != TYPE_FUNCTION) {
-        csTypeError(checker, node->line, "%s is not a function", csTypeName(callee));
+        csTypeError(checker, node->line, "%s is not a function", csTypeNameIn(checker->types, callee));
         result = TYPE_ERROR;
         break;
+      }
+
+      /* A method declared by an interface says what it answers, which is the
+       * whole reason to write one down. */
+      if (node->as.call.callee->type == AST_PROPERTY) {
+        AstNode *property = node->as.call.callee;
+        TypeKind receiver = property->as.property.object->resolvedType;
+        const InterfaceMember *member = csTypeFindInterfaceMember(checker->types, receiver, property->as.property.name, property->as.property.length);
+        if (member != NULL && member->isMethod) {
+          result = member->returns;
+          break;
+        }
       }
 
       /* A built-in method's result is known even though its receiver's element
@@ -321,12 +413,15 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
           if (!signature->hasRest) break;
           at = signature->paramCount - 1;
         }
-        if (csTypeAssignable(argTypes[i], signature->paramTypes[at])) continue;
+        /* An argument written as a literal is proved against the parameter's
+         * interface, the same way a declaration's initialiser is. */
+        argTypes[i] = csTypeCheckShape(checker, node->as.call.arguments[i], signature->paramTypes[at]);
+        if (csTypeAssignableIn(checker->types, argTypes[i], signature->paramTypes[at])) continue;
         /* `f(undefined)` asks for the default, which is what the language
          * already says an absent argument means. */
         if (argTypes[i] == TYPE_UNDEFINED && signature->paramHasDefault[at]) continue;
         csTypeError(checker, node->line, "argument %d of '%.*s' is %s but the parameter is %s", i + 1, node->as.call.callee->as.identifier.length,
-                    node->as.call.callee->as.identifier.name, csTypeName(argTypes[i]), csTypeName(signature->paramTypes[at]));
+                    node->as.call.callee->as.identifier.name, csTypeNameIn(checker->types, argTypes[i]), csTypeNameIn(checker->types, signature->paramTypes[at]));
       }
 
       result = signature->returnType;
@@ -346,7 +441,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
         break;
       }
       if (csTypeIsKnown(target) && target != TYPE_OBJECT && target != TYPE_ARRAY && target != TYPE_STRING) {
-        csTypeError(checker, node->line, "cannot index %s", csTypeName(target));
+        csTypeError(checker, node->line, "cannot index %s", csTypeNameIn(checker->types, target));
         result = TYPE_ERROR;
         break;
       }

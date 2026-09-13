@@ -39,7 +39,7 @@ export class Decimal {
    * already lost the exactness this type is for — it can only recover what the
    * double actually holds — while `Decimal.parse("0.1")` is exact by
    * construction. */
-  static of(value: value, scale: number = 2) {
+  static of(value: unknown, scale: number = 2) {
     if (typeof value === "string") return Decimal.parse(value);
     if (typeof value !== "number" || value !== value) {
       throw new Error("Decimal.of needs a number or a string, got " + String(value));
@@ -91,19 +91,19 @@ export class Decimal {
 
   /* Both sides are brought to the wider scale first, so `1.5 + 0.25` is 1.75
    * rather than either operand's idea of the answer. */
-  add(other: value) {
+  add(other: unknown) {
     const [left, right, scale] = align(this, other);
     return new Decimal(left + right, scale);
   }
 
-  subtract(other: value) {
+  subtract(other: unknown) {
     const [left, right, scale] = align(this, other);
     return new Decimal(left - right, scale);
   }
 
   /* The scales add, exactly as they do on paper: 1.5 × 1.5 is 2.25. Rounding
    * back is a separate decision, which is why it is a separate call. */
-  multiply(other: value) {
+  multiply(other: unknown) {
     const right = asDecimal(other, this.#scale);
     const product = this.#units * right.units;
     guard(product);
@@ -113,7 +113,7 @@ export class Decimal {
   /* Division has to be told how many places to keep, because most divisions
    * have no exact answer — and a default would be a guess that is wrong in
    * exactly the cases this type exists for. */
-  divide(other: value, scale: number = null, mode: string = "half-up") {
+  divide(other: unknown, scale: number = null, mode: string = "half-up") {
     const right = asDecimal(other, this.#scale);
     if (right.units === 0) throw new Error("division by zero");
 
@@ -166,14 +166,14 @@ export class Decimal {
 
   /* --- comparing -------------------------------------------------------- */
 
-  compare(other: value): number {
+  compare(other: unknown): number {
     const [left, right] = align(this, other);
     if (left < right) return -1;
     if (left > right) return 1;
     return 0;
   }
 
-  equals(other: value): boolean {
+  equals(other: unknown): boolean {
     return this.compare(other) === 0;
   }
 
@@ -233,7 +233,7 @@ function isDigits(text: string): boolean {
  * add, and 2 genuinely has no fractional part. A fractional number converts at
  * the receiver's scale, since that is the only scale on offer — and a caller
  * who cares should pass a string, which carries its own. */
-function asDecimal(value: value, scale: number) {
+function asDecimal(value: unknown, scale: number) {
   if (typeof value === "string") return Decimal.parse(value);
   if (typeof value === "number") {
     return value === Math.floor(value) ? new Decimal(value, 0)
@@ -243,7 +243,7 @@ function asDecimal(value: value, scale: number) {
 }
 
 /* Both operands as units at the wider of the two scales. */
-function align(left: object, right: value) {
+function align(left: object, right: unknown) {
   const other = asDecimal(right, left.scale);
   const scale = left.scale > other.scale ? left.scale : other.scale;
   const leftUnits = left.units * Math.pow(10, scale - left.scale);

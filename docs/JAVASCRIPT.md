@@ -46,6 +46,7 @@ asserted here.
 | Feature | What is supported |
 | --- | --- |
 | Declarations | `let`, `const`, several per statement and per `for` initialiser |
+| Type declarations | `interface`, `interface … extends`, `type` — both contextual, both erased |
 | Classes as values | `const C = class { … }`, named or not |
 | Numeric separators | `1_000_000`, `0xFF_FF` |
 | `void` and the comma operator | `void x`, `(a, b)` — the operator, not the separator |
@@ -558,11 +559,13 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Unicode-correct string indexing | Strings are indexed by byte, which is correct for ASCII |
 | `with`, `eval` | No plans |
 
-Class names are not usable as type annotations. The type lattice is a fixed set
-of types, so an instance is `object` and a class is callable. Types do not
-cross a module boundary either — what an imported binding holds is checked
-where it is used. Nominal types are the next typing milestone rather than part
-of this one.
+A shape is described with `interface` or `type`, which are checked structurally
+and then erased — the same two declarations TypeScript has, read the same way,
+and stripped by Node exactly as they are here. What is missing beside them:
+generics, unions, and a class name as a type. A class instance is an `object`,
+and types do not cross a module boundary — what an imported binding holds is
+checked where it is used. Generics are the next typing milestone rather than
+part of this one.
 
 ---
 

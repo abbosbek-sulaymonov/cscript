@@ -107,13 +107,22 @@ not resolve — an array's elements, an object's properties — emits the generi
 `OP_ADD`.
 
 The lattice is flat, and two of its members carry the weight of the design.
-`value` is the top type a program can **write**: everything is assignable to
-one, nothing is assignable from one, and nothing may be read off one until a
-`typeof` has said what it holds. Beside it sits a type that cannot be written
+`unknown` is the top type a program can **write** — TypeScript's own name for
+it: everything is assignable to one, nothing is assignable from one, and
+nothing may be read off one until a `typeof` has said what it holds. Beside it sits a type that cannot be written
 at all — the checker's own "I could not tell", which flows both ways and is
 where the runtime does the checking instead. Keeping the two apart is what
-makes `value` a type rather than an escape hatch: `any` would be the second one
-with a name, and naming it is what lets it spread.
+makes `unknown` a type rather than an escape hatch: `any` would be the second
+one with a name, and naming it is what lets it spread.
+
+Declared types sit beside the flat lattice rather than inside it. An
+`interface` is registered in a per-file table and its type is the index into
+that table, encoded in the TypeKind enum above a fixed base — so a type stays
+one scalar passed by value through the whole checker and stored in a byte on a
+compiled function. A type *tree* is what this becomes when generics or unions
+need one, and deliberately not before. The table hangs off the program node
+rather than sitting in a global, because a module is parsed and checked in the
+middle of the compile of the module that imported it.
 
 The checker keeps its own scope stack rather than sharing the compiler's. That
 duplication is deliberate: it means the compiler can be changed without silently

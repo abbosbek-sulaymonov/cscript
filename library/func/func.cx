@@ -8,11 +8,11 @@
  * for.
  */
 
-export function identity(value: value) {
+export function identity(value: unknown) {
   return value;
 }
 
-export function constant(value: value) {
+export function constant(value: unknown) {
   return () => value;
 }
 
@@ -24,7 +24,7 @@ export function noop() {
  * are written in. `compose` is the same thing the other way round, for the
  * readers who learned it from mathematics. */
 export function pipe(...steps: Function) {
-  return (value: value) => {
+  return (value: unknown) => {
     let current = value;
     for (const step of steps) current = step(current);
     return current;
@@ -35,7 +35,7 @@ export function compose(...steps: Function) {
   /* The steps are walked backwards, so they are collected first: a rest
    * parameter's annotation describes one argument, and indexing the group it
    * arrives in is a different question from calling one of them. */
-  return (value: value) => {
+  return (value: unknown) => {
     const ordered = [];
     for (const step of steps) ordered.push(step);
     let current = value;
@@ -45,27 +45,27 @@ export function compose(...steps: Function) {
 }
 
 /* Fixes the leading arguments and asks for the rest later. */
-export function partial(fn: Function, ...bound: value) {
-  return (...rest: value) => fn(...bound, ...rest);
+export function partial(fn: Function, ...bound: unknown) {
+  return (...rest: unknown) => fn(...bound, ...rest);
 }
 
 /* Two- and three-argument currying, spelled out rather than general: a general
  * `curry` has to guess when it has enough arguments, and guessing wrong is a
  * function that silently returns another function instead of an answer. */
 export function curry2(fn: Function) {
-  return (first: value) => (second: value) => fn(first, second);
+  return (first: unknown) => (second: unknown) => fn(first, second);
 }
 
 export function curry3(fn: Function) {
-  return (first: value) => (second: value) => (third: value) => fn(first, second, third);
+  return (first: unknown) => (second: unknown) => (third: unknown) => fn(first, second, third);
 }
 
 export function flip(fn: Function) {
-  return (first: value, second: value) => fn(second, first);
+  return (first: unknown, second: unknown) => fn(second, first);
 }
 
 export function negate(test: Function) {
-  return (...args: value) => !test(...args);
+  return (...args: unknown) => !test(...args);
 }
 
 /* Runs the body once and answers that same value ever after — including when
@@ -74,7 +74,7 @@ export function negate(test: Function) {
 export function once(fn: Function) {
   let called = false;
   let result = undefined;
-  return (...args: value) => {
+  return (...args: unknown) => {
     if (called) return result;
     called = true;
     result = fn(...args);
@@ -93,7 +93,7 @@ export function once(fn: Function) {
  * ever. */
 export function memoize(fn: Function, keyOf: Function = null) {
   const answers = new Map();
-  return (...args: value) => {
+  return (...args: unknown) => {
     const key = keyOf === null ? JSON.stringify(args) : keyOf(...args);
     if (answers.has(key)) return answers.get(key);
     const result = fn(...args);
@@ -105,7 +105,7 @@ export function memoize(fn: Function, keyOf: Function = null) {
 /* Runs `fn` for its effect and answers the value unchanged, for putting a
  * `console.log` in the middle of a pipe without rewriting the pipe. */
 export function tap(fn: Function) {
-  return (value: value) => {
+  return (value: unknown) => {
     fn(value);
     return value;
   };

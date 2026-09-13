@@ -454,6 +454,8 @@ AstNode *csAstProgram(AstArena *arena, int line) {
   node->as.program.statements = NULL;
   node->as.program.count = 0;
   node->as.program.capacity = 0;
+  node->as.program.types = (TypeRegistry *)csAstArenaAlloc(arena, sizeof(TypeRegistry));
+  if (node->as.program.types != NULL) csTypeRegistryInit(node->as.program.types);
   return node;
 }
 

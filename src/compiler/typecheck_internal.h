@@ -67,6 +67,11 @@ typedef struct {
   TypeKind currentReturn;
   bool currentReturnAnnotated;
   int functionDepth;
+
+  /* The interfaces and aliases this file declared, filled in by the parser.
+   * Every message that names a type goes through csTypeNameIn with it, and
+   * every assignability question through csTypeAssignableIn. */
+  const TypeRegistry *types;
 } Checker;
 
 /* What a built-in method on a primitive answers.
@@ -89,6 +94,12 @@ TypeKind csTypeRequireNumber(Checker *checker, TypeKind type, int line, const ch
 /* Reports, and answers true, when the type is a `value` that has not been
  * narrowed — which is what makes `value` a type rather than an escape hatch. */
 bool csTypeRefuseUnnarrowed(Checker *checker, TypeKind type, int line, const char *what, AstNode *subject);
+
+/* Checks an object literal against the interface it is being given to, and
+ * answers the type it should be treated as having. Anything that is not a
+ * literal, or not given to an interface, comes back with the type it already
+ * had. */
+TypeKind csTypeCheckShape(Checker *checker, AstNode *value, TypeKind expected);
 
 void csTypeBeginScope(Checker *checker);
 void csTypeDeclareVariable(Checker *checker, const char *name, int length, TypeKind type);

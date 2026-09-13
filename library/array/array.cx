@@ -23,7 +23,7 @@ import { by, compare } from "std:cmp";
  * A negative `start` counts from the end, as every other array method here
  * does. `remove` below zero removes nothing rather than a surprising amount. */
 export function splice(items: array, start: number, remove: number = -1,
-                       ...insert: value) {
+                       ...insert: unknown) {
   const length = items.length;
   let from = start < 0 ? length + start : start;
   if (from < 0) from = 0;
@@ -40,7 +40,7 @@ export function splice(items: array, start: number, remove: number = -1,
   return out;
 }
 
-export function insertAt(items: array, index: number, value: value) {
+export function insertAt(items: array, index: number, value: unknown) {
   return splice(items, index, 0, value);
 }
 
@@ -49,7 +49,7 @@ export function removeAt(items: array, index: number) {
 }
 
 /* Removes the **first** element equal to `value`, or nothing. */
-export function removeValue(items: array, value: value) {
+export function removeValue(items: array, value: unknown) {
   const at = items.indexOf(value);
   return at < 0 ? items.slice(0) : removeAt(items, at);
 }
@@ -113,7 +113,7 @@ export function dedupe(items: array, keyOf: Function = null) {
 /* The index of `target` in a **sorted** array, or -1. O(log n), which is the
  * only reason to use it over `indexOf` — and it is wrong on an unsorted array
  * rather than slow, so the caller has to know. */
-export function binarySearch(items: array, target: value, comparison: Function = null): number {
+export function binarySearch(items: array, target: unknown, comparison: Function = null): number {
   const order = comparison === null ? compare : comparison;
   let low = 0;
   let high = items.length - 1;
@@ -133,7 +133,7 @@ export function binarySearch(items: array, target: value, comparison: Function =
 /* Where `target` would go to keep a sorted array sorted — which is what a
  * caller inserting into one actually needs, and what `binarySearch` cannot say
  * when it answers -1. */
-export function insertionIndex(items: array, target: value, comparison: Function = null): number {
+export function insertionIndex(items: array, target: unknown, comparison: Function = null): number {
   const order = comparison === null ? compare : comparison;
   let low = 0;
   let high = items.length;
@@ -180,14 +180,14 @@ export function isEmpty(items: array): boolean {
 
 /* An array of `length` copies. `Array.fill` needs an array to fill first,
  * which is the part that is awkward to write. */
-export function filled(length: number, value: value) {
+export function filled(length: number, value: unknown) {
   const out = [];
   for (let i = 0; i < length; i++) out.push(value);
   return out;
 }
 
 /* Pads to `length` on the right, leaving a longer array alone. */
-export function padded(items: array, length: number, value: value) {
+export function padded(items: array, length: number, value: unknown) {
   const out = items.slice(0);
   while (out.length < length) out.push(value);
   return out;

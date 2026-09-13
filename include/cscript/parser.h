@@ -11,6 +11,7 @@
 #include "cscript/common.h"
 #include "cscript/diagnostic.h"
 #include "cscript/lexer.h"
+#include "cscript/type.h"
 
 typedef struct {
   Lexer lexer;
@@ -18,6 +19,11 @@ typedef struct {
   Token previous;
   AstArena *arena;
   Diagnostics *diag;
+
+  /* The interfaces and aliases declared so far in this file, so that an
+   * annotation can name one. It belongs to the program node; the parser only
+   * writes to it. */
+  TypeRegistry *types;
 
   /* Set between reading `async` and building the function node it belongs to.
    * `async` is contextual, so it is recognised at the call site and handed to

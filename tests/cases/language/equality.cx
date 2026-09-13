@@ -9,9 +9,9 @@ console.log((0 / 0) === (0 / 0));
 // Comparing two different types is a compile error when the checker can see
 // both. A `value` is the exception, and deliberately so: asking what one holds
 // is what `===` is for there, and it is how the runtime rule stays observable.
-const n: value = 1;
-const s: value = "1";
-const f: value = false;
+const n: unknown = 1;
+const s: unknown = "1";
+const f: unknown = false;
 console.log(n === s);
 console.log(0 === f);
 console.log(n !== s);

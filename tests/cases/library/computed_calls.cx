@@ -3,7 +3,7 @@
 // `this` to the function rather than to the object.
 const counter = {
   n: 0,
-  bump(by: value) {
+  bump(by: unknown) {
     this.n += by;
     return this.n;
   },
@@ -20,7 +20,7 @@ console.log("abc"["toUpperCase"](), "a,b"["split"](","));
 
 // A class method, where the receiver is what `this` means.
 class Box {
-  constructor(v: value) {
+  constructor(v: unknown) {
     this.v = v;
   }
   get() {

@@ -18,7 +18,7 @@ import { Option } from "std:result";
  * `process.env` is a function rather than an object for the reason this
  * matters: reading an absent property is a runtime error in CScript, so
  * `process.env.HOME` would crash on a machine that did not set it. */
-export function env(name: string, fallback: value = undefined) {
+export function env(name: string, fallback: unknown = undefined) {
   const value = process.env(name);
   return value === undefined ? fallback : value;
 }

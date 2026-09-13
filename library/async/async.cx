@@ -21,7 +21,7 @@ export function sleep(milliseconds: number) {
 
 /* The same wait, answering a value — for putting a pause in a chain without
  * losing what was being carried through it. */
-export function delay(value: value, milliseconds: number) {
+export function delay(value: unknown, milliseconds: number) {
   return new Promise((resolve: Function) => {
     setTimeout(() => resolve(value), milliseconds);
   });
@@ -37,10 +37,10 @@ export function timeout(work: array, milliseconds: number,
                         message: string = "timed out") {
   return new Promise((resolve: Function, reject: Function) => {
     const timer = setTimeout(() => reject(new Error(message)), milliseconds);
-    work.then((value: value) => {
+    work.then((value: unknown) => {
       clearTimeout(timer);
       resolve(value);
-    }, (reason: value) => {
+    }, (reason: unknown) => {
       clearTimeout(timer);
       reject(reason);
     });
@@ -140,7 +140,7 @@ export async function settleAll(work: array) {
 export function debounce(fn: Function, milliseconds: number) {
   let timer = null;
 
-  const run = (payload: value = undefined) => {
+  const run = (payload: unknown = undefined) => {
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
@@ -166,7 +166,7 @@ export function debounce(fn: Function, milliseconds: number) {
  * this one keeps a steady rate. */
 export function throttle(fn: Function, milliseconds: number) {
   let last = -1;
-  return (payload: value = undefined) => {
+  return (payload: unknown = undefined) => {
     const now = Date.now();
     if (last >= 0 && now - last < milliseconds) return undefined;
     last = now;

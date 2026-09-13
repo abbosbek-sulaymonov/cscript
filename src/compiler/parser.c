@@ -282,7 +282,7 @@ bool parseTypeAnnotation(Parser *parser, TypeKind *type, bool *present) {
   }
   if (parser->diag->panicMode) return false;
 
-  if (!csTypeFromName(parser->previous.start, parser->previous.length, type)) {
+  if (!csTypeLookupName(parser->types, parser->previous.start, parser->previous.length, type)) {
     /* Some names are wrong in a way worth answering rather than merely
      * rejecting — `any` above all, which is the one a reader reaches for
      * first and the one this language is built on not having. */
@@ -293,6 +293,14 @@ bool parseTypeAnnotation(Parser *parser, TypeKind *type, bool *present) {
       csDiagnosticError(parser->diag, parser->previous.line, parser->previous.start, parser->previous.length, "unknown type '%.*s'", parser->previous.length,
                         parser->previous.start);
     }
+    return false;
+  }
+
+  /* `Point[]` is TypeScript for an array of them, and an array's element types
+   * are not modelled here — so it is refused rather than silently widened to
+   * `array`, which would read as a promise the checker cannot keep. */
+  if (check(parser, TOKEN_LEFT_BRACKET)) {
+    errorAtCurrent(parser, "an array's element types are not modelled: write 'array'");
     return false;
   }
   *present = true;
@@ -326,6 +334,7 @@ AstNode *csParse(const char *source, AstArena *arena, Diagnostics *diag) {
   Parser parser;
   parser.arena = arena;
   parser.diag = diag;
+  parser.types = NULL;
   parser.pendingAsync = false;
   /* One, not zero: the top level of a file may await, and a plain function
    * nested inside it may not — which is already the rule, because every
@@ -344,6 +353,7 @@ AstNode *csParse(const char *source, AstArena *arena, Diagnostics *diag) {
 
   AstNode *program = csAstProgram(arena, 1);
   if (program == NULL) return NULL;
+  parser.types = program->as.program.types;
 
   /* Past a certain point extra messages stop being informative and start
    * burying the first one, which is the one that usually matters. */

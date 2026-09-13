@@ -1,0 +1,5 @@
+error_interface_shape.cx:10: error: Point needs a member 'y' and this has none
+error_interface_shape.cx:11: error: Point has no member 'z'
+error_interface_shape.cx:12: error: member 'y' is string but Point declares it number
+error_interface_shape.cx:17: error: cannot assign object to 'shapeless', declared as Point
+error_interface_shape.cx:20: error: Point has no member 'z'

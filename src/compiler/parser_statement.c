@@ -429,6 +429,11 @@ AstNode *parseStatement(Parser *parser) {
 
   if (matchToken(parser, TOKEN_CLASS)) return parseClass(parser);
 
+  /* `interface Point { … }` and `type Id = number;` — both contextual, so a
+   * program may still have a variable called `type`, which several do. */
+  if (startsInterfaceDeclaration(parser)) return parseInterfaceDeclaration(parser);
+  if (startsTypeAlias(parser)) return parseTypeAlias(parser);
+
   if (matchToken(parser, TOKEN_DO)) return parseDoWhile(parser);
 
   /* `import(…)` in statement position is an expression, not a declaration —

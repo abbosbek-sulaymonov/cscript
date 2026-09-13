@@ -73,7 +73,8 @@ already measured says it is the thing that pays.
 | **65 ✅** | The command line: `--check`, stage dumps, `process.argv`, and a REPL that prints |
 | **66 ✅** | Every source file under 600 lines — 24 of them were over, one by 4515 |
 | **67 ✅** | The standard library: 39 modules under `std:`, each a directory with its specification |
-| **68 ✅** | No `any`: one-time autocasting, `value` with `typeof` narrowing, and parameters that must say |
+| **68 ✅** | No `any`: one-time autocasting, a checked top type with `typeof` narrowing, and parameters that must say |
+| **69 ✅** | `interface` and `type`, checked structurally and erased — and one top type, spelled `unknown` |
 | next | A property store that *adds* one, which is what a constructor does |
 | next | Allocating an object in compiled code — attempted, backed out; see below |
 | next | Calling a CScript function from compiled code, for the callees inlining will not take: it needs frames and safepoints |

@@ -16,9 +16,9 @@
  */
 
 export class Cell {
-  #value: value;
+  #value: unknown;
 
-  constructor(value: value = undefined) {
+  constructor(value: unknown = undefined) {
     this.#value = value;
   }
 
@@ -26,7 +26,7 @@ export class Cell {
     return this.#value;
   }
 
-  set(value: value) {
+  set(value: unknown) {
     this.#value = value;
     return this;
   }
@@ -40,7 +40,7 @@ export class Cell {
 
   /* Answers the old value and leaves the new one, for a swap that has to keep
    * what was there. */
-  replace(value: value) {
+  replace(value: unknown) {
     const previous = this.#value;
     this.#value = value;
     return previous;
@@ -68,7 +68,7 @@ export class Cell {
  * table of them. */
 export class Lazy {
   #build: Function;
-  #value: value = undefined;
+  #value: unknown= undefined;
   #built: boolean = false;
 
   constructor(build: Function) {
@@ -105,7 +105,7 @@ export class Lazy {
  * has fired. */
 export class Once {
   #done: boolean = false;
-  #result: value = undefined;
+  #result: unknown= undefined;
 
   /* Answers what the body answered — the first time, and every time after. */
   run(body: Function) {
