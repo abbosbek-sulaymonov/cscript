@@ -6,7 +6,7 @@
 // compiled code was given. The ordered comparisons were already refused for an
 // operand nothing proved numeric; equality was not, because equality is
 // defined for every type.
-function sameCount(n: number, value: value): number {
+function sameCount(n: number, value: unknown): number {
   let same: number = 0;
   for (let i: number = 0; i < n; i++) {
     if (value === value) {
@@ -23,7 +23,7 @@ console.log(sameCount(300, undefined));
 console.log(sameCount(300, 7));
 
 // And the negation, on a pair that really does differ.
-function differCount(n: number, a: value, b: value): number {
+function differCount(n: number, a: unknown, b: unknown): number {
   let differ: number = 0;
   for (let i: number = 0; i < n; i++) {
     if (a !== b) {

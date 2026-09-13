@@ -1,4 +1,4 @@
-/* parser_internal.h — what the parser's four translation units share.
+/* parser_internal.h — what the parser's translation units share.
  *
  * The parser is one recursive-descent pass split by *what it parses* rather
  * than by phase: expressions, declarations, statements, and the token
@@ -15,6 +15,7 @@
 
 #include "cscript/ast.h"
 #include "cscript/parser.h"
+#include "compiler/ast_internal.h"
 
 /* Binding powers, lowest binds loosest. Mirrors JS operator precedence for the
  * operators that exist today; new levels slot in without touching the parser
@@ -58,6 +59,12 @@ bool parseTypeAnnotation(Parser *parser, TypeKind *type, bool *present);
 bool nameIs(const char *name, int length, const char *word);
 bool checkContextual(Parser *parser, const char *word);
 bool matchContextual(Parser *parser, const char *word);
+
+/* parser_type.c — `interface` and `type`, which describe rather than produce */
+bool startsInterfaceDeclaration(Parser *parser);
+bool startsTypeAlias(Parser *parser);
+AstNode *parseInterfaceDeclaration(Parser *parser);
+AstNode *parseTypeAlias(Parser *parser);
 /* src/parser_expression.c */
 AstNode *parseCallSuffixes(Parser *parser, AstNode *expression);
 AstNode *parsePrimary(Parser *parser);

@@ -469,6 +469,11 @@ struct AstNode {
       AstNode **statements;
       int count;
       int capacity;
+      /* The interfaces and aliases this file declared. The parser fills it and
+       * the checker reads it; nothing else in the pipeline needs types by
+       * name, and hanging it here is what keeps a module compiled inside
+       * another module's compile from sharing one. */
+      TypeRegistry *types;
     } program;
   } as;
 };

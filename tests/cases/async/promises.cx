@@ -5,5 +5,5 @@ queueMicrotask(() => console.log("micro"));
 new Promise((resolve: Function) => { console.log("executor"); resolve("made"); }).then((v: string) => console.log(v));
 Promise.all([Promise.resolve("a"), "b", Promise.resolve("c")]).then((v: array) => console.log("all", v.join("")));
 Promise.race([new Promise((r: Function) => setTimeout(() => r("slow"), 20)), Promise.resolve("fast")]).then((v: object) => console.log("race", v));
-Promise.reject("boom").catch((e: value) => console.log("caught", e));
+Promise.reject("boom").catch((e: unknown) => console.log("caught", e));
 console.log("end");

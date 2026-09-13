@@ -8,7 +8,7 @@ class Handlers {
   static [key]() { return "static ran"; }
   static [prefix + "Load"] = "loaded";
   get [key + "Count"]() { return 3; }
-  set [key + "Count"](value: value) { this.stored = value; }
+  set [key + "Count"](value: unknown) { this.stored = value; }
 }
 
 const handlers = new Handlers();
@@ -28,7 +28,7 @@ const mixed = new Mixed();
 console.log(mixed.a, mixed.run, mixed.b, Object.keys(mixed));
 
 // `new` reaches its class through whatever expression names it.
-class Boxed { constructor(v: value = 0) { this.v = v; } peek() { return this.v; } }
+class Boxed { constructor(v: unknown = 0) { this.v = v; } peek() { return this.v; } }
 const registry = [Boxed];
 const holder = { Boxed };
 const supplier = () => Boxed;

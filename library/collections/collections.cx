@@ -22,7 +22,7 @@ export class Deque {
   #head: number = 0;
   #count: number = 0;
 
-  constructor(initial: value = null) {
+  constructor(initial: unknown = null) {
     if (initial === null) return;
     for (const element of initial) this.pushBack(element);
   }
@@ -49,13 +49,13 @@ export class Deque {
     this.#head = 0;
   }
 
-  pushBack(value: value) {
+  pushBack(value: unknown) {
     this.#grow();
     this.#items[(this.#head + this.#count) % this.#items.length] = value;
     this.#count = this.#count + 1;
   }
 
-  pushFront(value: value) {
+  pushFront(value: unknown) {
     this.#grow();
     const capacity = this.#items.length;
     this.#head = (this.#head - 1 + capacity) % capacity;
@@ -129,7 +129,7 @@ export class PriorityQueue {
   #items: array = [];
   #compare: Function;
 
-  constructor(compare: Function = null, initial: value = null) {
+  constructor(compare: Function = null, initial: unknown = null) {
     this.#compare = compare === null ? (a: number, b: number) => a - b : compare;
     if (initial === null) return;
     for (const element of initial) this.push(element);
@@ -143,7 +143,7 @@ export class PriorityQueue {
     return this.#items.length === 0;
   }
 
-  push(value: value) {
+  push(value: unknown) {
     this.#items.push(value);
     let at = this.#items.length - 1;
     while (at > 0) {
@@ -206,7 +206,7 @@ export class PriorityQueue {
 export class Counter {
   #counts: object = new Map();
 
-  constructor(initial: value = null) {
+  constructor(initial: unknown = null) {
     if (initial === null) return;
     for (const element of initial) this.add(element);
   }
@@ -215,7 +215,7 @@ export class Counter {
     return this.#counts.size;
   }
 
-  add(key: value, howMany: number = 1) {
+  add(key: unknown, howMany: number = 1) {
     const current = this.get(key);
     const next = current + howMany;
     if (next === 0) {
@@ -227,17 +227,17 @@ export class Counter {
 
   /* Zero for something never seen, rather than undefined: a count is a number,
    * and `counter.get(x) + 1` should not be NaN for the first one. */
-  get(key: value): number {
+  get(key: unknown): number {
     if (!this.#counts.has(key)) return 0;
     const held = this.#counts.get(key);
     return typeof held === "number" ? held : 0;
   }
 
-  has(key: value): boolean {
+  has(key: unknown): boolean {
     return this.#counts.has(key);
   }
 
-  delete(key: value): boolean {
+  delete(key: unknown): boolean {
     return this.#counts.delete(key);
   }
 
@@ -278,7 +278,7 @@ export class DefaultMap {
   #values: array = new Map();
   #build: Function;
 
-  constructor(build: Function, initial: value = null) {
+  constructor(build: Function, initial: unknown = null) {
     this.#build = build;
     if (initial === null) return;
     for (const [key, value] of initial) this.#values.set(key, value);
@@ -288,7 +288,7 @@ export class DefaultMap {
     return this.#values.size;
   }
 
-  get(key: value) {
+  get(key: unknown) {
     if (!this.#values.has(key)) {
       this.#values.set(key, this.#build.length >= 1 ? this.#build(key) : this.#build());
     }
@@ -297,16 +297,16 @@ export class DefaultMap {
 
   /* Deliberately does *not* build: asking whether something is there should
    * not be what puts it there. */
-  has(key: value): boolean {
+  has(key: unknown): boolean {
     return this.#values.has(key);
   }
 
-  set(key: value, value: value) {
+  set(key: unknown, value: unknown) {
     this.#values.set(key, value);
     return this;
   }
 
-  delete(key: value): boolean {
+  delete(key: unknown): boolean {
     return this.#values.delete(key);
   }
 

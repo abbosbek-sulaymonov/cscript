@@ -57,7 +57,7 @@ So a kind is a **name**, carried on the error and asked about by name.
 ```ts
 catching(() => load(path), {
   NotFound: () => defaults,
-  Permission: (e: value) => { throw wrap(e, "cannot read the config"); },
+  Permission: (e: unknown) => { throw wrap(e, "cannot read the config"); },
 });
 ```
 

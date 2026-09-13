@@ -393,7 +393,7 @@ static bool arithmeticOnBigInts(Checker *checker, TypeKind left, TypeKind right,
     return true;
   }
 
-  csTypeError(checker, line, "cannot mix BigInt and %s in '%s'", csTypeName(left == TYPE_BIGINT ? right : left), name);
+  csTypeError(checker, line, "cannot mix BigInt and %s in '%s'", csTypeNameIn(checker->types, left == TYPE_BIGINT ? right : left), name);
   *result = TYPE_ERROR;
   return true;
 }
@@ -402,7 +402,7 @@ static bool arithmeticOnBigInts(Checker *checker, TypeKind left, TypeKind right,
 /* A `value` has to be narrowed before it can be used for anything. One message
  * for every place that happens, because the fix is always the same. */
 bool csTypeRefuseUnnarrowed(Checker *checker, TypeKind type, int line, const char *what, AstNode *subject) {
-  if (type != TYPE_VALUE) return false;
+  if (type != TYPE_UNKNOWN) return false;
 
   /* Naming the thing that was not narrowed is most of the fix: the message has
    * to say which of several operands the checker is complaining about, and the
@@ -422,14 +422,14 @@ bool csTypeRefuseUnnarrowed(Checker *checker, TypeKind type, int line, const cha
 }
 
 TypeKind csTypeRequireNumber(Checker *checker, TypeKind type, int line, const char *operatorName, AstNode *subject) {
-  if (type == TYPE_VALUE) {
+  if (type == TYPE_UNKNOWN) {
     char what[64];
     snprintf(what, sizeof what, "the operand of '%s'", operatorName);
     csTypeRefuseUnnarrowed(checker, type, line, what, subject);
     return TYPE_ERROR;
   }
-  if (csTypeAssignable(type, TYPE_NUMBER)) return TYPE_NUMBER;
-  csTypeError(checker, line, "operand of '%s' must be a number, got %s", operatorName, csTypeName(type));
+  if (csTypeAssignableIn(checker->types, type, TYPE_NUMBER)) return TYPE_NUMBER;
+  csTypeError(checker, line, "operand of '%s' must be a number, got %s", operatorName, csTypeNameIn(checker->types, type));
   return TYPE_ERROR;
 }
 
@@ -460,7 +460,7 @@ TypeKind csTypeCheckBinary(Checker *checker, AstNode *node) {
       }
       if (left == TYPE_DYNAMIC || right == TYPE_DYNAMIC) return TYPE_DYNAMIC;
       if (left == TYPE_NUMBER && right == TYPE_NUMBER) return TYPE_NUMBER;
-      csTypeError(checker, line, "cannot add %s and %s", csTypeName(left), csTypeName(right));
+      csTypeError(checker, line, "cannot add %s and %s", csTypeNameIn(checker->types, left), csTypeNameIn(checker->types, right));
       return TYPE_ERROR;
 
     case BINARY_INSTANCEOF:
@@ -518,11 +518,11 @@ TypeKind csTypeCheckBinary(Checker *checker, AstNode *node) {
        * round: asking whether one equals a number is how a program finds out
        * what it holds. `===` is the one place a `value` needs no narrowing —
        * the question is what narrowing would answer. */
-      bool involvesValue = left == TYPE_VALUE || right == TYPE_VALUE;
+      bool involvesValue = left == TYPE_UNKNOWN || right == TYPE_UNKNOWN;
 
       if (!involvesNullish && !involvesValue && csTypeIsKnown(left) && csTypeIsKnown(right) && left != right) {
-        csTypeError(checker, line, "'%s' between %s and %s is always %s — the types can never match", name, csTypeName(left), csTypeName(right),
-                    node->as.binary.op == BINARY_EQUAL ? "false" : "true");
+        csTypeError(checker, line, "'%s' between %s and %s is always %s — the types can never match", name, csTypeNameIn(checker->types, left),
+                    csTypeNameIn(checker->types, right), node->as.binary.op == BINARY_EQUAL ? "false" : "true");
         return TYPE_ERROR;
       }
       return TYPE_BOOLEAN;
@@ -561,6 +561,7 @@ bool csTypeCheck(AstNode *program, Diagnostics *diag) {
   checker.currentReturn = TYPE_DYNAMIC;
   checker.currentReturnAnnotated = false;
   checker.functionDepth = 0;
+  checker.types = program != NULL && program->type == AST_PROGRAM ? program->as.program.types : NULL;
 
   declareBuiltins(&checker);
   checkNode(&checker, program);

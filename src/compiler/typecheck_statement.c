@@ -43,8 +43,8 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
         /* Arms are matched with ===, so an arm that can never match is the
          * same mistake as writing that comparison out by hand. */
         if (csTypeIsKnown(subject) && csTypeIsKnown(test) && subject != test) {
-          csTypeError(checker, node->as.switchStmt.cases[i].test->line, "this case is %s but the switch subject is %s, so it can never match", csTypeName(test),
-                      csTypeName(subject));
+          csTypeError(checker, node->as.switchStmt.cases[i].test->line, "this case is %s but the switch subject is %s, so it can never match",
+                      csTypeNameIn(checker->types, test), csTypeNameIn(checker->types, subject));
         }
         checkNode(checker, node->as.switchStmt.cases[i].body);
       }
@@ -62,13 +62,15 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
 
     case AST_RETURN_STMT: {
       TypeKind returned = node->as.returnValue != NULL ? checkNode(checker, node->as.returnValue) : TYPE_UNDEFINED;
+      if (checker->currentReturnAnnotated) returned = csTypeCheckShape(checker, node->as.returnValue, checker->currentReturn);
       if (checker->functionDepth == 0) {
         /* The compiler reports this with better placement. */
         result = TYPE_UNDEFINED;
         break;
       }
-      if (checker->currentReturnAnnotated && !csTypeAssignable(returned, checker->currentReturn)) {
-        csTypeError(checker, node->line, "cannot return %s from a function declared %s", csTypeName(returned), csTypeName(checker->currentReturn));
+      if (checker->currentReturnAnnotated && !csTypeAssignableIn(checker->types, returned, checker->currentReturn)) {
+        csTypeError(checker, node->line, "cannot return %s from a function declared %s", csTypeNameIn(checker->types, returned),
+                    csTypeNameIn(checker->types, checker->currentReturn));
       }
       result = TYPE_UNDEFINED;
       break;
@@ -81,9 +83,12 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
       bool awaiting = false;
       if (node->as.varDecl.hasAnnotation) {
         declared = node->as.varDecl.declaredType;
-        if (!csTypeAssignable(initializer, declared)) {
-          csTypeError(checker, node->line, "cannot assign %s to '%.*s', declared as %s", csTypeName(initializer), node->as.varDecl.length, node->as.varDecl.name,
-                      csTypeName(declared));
+        /* `const p: Point = { x: 1, y: 2 }` — the literal is proved against
+         * the interface here, where its members are still written down. */
+        initializer = csTypeCheckShape(checker, node->as.varDecl.initializer, declared);
+        if (!csTypeAssignableIn(checker->types, initializer, declared)) {
+          csTypeError(checker, node->line, "cannot assign %s to '%.*s', declared as %s", csTypeNameIn(checker->types, initializer), node->as.varDecl.length,
+                      node->as.varDecl.name, csTypeNameIn(checker->types, declared));
         }
       } else if (node->as.varDecl.initializer != NULL && initializer != TYPE_NULL && initializer != TYPE_UNDEFINED) {
         /* Inference: an unannotated declaration takes its initialiser's type,

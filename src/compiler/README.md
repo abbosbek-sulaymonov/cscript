@@ -28,6 +28,7 @@ annotation is consumed, not erased.
 | [`parser_prefix.c`](parser_prefix.c) | The operators an expression can start with |
 | [`parser_arrow.c`](parser_arrow.c) | Template literals, arrows, and the function forms |
 | [`parser_statement.c`](parser_statement.c) | Blocks, conditionals, the four loop forms, `switch`, `try` |
+| [`parser_type.c`](parser_type.c) | `interface` and `type` — the two declarations that describe rather than produce |
 | [`parser_declaration.c`](parser_declaration.c) | `let`, `const`, and the patterns either can destructure into |
 | [`parser_class.c`](parser_class.c) | The class body, in source order |
 | [`parser_module.c`](parser_module.c) | `import` and `export`, in every form |
@@ -46,7 +47,7 @@ annotation is consumed, not erased.
 | [`typecheck_value.c`](typecheck_value.c) | The type of an expression |
 | [`typecheck_statement.c`](typecheck_statement.c) | The checking a statement needs — which is mostly the scope |
 | [`typecheck_internal.h`](typecheck_internal.h) | The checker's state |
-| [`type.c`](type.c) | The type names, and what may be assigned to what |
+| [`type.c`](type.c) | The type names, the declared ones, and what may be assigned to what |
 
 | Code generation | Holds |
 | --- | --- |

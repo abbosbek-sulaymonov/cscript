@@ -1,0 +1,20 @@
+// An object literal is proved against the interface it is given to, member by
+// member — and an excess member is refused as firmly as a missing one, because
+// a name the interface does not have is nearly always a misspelling of one it
+// does.
+interface Point {
+  x: number;
+  y: number;
+}
+
+const missing: Point = { x: 1 };
+const excess: Point = { x: 1, y: 2, z: 3 };
+const wrong: Point = { x: 1, y: "two" };
+
+// A value already typed `object` has lost its members, so calling it a Point
+// would be a claim nothing checked.
+const plain = { x: 1, y: 2 };
+const shapeless: Point = plain;
+
+const good: Point = { x: 1, y: 2 };
+console.log(good.z);

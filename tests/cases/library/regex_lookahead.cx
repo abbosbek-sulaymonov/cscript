@@ -32,5 +32,5 @@ console.log(failed[0], failed[1], failed.index, failed.input);
 
 // Replacing with a function, which sees the match, its captures and where it
 // started.
-console.log("a1b22".replace(/(\d+)/g, (whole: value, digits: string, at: number) => `<${digits}@${at}>`));
+console.log("a1b22".replace(/(\d+)/g, (whole: unknown, digits: string, at: number) => `<${digits}@${at}>`));
 console.log("ab".replace("a", (m: string, at: number, all: string) => `${m}/${at}/${all}`));

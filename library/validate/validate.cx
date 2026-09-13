@@ -23,7 +23,7 @@ import { kindOf } from "std:kind";
 
 /* A regular expression, asked. Written out because a `value` cannot be called
  * or have a method read off it, and a pattern arrives as one. */
-function matchesPattern(pattern: value, text: string): boolean {
+function matchesPattern(pattern: unknown, text: string): boolean {
   if (typeof pattern !== "object") return false;
   return pattern.test(text);
 }
@@ -32,7 +32,7 @@ function matchesPattern(pattern: value, text: string): boolean {
  * anything else is measured by how many of it there are. Written out here
  * because the answer is a number either way and the checker has to be told
  * which question was asked. */
-function sizeOf(kind: string, value: value): number {
+function sizeOf(kind: string, value: unknown): number {
   if (kind === "number") return typeof value === "number" ? value : 0;
   if (typeof value === "string") return value.length;
   if (Array.isArray(value)) return value.length;
@@ -45,10 +45,10 @@ class Schema {
   #kind: string;
   #rules: array;
   #optional: boolean;
-  #fallback: value;
+  #fallback: unknown;
 
   constructor(kind: string, rules: array = null, isOptional: boolean = false,
-              fallback: value = undefined) {
+              fallback: unknown = undefined) {
     this.#kind = kind;
     this.#rules = rules === null ? [] : rules;
     this.#optional = isOptional;
@@ -80,14 +80,14 @@ class Schema {
     return new Schema(this.#kind, rules, this.#optional, this.#fallback);
   }
 
-  optional(fallback: value = undefined) {
+  optional(fallback: unknown = undefined) {
     return new Schema(this.#kind, this.#rules, true, fallback);
   }
 
   /* --- the constraints -------------------------------------------------- */
 
   min(limit: number) {
-    return this.#with((value: value) => {
+    return this.#with((value: unknown) => {
       const size = sizeOf(this.#kind, value);
       if (size >= limit) return null;
       return this.#kind === "number" ? "must be at least " + String(limit)
@@ -96,7 +96,7 @@ class Schema {
   }
 
   max(limit: number) {
-    return this.#with((value: value) => {
+    return this.#with((value: unknown) => {
       const size = sizeOf(this.#kind, value);
       if (size <= limit) return null;
       return this.#kind === "number" ? "must be at most " + String(limit)
@@ -105,19 +105,19 @@ class Schema {
   }
 
   length(exact: number) {
-    return this.#with((value: value) =>
+    return this.#with((value: unknown) =>
         sizeOf("string", value) === exact ? null
                                : "must be exactly " + String(exact) + " long");
   }
 
   integer() {
-    return this.#with((value: value) =>
+    return this.#with((value: unknown) =>
         value === Math.floor(value) ? null : "must be a whole number");
   }
 
   /* A regular expression, or a plain string that must appear. */
-  matches(pattern: value, described: string = "") {
-    return this.#with((value: value) => {
+  matches(pattern: unknown, described: string = "") {
+    return this.#with((value: unknown) => {
       const text = typeof value === "string" ? value : String(value);
       const ok = typeof pattern === "string" ? text.includes(pattern)
                                              : matchesPattern(pattern, text);
@@ -128,7 +128,7 @@ class Schema {
   }
 
   oneOf(allowed: array) {
-    return this.#with((value: value) => {
+    return this.#with((value: unknown) => {
       for (const candidate of allowed) {
         if (candidate === value) return null;
       }
@@ -142,13 +142,13 @@ class Schema {
    * saying what is wrong. The sentence is the error, so it should finish
    * "this field …". */
   check_(test: Function, message: string) {
-    return this.#with((value: value) => test(value) ? null : message);
+    return this.#with((value: unknown) => test(value) ? null : message);
   }
 
   /* --- running it -------------------------------------------------------- */
 
   /* `Result.ok(value)` or `Result.err([{ path, message }, …])`. */
-  check(value: value) {
+  check(value: unknown) {
     const problems = [];
     const checked = run(this, value, "", problems);
     if (problems.length > 0) return Result.err(problems);
@@ -157,7 +157,7 @@ class Schema {
 
   /* The same, as a list of `"path: message"` lines — what a command-line
    * program prints. */
-  explain(value: value) {
+  explain(value: unknown) {
     return this.check(value).mapErr((problems: array) => {
       const lines = [];
       for (const problem of problems) {
@@ -170,7 +170,7 @@ class Schema {
 
 /* The walk. Adds to `problems` and answers the value — coerced where a schema
  * says so, and left alone otherwise. */
-function run(schema: object, value: value, path: string, problems: array) {
+function run(schema: object, value: unknown, path: string, problems: array) {
   if (value === undefined || value === null) {
     if (schema.isOptional) return schema.fallback;
     problems.push({ path: path, message: "is required" });
@@ -264,7 +264,7 @@ export function object(shape: object) {
 }
 
 /* `optional(string())`, or with something to use instead. */
-export function optional(inner: Function, fallback: value = undefined) {
+export function optional(inner: Function, fallback: unknown = undefined) {
   return inner.optional(fallback);
 }
 

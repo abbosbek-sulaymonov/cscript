@@ -219,7 +219,7 @@ export class Channel {
   /* Resolves once the value has been taken or queued. Handed straight to a
    * waiting receiver when there is one, which is what keeps a rendezvous from
    * costing a trip through the queue. */
-  send(value: value) {
+  send(value: unknown) {
     if (this.#closed) throw new Error("send on a closed Channel");
 
     if (this.#receivers.length > 0) {

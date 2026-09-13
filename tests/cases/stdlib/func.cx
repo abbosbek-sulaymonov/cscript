@@ -23,7 +23,7 @@ equal(slow(4), 16); equal(slow(4), 16); equal(computed, 1);
 const byFirst = memoize((a: number, b: number) => a + b, (a: number, b: number) => a);
 equal(byFirst(1, 1), 2); equal(byFirst(1, 9), 2);
 let seen = null;
-equal(tap((v: value) => { seen = v; })(42), 42); equal(seen, 42);
+equal(tap((v: unknown) => { seen = v; })(42), 42); equal(seen, 42);
 deepEqual(times(3), [0, 1, 2]);
 deepEqual(times(3, (i: number) => i * 2), [0, 2, 4]);
 const slugify = pipe((s: string) => s.trim(), (s: string) => s.toLowerCase());

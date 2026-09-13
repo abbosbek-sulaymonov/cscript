@@ -28,15 +28,39 @@ let pending;
 pending = "decided here";
 console.log(typeof pending, pending);
 
-// `value` is the type for what genuinely is not known until run time. Anything
-// may be put in one; nothing may be read out of one until the program has
-// checked what it is — and `typeof` is that check, which the checker follows.
-function describe(thing: value): string {
+// `unknown` is the type for what genuinely is not known until run time — the
+// same name TypeScript gives it. Anything may be put in one; nothing may be
+// read out of one until the program has checked what it is, and `typeof` is
+// that check, which the checker follows.
+function describe(thing: unknown): string {
   if (typeof thing === "number") return "number " + String(thing * 1);
   if (typeof thing === "string") return "string of " + String(thing.length);
   return "something else";
 }
 console.log(describe(10), describe("ten"), describe(true));
+
+// An interface names a shape, and is checked and then erased — so `Point`
+// exists for the compiler and for a reader, and not at run time.
+interface Point {
+  x: number;
+  y: number;
+}
+
+// The literal is proved against it here, where its members are still written
+// down: a missing `y`, a misspelled one, or a string where a number belongs is
+// a compile error.
+const corner: Point = { x: 3, y: 4 };
+
+function length(p: Point): number {
+  return Math.sqrt(p.x * p.x + p.y * p.y);
+}
+console.log(length(corner));
+
+// `type` gives a second name to a type that already exists, or writes a shape
+// inline. Both declare the same thing an interface does.
+type Metres = number;
+const distance: Metres = length(corner);
+console.log(distance);
 
 // Types follow scope, so an inner declaration can shadow with a different one.
 let value = 100;

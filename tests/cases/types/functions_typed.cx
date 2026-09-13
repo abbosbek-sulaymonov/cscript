@@ -9,7 +9,7 @@ function greet(name: string): string {
 console.log(greet("cscript"));
 
 // An unannotated parameter is dynamic.
-function echo(value: value) {
+function echo(value: unknown) {
   return value;
 }
 console.log(echo(1), echo("two"), echo(true));

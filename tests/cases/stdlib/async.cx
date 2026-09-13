@@ -21,7 +21,7 @@ async function main() {
     return "third time";
   };
   const notes = [];
-  equal(await retry(flaky, { attempts: 5, delayMs: 1, onRetry: (e: value, n: number) => notes.push(n) }),
+  equal(await retry(flaky, { attempts: 5, delayMs: 1, onRetry: (e: unknown, n: number) => notes.push(n) }),
         "third time");
   equal(tries, 3);
   deepEqual(notes, [1, 2]);

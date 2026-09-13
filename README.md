@@ -3,7 +3,8 @@
 A **statically typed** language with **TypeScript's syntax and none of
 JavaScript's footguns**, implemented from scratch in C11 as a bytecode virtual
 machine. Annotations are optional and there is no `any`: a variable takes its
-type from what it is first given, and keeps it.
+type from what it is first given, and keeps it, and the one type that holds
+anything is `unknown` — which has to be narrowed before it can be used.
 
 ```js
 // hello.cx — this is also a valid JavaScript file
@@ -43,9 +44,13 @@ aspirational.
 const name: string = "cscript";   // annotated
 let year = 2026;                  // inferred as number — just as checked
 
+interface Point { x: number; y: number; }
+const here: Point = { x: 3, y: 4 };   // proved member by member, then erased
+
 let total: number = "text";   // error: cannot assign string to 'total'
 year = "twenty-six";          // error: a variable's type is fixed once taken
 true * 3;                     // error: operand of '*' must be a number
+const bad: Point = { x: 3 };  // error: Point needs a member 'y'
 ```
 
 Those are **compile** errors now, not runtime ones — and the last needs no
@@ -72,11 +77,12 @@ The full list, with the reasoning for each, is in
 ---
 ## Status
 
-**v0.47.0.** The language is feature-complete for everyday code and well past
+**v0.48.0.** The language is feature-complete for everyday code and well past
 it: objects and arrays, functions and closures, classes with private members
 and static blocks, modules, promises and `async`/`await`, generators and async
 generators, regular expressions, `Map`/`Set`, `Symbol`, `BigInt`, `Date`,
-prototypes, static typing with inference, a standard library of 39 modules,
+prototypes, static typing with inference, interfaces, a standard library of
+39 modules,
 and the whole of the control flow.
 
 The pipeline is lexer → parser → type checker → bytecode compiler → stack VM,

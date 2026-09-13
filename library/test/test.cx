@@ -120,7 +120,7 @@ export async function run(options: object = null) {
  * "AssertionError" is what a failing test is. Anything else is named, because
  * a test that threw something unexpected failed differently from one whose
  * check did not hold. */
-function describeFailure(failure: value): string {
+function describeFailure(failure: unknown): string {
   const kind = kindOf(failure);
   const message = messageOf(failure);
   return kind === "AssertionError" ? message : kind + ": " + message;

@@ -157,7 +157,7 @@ export function parseQueryAll(text: string) {
 /* A Map, or an object, or an array of pairs, as a query string. Every name and
  * value is percent-encoded, which is the step that is skipped in the version
  * everybody writes by hand. */
-export function formatQuery(query: value): string {
+export function formatQuery(query: unknown): string {
   const pairs = [];
 
   /* `instanceof Map` is not available: `Map` is a built-in function rather
@@ -177,7 +177,7 @@ export function formatQuery(query: value): string {
   return pairs.join("&");
 }
 
-function addPair(pairs: array, name: value, value: value) {
+function addPair(pairs: array, name: unknown, value: unknown) {
   /* An array value is the same name repeated, which is the convention every
    * server understands. */
   if (Array.isArray(value)) {
@@ -253,7 +253,7 @@ export function withParts(parts: object, changes: object) {
 }
 
 /* A copy with one query parameter set, leaving the rest. */
-export function withParameter(parts: object, name: string, value: value) {
+export function withParameter(parts: object, name: string, value: unknown) {
   const query = new Map(parts.query);
   query.set(name, String(value));
   return withParts(parts, { query: query });

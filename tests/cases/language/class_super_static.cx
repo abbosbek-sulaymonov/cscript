@@ -3,7 +3,7 @@ class Shape {
   area() { return 0; }
 }
 class Circle extends Shape {
-  constructor(r: value) { super(); this.r = r; }
+  constructor(r: unknown) { super(); this.r = r; }
   static kind() { return `circle/${super.kind()}`; }
   area() { return Math.round(Math.PI * this.r ** 2); }
 }

@@ -36,14 +36,14 @@ export class Graph {
     return this.#directed ? total : total / 2;
   }
 
-  addNode(node: value) {
+  addNode(node: unknown) {
     if (!this.#edges.has(node)) this.#edges.set(node, new Map());
     return this;
   }
 
   /* Adding an edge adds its endpoints, because a graph with an edge to a node
    * it does not have is a graph in two minds about what it contains. */
-  addEdge(from: value, to: value, weight: number = 1) {
+  addEdge(from: unknown, to: unknown, weight: number = 1) {
     this.addNode(from);
     this.addNode(to);
     this.#edges.get(from).set(to, weight);
@@ -51,7 +51,7 @@ export class Graph {
     return this;
   }
 
-  removeEdge(from: value, to: value): boolean {
+  removeEdge(from: unknown, to: unknown): boolean {
     if (!this.#edges.has(from)) return false;
     const removed = this.#edges.get(from).delete(to);
     if (!this.#directed && this.#edges.has(to)) this.#edges.get(to).delete(from);
@@ -61,23 +61,23 @@ export class Graph {
   /* Removing a node removes every edge that mentioned it, which is the part
    * that is forgotten in the hand-written version and leaves an adjacency list
    * pointing at something that is gone. */
-  removeNode(node: value): boolean {
+  removeNode(node: unknown): boolean {
     if (!this.#edges.has(node)) return false;
     this.#edges.delete(node);
     for (const [ignored, neighbours] of this.#edges) neighbours.delete(node);
     return true;
   }
 
-  hasNode(node: value): boolean {
+  hasNode(node: unknown): boolean {
     return this.#edges.has(node);
   }
 
-  hasEdge(from: value, to: value): boolean {
+  hasEdge(from: unknown, to: unknown): boolean {
     if (!this.#edges.has(from)) return false;
     return this.#edges.get(from).has(to);
   }
 
-  weight(from: value, to: value) {
+  weight(from: unknown, to: unknown) {
     if (!this.hasEdge(from, to)) return undefined;
     return this.#edges.get(from).get(to);
   }
@@ -106,14 +106,14 @@ export class Graph {
     return out;
   }
 
-  neighbours(node: value) {
+  neighbours(node: unknown) {
     if (!this.#edges.has(node)) return [];
     const out = [];
     for (const neighbour of this.#edges.get(node).keys()) out.push(neighbour);
     return out;
   }
 
-  degree(node: value): number {
+  degree(node: unknown): number {
     return this.#edges.has(node) ? this.#edges.get(node).size : 0;
   }
 
@@ -121,7 +121,7 @@ export class Graph {
 
   /* Breadth first, nearest first — which is what makes it the one to use for
    * "how far", and the wrong one for "is there a path" on a wide graph. */
-  *breadthFirst(start: value) {
+  *breadthFirst(start: unknown) {
     if (!this.#edges.has(start)) return;
     const seen = new Set([start]);
     const queue = [start];
@@ -140,7 +140,7 @@ export class Graph {
 
   /* Depth first, on an explicit stack rather than by recursion: a graph deep
    * enough to matter is deep enough to overflow. */
-  *depthFirst(start: value) {
+  *depthFirst(start: unknown) {
     if (!this.#edges.has(start)) return;
     const seen = new Set();
     const stack = [start];
@@ -160,7 +160,7 @@ export class Graph {
   /* --- questions --------------------------------------------------------- */
 
   /* The nodes reachable from `start`, including it. */
-  reachableFrom(start: value) {
+  reachableFrom(start: unknown) {
     const out = [];
     for (const node of this.breadthFirst(start)) out.push(node);
     return out;
@@ -184,7 +184,7 @@ export class Graph {
     return out;
   }
 
-  *#undirectedWalk(start: value) {
+  *#undirectedWalk(start: unknown) {
     const seen = new Set([start]);
     const queue = [start];
     let at = 0;
@@ -209,7 +209,7 @@ export class Graph {
    * Dijkstra, over the priority queue from [`std:collections`](../collections).
    * A negative weight makes it wrong rather than slow — it assumes a path
    * already settled cannot improve — so one is refused outright. */
-  shortestPath(from: value, to: value) {
+  shortestPath(from: unknown, to: unknown) {
     if (!this.#edges.has(from) || !this.#edges.has(to)) return undefined;
 
     for (const [ignoredNode, neighbours] of this.#edges) {
@@ -354,7 +354,7 @@ export class DisjointSet {
     return this.#parent.size;
   }
 
-  add(item: value) {
+  add(item: unknown) {
     if (this.#parent.has(item)) return this;
     this.#parent.set(item, item);
     this.#size.set(item, 1);
@@ -365,7 +365,7 @@ export class DisjointSet {
   /* The representative of the group, flattening the path on the way — every
    * node visited is pointed straight at the root, so the next lookup is one
    * step. */
-  find(item: value) {
+  find(item: unknown) {
     this.add(item);
     let root = item;
     while (this.#parent.get(root) !== root) root = this.#parent.get(root);
@@ -382,7 +382,7 @@ export class DisjointSet {
   /* Answers whether the two were in different groups, which is exactly the
    * test Kruskal's algorithm needs: an edge joining two groups is in the tree,
    * and one joining a group to itself would close a cycle. */
-  union(a: value, b: value): boolean {
+  union(a: unknown, b: unknown): boolean {
     const rootA = this.find(a);
     const rootB = this.find(b);
     if (rootA === rootB) return false;
@@ -396,11 +396,11 @@ export class DisjointSet {
     return true;
   }
 
-  connected(a: value, b: value): boolean {
+  connected(a: unknown, b: unknown): boolean {
     return this.find(a) === this.find(b);
   }
 
-  groupSize(item: value): number {
+  groupSize(item: unknown): number {
     return this.#size.get(this.find(item));
   }
 

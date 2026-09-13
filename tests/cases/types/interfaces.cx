@@ -1,0 +1,77 @@
+// An interface names a shape. It is checked and then erased: nothing here
+// exists at run time, which is also what Node does with the same text.
+interface Point {
+  x: number;
+  y: number;
+}
+
+function length(p: Point): number {
+  return Math.sqrt(p.x * p.x + p.y * p.y);
+}
+
+// An object literal is proved against the interface where it is given one,
+// because that is where its members are still written down.
+const here: Point = { x: 3, y: 4 };
+console.log(length(here), length({ x: 6, y: 8 }));
+
+// `extends` copies the members across: assignability is structural, so what
+// inheritance buys is exactly their presence in the list.
+interface Named {
+  name: string;
+}
+
+interface Shape extends Named {
+  sides: number;
+  area(): number;
+  // An optional member may be missing; a present one still has to fit.
+  note?: string;
+}
+
+const square: Shape = {
+  name: "square",
+  sides: 4,
+  area: () => 9,
+};
+
+function describe(shape: Shape): string {
+  return shape.name + ": " + String(shape.sides) + " sides, area " + String(shape.area());
+}
+console.log(describe(square));
+
+// A Shape satisfies Named, because it has everything Named asks for.
+function greet(who: Named): string {
+  return "hello, " + who.name;
+}
+console.log(greet(square), greet({ name: "world" }));
+
+// A method's return type is known, so this is arithmetic rather than a guess.
+console.log(square.area() + 1);
+
+// `type` gives a second name to a type that already exists...
+type Id = number;
+const badge: Id = 7;
+console.log(badge + 1);
+
+// ...or writes the shape inline, which declares the same thing an interface
+// would.
+type Pair = { left: number; right: number };
+function total(pair: Pair): Id {
+  return pair.left + pair.right;
+}
+console.log(total({ left: 1, right: 2 }));
+
+// An interface may name itself, because its name exists before its members
+// are read. The end of the list is a *missing* `next` rather than a null one:
+// there are no union types, so "a Link or null" is not something to write.
+interface Link {
+  value: number;
+  next?: Link;
+}
+const tail: Link = { value: 2 };
+const head: Link = { value: 1, next: tail };
+console.log(head.value, head.next.value);
+
+// `type` and `interface` are contextual: both are still ordinary names.
+const type = "still a name";
+const interfaceCount = 3;
+console.log(type, interfaceCount);

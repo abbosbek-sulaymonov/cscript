@@ -53,7 +53,7 @@ const handled = catching(() => { throw NotFound("missing"); }, {
 equal(handled, "used the default");
 
 const passedDetails = catching(() => { throw NotFound("missing", { id: 1 }); }, {
-  NotFound: (e: value) => detailsOf(e).id,
+  NotFound: (e: unknown) => detailsOf(e).id,
 });
 equal(passedDetails, 1);
 

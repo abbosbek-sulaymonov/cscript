@@ -20,5 +20,5 @@ async function main() {
 }
 
 console.log("before");
-main().then((v: value) => console.log("then", v));
+main().then((v: unknown) => console.log("then", v));
 console.log("after");

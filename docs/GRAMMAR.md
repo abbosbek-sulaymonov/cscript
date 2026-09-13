@@ -217,26 +217,29 @@ down.
 | `array` | an array, whose element types are not modelled |
 | `object` | an object, including an array and a class instance |
 | `Function` | anything callable |
-| `value` | anything at all — but see below |
+| `unknown` | anything at all — but see below |
+| a declared name | an `interface` or a `type`, below |
 
 Spelled as TypeScript spells them, which is what lets `node
 --experimental-strip-types` run the same file: the callable type is `Function`
-because `function` is a keyword, and a keyword cannot appear in a type.
+because `function` is a keyword, and a keyword cannot appear in a type. There
+is exactly one top type and it is `unknown`; `any` and `value` are refused by
+name, with a message saying so.
 
-### `value`, and narrowing
+### `unknown`, and narrowing
 
-`value` is the type for what genuinely is not known until run time — a JSON
+`unknown` is the type for what genuinely is not known until run time — a JSON
 payload, a comparator's arguments, whatever a caller chose to pass. It is a
 **checked** top type, not an escape hatch:
 
-- everything is assignable **to** a `value`
+- everything is assignable **to** an `unknown`
 - nothing is assignable **from** one, and nothing may be read off one, called,
   indexed or added, until the program has said what it is
 
 `typeof` is how it says so, and the checker follows it:
 
 ```js
-function describe(thing: value): string {
+function describe(thing: unknown): string {
   if (typeof thing === "number") return "number " + String(thing * 2);
   if (typeof thing === "string") return "string of " + String(thing.length);
   return "something else";
@@ -247,8 +250,70 @@ Narrowing works through `&&` and `||`, through a parenthesised group, and
 through a guard that leaves — `if (typeof x !== "number") return;` proves what
 `x` is for the rest of the block. `Array.isArray(x)` narrows to `array`.
 
-`===` is the one operator a `value` needs no narrowing for: asking whether one
-equals a number is exactly what narrowing would answer.
+`===` is the one operator an `unknown` needs no narrowing for: asking whether
+one equals a number is exactly what narrowing would answer.
+
+### `interface` and `type`
+
+An interface names a shape. It is checked and then erased — nothing it
+declares exists at run time, which is also what `node
+--experimental-strip-types` does with the same text.
+
+```ts
+interface Point {
+  x: number;
+  y: number;
+}
+
+interface Shape extends Point {
+  area(): number;    // a method says what it answers
+  label?: string;    // optional: it may be missing, but not be the wrong type
+}
+```
+
+A literal is proved against an interface **where it is given one**, because
+that is where its members are still written down:
+
+```ts
+const here: Point = { x: 3, y: 4 };   // checked, member by member
+const missing: Point = { x: 3 };      // error: Point needs a member 'y'
+const extra: Point = { x: 3, y: 4, z: 5 };  // error: Point has no member 'z'
+```
+
+An excess member is refused as firmly as a missing one, exactly as TypeScript
+refuses one on a fresh literal: a name the interface does not have is nearly
+always a misspelling of one it does.
+
+Assignability is **structural**. A `Shape` satisfies a `Point` because it has
+everything a `Point` asks for; `extends` copies the members across rather than
+recording a link, because presence is all that is ever asked. What does *not*
+satisfy an interface is a value already typed `object`: its members are gone
+by then, so calling it a `Point` would be a claim nothing checked.
+
+`type` gives a second name to a type that already exists, or writes a shape
+inline — the two declare the same thing:
+
+```ts
+type Metres = number;
+type Pair = { left: number; right: number };
+```
+
+Both are **contextual keywords**: `type` and `interface` are ordinary names
+everywhere else, and programs use them as such. A type is also declared for
+the whole file wherever it is written — a block does not scope one, because
+there is nothing of it left at run time to scope.
+
+Three limits, each for the same reason — the checker resolves an annotation
+where it reads it, in one pass:
+
+- a type must be **declared before it is named**, except by itself: an
+  interface's own name exists before its members are read, so
+  `interface Link { next?: Link }` is the way a list is written
+- a type is **file-local**. Types do not cross a module boundary yet, so
+  `export interface` says so rather than exporting nothing
+- `Point[]` is refused rather than widened to `array`, because an array's
+  element types are not modelled and pretending otherwise would be a promise
+  the checker cannot keep
 
 ### Parameters must say
 
@@ -283,7 +348,7 @@ n === s;                      // the types can never match
 let c = 1; c();               // number is not a function
 let n = 1; n.field;           // cannot read property 'field' of number
 let x: integer = 1;           // unknown type 'integer'
-let x: any = 1;               // there is no 'any' in CScript: write 'value'
+let x: any = 1;               // there is no 'any': write 'unknown'
 function f(a) {}              // parameter 'a' needs a type
 ```
 
@@ -294,9 +359,10 @@ other side has a known, different type. Those checks are idiomatic, and without
 union types there is no way to write "a string, or null" — so rejecting them
 would punish correct code for a hole in the type system.
 
-**Object properties are dynamic.** `Math.PI` and `point.x` are not modelled,
-because object shapes are not. Reading one answers a type the checker does not
-know, which the runtime checks where it lands.
+**An object's properties are dynamic unless an interface names them.**
+`Math.PI` and a plain `point.x` are not modelled; reading one answers a type
+the checker does not know, and the runtime checks it where it lands. Declaring
+an `interface` is how a program opts a shape into being checked.
 
 **Element types are not modelled either.** An `array` is an array of anything,
 and what comes out of one is checked where it is used.

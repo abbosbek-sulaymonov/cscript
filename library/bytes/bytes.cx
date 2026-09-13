@@ -69,7 +69,7 @@ export function concat(...parts: array) {
 /* A byte that is not a whole number from 0 to 255 is a mistake worth stopping
  * on: writing its low eight bits instead would be a wrong answer that looks
  * like a right one. */
-function check(value: value, at: number): number {
+function check(value: unknown, at: number): number {
   if (typeof value !== "number" || value < 0 || value > 255 ||
       value !== Math.floor(value)) {
     throw new Error("byte " + String(at) + " is not a whole number from 0 to 255: " +
@@ -80,7 +80,7 @@ function check(value: value, at: number): number {
 
 /* Whether every element really is a byte — for validating something that
  * arrived from outside before treating it as one. */
-export function isBytes(value: value): boolean {
+export function isBytes(value: unknown): boolean {
   if (!Array.isArray(value)) return false;
   for (const byte of value) {
     if (typeof byte !== "number" || byte < 0 || byte > 255 ||
@@ -249,7 +249,7 @@ export function writeUint32LE(bytes: array, at: number, value: number) {
   bytes[at + 3] = Math.floor(whole / 16777216) % 256;
 }
 
-function wide(value: value, highest: number): number {
+function wide(value: unknown, highest: number): number {
   if (typeof value !== "number" || value < 0 || value > highest ||
       value !== Math.floor(value)) {
     throw new Error("value is not a whole number from 0 to " + String(highest) +

@@ -40,7 +40,7 @@ console.log(typeof described.get, typeof described.set, described.enumerable);
 
 // Own accessors take their place in the insertion order and are enumerated.
 // A class's accessors are not: those belong to the class, not the instance.
-const literal = { b: 1, get a() { return 2; }, set c(v: value) {} };
+const literal = { b: 1, get a() { return 2; }, set c(v: unknown) {} };
 console.log(literal);
 console.log(Object.keys(literal), Object.values(literal));
 console.log(Object.entries(literal));

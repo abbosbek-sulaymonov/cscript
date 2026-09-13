@@ -3,7 +3,7 @@
 // divergence. What an object with *no* toString renders as is the deliberate
 // difference, and it is unchanged.
 class Temperature {
-  constructor(c: value) { this.c = c; }
+  constructor(c: unknown) { this.c = c; }
   toString() { return `${this.c}C`; }
 }
 const t = new Temperature(21);
@@ -26,7 +26,7 @@ console.log(Array.from(new Set([1, 1, 2])));
 console.log(Array.from(new Map([["a", 1]])));
 function* counted() { yield 1; yield 2; }
 console.log(Array.from(counted()));
-console.log(Array.from({ length: 3 }, (_: value, i: number) => i));
+console.log(Array.from({ length: 3 }, (_: unknown, i: number) => i));
 console.log(Array.from({ 0: "x", length: 1 }));
 console.log(Array.from([1, 2, 3], (x: number, i: number) => x + i));
 

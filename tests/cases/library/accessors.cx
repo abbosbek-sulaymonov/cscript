@@ -22,6 +22,6 @@ console.log(s.celsius, s.label);
 class Store {
   items = {};
   get(k: string) { return this.items[k]; }
-  set(k: string, v: value) { this.items[k] = v; return this; }
+  set(k: string, v: unknown) { this.items[k] = v; return this; }
 }
 console.log(new Store().set("a", 1).get("a"));
