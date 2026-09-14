@@ -193,6 +193,7 @@ const char *csTokenTypeName(TokenType type) {
     case TOKEN_LESS: return "LESS";
     case TOKEN_LESS_EQUAL: return "LESS_EQUAL";
     case TOKEN_AMP_AMP: return "AMP_AMP";
+    case TOKEN_PIPE: return "PIPE";
     case TOKEN_PIPE_PIPE: return "PIPE_PIPE";
     case TOKEN_QUESTION_QUESTION: return "QUESTION_QUESTION";
     case TOKEN_AMP_AMP_EQUAL: return "AMP_AMP_EQUAL";

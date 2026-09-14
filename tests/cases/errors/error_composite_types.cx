@@ -1,0 +1,15 @@
+// What each of the new kinds of type refuses.
+const xs: number[] = [1, "two"];
+
+function apply(f: (n: number) => string, x: number): string { return f(x); }
+apply((s: string) => s, 1);
+
+let maybe: string | null = null;
+const sure: string = maybe;
+console.log(maybe.length);
+
+function first<T>(items: T[]): T { return items[0]; }
+console.log(first(xs) + "");
+
+interface Box<T> { value: T; }
+const wrong: Box<number> = { value: "text" };

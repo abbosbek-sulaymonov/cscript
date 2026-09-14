@@ -183,6 +183,10 @@ function copyReporting(value: unknown, seen: object, shared: array, path: string
  * being written as a mutation because that was shorter. */
 export function withFields(value: object, changes: object) {
   const out = shallow(value);
+  /* `shallow` answers whatever it was given, so the copy has to be narrowed
+   * before it can be written through — which for an object argument always
+   * succeeds, and says so rather than assuming it. */
+  if (typeof out !== "object" || out === null) return out;
   for (const key of Object.keys(changes)) out[key] = changes[key];
   return out;
 }

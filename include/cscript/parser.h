@@ -23,7 +23,7 @@ typedef struct {
   /* The interfaces and aliases declared so far in this file, so that an
    * annotation can name one. It belongs to the program node; the parser only
    * writes to it. */
-  TypeRegistry *types;
+  TypeTable *types;
 
   /* Set between reading `async` and building the function node it belongs to.
    * `async` is contextual, so it is recognised at the call site and handed to

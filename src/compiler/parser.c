@@ -267,42 +267,15 @@ bool compoundAssignOp(TokenType type, BinaryOp *out) {
 }
 
 /* Parses `: TypeName` if present. Returns false only on a malformed one. */
-bool parseTypeAnnotation(Parser *parser, TypeKind *type, bool *present) {
+bool parseTypeAnnotation(Parser *parser, TypeId *type, bool *present) {
   *present = false;
   *type = TYPE_DYNAMIC;
   if (!matchToken(parser, TOKEN_COLON)) return true;
 
-  /* `null` and `undefined` are keywords, so they do not arrive as identifiers
-   * even though they are perfectly good type names. The callable type is
-   * spelled `Function` for the opposite reason: `function` is a keyword, and a
-   * keyword in a type position is not something TypeScript's grammar allows —
-   * which would cost the examples their second reader, Node. */
-  if (!matchToken(parser, TOKEN_NULL) && !matchToken(parser, TOKEN_UNDEFINED)) {
-    consume(parser, TOKEN_IDENTIFIER, "expected a type name after ':'");
-  }
-  if (parser->diag->panicMode) return false;
-
-  if (!csTypeLookupName(parser->types, parser->previous.start, parser->previous.length, type)) {
-    /* Some names are wrong in a way worth answering rather than merely
-     * rejecting — `any` above all, which is the one a reader reaches for
-     * first and the one this language is built on not having. */
-    const char *why = csTypeRejectedName(parser->previous.start, parser->previous.length);
-    if (why != NULL) {
-      csDiagnosticError(parser->diag, parser->previous.line, parser->previous.start, parser->previous.length, "%s", why);
-    } else {
-      csDiagnosticError(parser->diag, parser->previous.line, parser->previous.start, parser->previous.length, "unknown type '%.*s'", parser->previous.length,
-                        parser->previous.start);
-    }
-    return false;
-  }
-
-  /* `Point[]` is TypeScript for an array of them, and an array's element types
-   * are not modelled here — so it is refused rather than silently widened to
-   * `array`, which would read as a promise the checker cannot keep. */
-  if (check(parser, TOKEN_LEFT_BRACKET)) {
-    errorAtCurrent(parser, "an array's element types are not modelled: write 'array'");
-    return false;
-  }
+  /* Everything after the colon is one type expression — a name, an array of
+   * one, a union, a function type, or a declared type with its arguments. The
+   * grammar for it is in parser_type.c. */
+  if (!parseTypeExpression(parser, type)) return false;
   *present = true;
   return true;
 }

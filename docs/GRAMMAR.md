@@ -214,11 +214,20 @@ down.
 | `boolean` | `true` and `false` |
 | `null` | the `null` literal, and nothing else |
 | `undefined` | the `undefined` literal, and a missing value |
-| `array` | an array, whose element types are not modelled |
+| `array` | an array of anything — what `T[]` says when it does not know |
 | `object` | an object, including an array and a class instance |
-| `Function` | anything callable |
+| `Function` | anything callable, signature unknown |
 | `unknown` | anything at all — but see below |
 | a declared name | an `interface` or a `type`, below |
+
+A type is not only a name. Four ways of building one, as in TypeScript:
+
+| Written | Means |
+| --- | --- |
+| `T[]` | an array of `T`, and `T[][]` an array of those |
+| `(a: number) => string` | a function taking a number and answering a string |
+| `A \| B` | one of them — `string \| null` above all |
+| `Box<T>` | a declared type with its type arguments |
 
 Spelled as TypeScript spells them, which is what lets `node
 --experimental-strip-types` run the same file: the callable type is `Function`
@@ -252,6 +261,80 @@ through a guard that leaves — `if (typeof x !== "number") return;` proves what
 
 `===` is the one operator an `unknown` needs no narrowing for: asking whether
 one equals a number is exactly what narrowing would answer.
+
+### Arrays, functions and unions
+
+An array knows what it holds, and it is inferred from the literal when it is
+not written down:
+
+```ts
+const xs: number[] = [1, 2, 3];
+const names = ["ada", "alan"];   // string[], and just as checked
+xs[0] + 1;                       // a number, so this is arithmetic
+names[0].toUpperCase();          // a string, so this is a string's method
+```
+
+A function type is what makes a callback checkable. Before it, everything
+passed as `Function` was the runtime's problem:
+
+```ts
+function apply(f: (n: number) => string, x: number): string { return f(x); }
+apply((n: number) => "n=" + String(n), 7);   // fine
+apply((s: string) => s, 7);                  // error: (string) => string is not (number) => string
+```
+
+Parameters are **contravariant** and the result **covariant**, which is the
+sound direction: whatever a caller passes has to be acceptable to the function,
+and whatever the function answers has to be acceptable to the caller. A
+function may be used where one taking more arguments is wanted — the extra ones
+are simply not read, which is why `xs.map(x => x)` is legal against a callback
+of three parameters.
+
+A function with no return annotation still says what it answers: the type is
+taken from its `return` statements, unioned if they differ. A generator and an
+async function are exempt, because what calling one answers — a generator, a
+promise — is not what its body returns.
+
+A union is one of several types, and `string | null` is the one that earns its
+keep: before it, "a string, or nothing" had to be written as a sentinel.
+`typeof` narrows a union **in both branches**, and `=== null` / `!== null`
+narrow it too:
+
+```ts
+function find(haystack: string[], needle: string): string | null { … }
+
+const hit = find(names, "alan");
+if (hit !== null) hit.toUpperCase();   // a string here
+
+function widen(x: number | string): string {
+  if (typeof x === "number") return String(x + 1);   // a number here
+  return x.toUpperCase();                            // a string here
+}
+```
+
+### Generics
+
+A declaration may be written once for every type it works on. Type arguments
+are **inferred** at the call site — `first([1, 2])` says `T` is a number by
+being that call:
+
+```ts
+function first<T>(items: T[]): T { return items[0]; }
+first([1, 2]) + 1;            // a number
+first(["a"]).toUpperCase();   // a string
+
+function mapped<T, U>(items: T[], change: (item: T) => U): U[] { … }
+mapped(["ada"], (name: string) => name.length);   // number[]
+
+interface Box<T> { value: T; }
+const boxed: Box<number> = { value: 41 };
+type Pair<A, B> = { left: A; right: B };
+```
+
+Inside the declaration a type variable is only itself: nothing else is known
+about a `T`, which is what lets the body be checked once for every
+instantiation at once. A declaration may take at most four of them, and a call
+that leaves one undetermined gets the type the checker could not work out.
 
 ### `interface` and `type`
 
@@ -311,9 +394,8 @@ where it reads it, in one pass:
   `interface Link { next?: Link }` is the way a list is written
 - a type is **file-local**. Types do not cross a module boundary yet, so
   `export interface` says so rather than exporting nothing
-- `Point[]` is refused rather than widened to `array`, because an array's
-  element types are not modelled and pretending otherwise would be a promise
-  the checker cannot keep
+- a generic takes the number of arguments it declared, and says so when it
+  does not: the annotation cannot be resolved at all without them
 
 ### Parameters must say
 
@@ -364,12 +446,13 @@ would punish correct code for a hole in the type system.
 the checker does not know, and the runtime checks it where it lands. Declaring
 an `interface` is how a program opts a shape into being checked.
 
-**Element types are not modelled either.** An `array` is an array of anything,
-and what comes out of one is checked where it is used.
+**A bare `array` says nothing about its elements.** `T[]` does, and a literal
+gives one; `array` is what is left when neither did, and a read off it is
+checked where it lands.
 
-**A function's parameter types are checked, its return type only if it is
-written down.** `function f(): number` is enforced; without the annotation a
-call's result is what the checker could not work out.
+**A function's return type is inferred when it is not written down**, from the
+`return` statements — except for a generator or an async function, where what
+the call answers is not what the body returns.
 
 **The type system is deliberately shallow** — a fixed set of types, no
 structural or higher-order types, no generics and no unions. That shallowness

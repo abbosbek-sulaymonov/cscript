@@ -57,6 +57,10 @@ typedef enum {
 
   /* Logical. */
   TOKEN_AMP_AMP,
+  /* A lone `|`. It is not an operator — there are no bitwise operators — but
+   * it separates the members of a union type, so the lexer hands it over and
+   * the parser refuses it everywhere but there. */
+  TOKEN_PIPE,
   TOKEN_PIPE_PIPE,
   TOKEN_QUESTION_QUESTION,
   /* Logical assignment. Short-circuiting, so these are not sugar for the

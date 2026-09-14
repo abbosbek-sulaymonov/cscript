@@ -115,9 +115,15 @@ where the runtime does the checking instead. Keeping the two apart is what
 makes `unknown` a type rather than an escape hatch: `any` would be the second
 one with a name, and naming it is what lets it spread.
 
-Declared types sit beside the flat lattice rather than inside it. An
-`interface` is registered in a per-file table and its type is the index into
-that table, encoded in the TypeKind enum above a fixed base — so a type stays
+Types are no longer flat. A type is an **int**: below a fixed base it is one of
+the primitive kinds, and from there on it indexes the file's table, where the
+composite ones live — an array of something, a function from something to
+something, a union of several, a declared shape, a type variable. Composites
+are interned, so `number[]` written twice is one entry and one id, and
+comparing two types is usually an integer compare with structural equality
+falling out of construction.
+
+That encoding is what keeps the cost where it was — so a type stays
 one scalar passed by value through the whole checker and stored in a byte on a
 compiled function. A type *tree* is what this becomes when generics or unions
 need one, and deliberately not before. The table hangs off the program node

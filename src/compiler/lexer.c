@@ -356,7 +356,9 @@ Token csLexerNext(Lexer *lexer) {
         if (match(lexer, '=')) return makeToken(lexer, TOKEN_PIPE_PIPE_EQUAL);
         return makeToken(lexer, TOKEN_PIPE_PIPE);
       }
-      return errorToken(lexer, "unexpected '|' (did you mean '||'?)");
+      /* `A | B` in a type, and nothing else. An expression that reaches one
+       * says so where it is parsed, which can name the operator it expected. */
+      return makeToken(lexer, TOKEN_PIPE);
 
     case '"':
     case '\'': return string(lexer, c);

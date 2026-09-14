@@ -268,7 +268,7 @@ AstNode *csAstProperty(AstArena *arena, int line, AstNode *object, const char *n
   return node;
 }
 
-AstNode *csAstVarDecl(AstArena *arena, int line, const char *name, int length, AstNode *initializer, bool isConst, TypeKind declaredType, bool hasAnnotation) {
+AstNode *csAstVarDecl(AstArena *arena, int line, const char *name, int length, AstNode *initializer, bool isConst, TypeId declaredType, bool hasAnnotation) {
   AstNode *node = csAstNewNode(arena, AST_VAR_DECL, line);
   if (node == NULL) return NULL;
   node->as.varDecl.name = csAstInternName(arena, name, length, &node->as.varDecl.length);

@@ -47,7 +47,10 @@ annotation is consumed, not erased.
 | [`typecheck_value.c`](typecheck_value.c) | The type of an expression |
 | [`typecheck_statement.c`](typecheck_statement.c) | The checking a statement needs — which is mostly the scope |
 | [`typecheck_internal.h`](typecheck_internal.h) | The checker's state |
-| [`type.c`](type.c) | The type names, the declared ones, and what may be assigned to what |
+| [`type.c`](type.c) | The type names, and what may be assigned to what |
+| [`type_table.c`](type_table.c) | The table the composite types live in — arrays, functions, unions, shapes, and the generics over them |
+| [`typecheck_narrow.c`](typecheck_narrow.c) | What a `typeof`, a null check or a guard proves about the thing it tested |
+| [`typecheck_expect.c`](typecheck_expect.c) | The two checks that need to know what was expected: a literal against a shape, a call through a function type |
 
 | Code generation | Holds |
 | --- | --- |

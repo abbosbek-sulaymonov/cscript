@@ -19,8 +19,8 @@
 
 #include "compiler/typecheck_internal.h"
 
-bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
-  TypeKind result = TYPE_DYNAMIC;
+bool checkStatementNode(Checker *checker, AstNode *node, TypeId *out) {
+  TypeId result = TYPE_DYNAMIC;
 
   switch (node->type) {
     case AST_LABELED_STMT:
@@ -37,9 +37,9 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
       break;
 
     case AST_SWITCH_STMT: {
-      TypeKind subject = checkNode(checker, node->as.switchStmt.subject);
+      TypeId subject = checkNode(checker, node->as.switchStmt.subject);
       for (int i = 0; i < node->as.switchStmt.caseCount; i++) {
-        TypeKind test = checkNode(checker, node->as.switchStmt.cases[i].test);
+        TypeId test = checkNode(checker, node->as.switchStmt.cases[i].test);
         /* Arms are matched with ===, so an arm that can never match is the
          * same mistake as writing that comparison out by hand. */
         if (csTypeIsKnown(subject) && csTypeIsKnown(test) && subject != test) {
@@ -54,19 +54,28 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
     }
 
     case AST_FUNCTION: {
-      const Signature *signature = csTypeDeclareFunction(checker, node);
+      Signature *signature = csTypeDeclareFunction(checker, node);
       csTypeCheckFunctionBody(checker, node, signature);
-      result = TYPE_FUNCTION;
+      /* A function written where a value is wanted answers its own type, so
+       * `(n: number) => "n=" + n` passed to a `(n: number) => string`
+       * parameter is checked against it rather than merely being callable. */
+      result = signature != NULL ? signature->type : TYPE_FUNCTION;
       break;
     }
 
     case AST_RETURN_STMT: {
-      TypeKind returned = node->as.returnValue != NULL ? checkNode(checker, node->as.returnValue) : TYPE_UNDEFINED;
+      TypeId returned = node->as.returnValue != NULL ? checkNode(checker, node->as.returnValue) : TYPE_UNDEFINED;
       if (checker->currentReturnAnnotated) returned = csTypeCheckShape(checker, node->as.returnValue, checker->currentReturn);
       if (checker->functionDepth == 0) {
         /* The compiler reports this with better placement. */
         result = TYPE_UNDEFINED;
         break;
+      }
+      /* An unannotated function learns what it answers from here. Two returns
+       * of different types make a union, which is exactly what the function
+       * answers. */
+      if (!checker->currentReturnAnnotated && checker->functionDepth > 0) {
+        checker->inferredReturn = checker->inferredReturn == TYPE_ERROR ? returned : csTypeUnionWith(checker->types, checker->inferredReturn, returned);
       }
       if (checker->currentReturnAnnotated && !csTypeAssignableIn(checker->types, returned, checker->currentReturn)) {
         csTypeError(checker, node->line, "cannot return %s from a function declared %s", csTypeNameIn(checker->types, returned),
@@ -77,9 +86,9 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
     }
 
     case AST_VAR_DECL: {
-      TypeKind initializer = node->as.varDecl.initializer != NULL ? checkNode(checker, node->as.varDecl.initializer) : TYPE_UNDEFINED;
+      TypeId initializer = node->as.varDecl.initializer != NULL ? checkNode(checker, node->as.varDecl.initializer) : TYPE_UNDEFINED;
 
-      TypeKind declared;
+      TypeId declared;
       bool awaiting = false;
       if (node->as.varDecl.hasAnnotation) {
         declared = node->as.varDecl.declaredType;
@@ -134,7 +143,7 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *out) {
        * afterwards. This is what makes a `value` usable at all. */
 #define NARROWED_AT_ONCE 8
       Variable *narrowed[NARROWED_AT_ONCE];
-      TypeKind saved[NARROWED_AT_ONCE];
+      TypeId saved[NARROWED_AT_ONCE];
       int count = csTypeNarrowAll(checker, node->as.ifStmt.condition, true, narrowed, saved, NARROWED_AT_ONCE);
       checkNode(checker, node->as.ifStmt.thenBranch);
       for (int i = 0; i < count; i++) narrowed[i]->type = saved[i];
