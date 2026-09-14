@@ -70,6 +70,7 @@ AstNode *csAstFunction(AstArena *arena, int line, const char *name, int nameLeng
   node->as.function.isMethod = false;
   node->as.function.isGenerator = false;
   node->as.function.isArrow = false;
+  node->as.function.typeParamCount = 0;
   return node;
 }
 
@@ -180,7 +181,7 @@ AstNode *csAstClass(AstArena *arena, int line, const char *name, int nameLength,
   return node;
 }
 
-void csAstClassAddField(AstArena *arena, AstNode *node, const char *name, int length, AstNode *initializer, TypeKind declaredType, bool hasAnnotation, bool isStatic) {
+void csAstClassAddField(AstArena *arena, AstNode *node, const char *name, int length, AstNode *initializer, TypeId declaredType, bool hasAnnotation, bool isStatic) {
   if (node == NULL) return;
   int count = node->as.classDecl.fieldCount;
   AstClassField *grown = (AstClassField *)csAstArenaAlloc(arena, sizeof(AstClassField) * (size_t)(count + 1));
@@ -217,7 +218,7 @@ void csAstClassAddMember(AstArena *arena, AstNode *node, AstNode *function, bool
   node->as.classDecl.memberCount = count + 1;
 }
 
-void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name, int length, TypeKind type, bool hasAnnotation) {
+void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name, int length, TypeId type, bool hasAnnotation) {
   if (function == NULL) return;
 
   /* Parameter lists are short, so growing by copy costs less than carrying a
@@ -454,8 +455,8 @@ AstNode *csAstProgram(AstArena *arena, int line) {
   node->as.program.statements = NULL;
   node->as.program.count = 0;
   node->as.program.capacity = 0;
-  node->as.program.types = (TypeRegistry *)csAstArenaAlloc(arena, sizeof(TypeRegistry));
-  if (node->as.program.types != NULL) csTypeRegistryInit(node->as.program.types);
+  node->as.program.types = (TypeTable *)csAstArenaAlloc(arena, sizeof(TypeTable));
+  if (node->as.program.types != NULL) csTypeTableInit(node->as.program.types);
   return node;
 }
 

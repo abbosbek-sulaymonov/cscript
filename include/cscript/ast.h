@@ -173,7 +173,7 @@ typedef struct AstClassField {
   const char *name;
   int length;
   AstNode *initializer; /* NULL for a bare `x;` */
-  TypeKind declaredType;
+  TypeId declaredType;
   bool hasAnnotation;
   bool isStatic; /* belongs to the class, not to an instance */
   /* Where this appeared in the class body, counting fields and members
@@ -208,7 +208,7 @@ typedef struct AstClassMember {
 typedef struct AstParam {
   const char *name;
   int length;
-  TypeKind type;
+  TypeId type;
   bool hasAnnotation;
 
   /* `function f({ a, b })` — the parameter takes a generated name and the
@@ -227,7 +227,7 @@ struct AstNode {
   /* Filled in by the type checker. The compiler reads it to specialise code,
    * which is why annotations are consumed rather than erased. TYPE_DYNAMIC means
    * "not known statically", not "unchecked". */
-  TypeKind resolvedType;
+  TypeId resolvedType;
   union {
     double number;       /* AST_NUMBER_LITERAL */
     bool boolean;        /* AST_BOOL_LITERAL */
@@ -351,8 +351,8 @@ struct AstNode {
       int length;
       AstNode *initializer; /*   NULL for `let x;` */
       bool isConst;
-      TypeKind declaredType; /*   from `: T`, else TYPE_DYNAMIC */
-      bool hasAnnotation;    /*   distinguishes `: any` from none */
+      TypeId declaredType; /*   from `: T`, else TYPE_DYNAMIC */
+      bool hasAnnotation;  /*   distinguishes `: any` from none */
     } varDecl;
     struct { /* AST_BLOCK */
       AstNode **statements;
@@ -416,13 +416,17 @@ struct AstNode {
       struct AstParam *params;
       int paramCount;
       AstNode *body; /*   an AST_BLOCK */
-      TypeKind returnType;
+      TypeId returnType;
       bool hasReturnAnnotation;
       bool isAsync; /*   returns a promise, may await */
       /* `function f(a, ...rest)`. The last parameter collects every argument
        * past the ones before it, as an array — so the call's arity stops
        * being fixed. */
       bool hasRest;
+      /* `function first<T>(xs: T[]): T` — the variables this declaration
+       * introduced, so a call can work out what they were for that call. */
+      TypeId typeParams[4];
+      int typeParamCount;
       /* True when the name came from the binding the function was assigned to
        * rather than from a `function name(...)` declaration. Such a name is
        * for diagnostics only: it must not declare anything, or `const f = () =>
@@ -473,7 +477,7 @@ struct AstNode {
        * the checker reads it; nothing else in the pipeline needs types by
        * name, and hanging it here is what keeps a module compiled inside
        * another module's compile from sharing one. */
-      TypeRegistry *types;
+      TypeTable *types;
     } program;
   } as;
 };

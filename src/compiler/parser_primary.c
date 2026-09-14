@@ -382,7 +382,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
           const char *paramName = parser->previous.start;
           int paramLength = parser->previous.length;
 
-          TypeKind paramType;
+          TypeId paramType;
           bool annotated;
           if (!parseTypeAnnotation(parser, &paramType, &annotated)) return NULL;
           csAstFunctionAddParam(parser->arena, arrow, paramName, paramLength, paramType, annotated);
@@ -403,7 +403,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
       }
       consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the parameters");
 
-      TypeKind returnType;
+      TypeId returnType;
       bool hasReturnAnnotation;
       if (!parseTypeAnnotation(parser, &returnType, &hasReturnAnnotation)) return NULL;
       arrow->as.function.returnType = returnType;

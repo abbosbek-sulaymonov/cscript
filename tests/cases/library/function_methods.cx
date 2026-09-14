@@ -25,7 +25,7 @@ console.log(count(), count(1), count(1, 2, 3));
 function tail(first: number, ...rest: unknown) { return first + "|" + rest.join(","); }
 console.log(tail(1), tail(1, 2, 3));
 
-const spread = (...xs: array) => xs.length;
+const spread = (...xs: number) => xs.length;
 console.log(spread(1, 2), spread.length);
 
 class Collector { take(...items: array) { return items.join("/"); } }
@@ -44,12 +44,12 @@ console.log(describe`only`);
 function raw(strings: object) { return strings.raw[0] + " vs " + strings[0]; }
 console.log(raw`a\nb`);
 
-const shorthand = (s: string, x: number) => s[0] + x;
+const shorthand = (s: string[], x: number) => s[0] + x;
 console.log(shorthand`v=${9}`);
 
 // A function assigned to a binding takes its name — and everything else it
 // already was, which used to be copied field by field and lose the rest.
-const named = function (...xs: array) { return xs.length; };
+const named = function (...xs: number) { return xs.length; };
 console.log(named.name, named(1, 2));
 const asyncNamed = async function () { return "async"; };
 console.log(asyncNamed.name, await asyncNamed());

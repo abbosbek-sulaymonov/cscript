@@ -3,7 +3,8 @@
 A sequence of bytes, and the numbers hidden inside one.
 
 ```ts
-import { fromString, toHex, readUint32BE } from "std:bytes";
+import { fromString, readUint32BE } from "std:bytes";
+import { toHex } from "std:encoding";
 
 const header = fromString(text);
 const length = readUint32BE(header, 4);

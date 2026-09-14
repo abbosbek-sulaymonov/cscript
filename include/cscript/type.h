@@ -1,25 +1,31 @@
-/* type.h — the static type lattice.
+/* type.h — what a type is.
  *
- * Types are deliberately shallow: a fixed set of kinds, no structural or
- * higher-order types, no generics. That is what keeps checking cheap, and it
- * is also what shapes the two types at the top of the list below.
+ * A type is an **int**. Small values are the primitive kinds in TypeKind
+ * below; everything from TYPE_COMPOSITE_FIRST on is an index into the file's
+ * TypeTable, where the shapes live — an interface, an array of something, a
+ * function from something to something, a union of several.
+ *
+ * That encoding is the whole design. A type stays one scalar passed by value
+ * through every function in the checker and stored in a byte on a compiled
+ * function, and the tree hangs off to one side, reached only by the code that
+ * needs to look inside. Composites are **interned**: `number[]` written twice
+ * is one entry and one id, so comparing two types is usually an integer
+ * compare, and structural equality falls out of it.
  *
  * There is no `any`. A type a program can *write* is a type the checker
- * enforces — that is the whole rule. Two kinds exist that are not exact, and
- * they are not the same thing:
+ * enforces — that is the whole rule. Two kinds are not exact, and they are not
+ * the same thing:
  *
  *   `unknown` is written by programs. Everything converts *to* it and nothing
  *             converts *out* of it: an `unknown` must be narrowed with `typeof`
- *             before it can be used. It is what a container holds when it
- *             cannot say what it holds, which is what a language without
- *             generics needs instead of an escape hatch. TypeScript spells the
- *             same idea the same way.
+ *             before it can be used. TypeScript spells the same idea the same
+ *             way.
  *
  *   DYNAMIC   cannot be written at all. It is the checker admitting it does
- *             not know — the type of a property read, of an element of an
- *             array, of a call through a variable. It is permissive, because
- *             refusing everything the checker cannot see would refuse most
- *             programs. The boundary is checked at runtime instead.
+ *             not know — what an import holds, what a plain object's property
+ *             is. It is permissive, because refusing everything the checker
+ *             cannot see would refuse most programs. The boundary is checked
+ *             at run time instead.
  *
  * An unannotated declaration takes the type of its initialiser and keeps it:
  * `let n = 0` is a number from then on, and assigning a string to it is a
@@ -31,6 +37,9 @@
 
 #include "cscript/common.h"
 
+/* The primitive kinds, and the low ids. A TypeId less than TYPE_COMPOSITE_FIRST
+ * is one of these and nothing else, which is what lets the compiler keep asking
+ * `type == TYPE_NUMBER` without knowing a table exists. */
 typedef enum {
   /* What the checker could not work out. Assignable in both directions, and
    * impossible to write in a program — see the header. */
@@ -52,12 +61,12 @@ typedef enum {
   TYPE_UNDEFINED,
   /* Written `Function`, as TypeScript writes it: `function` is a keyword, and
    * a keyword cannot stand in a type position in TypeScript's grammar — which
-   * a CScript file has to stay inside to keep its second reader, Node. */
+   * a CScript file has to stay inside to keep its second reader, Node. A
+   * *typed* function is a composite; this is the one that says only "callable".
+   */
   TYPE_FUNCTION,
-  /* An array is an object in the runtime and a separate type here, because the
-   * two answer different questions: `xs.push` is an array method and `o.push`
-   * is almost certainly a mistake. An array is assignable to `object`, as it
-   * is in JavaScript; an object is not assignable to an array. */
+  /* An array whose element type is not known — what `array` means when it is
+   * written bare. `T[]` is a composite, and knows. */
   TYPE_ARRAY,
   TYPE_OBJECT,
 
@@ -66,128 +75,245 @@ typedef enum {
    * complaints about everything built on top of it. */
   TYPE_ERROR,
 
-  /* Every value from here on names a declared interface: the nth one declared
-   * in a file is TYPE_INTERFACE_FIRST + n.
-   *
-   * Encoded inside the enum rather than carried in a struct beside it because
-   * a TypeKind is passed by value through every function in the checker and
-   * stored in a byte on a compiled function. A type *tree* is what this
-   * becomes when generics or unions need one, and deliberately not before. */
-  TYPE_INTERFACE_FIRST = 32,
+  /* Every id from here on indexes the file's TypeTable. */
+  TYPE_COMPOSITE_FIRST = 32,
 } TypeKind;
 
-/* Per file, because types do not cross a module boundary. */
-#define CS_MAX_INTERFACES 48
-#define CS_MAX_INTERFACE_MEMBERS 24
-#define CS_MAX_TYPE_ALIASES 48
+/* A type: a primitive kind, or an index into the table. */
+typedef int TypeId;
 
-/* One property of an interface. A method is a member like any other — its type
- * is Function — with the return type recorded so that `shape.area()` answers
- * something better than "a call, contents unknown". */
+/* Per file, because a type table belongs to the file that built it. */
+#define CS_MAX_COMPOSITE_TYPES 256
+#define CS_MAX_TYPE_MEMBERS 768
+#define CS_MAX_TYPE_SLOTS 768
+#define CS_MAX_TYPE_ALIASES 64
+#define CS_MAX_TYPE_PARAMS 4
+
+typedef enum {
+  /* A declared shape: `interface Point { x: number }`, or the same written
+   * inline as `type Point = { x: number }`. Compared structurally. */
+  COMPOSITE_INTERFACE,
+  /* `T[]` — an array that knows what it holds. */
+  COMPOSITE_ARRAY,
+  /* `(a: number) => string`. */
+  COMPOSITE_FUNCTION,
+  /* `A | B` — including the two that make the rest of the system honest,
+   * `T | null` and `T | undefined`. */
+  COMPOSITE_UNION,
+  /* `T` inside the declaration that introduced it. Erased at the call site by
+   * instantiation; a leftover one is the checker admitting it could not infer
+   * what the caller meant. */
+  COMPOSITE_TYPEVAR,
+} CompositeKind;
+
+/* One member of an interface. A method is a member like any other — its type
+ * is a function type — so a call through it is checked the same way a call
+ * through a variable is. */
 typedef struct {
   const char *name; /* NUL-terminated, owned by whoever registered it */
   int length;
-  TypeKind type;
-  TypeKind returns;
-  bool isMethod;
+  TypeId type;
   /* `x?: number`. A missing key satisfies the interface; a present one still
    * has to have the right type. */
   bool optional;
-} InterfaceMember;
+} TypeMember;
 
 typedef struct {
+  CompositeKind kind;
+
+  /* An interface's name, a type variable's name, or NULL. */
   const char *name;
-  int length;
-  InterfaceMember members[CS_MAX_INTERFACE_MEMBERS];
-  int memberCount;
-} InterfaceType;
+  int nameLength;
 
-/* The interfaces and aliases one file declared. Built by the parser, read by
- * the checker, and hung off the program node so the two need not share
- * anything else — which is what keeps a module compiled inside another
- * module's compile from overwriting it. */
+  /* COMPOSITE_INTERFACE: a run of the member pool. */
+  int memberStart;
+  int memberCount;
+
+  /* COMPOSITE_ARRAY: what it holds.
+   * COMPOSITE_FUNCTION: what it answers. */
+  TypeId inner;
+
+  /* COMPOSITE_FUNCTION: a run of the slot pool holding parameter types.
+   * COMPOSITE_UNION: a run of the slot pool holding the members.
+   * An instantiated generic: a run holding the type arguments. */
+  int slotStart;
+  int slotCount;
+
+  /* COMPOSITE_FUNCTION: how many parameters a call must supply, and whether
+   * the last one collects the rest. */
+  int requiredCount;
+  bool hasRest;
+
+  /* A declaration's own type parameters — `interface Box<T>`, `function
+   * first<T>(...)`. They are TYPE_COMPOSITE typevars, in declaration order. */
+  TypeId typeParams[CS_MAX_TYPE_PARAMS];
+  int typeParamCount;
+
+  /* For an instantiation — `Box<number>` — the generic it came from, so a
+   * message can say which. TYPE_DYNAMIC when this is not one. */
+  TypeId genericOf;
+
+  /* A type variable is only in scope inside the declaration that introduced
+   * it. Ids are never reused, so the parser closes the scope by clearing this
+   * rather than by removing the entry. */
+  bool active;
+} CompositeType;
+
+/* Everything one file's types are made of. Built by the parser, read by the
+ * checker, and hung off the program node so that a module parsed in the middle
+ * of another module's compile has its own. */
 typedef struct {
-  InterfaceType interfaces[CS_MAX_INTERFACES];
-  int interfaceCount;
+  CompositeType composites[CS_MAX_COMPOSITE_TYPES];
+  int compositeCount;
+
+  TypeMember members[CS_MAX_TYPE_MEMBERS];
+  int memberCount;
+
+  TypeId slots[CS_MAX_TYPE_SLOTS];
+  int slotCount;
 
   struct {
     const char *name;
     int length;
-    TypeKind type;
+    TypeId type;
   } aliases[CS_MAX_TYPE_ALIASES];
   int aliasCount;
-} TypeRegistry;
 
-static inline bool csTypeIsInterface(TypeKind type) {
-  return type >= TYPE_INTERFACE_FIRST;
+  /* Set once the table is full, so the overflow is reported once rather than
+   * at every type that follows it. */
+  bool full;
+} TypeTable;
+
+static inline bool csTypeIsComposite(TypeId type) {
+  return type >= TYPE_COMPOSITE_FIRST;
 }
 
-static inline TypeKind csTypeInterfaceAt(int index) {
-  return (TypeKind)(TYPE_INTERFACE_FIRST + index);
+static inline TypeId csTypeCompositeAt(int index) {
+  return (TypeId)(TYPE_COMPOSITE_FIRST + index);
 }
 
-static inline int csTypeInterfaceIndex(TypeKind type) {
-  return (int)type - (int)TYPE_INTERFACE_FIRST;
+static inline int csTypeCompositeIndex(TypeId type) {
+  return (int)type - TYPE_COMPOSITE_FIRST;
 }
 
-/* The name used in messages and accepted in annotations. */
-const char *csTypeName(TypeKind type);
+/* The name used in messages for a primitive. csTypeNameIn says the rest. */
+const char *csTypeName(TypeId type);
 
-/* Parses an annotation like `number`. Returns false when the name is not one.
- * `any` is deliberately not a name: see csTypeRejectedName. */
-bool csTypeFromName(const char *name, int length, TypeKind *out);
+/* Parses a built-in annotation name like `number`. Returns false when the name
+ * is not one. `any` is deliberately not a name: see csTypeRejectedName. */
+bool csTypeFromName(const char *name, int length, TypeId *out);
 
 /* A name that is refused on purpose, and why — or NULL when the name is simply
- * unknown. Keeps the message for `any` in one place. */
+ * not known. Keeps the message for `any` in one place. */
 const char *csTypeRejectedName(const char *name, int length);
 
-/* Can a value of `from` be stored where `to` is expected? */
-bool csTypeAssignable(TypeKind from, TypeKind to);
+/* Can a value of `from` be stored where `to` is expected? The primitive half
+ * of the relation; csTypeAssignableIn is the whole of it. */
+bool csTypeAssignable(TypeId from, TypeId to);
 
 /* True when the type is known well enough to specialise code for it. */
-static inline bool csTypeIsKnown(TypeKind type) {
+static inline bool csTypeIsKnown(TypeId type) {
   return type != TYPE_DYNAMIC && type != TYPE_ERROR;
 }
 
 /* True when using the value at all — arithmetic, a property, a call — needs a
  * `typeof` check first. */
-static inline bool csTypeNeedsNarrowing(TypeKind type) {
+static inline bool csTypeNeedsNarrowing(TypeId type) {
   return type == TYPE_UNKNOWN;
 }
 
 /* The type a `typeof` result names, for narrowing: `"number"` gives
  * TYPE_NUMBER. False when the text names nothing. */
-bool csTypeFromTypeofName(const char *name, int length, TypeKind *out);
+bool csTypeFromTypeofName(const char *name, int length, TypeId *out);
+
+/* --- the table ----------------------------------------------------------- */
+
+void csTypeTableInit(TypeTable *table);
+
+const CompositeType *csTypeComposite(const TypeTable *table, TypeId type);
+
+/* True when the type is a composite of that kind. */
+bool csTypeIs(const TypeTable *table, TypeId type, CompositeKind kind);
+
+/* Interning constructors. Each answers an existing id when one already
+ * describes the same type, so `number[]` is one type however often it is
+ * written. TYPE_DYNAMIC when the table is full — which degrades to "the
+ * checker cannot see this" rather than to a wrong answer. */
+TypeId csTypeArrayOf(TypeTable *table, TypeId element);
+TypeId csTypeFunctionOf(TypeTable *table, const TypeId *params, int paramCount, int requiredCount, bool hasRest, TypeId result);
+TypeId csTypeUnionOf(TypeTable *table, const TypeId *members, int count);
+
+/* `T | null` and friends, without the caller building an array. */
+TypeId csTypeUnionWith(TypeTable *table, TypeId left, TypeId right);
+
+/* What an array holds, or TYPE_DYNAMIC for a bare `array`. */
+TypeId csTypeElementOf(const TypeTable *table, TypeId array);
+
+/* True when `type` is an array of any kind, bare or knowing. */
+bool csTypeIsArrayLike(const TypeTable *table, TypeId type);
+
+/* True when `type` is callable: `Function`, or a function type. */
+bool csTypeIsCallable(const TypeTable *table, TypeId type);
 
 /* --- declared types ------------------------------------------------------ */
 
-void csTypeRegistryInit(TypeRegistry *types);
-
 /* Declares an interface and answers its type, or TYPE_ERROR when the file has
- * more than the ceiling above. The name must outlive the registry. */
-TypeKind csTypeDeclareInterface(TypeRegistry *types, const char *name, int length);
+ * more than the ceiling above. The name must outlive the table. */
+TypeId csTypeDeclareInterface(TypeTable *table, const char *name, int length);
 
 /* False when the interface is full or already has a member of that name. */
-bool csTypeInterfaceAddMember(TypeRegistry *types, TypeKind type, const InterfaceMember *member);
+bool csTypeAddMember(TypeTable *table, TypeId type, const TypeMember *member);
 
-bool csTypeDeclareAlias(TypeRegistry *types, const char *name, int length, TypeKind type);
+bool csTypeDeclareAlias(TypeTable *table, const char *name, int length, TypeId type);
 
-/* A name written in an annotation: a built-in type, then an alias, then an
- * interface. False when nothing of that name has been declared. */
-bool csTypeLookupName(const TypeRegistry *types, const char *name, int length, TypeKind *out);
+/* A name written in an annotation: a built-in type, then an alias, then a
+ * declared one. False when nothing of that name has been declared. */
+bool csTypeLookupName(const TypeTable *table, const char *name, int length, TypeId *out);
 
-/* The interface a type names, or NULL when it names something else. */
-const InterfaceType *csTypeInterface(const TypeRegistry *types, TypeKind type);
+/* The member a name refers to, following nothing: an interface's members are
+ * all of them, because `extends` copies them in. */
+const TypeMember *csTypeFindMember(const TypeTable *table, TypeId type, const char *name, int length);
 
-const InterfaceMember *csTypeFindInterfaceMember(const TypeRegistry *types, TypeKind type, const char *name, int length);
+/* Names any type, including a composite — `number[]`, `(a: number) => string`,
+ * `Point`, `string | null`.
+ *
+ * The answer lives in a small rotating set of buffers owned by this module, so
+ * that one message may name several types. A name is valid until a few more
+ * have been asked for; nothing here keeps one. */
+const char *csTypeNameIn(const TypeTable *table, TypeId type);
 
-/* Like csTypeName, but able to name a declared interface. Every message the
- * checker prints goes through this one. */
-const char *csTypeNameIn(const TypeRegistry *types, TypeKind type);
+/* Like csTypeAssignable, and additionally structural where a composite is
+ * involved: one interface satisfies another when it has every member the other
+ * requires; an array is assignable when its elements are; a function when it
+ * takes no more than it is given and answers no less. */
+bool csTypeAssignableIn(const TypeTable *table, TypeId from, TypeId to);
 
-/* Like csTypeAssignable, and additionally structural where an interface is
- * involved: one interface satisfies another when it has every member the
- * other requires, with an assignable type. */
-bool csTypeAssignableIn(const TypeRegistry *types, TypeKind from, TypeKind to);
+/* --- generics ------------------------------------------------------------ */
+
+/* Declares `T` inside the declaration that introduced it. In scope until the
+ * parser closes it with csTypeCloseTypeVar. */
+TypeId csTypeDeclareTypeVar(TypeTable *table, const char *name, int length);
+void csTypeCloseTypeVar(TypeTable *table, TypeId typeVar);
+
+/* Records the type parameters a declaration introduced, so a call or a type
+ * reference can instantiate it. */
+void csTypeSetTypeParams(TypeTable *table, TypeId type, const TypeId *params, int count);
+int csTypeTypeParamCount(const TypeTable *table, TypeId type);
+
+/* `Box<number>` — substitutes the arguments for the declaration's own type
+ * parameters, throughout. Answers `generic` unchanged when it takes none. */
+TypeId csTypeInstantiate(TypeTable *table, TypeId generic, const TypeId *args, int argCount);
+
+/* Substitutes `args` for `params` anywhere inside `type`. The engine under
+ * instantiation, and under inference at a call site. */
+TypeId csTypeSubstitute(TypeTable *table, TypeId type, const TypeId *params, const TypeId *args, int count);
+
+/* Matches an argument's type against a parameter's, recording what each type
+ * variable must be. `bindings` is indexed the same as `params`, and starts as
+ * TYPE_DYNAMIC for "not yet known". */
+void csTypeInfer(const TypeTable *table, TypeId parameter, TypeId argument, const TypeId *params, TypeId *bindings, int count);
+
+/* True when the type mentions a type variable anywhere inside it. */
+bool csTypeMentionsTypeVar(const TypeTable *table, TypeId type);
 
 #endif /* CSCRIPT_TYPE_H */

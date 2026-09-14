@@ -51,7 +51,7 @@ Variable *csTypeFindVariable(Checker *checker, const char *name, int length) {
   return NULL;
 }
 
-void csTypeDeclareVariable(Checker *checker, const char *name, int length, TypeKind type) {
+void csTypeDeclareVariable(Checker *checker, const char *name, int length, TypeId type) {
   if (checker->count >= MAX_SCOPED_VARIABLES) return; /* compiler reports the limit */
   Variable *variable = &checker->variables[checker->count++];
   variable->name = name;
@@ -69,147 +69,11 @@ void csTypeDeclareAwaiting(Checker *checker, const char *name, int length) {
   if (checker->count > 0) checker->variables[checker->count - 1].awaiting = true;
 }
 
-/* Does this statement always leave — so that whatever follows it in the block
- * only runs when the branch was not taken?
- *
- * `throw`, `return`, `break` and `continue`, and a block whose last statement
- * is one of those. Deliberately shallow: it is the shape a guard is written
- * in, and recognising exactly that shape keeps the rule one sentence long. */
-static bool alwaysLeaves(const AstNode *node) {
-  if (node == NULL) return false;
-  if (node->type == AST_RETURN_STMT || node->type == AST_THROW_STMT || node->type == AST_BREAK_STMT || node->type == AST_CONTINUE_STMT) {
-    return true;
-  }
-  if (node->type != AST_BLOCK) return false;
-  int count = node->as.block.count;
-  return count > 0 && alwaysLeaves(node->as.block.statements[count - 1]);
-}
-
-bool csTypeBranchAlwaysLeaves(const AstNode *node) {
-  return alwaysLeaves(node);
-}
-
-/* Every narrowing a condition carries, not only the first.
- *
- * `typeof a !== "object" || typeof b !== "object"` being false proves *both*
- * halves false, and a guard written that way — which is how a two-argument
- * function checks its arguments — should prove both. Answers how many were
- * recorded, so a caller can put them all back. */
-int csTypeNarrowAll(Checker *checker, AstNode *condition, bool whenTrue, Variable **narrowed, TypeKind *saved, int limit) {
-  if (condition == NULL || limit <= 0) return 0;
-
-  if (condition->type == AST_GROUPING) {
-    return csTypeNarrowAll(checker, condition->as.grouping, whenTrue, narrowed, saved, limit);
-  }
-
-  if (condition->type == AST_LOGICAL) {
-    bool carries = condition->as.logical.op == LOGICAL_AND ? whenTrue : !whenTrue;
-    if (!carries) return 0;
-    int count = csTypeNarrowAll(checker, condition->as.logical.left, whenTrue, narrowed, saved, limit);
-    count += csTypeNarrowAll(checker, condition->as.logical.right, whenTrue, narrowed + count, saved + count, limit - count);
-    return count;
-  }
-
-  TypeKind was = TYPE_DYNAMIC;
-  Variable *one = csTypeNarrow(checker, condition, whenTrue, &was);
-  if (one == NULL) return 0;
-  narrowed[0] = one;
-  saved[0] = was;
-  return 1;
-}
-
-/* Is this condition `typeof x === "name"`, and if so what does it prove?
- *
- * Deliberately the one shape rather than a general flow analysis. It is the
- * shape a program actually writes to check a `value`, and recognising exactly
- * it means the rule a reader has to know is one line long. `!==` proves the
- * same thing about the *other* branch, which is why `whenTrue` is a parameter
- * rather than the caller inverting anything. */
-Variable *csTypeNarrow(Checker *checker, AstNode *condition, bool whenTrue, TypeKind *saved) {
-  if (condition == NULL) return NULL;
-
-  /* `(…)` is not part of the shape. */
-  if (condition->type == AST_GROUPING) {
-    return csTypeNarrow(checker, condition->as.grouping, whenTrue, saved);
-  }
-
-  /* A guard is usually more than one test: `typeof x !== "number" || x < 0`.
-   * The first operand of an `||` is proved false when the whole thing is, and
-   * the first operand of an `&&` is proved true when the whole thing is — so
-   * the same recognition applies to it, and nothing else in the chain can be
-   * relied on either way. */
-  if (condition->type == AST_LOGICAL) {
-    bool carries = condition->as.logical.op == LOGICAL_AND ? whenTrue : !whenTrue;
-    if (!carries) return NULL;
-    /* Only the left here — the caller that wants every term in the chain uses
-     * csTypeNarrowAll, which walks both sides. */
-    return csTypeNarrow(checker, condition->as.logical.left, whenTrue, saved);
-  }
-
-  /* `Array.isArray(x)` is the other question a program asks about a value it
-   * has been handed, and the answer is exactly a type. Recognised here for the
-   * same reason `typeof` is: it is a built-in whose contract the checker
-   * already knows, so trusting it costs nothing and pretending not to
-   * understand it would push every caller into a cast the language does not
-   * have. */
-  if (condition->type == AST_CALL && whenTrue) {
-    AstNode *callee = condition->as.call.callee;
-    if (callee != NULL && callee->type == AST_PROPERTY && callee->as.property.length == 7 && memcmp(callee->as.property.name, "isArray", 7) == 0 &&
-        callee->as.property.object != NULL && callee->as.property.object->type == AST_IDENTIFIER && callee->as.property.object->as.identifier.length == 5 &&
-        memcmp(callee->as.property.object->as.identifier.name, "Array", 5) == 0 && condition->as.call.argCount == 1 &&
-        condition->as.call.arguments[0]->type == AST_IDENTIFIER) {
-      AstNode *subject = condition->as.call.arguments[0];
-      Variable *variable = csTypeFindVariable(checker, subject->as.identifier.name, subject->as.identifier.length);
-      if (variable == NULL) return NULL;
-      *saved = variable->type;
-      variable->type = TYPE_ARRAY;
-      return variable;
-    }
-    return NULL;
-  }
-
-  if (condition->type != AST_BINARY) return NULL;
-
-  BinaryOp op = condition->as.binary.op;
-  bool equality = op == BINARY_EQUAL;
-  bool inequality = op == BINARY_NOT_EQUAL;
-  if (!equality && !inequality) return NULL;
-
-  /* The branch this proves something about: `===` proves it when taken, `!==`
-   * when not. */
-  if (whenTrue != equality) return NULL;
-
-  AstNode *left = condition->as.binary.left;
-  AstNode *right = condition->as.binary.right;
-  if (left == NULL || right == NULL) return NULL;
-  if (left->type != AST_UNARY || left->as.unary.op != UNARY_TYPEOF) return NULL;
-  if (right->type != AST_STRING_LITERAL) return NULL;
-
-  AstNode *subject = left->as.unary.operand;
-  if (subject == NULL || subject->type != AST_IDENTIFIER) return NULL;
-
-  TypeKind proved;
-  if (!csTypeFromTypeofName(right->as.string.chars, right->as.string.length, &proved)) {
-    return NULL;
-  }
-
-  Variable *variable = csTypeFindVariable(checker, subject->as.identifier.name, subject->as.identifier.length);
-  if (variable == NULL) return NULL;
-
-  /* Narrowing only ever makes a type more specific. A variable already known
-   * to be a number learns nothing from being asked, and a contradiction —
-   * `typeof n === "string"` where n is a number — is the program's mistake to
-   * make rather than this function's to silently accept. */
-  *saved = variable->type;
-  variable->type = proved;
-  return variable;
-}
-
 /* The built-in globals, so `console.log(...)` and `Math.PI` check out. */
 static void declareBuiltins(Checker *checker) {
   static const struct {
     const char *name;
-    TypeKind type;
+    TypeId type;
   } builtins[] = {
       {"console", TYPE_OBJECT},   {"Math", TYPE_OBJECT}, {"Number", TYPE_FUNCTION}, {"String", TYPE_FUNCTION},
       {"Boolean", TYPE_FUNCTION}, {"NaN", TYPE_NUMBER},  {"Infinity", TYPE_NUMBER}, {"Error", TYPE_FUNCTION},
@@ -288,7 +152,7 @@ static const MethodSignature BUILTIN_METHODS[] = {
 };
 
 /* Returns the signature for `name` on `receiver`, or NULL. */
-const MethodSignature *csTypeFindMethod(TypeKind receiver, const char *name, int length) {
+const MethodSignature *csTypeFindMethod(TypeId receiver, const char *name, int length) {
   for (size_t i = 0; i < sizeof(BUILTIN_METHODS) / sizeof(BUILTIN_METHODS[0]); i++) {
     const MethodSignature *entry = &BUILTIN_METHODS[i];
     if (entry->receiver != receiver) continue;
@@ -301,7 +165,7 @@ const MethodSignature *csTypeFindMethod(TypeKind receiver, const char *name, int
 
 /* Records a function's shape and binds its name, before the body is walked so
  * that recursive calls resolve. */
-const Signature *csTypeDeclareFunction(Checker *checker, AstNode *node) {
+Signature *csTypeDeclareFunction(Checker *checker, AstNode *node) {
   if (checker->signatureCount >= MAX_FUNCTIONS) return NULL;
 
   Signature *signature = &checker->signatures[checker->signatureCount++];
@@ -336,24 +200,37 @@ const Signature *csTypeDeclareFunction(Checker *checker, AstNode *node) {
                 param->length, param->name);
   }
 
+  /* The same shape, written as a type: `(number, string) => boolean`. A
+   * declaration and an annotation then say the same thing in the same
+   * language, which is what lets a named function be passed where a
+   * `(n: number) => string` is wanted and be checked for it. */
+  signature->type = csTypeFunctionOf(checker->types, signature->paramTypes, signature->paramCount, signature->requiredCount, signature->hasRest, signature->returnType);
+
+  /* `function first<T>(xs: T[]): T` — the variables it introduced, kept so
+   * that a call can work out what they stand for *there*. */
+  signature->typeParamCount = node->as.function.typeParamCount;
+  for (int i = 0; i < signature->typeParamCount; i++) signature->typeParams[i] = node->as.function.typeParams[i];
+
   if (node->as.function.isDeclaration) {
-    csTypeDeclareVariable(checker, node->as.function.name, node->as.function.nameLength, TYPE_FUNCTION);
+    csTypeDeclareVariable(checker, node->as.function.name, node->as.function.nameLength, signature->type);
     checker->variables[checker->count - 1].signature = signature;
   }
   return signature;
 }
 
-void csTypeCheckFunctionBody(Checker *checker, AstNode *node, const Signature *signature) {
-  TypeKind savedReturn = checker->currentReturn;
+void csTypeCheckFunctionBody(Checker *checker, AstNode *node, Signature *signature) {
+  TypeId savedReturn = checker->currentReturn;
   bool savedAnnotated = checker->currentReturnAnnotated;
+  TypeId savedInferred = checker->inferredReturn;
   checker->currentReturn = signature != NULL ? signature->returnType : TYPE_DYNAMIC;
   checker->currentReturnAnnotated = signature != NULL && signature->hasReturnAnnotation;
+  checker->inferredReturn = TYPE_ERROR;
   checker->functionDepth++;
 
   csTypeBeginScope(checker);
   for (int i = 0; i < node->as.function.paramCount; i++) {
     const AstParam *param = &node->as.function.params[i];
-    TypeKind type = param->hasAnnotation ? param->type : TYPE_DYNAMIC;
+    TypeId type = param->hasAnnotation ? param->type : TYPE_DYNAMIC;
 
     /* `...rest: string` annotates each argument, not the collection: the
      * caller passes strings and the body reads an array of them. Annotating
@@ -370,8 +247,35 @@ void csTypeCheckFunctionBody(Checker *checker, AstNode *node, const Signature *s
   csTypeEndScope(checker);
 
   checker->functionDepth--;
+
+  /* A function that did not say what it answers is asked. Its `return`
+   * statements have been collecting a type on the way through, and taking it
+   * is what lets `const double = (n: number) => n * 2` be passed where a
+   * `(n: number) => number` is wanted — the commonest callback there is.
+   *
+   * Left alone when a body returns nothing the checker could name, because
+   * DYNAMIC there means "ask the runtime" rather than "answers undefined". */
+  /* A generator answers a generator and an async function answers a promise,
+   * neither of which is what its `return` says — so neither is inferred.
+   * Writing the annotation on one of those is already understood as what it
+   * resolves to, which is the same distinction. */
+  bool inferable = !node->as.function.isAsync && !node->as.function.isGenerator;
+  if (signature != NULL && inferable && !signature->hasReturnAnnotation && checker->inferredReturn != TYPE_ERROR) {
+    signature->returnType = checker->inferredReturn;
+    signature->type =
+        csTypeFunctionOf(checker->types, signature->paramTypes, signature->paramCount, signature->requiredCount, signature->hasRest, signature->returnType);
+
+    /* The name was bound before the body was walked, so that the function
+     * could call itself; the binding is brought up to date here. */
+    if (node->as.function.isDeclaration) {
+      Variable *variable = csTypeFindVariable(checker, node->as.function.name, node->as.function.nameLength);
+      if (variable != NULL && variable->signature == signature) variable->type = signature->type;
+    }
+  }
+
   checker->currentReturn = savedReturn;
   checker->currentReturnAnnotated = savedAnnotated;
+  checker->inferredReturn = savedInferred;
 }
 
 /* Arithmetic where a BigInt is allowed, so long as *both* sides are one.
@@ -380,7 +284,7 @@ void csTypeCheckFunctionBody(Checker *checker, AstNode *node, const Signature *s
  * BigInt and a number, so JavaScript throws rather than choose, and the checker
  * says so at compile time. Returns the result type, or TYPE_DYNAMIC when it cannot
  * tell yet and the VM must decide. */
-static bool arithmeticOnBigInts(Checker *checker, TypeKind left, TypeKind right, int line, const char *name, TypeKind *result) {
+static bool arithmeticOnBigInts(Checker *checker, TypeId left, TypeId right, int line, const char *name, TypeId *result) {
   if (left != TYPE_BIGINT && right != TYPE_BIGINT) return false;
 
   if (left == TYPE_BIGINT && right == TYPE_BIGINT) {
@@ -401,7 +305,7 @@ static bool arithmeticOnBigInts(Checker *checker, TypeKind left, TypeKind right,
 /* Requires a number, reporting against the operator that wanted one. */
 /* A `value` has to be narrowed before it can be used for anything. One message
  * for every place that happens, because the fix is always the same. */
-bool csTypeRefuseUnnarrowed(Checker *checker, TypeKind type, int line, const char *what, AstNode *subject) {
+bool csTypeRefuseUnnarrowed(Checker *checker, TypeId type, int line, const char *what, AstNode *subject) {
   if (type != TYPE_UNKNOWN) return false;
 
   /* Naming the thing that was not narrowed is most of the fix: the message has
@@ -421,7 +325,7 @@ bool csTypeRefuseUnnarrowed(Checker *checker, TypeKind type, int line, const cha
   return true;
 }
 
-TypeKind csTypeRequireNumber(Checker *checker, TypeKind type, int line, const char *operatorName, AstNode *subject) {
+TypeId csTypeRequireNumber(Checker *checker, TypeId type, int line, const char *operatorName, AstNode *subject) {
   if (type == TYPE_UNKNOWN) {
     char what[64];
     snprintf(what, sizeof what, "the operand of '%s'", operatorName);
@@ -433,9 +337,9 @@ TypeKind csTypeRequireNumber(Checker *checker, TypeKind type, int line, const ch
   return TYPE_ERROR;
 }
 
-TypeKind csTypeCheckBinary(Checker *checker, AstNode *node) {
-  TypeKind left = checkNode(checker, node->as.binary.left);
-  TypeKind right = checkNode(checker, node->as.binary.right);
+TypeId csTypeCheckBinary(Checker *checker, AstNode *node) {
+  TypeId left = checkNode(checker, node->as.binary.left);
+  TypeId right = checkNode(checker, node->as.binary.right);
   int line = node->line;
   const char *name = csBinaryOpName(node->as.binary.op);
 
@@ -454,7 +358,7 @@ TypeKind csTypeCheckBinary(Checker *checker, AstNode *node) {
       }
       if (left == TYPE_STRING || right == TYPE_STRING) return TYPE_STRING;
       if (left == TYPE_BIGINT || right == TYPE_BIGINT) {
-        TypeKind result;
+        TypeId result;
         arithmeticOnBigInts(checker, left, right, line, name, &result);
         return result;
       }
@@ -479,12 +383,12 @@ TypeKind csTypeCheckBinary(Checker *checker, AstNode *node) {
     case BINARY_DIVIDE:
     case BINARY_MODULO:
     case BINARY_EXPONENT: {
-      TypeKind onBigInts;
+      TypeId onBigInts;
       if (arithmeticOnBigInts(checker, left, right, line, name, &onBigInts)) {
         return onBigInts;
       }
-      TypeKind a = csTypeRequireNumber(checker, left, line, name, node->as.binary.left);
-      TypeKind b = csTypeRequireNumber(checker, right, line, name, node->as.binary.right);
+      TypeId a = csTypeRequireNumber(checker, left, line, name, node->as.binary.left);
+      TypeId b = csTypeRequireNumber(checker, right, line, name, node->as.binary.right);
       return (a == TYPE_ERROR || b == TYPE_ERROR) ? TYPE_ERROR : TYPE_NUMBER;
     }
 
@@ -540,10 +444,10 @@ TypeKind csTypeCheckBinary(Checker *checker, AstNode *node) {
  *
  * The annotation is written here rather than in the halves, so that no case
  * can forget it. */
-TypeKind checkNode(Checker *checker, AstNode *node) {
+TypeId checkNode(Checker *checker, AstNode *node) {
   if (node == NULL) return TYPE_DYNAMIC;
 
-  TypeKind result = TYPE_DYNAMIC;
+  TypeId result = TYPE_DYNAMIC;
   if (!checkValueNode(checker, node, &result)) {
     checkStatementNode(checker, node, &result);
   }
@@ -560,6 +464,7 @@ bool csTypeCheck(AstNode *program, Diagnostics *diag) {
   checker.signatureCount = 0;
   checker.currentReturn = TYPE_DYNAMIC;
   checker.currentReturnAnnotated = false;
+  checker.inferredReturn = TYPE_ERROR;
   checker.functionDepth = 0;
   checker.types = program != NULL && program->type == AST_PROGRAM ? program->as.program.types : NULL;
 

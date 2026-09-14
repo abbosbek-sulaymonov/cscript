@@ -22,70 +22,8 @@
 
 #include "compiler/typecheck_internal.h"
 
-/* An object literal given to an interface, checked member by member.
- *
- * This is the one place a shape is proved rather than assumed, and it is
- * deliberately the *literal* that is checked rather than the type `object`: a
- * literal is written at the point it is given away, so its members are still
- * visible here. A value already typed `object` has lost them, and calling it a
- * Point later would be a claim nothing checked.
- *
- * Excess members are refused, as TypeScript refuses them on a fresh literal: a
- * name the interface does not have is nearly always a misspelling of one it
- * does. Answers the type the literal should be treated as having.
- */
-TypeKind csTypeCheckShape(Checker *checker, AstNode *value, TypeKind expected) {
-  if (value == NULL) return expected;
-  if (!csTypeIsInterface(expected) || value->type != AST_OBJECT_LITERAL) return value->resolvedType;
-
-  const InterfaceType *required = csTypeInterface(checker->types, expected);
-  if (required == NULL) return value->resolvedType;
-
-  /* A spread, an accessor or a computed key hides what the literal holds, so
-   * there is nothing to prove either way and the annotation is taken at its
-   * word. */
-  for (int i = 0; i < value->as.objectLiteral.count; i++) {
-    if (value->as.objectLiteral.kinds[i] != OBJECT_ENTRY_VALUE) return expected;
-    if (value->as.objectLiteral.keys[i] == NULL) return expected;
-    if (value->as.objectLiteral.keys[i]->type != AST_STRING_LITERAL) return expected;
-  }
-
-  bool ok = true;
-  for (int i = 0; i < value->as.objectLiteral.count; i++) {
-    AstNode *key = value->as.objectLiteral.keys[i];
-    const InterfaceMember *member = csTypeFindInterfaceMember(checker->types, expected, key->as.string.chars, key->as.string.length);
-    if (member == NULL) {
-      csTypeError(checker, value->line, "%s has no member '%.*s'", csTypeNameIn(checker->types, expected), key->as.string.length, key->as.string.chars);
-      ok = false;
-      continue;
-    }
-    /* A member that is itself an interface takes a literal of its own, so the
-     * check recurses into nested shapes. */
-    TypeKind given = csTypeCheckShape(checker, value->as.objectLiteral.values[i], member->type);
-    if (csTypeAssignableIn(checker->types, given, member->type)) continue;
-    csTypeError(checker, value->line, "member '%.*s' is %s but %s declares it %s", key->as.string.length, key->as.string.chars, csTypeNameIn(checker->types, given),
-                csTypeNameIn(checker->types, expected), csTypeNameIn(checker->types, member->type));
-    ok = false;
-  }
-
-  for (int i = 0; i < required->memberCount; i++) {
-    const InterfaceMember *member = &required->members[i];
-    if (member->optional) continue;
-    bool present = false;
-    for (int j = 0; j < value->as.objectLiteral.count && !present; j++) {
-      AstNode *key = value->as.objectLiteral.keys[j];
-      present = key->as.string.length == member->length && memcmp(key->as.string.chars, member->name, (size_t)member->length) == 0;
-    }
-    if (present) continue;
-    csTypeError(checker, value->line, "%s needs a member '%.*s' and this has none", csTypeNameIn(checker->types, expected), member->length, member->name);
-    ok = false;
-  }
-
-  return ok ? expected : TYPE_ERROR;
-}
-
-bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
-  TypeKind result = TYPE_DYNAMIC;
+bool checkValueNode(Checker *checker, AstNode *node, TypeId *out) {
+  TypeId result = TYPE_DYNAMIC;
 
   switch (node->type) {
     case AST_NUMBER_LITERAL: result = TYPE_NUMBER; break;
@@ -105,7 +43,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
 
     case AST_ASSIGN: {
       AstNode *target = node->as.assign.target;
-      TypeKind valueType = checkNode(checker, node->as.assign.value);
+      TypeId valueType = checkNode(checker, node->as.assign.value);
 
       /* Property and index targets have no declared type to check against. */
       if (target->type != AST_IDENTIFIER) {
@@ -149,13 +87,13 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
     }
 
     case AST_UPDATE: {
-      TypeKind targetType = checkNode(checker, node->as.update.target);
+      TypeId targetType = checkNode(checker, node->as.update.target);
       result = csTypeRequireNumber(checker, targetType, node->line, node->as.update.isIncrement ? "++" : "--", node->as.update.target);
       break;
     }
 
     case AST_UNARY: {
-      TypeKind operand = checkNode(checker, node->as.unary.operand);
+      TypeId operand = checkNode(checker, node->as.unary.operand);
       switch (node->as.unary.op) {
         case UNARY_NEGATE:
           /* `-1n` is a BigInt; every other operand has to be a number. */
@@ -175,15 +113,15 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
     case AST_LOGICAL: {
       /* `a && b` evaluates to one operand or the other, so the result is only
        * known when both agree. */
-      TypeKind left = checkNode(checker, node->as.logical.left);
+      TypeId left = checkNode(checker, node->as.logical.left);
 
       /* The right-hand side only runs when the left said what it said, so it
        * is checked knowing that: `typeof x === "number" && x > 0` is the usual
        * way a guard is written, and `typeof x !== "number" || x < 0` is the
        * same guard inverted. */
-      TypeKind saved = TYPE_DYNAMIC;
+      TypeId saved = TYPE_DYNAMIC;
       Variable *narrowed = csTypeNarrow(checker, node->as.logical.left, node->as.logical.op == LOGICAL_AND, &saved);
-      TypeKind right = checkNode(checker, node->as.logical.right);
+      TypeId right = checkNode(checker, node->as.logical.right);
       if (narrowed != NULL) narrowed->type = saved;
 
       result = (left == right) ? left : TYPE_DYNAMIC;
@@ -195,9 +133,12 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
     /* A chain can short-circuit to undefined whatever its links say, so the
      * type it produces is not the type of the last one. */
     case AST_TEMPLATE_STRINGS:
+      /* The pieces a tagged template hands its tag: an array of strings, with
+       * `raw` hanging off it. A tag declared `(parts: string[], ...)` is
+       * therefore checked against what it will really be given. */
       checkNode(checker, node->as.templateStrings.cooked);
       checkNode(checker, node->as.templateStrings.raw);
-      result = TYPE_OBJECT;
+      result = csTypeArrayOf(checker->types, TYPE_STRING);
       break;
 
     case AST_SEQUENCE:
@@ -223,7 +164,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
       break;
 
     case AST_PROPERTY: {
-      TypeKind object = checkNode(checker, node->as.property.object);
+      TypeId object = checkNode(checker, node->as.property.object);
 
       /* Reading a property off a `value` is the commonest way a program would
        * use one without knowing what it is. */
@@ -237,8 +178,8 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
        * is the one property read that answers something better than "an
        * object, contents unknown" — and the one that can say a name is wrong
        * before the program runs. */
-      if (csTypeIsInterface(object)) {
-        const InterfaceMember *member = csTypeFindInterfaceMember(checker->types, object, node->as.property.name, node->as.property.length);
+      if (csTypeIs(checker->types, object, COMPOSITE_INTERFACE)) {
+        const TypeMember *member = csTypeFindMember(checker->types, object, node->as.property.name, node->as.property.length);
         if (member == NULL) {
           csTypeError(checker, node->line, "%s has no member '%.*s'", csTypeNameIn(checker->types, object), node->as.property.length, node->as.property.name);
           result = TYPE_ERROR;
@@ -279,12 +220,24 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
        * one still gets its result type from this same table, which is what
        * keeps `xs.map(f)` known to be an array. */
       /* An array's `length`, which is the one property it really has. */
-      if (object == TYPE_ARRAY && isLength) {
+      if (csTypeIsArrayLike(checker->types, object) && isLength) {
         result = TYPE_NUMBER;
         break;
       }
 
-      if (object != TYPE_OBJECT && object != TYPE_ARRAY && csTypeFindMethod(object, node->as.property.name, node->as.property.length) != NULL) {
+      if (csTypeIsArrayLike(checker->types, object)) {
+        /* A method of an array, whose result the table below knows. Asked
+         * against the bare kind, because `number[]` and `array` answer the
+         * same method names. */
+        if (csTypeFindMethod(TYPE_ARRAY, node->as.property.name, node->as.property.length) != NULL) {
+          result = TYPE_FUNCTION;
+          break;
+        }
+        result = TYPE_DYNAMIC;
+        break;
+      }
+
+      if (object != TYPE_OBJECT && csTypeFindMethod(object, node->as.property.name, node->as.property.length) != NULL) {
         result = TYPE_FUNCTION;
         break;
       }
@@ -299,7 +252,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
         break;
       }
 
-      if (csTypeIsKnown(object) && object != TYPE_OBJECT && object != TYPE_ARRAY && object != TYPE_FUNCTION) {
+      if (csTypeIsKnown(object) && object != TYPE_OBJECT && !csTypeIsArrayLike(checker->types, object) && !csTypeIsCallable(checker->types, object)) {
         csTypeError(checker, node->line, "cannot read property '%.*s' of %s", node->as.property.length, node->as.property.name, csTypeNameIn(checker->types, object));
         result = TYPE_ERROR;
         break;
@@ -320,7 +273,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
        * callee is not checked as a property read at all — only the thing it
        * is read from. Otherwise `"ab".nope?.()`, whose whole point is that
        * `nope` is absent, would be a type error. */
-      TypeKind callee;
+      TypeId callee;
       if (node->as.call.optional && node->as.call.callee->type == AST_PROPERTY) {
         checkNode(checker, node->as.call.callee->as.property.object);
         callee = TYPE_DYNAMIC;
@@ -328,9 +281,9 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
         callee = checkNode(checker, node->as.call.callee);
       }
 
-      TypeKind argTypes[UINT8_MAX];
+      TypeId argTypes[UINT8_MAX];
       for (int i = 0; i < node->as.call.argCount; i++) {
-        TypeKind argType = checkNode(checker, node->as.call.arguments[i]);
+        TypeId argType = checkNode(checker, node->as.call.arguments[i]);
         if (i < UINT8_MAX) argTypes[i] = argType;
       }
 
@@ -345,7 +298,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
         break;
       }
 
-      if (csTypeIsKnown(callee) && callee != TYPE_FUNCTION) {
+      if (csTypeIsKnown(callee) && !csTypeIsCallable(checker->types, callee)) {
         csTypeError(checker, node->line, "%s is not a function", csTypeNameIn(checker->types, callee));
         result = TYPE_ERROR;
         break;
@@ -355,10 +308,13 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
        * whole reason to write one down. */
       if (node->as.call.callee->type == AST_PROPERTY) {
         AstNode *property = node->as.call.callee;
-        TypeKind receiver = property->as.property.object->resolvedType;
-        const InterfaceMember *member = csTypeFindInterfaceMember(checker->types, receiver, property->as.property.name, property->as.property.length);
-        if (member != NULL && member->isMethod) {
-          result = member->returns;
+        TypeId receiver = property->as.property.object->resolvedType;
+        const TypeMember *member = csTypeFindMember(checker->types, receiver, property->as.property.name, property->as.property.length);
+        /* A method is a function-typed member, so what the call answers is
+         * what that function type answers — the same rule as a call through a
+         * variable, rather than a second one for interfaces. */
+        if (member != NULL && csTypeIs(checker->types, member->type, COMPOSITE_FUNCTION)) {
+          result = csTypeComposite(checker->types, member->type)->inner;
           break;
         }
       }
@@ -380,7 +336,23 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
         if (variable != NULL) signature = variable->signature;
       }
 
+      /* `new F()` answers an instance, which is not what F's body returns and
+       * not something this lattice has a name for. */
+      if (node->as.call.isNew) {
+        result = TYPE_DYNAMIC;
+        break;
+      }
+
       if (signature == NULL) {
+        /* No declaration in sight, but the *type* may still say what this
+         * takes and answers — a parameter annotated `(n: number) => string`,
+         * an interface's method, a variable holding one. That is what makes a
+         * callback checkable at all: before function types existed, everything
+         * passed as `Function` was checked only by the runtime. */
+        if (csTypeIs(checker->types, callee, COMPOSITE_FUNCTION)) {
+          result = csTypeCheckCallThrough(checker, node, callee);
+          break;
+        }
         result = TYPE_DYNAMIC;
         break;
       }
@@ -403,6 +375,28 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
         break;
       }
 
+      /* A generic call is checked against what its type variables stand for
+       * *here*: every argument is matched against the parameter it is passed
+       * to, and what that says about T is substituted through the rest of the
+       * signature before anything is checked. Nothing is written down at the
+       * call site — `first([1, 2])` says T is a number by being that call. */
+      TypeId paramTypes[UINT8_MAX];
+      TypeId returnType = signature->returnType;
+      for (int i = 0; i < signature->paramCount && i < UINT8_MAX; i++) paramTypes[i] = signature->paramTypes[i];
+
+      if (signature->typeParamCount > 0) {
+        TypeId bindings[CS_MAX_TYPE_PARAMS];
+        for (int i = 0; i < signature->typeParamCount; i++) bindings[i] = TYPE_DYNAMIC;
+
+        for (int i = 0; i < node->as.call.argCount && i < signature->paramCount; i++) {
+          csTypeInfer(checker->types, signature->paramTypes[i], argTypes[i], signature->typeParams, bindings, signature->typeParamCount);
+        }
+        for (int i = 0; i < signature->paramCount && i < UINT8_MAX; i++) {
+          paramTypes[i] = csTypeSubstitute(checker->types, paramTypes[i], signature->typeParams, bindings, signature->typeParamCount);
+        }
+        returnType = csTypeSubstitute(checker->types, returnType, signature->typeParams, bindings, signature->typeParamCount);
+      }
+
       for (int i = 0; i < node->as.call.argCount && i < UINT8_MAX; i++) {
         /* Everything past the last declared parameter is collected by the rest
          * parameter, whose annotation describes one argument — so they are all
@@ -415,21 +409,21 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
         }
         /* An argument written as a literal is proved against the parameter's
          * interface, the same way a declaration's initialiser is. */
-        argTypes[i] = csTypeCheckShape(checker, node->as.call.arguments[i], signature->paramTypes[at]);
-        if (csTypeAssignableIn(checker->types, argTypes[i], signature->paramTypes[at])) continue;
+        argTypes[i] = csTypeCheckShape(checker, node->as.call.arguments[i], paramTypes[at]);
+        if (csTypeAssignableIn(checker->types, argTypes[i], paramTypes[at])) continue;
         /* `f(undefined)` asks for the default, which is what the language
          * already says an absent argument means. */
         if (argTypes[i] == TYPE_UNDEFINED && signature->paramHasDefault[at]) continue;
         csTypeError(checker, node->line, "argument %d of '%.*s' is %s but the parameter is %s", i + 1, node->as.call.callee->as.identifier.length,
-                    node->as.call.callee->as.identifier.name, csTypeNameIn(checker->types, argTypes[i]), csTypeNameIn(checker->types, signature->paramTypes[at]));
+                    node->as.call.callee->as.identifier.name, csTypeNameIn(checker->types, argTypes[i]), csTypeNameIn(checker->types, paramTypes[at]));
       }
 
-      result = signature->returnType;
+      result = returnType;
       break;
     }
 
     case AST_INDEX: {
-      TypeKind target = checkNode(checker, node->as.index.target);
+      TypeId target = checkNode(checker, node->as.index.target);
       checkNode(checker, node->as.index.index);
       /* `?.[` says the target may be absent; that is the case being handled. */
       if (node->as.index.optional && (target == TYPE_NULL || target == TYPE_UNDEFINED)) {
@@ -440,13 +434,22 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
         result = TYPE_ERROR;
         break;
       }
-      if (csTypeIsKnown(target) && target != TYPE_OBJECT && target != TYPE_ARRAY && target != TYPE_STRING) {
+      if (csTypeIsKnown(target) && target != TYPE_OBJECT && !csTypeIsArrayLike(checker->types, target) && target != TYPE_STRING) {
         csTypeError(checker, node->line, "cannot index %s", csTypeNameIn(checker->types, target));
         result = TYPE_ERROR;
         break;
       }
-      /* Element types are not modelled, so an index is dynamic. */
-      result = TYPE_DYNAMIC;
+      /* `xs[0]` on a `number[]` is a number. On a bare `array` it is what the
+       * checker could not work out, which is what a bare `array` means.
+       *
+       * A *string* key is not an element at all: `xs["sort"]` is the method
+       * of that name, reached the long way round. Telling the two apart is
+       * what the index's own type is for. */
+      if (csTypeIsArrayLike(checker->types, target) && node->as.index.index->resolvedType == TYPE_STRING) {
+        result = TYPE_DYNAMIC;
+        break;
+      }
+      result = csTypeElementOf(checker->types, target);
       break;
     }
 
@@ -457,19 +460,26 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeKind *out) {
       result = TYPE_OBJECT;
       break;
 
-    case AST_ARRAY_LITERAL:
+    case AST_ARRAY_LITERAL: {
+      /* An array, not an object: the two answer different questions. What it
+       * holds is taken from what was written in it — every element the same
+       * type gives `number[]`, a mixture gives the union of them, and a spread
+       * gives up, because what it spreads is not known here. */
+      TypeId element = TYPE_ERROR;
+      bool known = node->as.arrayLiteral.count > 0;
       for (int i = 0; i < node->as.arrayLiteral.count; i++) {
-        checkNode(checker, node->as.arrayLiteral.elements[i]);
+        TypeId each = checkNode(checker, node->as.arrayLiteral.elements[i]);
+        if (node->as.arrayLiteral.elements[i]->type == AST_SPREAD) known = false;
+        element = element == TYPE_ERROR ? each : csTypeUnionWith(checker->types, element, each);
       }
-      /* An array, not an object: the two answer different questions, and the
-       * element type is still unknown. */
-      result = TYPE_ARRAY;
+      result = known ? csTypeArrayOf(checker->types, element) : TYPE_ARRAY;
       break;
+    }
 
     case AST_CONDITIONAL: {
       checkNode(checker, node->as.conditional.condition);
-      TypeKind thenType = checkNode(checker, node->as.conditional.thenValue);
-      TypeKind elseType = checkNode(checker, node->as.conditional.elseValue);
+      TypeId thenType = checkNode(checker, node->as.conditional.thenValue);
+      TypeId elseType = checkNode(checker, node->as.conditional.elseValue);
       /* Without union types the result is only known when both arms agree. */
       result = thenType == elseType ? thenType : TYPE_DYNAMIC;
       break;

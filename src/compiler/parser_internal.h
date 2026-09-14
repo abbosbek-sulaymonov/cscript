@@ -55,12 +55,15 @@ bool nextStartsFunction(Parser *parser);
 bool nextStartsArrowParams(Parser *parser);
 bool compoundAssignOp(TokenType type, BinaryOp *out);
 bool logicalAssignKind(TokenType type, AssignKind *out);
-bool parseTypeAnnotation(Parser *parser, TypeKind *type, bool *present);
+bool parseTypeAnnotation(Parser *parser, TypeId *type, bool *present);
 bool nameIs(const char *name, int length, const char *word);
 bool checkContextual(Parser *parser, const char *word);
 bool matchContextual(Parser *parser, const char *word);
 
-/* parser_type.c — `interface` and `type`, which describe rather than produce */
+/* parser_type.c — the type grammar, and the declarations that describe */
+bool parseTypeExpression(Parser *parser, TypeId *out);
+bool parseTypeParams(Parser *parser, TypeId *params, int *countOut);
+void closeTypeParams(Parser *parser, const TypeId *params, int count);
 bool startsInterfaceDeclaration(Parser *parser);
 bool startsTypeAlias(Parser *parser);
 AstNode *parseInterfaceDeclaration(Parser *parser);

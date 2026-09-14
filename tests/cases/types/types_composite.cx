@@ -1,0 +1,84 @@
+// A type is no longer one word. An array knows what it holds, a function says
+// what it takes and answers, a union says "one of these", and a declaration
+// may be generic over any of them.
+
+// --- arrays that know ------------------------------------------------------
+const xs: number[] = [1, 2, 3];
+console.log(xs[0] + xs[1], xs.length);
+
+// The element type is inferred from the literal, so this is checked without an
+// annotation anywhere.
+const names = ["ada", "alan"];
+console.log(names[0].toUpperCase());
+
+// An array of arrays, and an array of a declared type.
+const grid: number[][] = [[1, 2], [3]];
+console.log(grid[0][1], grid.length);
+
+// --- functions that say ----------------------------------------------------
+function apply(f: (n: number) => string, x: number): string {
+  return f(x);
+}
+console.log(apply((n: number) => "n=" + String(n), 7));
+
+// A named function has a function type of its own, so it may be passed where
+// one is wanted.
+function describe(n: number): string {
+  return "the number " + String(n);
+}
+console.log(apply(describe, 3));
+
+// A function with no return annotation still says what it answers: the type is
+// taken from what its `return` statements give.
+const double = (n: number) => n * 2;
+console.log(apply((n: number) => String(double(n)), 4));
+
+// --- unions, and the null that used to need a sentinel ---------------------
+function find(haystack: string[], needle: string): string | null {
+  for (const straw of haystack) {
+    if (straw === needle) return straw;
+  }
+  return null;
+}
+
+const hit = find(names, "alan");
+if (hit !== null) {
+  console.log(hit.toUpperCase());
+}
+console.log(find(names, "nobody") === null ? "not found" : "found");
+
+// `typeof` narrows a union in both branches, so each one may use what is left.
+function widen(x: number | string): string {
+  if (typeof x === "number") return "number " + String(x + 1);
+  return "string " + x.toUpperCase();
+}
+console.log(widen(1), widen("s"));
+
+// --- generics --------------------------------------------------------------
+function first<T>(items: T[]): T {
+  return items[0];
+}
+console.log(first(xs) + 1, first(names).toUpperCase());
+
+function mapped<T, U>(items: T[], change: (item: T) => U): U[] {
+  const out = [];
+  for (const item of items) out.push(change(item));
+  return out;
+}
+const lengths = mapped(names, (name: string) => name.length);
+console.log(lengths[0] + lengths[1]);
+
+interface Box<T> {
+  value: T;
+}
+const boxed: Box<number> = { value: 41 };
+console.log(boxed.value + 1);
+
+function unwrap<T>(box: Box<T>): T {
+  return box.value;
+}
+console.log(unwrap(boxed) + 1);
+
+type Pair<A, B> = { left: A; right: B };
+const pair: Pair<string, number> = { left: "x", right: 2 };
+console.log(pair.left, pair.right + 1);

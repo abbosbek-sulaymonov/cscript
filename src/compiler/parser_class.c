@@ -156,7 +156,7 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
       continue;
     }
 
-    TypeKind fieldType;
+    TypeId fieldType;
     bool annotated;
     if (!parseTypeAnnotation(parser, &fieldType, &annotated)) return NULL;
 

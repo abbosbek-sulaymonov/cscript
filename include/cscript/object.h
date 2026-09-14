@@ -454,7 +454,7 @@ struct ObjFunction {
    * lowered function has to treat every argument as unknown — which is most of
    * the reason the IR could not type anything. `NULL` when there are none.
    *
-   * Holds TypeKind values, one per parameter, indexed from zero. */
+   * Holds TypeId values, one per parameter, indexed from zero. */
   uint8_t *paramTypes;
 
   /* Tiering. `hotness` counts calls and loop back-edges together, because a

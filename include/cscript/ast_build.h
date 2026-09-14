@@ -79,19 +79,19 @@ AstNode *csAstExport(AstArena *arena, int line, AstNode *declaration);
 void csAstExportAddName(AstArena *arena, AstNode *node, const char *name, int nameLength, const char *alias, int aliasLength);
 
 AstNode *csAstClass(AstArena *arena, int line, const char *name, int nameLength, const char *superName, int superLength);
-void csAstClassAddField(AstArena *arena, AstNode *node, const char *name, int length, AstNode *initializer, TypeKind declaredType, bool hasAnnotation, bool isStatic);
+void csAstClassAddField(AstArena *arena, AstNode *node, const char *name, int length, AstNode *initializer, TypeId declaredType, bool hasAnnotation, bool isStatic);
 void csAstClassAddMember(AstArena *arena, AstNode *node, AstNode *function, bool isStatic, ClassMemberKind kind);
 void csAstCallAddArgument(AstArena *arena, AstNode *call, AstNode *argument);
 AstNode *csAstProperty(AstArena *arena, int line, AstNode *object, const char *name, int length);
 
 AstNode *csAstExpressionStmt(AstArena *arena, int line, AstNode *expression);
-AstNode *csAstVarDecl(AstArena *arena, int line, const char *name, int length, AstNode *initializer, bool isConst, TypeKind declaredType, bool hasAnnotation);
+AstNode *csAstVarDecl(AstArena *arena, int line, const char *name, int length, AstNode *initializer, bool isConst, TypeId declaredType, bool hasAnnotation);
 AstNode *csAstBlock(AstArena *arena, int line);
 AstNode *csAstIf(AstArena *arena, int line, AstNode *condition, AstNode *thenBranch, AstNode *elseBranch);
 AstNode *csAstWhile(AstArena *arena, int line, AstNode *condition, AstNode *body);
 AstNode *csAstFor(AstArena *arena, int line, AstNode *initializer, AstNode *condition, AstNode *increment, AstNode *body);
 AstNode *csAstFunction(AstArena *arena, int line, const char *name, int nameLength);
-void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name, int length, TypeKind type, bool hasAnnotation);
+void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name, int length, TypeId type, bool hasAnnotation);
 AstNode *csAstConditional(AstArena *arena, int line, AstNode *condition, AstNode *thenValue, AstNode *elseValue);
 AstNode *csAstBreak(AstArena *arena, int line);
 

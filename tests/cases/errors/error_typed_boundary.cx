@@ -1,7 +1,7 @@
 // A `number` annotation is not advice: the compiler emits a specialised add
 // for arithmetic on one and the JIT seeds the slot as a number and stops
 // guarding. The checker enforces it wherever it can see the argument's type —
-// but an array's element types are not modelled, so a value arriving through
+// but an object's properties are not modelled, so a value arriving through
 // that edge has to be checked where it lands.
 function scale(x: number) {
   return x * 2;
@@ -14,5 +14,5 @@ console.log(scale(untyped));
 // The same edge carrying something that is not a number. Without the check at
 // the boundary this read the object's bits as a double and answered with
 // whatever fell out.
-const sneaky = [7n];
-console.log(scale(sneaky[0]));
+const sneaky = { held: 7n };
+console.log(scale(sneaky.held));

@@ -1,0 +1,8 @@
+// A generic is given the number of arguments it declares, and says so when it
+// is not. Refused while parsing, because the annotation cannot be resolved at
+// all without them.
+interface Box<T> {
+  value: T;
+}
+
+const arity: Box<number, string> = { value: 1 };

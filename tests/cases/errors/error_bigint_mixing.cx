@@ -11,7 +11,9 @@ console.log(`${2n} and ${3}`);
 // Ordering mixes freely, because it always has exactly one right answer.
 console.log(1n < 2, 3n > 2.5);
 
-// The checker catches a literal pair outright. This one comes out of an array,
-// whose element types are not modelled, so the refusal is the runtime's.
-const mixed = [1n, 1];
-console.log(mixed[0] + mixed[1]);
+// The checker catches a literal pair outright, and it now sees through an
+// array as well — `[1n, 1]` is a `bigint | number` array and adding two of
+// those is refused before the program runs. This one goes through an object's
+// properties, which are not modelled, so the refusal is the runtime's.
+const mixed = { left: 1n, right: 1 };
+console.log(mixed.left + mixed.right);

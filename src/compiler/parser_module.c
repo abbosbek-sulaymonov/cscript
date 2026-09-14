@@ -250,7 +250,7 @@ AstNode *parseExport(Parser *parser) {
  * `for (let i = 0; ...)` only diverge after the name, so the caller has to read
  * it before it knows which form it is looking at. */
 AstNode *finishVarDeclaration(Parser *parser, int line, const char *name, int nameLength, bool isConst) {
-  TypeKind declaredType;
+  TypeId declaredType;
   bool hasAnnotation;
   if (!parseTypeAnnotation(parser, &declaredType, &hasAnnotation)) return NULL;
 

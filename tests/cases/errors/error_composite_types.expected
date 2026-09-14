@@ -1,0 +1,5 @@
+error_composite_types.cx:2: error: cannot assign (number | string)[] to 'xs', declared as number[]
+error_composite_types.cx:5: error: argument 1 of 'apply' is (string) => string but the parameter is (number) => string
+error_composite_types.cx:8: error: cannot assign string | null to 'sure', declared as string
+error_composite_types.cx:9: error: cannot read property 'length' of string | null
+error_composite_types.cx:15: error: member 'value' is string but Box<number> declares it number

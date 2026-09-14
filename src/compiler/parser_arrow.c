@@ -261,6 +261,11 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name, int nameL
   (void)wasAsync;
   (void)wasGenerator;
 
+  /* `function first<T>(xs: T[]): T` — the type parameters come before the
+   * value parameters because the value parameters may name them. They go out
+   * of scope at the end of the declaration, below. */
+  if (!parseTypeParams(parser, function->as.function.typeParams, &function->as.function.typeParamCount)) return NULL;
+
   consume(parser, TOKEN_LEFT_PAREN, isMethod ? "expected '(' after the method name" : "expected '(' after the function name");
   if (parser->diag->panicMode) return NULL;
 
@@ -292,7 +297,7 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name, int nameL
       const char *paramName = parser->previous.start;
       int paramLength = parser->previous.length;
 
-      TypeKind paramType;
+      TypeId paramType;
       bool annotated;
       if (!parseTypeAnnotation(parser, &paramType, &annotated)) return NULL;
 
@@ -318,7 +323,7 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name, int nameL
   consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the parameters");
   if (parser->diag->panicMode) return NULL;
 
-  TypeKind returnType;
+  TypeId returnType;
   bool hasReturnAnnotation;
   if (!parseTypeAnnotation(parser, &returnType, &hasReturnAnnotation)) return NULL;
   function->as.function.returnType = returnType;
@@ -336,6 +341,7 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name, int nameL
 
   parser->asyncDepth = enclosingAsync;
   parser->inGenerator = enclosingGenerator;
+  closeTypeParams(parser, function->as.function.typeParams, function->as.function.typeParamCount);
   if (function->as.function.body == NULL) return NULL;
 
   return function;

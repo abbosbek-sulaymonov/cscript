@@ -16,17 +16,23 @@
 #define MAX_SCOPED_VARIABLES 512
 
 /* A function's declared shape. Parameter and return types are kept here rather
- * than in TypeKind, which stays a flat enum: a full type tree is only worth
+ * than in TypeId, which stays a flat enum: a full type tree is only worth
  * building once object shapes and generics need one. */
 typedef struct {
-  TypeKind returnType;
+  TypeId returnType;
   bool hasReturnAnnotation;
   int paramCount;
   /* How many a call must supply. A parameter with a default is optional, so
    * this stops at the first one that has one. */
   int requiredCount;
   bool hasRest; /* no upper bound on the arguments */
-  TypeKind paramTypes[UINT8_MAX];
+  /* The same thing as a type, for the places that take one: a variable's
+   * type, an argument checked against a `(n: number) => string` parameter. */
+  TypeId type;
+  TypeId paramTypes[UINT8_MAX];
+  /* The declaration's own type parameters, if it is generic. */
+  TypeId typeParams[CS_MAX_TYPE_PARAMS];
+  int typeParamCount;
   /* Which parameters have a default. Writing `undefined` for one of those is
    * how a caller asks for the default, so such an argument is accepted
    * whatever the parameter's type says. */
@@ -39,7 +45,7 @@ typedef struct {
 typedef struct {
   const char *name;
   int length;
-  TypeKind type;
+  TypeId type;
   int depth;
   const Signature *signature; /* NULL unless the variable is a function */
 
@@ -64,14 +70,20 @@ typedef struct {
 
   /* The return type expected by the function currently being checked, so a
    * `return` can be validated against its own declaration. */
-  TypeKind currentReturn;
+  TypeId currentReturn;
   bool currentReturnAnnotated;
+  /* What the `return` statements of an unannotated function have said so far,
+   * unioned. TYPE_ERROR means none has been seen yet, which is different from
+   * having seen `return;` — that one says undefined. */
+  TypeId inferredReturn;
   int functionDepth;
 
-  /* The interfaces and aliases this file declared, filled in by the parser.
-   * Every message that names a type goes through csTypeNameIn with it, and
-   * every assignability question through csTypeAssignableIn. */
-  const TypeRegistry *types;
+  /* The file's types, built by the parser and extended here: an array literal
+   * and an instantiated generic are types nobody wrote down, and they are
+   * interned in the same table as the ones somebody did. Every message that
+   * names a type goes through csTypeNameIn with it, and every assignability
+   * question through csTypeAssignableIn. */
+  TypeTable *types;
 } Checker;
 
 /* What a built-in method on a primitive answers.
@@ -79,30 +91,34 @@ typedef struct {
  * TYPE_DYNAMIC here means "known method, unknown result" — an array method whose
  * element type the checker cannot see. */
 typedef struct {
-  TypeKind receiver;
+  TypeId receiver;
   const char *name;
-  TypeKind returns;
+  TypeId returns;
 } MethodSignature;
 
 /* The method that name refers to on that receiver type, or NULL. */
-const MethodSignature *csTypeFindMethod(TypeKind receiver, const char *name, int length);
+const MethodSignature *csTypeFindMethod(TypeId receiver, const char *name, int length);
 
 /* Requires a number, reporting against the operator that wanted one. Answers
  * TYPE_NUMBER either way, so one bad operand does not cascade. */
-TypeKind csTypeRequireNumber(Checker *checker, TypeKind type, int line, const char *what, AstNode *subject);
+TypeId csTypeRequireNumber(Checker *checker, TypeId type, int line, const char *what, AstNode *subject);
 
 /* Reports, and answers true, when the type is a `value` that has not been
  * narrowed — which is what makes `value` a type rather than an escape hatch. */
-bool csTypeRefuseUnnarrowed(Checker *checker, TypeKind type, int line, const char *what, AstNode *subject);
+bool csTypeRefuseUnnarrowed(Checker *checker, TypeId type, int line, const char *what, AstNode *subject);
 
 /* Checks an object literal against the interface it is being given to, and
  * answers the type it should be treated as having. Anything that is not a
  * literal, or not given to an interface, comes back with the type it already
  * had. */
-TypeKind csTypeCheckShape(Checker *checker, AstNode *value, TypeKind expected);
+TypeId csTypeCheckShape(Checker *checker, AstNode *value, TypeId expected);
+
+/* Checks a call whose callee has a function type, and answers what that type
+ * says it answers. */
+TypeId csTypeCheckCallThrough(Checker *checker, AstNode *node, TypeId functionType);
 
 void csTypeBeginScope(Checker *checker);
-void csTypeDeclareVariable(Checker *checker, const char *name, int length, TypeKind type);
+void csTypeDeclareVariable(Checker *checker, const char *name, int length, TypeId type);
 
 /* The same, for a `let x;` that has nothing to take a type from yet. */
 void csTypeDeclareAwaiting(Checker *checker, const char *name, int length);
@@ -111,11 +127,11 @@ void csTypeDeclareAwaiting(Checker *checker, const char *name, int length);
  * that branch and nothing outside it. Answers the variable whose type was
  * changed, with its old type in `saved`, or NULL when the condition is not of
  * that shape. */
-Variable *csTypeNarrow(Checker *checker, AstNode *condition, bool whenTrue, TypeKind *saved);
+Variable *csTypeNarrow(Checker *checker, AstNode *condition, bool whenTrue, TypeId *saved);
 
 /* Every narrowing a condition carries. See csTypeNarrow for the shape each
  * one has to be in. */
-int csTypeNarrowAll(Checker *checker, AstNode *condition, bool whenTrue, Variable **narrowed, TypeKind *saved, int limit);
+int csTypeNarrowAll(Checker *checker, AstNode *condition, bool whenTrue, Variable **narrowed, TypeId *saved, int limit);
 
 /* Whether a branch always leaves — a throw, a return, a break, a continue, or
  * a block ending in one. What makes `if (typeof x !== "number") return;` prove
@@ -133,21 +149,21 @@ void csTypeEndScope(Checker *checker);
 Variable *csTypeFindVariable(Checker *checker, const char *name, int length);
 
 /* The type of a node, and the annotation left on it. */
-TypeKind checkNode(Checker *checker, AstNode *node);
+TypeId checkNode(Checker *checker, AstNode *node);
 
 /* What a binary operator's operands have to be, and what it answers. */
-TypeKind csTypeCheckBinary(Checker *checker, AstNode *node);
+TypeId csTypeCheckBinary(Checker *checker, AstNode *node);
 
 /* Records a function's shape and binds its name, before the body is walked so
  * that recursive calls resolve. */
-const Signature *csTypeDeclareFunction(Checker *checker, AstNode *node);
+Signature *csTypeDeclareFunction(Checker *checker, AstNode *node);
 
 /* Walks a function's body with its own return type in scope. */
-void csTypeCheckFunctionBody(Checker *checker, AstNode *node, const Signature *signature);
+void csTypeCheckFunctionBody(Checker *checker, AstNode *node, Signature *signature);
 
 /* The two halves checkNode asks, in order. Each answers false for a node
  * belonging to the other. */
-bool checkValueNode(Checker *checker, AstNode *node, TypeKind *result);
-bool checkStatementNode(Checker *checker, AstNode *node, TypeKind *result);
+bool checkValueNode(Checker *checker, AstNode *node, TypeId *result);
+bool checkStatementNode(Checker *checker, AstNode *node, TypeId *result);
 
 #endif /* CSCRIPT_COMPILER_TYPECHECK_INTERNAL_H */

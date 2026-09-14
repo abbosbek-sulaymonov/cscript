@@ -270,9 +270,14 @@ lookup that finds nothing.
 Two spellings work. A `let` assigned afterwards:
 
 ```ts
-let walk: Function = null;
+let walk = (n: number) => "done";
 walk = (n: number) => n <= 0 ? "done" : walk(n - 1);
 ```
+
+The first line is what gives `walk` its type — `(n: number) => string`, taken
+from the arrow — and the second has to agree with it. Seeding it with `null`
+instead would make it a `(n: number) => string | null`, which is not callable
+until the null is ruled out.
 
 or a function declaration, which binds its name before its body is compiled
 precisely so that it can call itself:
