@@ -50,6 +50,7 @@ const here: Point = { x: 3, y: 4 };   // proved member by member, then erased
 
 const xs: number[] = [1, 2, 3];              // arrays know what they hold
 function first<T>(items: T[]): T { … }       // generics, inferred at the call
+const counts: Map<string, number> = new Map();  // and the built-in ones
 let found: string | null = null;             // and unions, narrowed by typeof
 
 let total: number = "text";   // error: cannot assign string to 'total'
@@ -82,7 +83,7 @@ The full list, with the reasoning for each, is in
 ---
 ## Status
 
-**v0.50.0.** The language is feature-complete for everyday code and well past
+**v0.51.0.** The language is feature-complete for everyday code and well past
 it: objects and arrays, functions and closures, classes with private members
 and static blocks, modules, promises and `async`/`await`, generators and async
 generators, regular expressions, `Map`/`Set`, `Symbol`, `BigInt`, `Date`,

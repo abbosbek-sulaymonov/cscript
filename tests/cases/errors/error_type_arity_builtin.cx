@@ -1,0 +1,8 @@
+// A built-in generic takes the number of arguments it declares, like any
+// other. Refused while parsing, because the annotation cannot be resolved at
+// all without them.
+async function later(): Promise<number> {
+  return 1;
+}
+
+const p: Promise<number, string> = later();

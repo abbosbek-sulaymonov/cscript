@@ -1,0 +1,3 @@
+error_type_arity_builtin.cx:8: error: 'Promise' takes 1 type argument and was given 2
+      8 | const p: Promise<number, string> = later();
+        |          ^^^^^^^

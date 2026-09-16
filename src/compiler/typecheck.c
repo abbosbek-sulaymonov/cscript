@@ -224,6 +224,16 @@ void csTypeCheckFunctionBody(Checker *checker, AstNode *node, Signature *signatu
   TypeId savedInferred = checker->inferredReturn;
   checker->currentReturn = signature != NULL ? signature->returnType : TYPE_DYNAMIC;
   checker->currentReturnAnnotated = signature != NULL && signature->hasReturnAnnotation;
+
+  /* `async function f(): Promise<number>` returns a *number*: what the
+   * annotation describes is what calling it answers, and a `return` inside
+   * gives what that promise resolves to. Both spellings work — an async
+   * function annotated `number` says the same thing about its returns — so the
+   * two readings agree on everything but which one the caller awaits. */
+  if (node->as.function.isAsync && checker->currentReturnAnnotated) {
+    TypeId resolves;
+    if (csTypeIsPromise(checker->types, checker->currentReturn, &resolves)) checker->currentReturn = resolves;
+  }
   checker->inferredReturn = TYPE_ERROR;
   checker->functionDepth++;
 

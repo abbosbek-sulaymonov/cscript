@@ -27,6 +27,9 @@ void csTypeTableInit(TypeTable *table) {
   table->slotCount = 0;
   table->aliasCount = 0;
   table->full = false;
+
+  /* Every file starts knowing the shapes the runtime already has. */
+  csTypeDeclarePrelude(table);
 }
 
 /* A name the table owns. Repeats share one copy, which keeps the pool small
@@ -309,7 +312,23 @@ bool csTypeAddMember(TypeTable *table, TypeId type, const TypeMember *member) {
   }
 
   CompositeType *declared = &table->composites[csTypeCompositeIndex(type)];
-  if (declared->memberStart + declared->memberCount != table->memberCount) return false;
+
+  /* Members live in one pool and an interface owns a run of it, so a member
+   * can only be appended while that run is the last. Instantiating a generic
+   * whose members mention another generic interleaves two of them, so the run
+   * moves to the end rather than refusing — which costs a copy of a handful of
+   * entries, once, and removes an edge nothing else would have noticed. */
+  if (declared->memberStart + declared->memberCount != table->memberCount) {
+    if (table->memberCount + declared->memberCount >= CS_MAX_TYPE_MEMBERS) {
+      table->full = true;
+      return false;
+    }
+    for (int i = 0; i < declared->memberCount; i++) {
+      table->members[table->memberCount + i] = table->members[declared->memberStart + i];
+    }
+    declared->memberStart = table->memberCount;
+    table->memberCount += declared->memberCount;
+  }
   for (int i = 0; i < declared->memberCount; i++) {
     if (csTypeNameMatches(member->name, member->length, table->members[declared->memberStart + i].name)) return false;
   }
@@ -476,79 +495,3 @@ const char *csTypeNameIn(const TypeTable *table, TypeId type) {
   return buffer.out;
 }
 
-/* An interface already in `dest` describing exactly this shape, or TYPE_ERROR.
- * Two files that declare the same shape should end up with one type, or every
- * import would grow the table by a copy nobody can tell from the original. */
-static TypeId matchingInterface(const TypeTable *dest, const TypeTable *src, const CompositeType *wanted) {
-  for (int i = 0; i < dest->compositeCount; i++) {
-    const CompositeType *candidate = &dest->composites[i];
-    if (candidate->kind != COMPOSITE_INTERFACE) continue;
-    if (candidate->memberCount != wanted->memberCount) continue;
-    if (!csTypeNameMatches(wanted->name, wanted->nameLength, candidate->name)) continue;
-
-    bool same = true;
-    for (int j = 0; j < wanted->memberCount && same; j++) {
-      const TypeMember *want = &src->members[wanted->memberStart + j];
-      const TypeMember *have = &dest->members[candidate->memberStart + j];
-      same = csTypeNameMatches(want->name, want->length, have->name) && want->optional == have->optional;
-    }
-    if (same) return csTypeCompositeAt(i);
-  }
-  return TYPE_ERROR;
-}
-
-static TypeId importType(TypeTable *dest, const TypeTable *src, TypeId type, int depth) {
-  if (!csTypeIsComposite(type) || depth > 6) return csTypeIsComposite(type) ? TYPE_DYNAMIC : type;
-
-  const CompositeType *composite = csTypeComposite(src, type);
-  if (composite == NULL) return TYPE_DYNAMIC;
-
-  switch (composite->kind) {
-    /* Erased: a generic is instantiated at its call site, and an imported
-     * binding has no call site here for the checker to read. */
-    case COMPOSITE_TYPEVAR: return TYPE_DYNAMIC;
-
-    case COMPOSITE_ARRAY: return csTypeArrayOf(dest, importType(dest, src, composite->inner, depth + 1));
-
-    case COMPOSITE_UNION: {
-      TypeId members[16];
-      int count = composite->slotCount;
-      if (count > (int)(sizeof members / sizeof members[0])) return TYPE_DYNAMIC;
-      for (int i = 0; i < count; i++) members[i] = importType(dest, src, src->slots[composite->slotStart + i], depth + 1);
-      return csTypeUnionOf(dest, members, count);
-    }
-
-    case COMPOSITE_FUNCTION: {
-      TypeId params[32];
-      int count = composite->slotCount;
-      if (count > (int)(sizeof params / sizeof params[0])) return TYPE_FUNCTION;
-      for (int i = 0; i < count; i++) params[i] = importType(dest, src, src->slots[composite->slotStart + i], depth + 1);
-      TypeId result = importType(dest, src, composite->inner, depth + 1);
-      return csTypeFunctionOf(dest, params, count, composite->requiredCount, composite->hasRest, result);
-    }
-
-    case COMPOSITE_INTERFACE: {
-      TypeId already = matchingInterface(dest, src, composite);
-      if (already != TYPE_ERROR) return already;
-
-      TypeId copy =
-          composite->open ? csTypeDeclareClass(dest, composite->name, composite->nameLength) : csTypeDeclareInterface(dest, composite->name, composite->nameLength);
-      if (copy == TYPE_ERROR) return TYPE_DYNAMIC;
-
-      int start = composite->memberStart;
-      int count = composite->memberCount;
-      for (int i = 0; i < count; i++) {
-        TypeMember member = src->members[start + i];
-        member.type = importType(dest, src, member.type, depth + 1);
-        if (!csTypeAddMember(dest, copy, &member)) break;
-      }
-      return copy;
-    }
-  }
-  return TYPE_DYNAMIC;
-}
-
-TypeId csTypeImport(TypeTable *dest, const TypeTable *src, TypeId type) {
-  if (dest == NULL || src == NULL) return TYPE_DYNAMIC;
-  return importType(dest, src, type, 0);
-}

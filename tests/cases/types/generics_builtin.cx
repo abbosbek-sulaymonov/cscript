@@ -1,0 +1,61 @@
+// The generic types the runtime already has, as TypeScript spells them.
+
+// --- Map<K, V> -------------------------------------------------------------
+const counts: Map<string, number> = new Map();
+counts.set("a", 1).set("b", 2);
+console.log(counts.get("a"), counts.size, counts.has("b"), counts.delete("a"));
+
+// `get` answers `V | undefined`, because a key that is not there is the case a
+// caller has to handle — and the one a type can say out loud.
+const found = counts.get("b");
+if (found !== undefined) console.log(found + 1);
+console.log(counts.get("nope") === undefined);
+
+// What the keys and values are is carried through.
+for (const key of counts.keys()) console.log(key.toUpperCase());
+for (const held of counts.values()) console.log(held * 10);
+
+// --- Set<T> ----------------------------------------------------------------
+const seen: Set<string> = new Set();
+seen.add("x").add("y");
+console.log(seen.size, seen.has("x"), seen.delete("x"));
+for (const element of seen.values()) console.log(element.toUpperCase());
+
+// --- Array<T> --------------------------------------------------------------
+// The other spelling of `T[]`, and the same type: neither annotation converts.
+const xs: Array<number> = [1, 2, 3];
+const ys: number[] = xs;
+console.log(xs[0] + ys[2], ys.length);
+
+// --- Promise<T> ------------------------------------------------------------
+// An async function says what it answers, and `await` unwraps it.
+async function later(n: number): Promise<string> {
+  return "n=" + String(n);
+}
+
+async function main() {
+  const text = await later(7);
+  console.log(text.toUpperCase());
+
+  const pending = later(1);
+  console.log((await pending).length);
+}
+main();
+
+// Awaiting something that is not a promise answers what it already was, as it
+// does in JavaScript.
+async function plain() {
+  const n = await 41;
+  console.log(n + 1);
+}
+plain();
+
+// --- a generic of one's own, over the built-in ones -------------------------
+interface Cache<K, V> {
+  read(key: K): V | undefined;
+}
+
+const cache: Cache<string, number> = {
+  read: (key: string) => key.length,
+};
+console.log(cache.read("abc"));
