@@ -173,6 +173,20 @@ Variable *csTypeNarrow(Checker *checker, AstNode *condition, bool whenTrue, Type
     return variable;
   }
 
+  /* `role === "admin"` — a set of names is only a type worth having if asking
+   * which one narrows it. Both branches say something: the one the test
+   * selects keeps that name, and the other drops it, which is what makes a
+   * chain of them exhaustive. */
+  if (left->type == AST_IDENTIFIER && right->type == AST_STRING_LITERAL) {
+    Variable *variable = csTypeFindVariable(checker, left->as.identifier.name, left->as.identifier.length);
+    if (variable == NULL || variable->awaiting) return NULL;
+    TypeId literal = csTypeLiteral(checker->types, right->as.string.chars, right->as.string.length);
+    if (!csTypeIs(checker->types, variable->type, COMPOSITE_UNION) && !csTypeIs(checker->types, variable->type, COMPOSITE_LITERAL)) return NULL;
+    *saved = variable->type;
+    variable->type = narrowedTo(checker, variable->type, literal, whenTrue == equality);
+    return variable;
+  }
+
   if (left->type != AST_UNARY || left->as.unary.op != UNARY_TYPEOF) return NULL;
   if (right->type != AST_STRING_LITERAL) return NULL;
 

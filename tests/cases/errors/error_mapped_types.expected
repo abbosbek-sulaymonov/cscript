@@ -1,0 +1,9 @@
+error_mapped_types.cx:9: error: cannot assign string to 'role', declared as "admin" | "user"
+error_mapped_types.cx:12: error: cannot assign string to 'key', declared as "name" | "age" | "email"
+error_mapped_types.cx:14: error: member 'name' is number but Partial declares it string
+error_mapped_types.cx:15: error: Required needs a member 'email' and this has none
+error_mapped_types.cx:16: error: Pick has no member 'age'
+error_mapped_types.cx:17: error: Omit has no member 'email'
+error_mapped_types.cx:18: error: member 'a' is string but Record holds number
+error_mapped_types.cx:20: error: 'age' is readonly on Readonly
+error_mapped_types.cx:24: error: 'name' is readonly on Locked

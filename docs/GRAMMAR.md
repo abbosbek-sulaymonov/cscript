@@ -336,6 +336,94 @@ about a `T`, which is what lets the body be checked once for every
 instantiation at once. A declaration may take at most four of them, and a call
 that leaves one undetermined gets the type the checker could not work out.
 
+### Literal types
+
+A string may be a type of its own, and a set of them is how a program says
+which names it accepts:
+
+```ts
+type Role = "admin" | "user" | "guest";
+const role: Role = "admin";     // proved where it is written
+const wrong: Role = "root";     // error: cannot assign string to 'wrong'
+```
+
+Asking which one narrows it, in both branches, the same way `typeof` does:
+
+```ts
+function rights(role: Role): string {
+  if (role === "admin") return "all";   // "admin" here
+  if (role === "user") return "some";   // "user" | "guest" in what is left
+  return "none";
+}
+```
+
+A literal is a string, and a string is not a literal: that asymmetry is what
+makes the set closed. Like an object literal, a written string is checked
+against what it is being given to — which is the only place it can be.
+
+### `keyof`, and indexed access
+
+```ts
+interface User { name: string; age: number; email?: string; }
+
+type UserKey = keyof User;        // "name" | "age" | "email"
+type Age = User["age"];           // number
+type AnyValue = User[keyof User]; // string | number
+```
+
+`keyof` answers a shape's member names as a union of literals, and `T[K]`
+answers what the member named K holds — a union of names answering the union
+of what they hold.
+
+### Mapped types
+
+A shape built by walking the names of another one:
+
+```ts
+type Nullable<T> = { [K in keyof T]: T[K] | null };
+type Every<T> = { [K in keyof T]-?: T[K] };
+type Locked<T> = { readonly [K in keyof T]: T[K] };
+```
+
+`?` and `readonly` may each be **added** by writing the modifier or **taken
+away** by writing `-` in front of it. Written with neither, what the source
+member said is what the mapped one says — so `Nullable<User>` keeps `email`
+optional because User has it optional.
+
+A mapping over a type variable has nothing to walk until there is a type, so
+it is kept as a mapping and worked out at the point the generic is
+instantiated — the same point, and the same substitution, as everything else
+generic here.
+
+`readonly` is enforced where it is written: reading such a member is
+unchanged, and assigning through one is refused.
+
+### The utility types
+
+The six TypeScript's library defines as mappings, here applied directly:
+
+| Written | Means |
+| --- | --- |
+| `Partial<T>` | every member optional |
+| `Required<T>` | every member not |
+| `Readonly<T>` | every member unwritable |
+| `Pick<T, K>` | only the members named in K |
+| `Omit<T, K>` | every member except those |
+| `Record<K, V>` | one member per name in K, each holding V |
+
+```ts
+const draft: Partial<User> = { name: "ada" };
+const summary: Pick<User, "name" | "age"> = { name: "ada", age: 36 };
+const counts: Record<string, number> = { a: 1, b: 2 };
+counts["a"] + 1;                     // a number, however it is reached
+```
+
+`Record<string, V>` has no member names to make, so it takes an **index
+signature** instead: every key answers V, which is what a dictionary is.
+
+What is missing beside them: `Exclude`, `Extract`, `ReturnType` and the rest
+need conditional types, which this type system does not have.
+
 ### The built-in generics
 
 Three of the runtime's own types are generic, and are spelled as TypeScript
@@ -377,9 +465,8 @@ An **async function's return type** is written the way TypeScript writes it —
 The older spelling still means what it did: annotating an async function
 `string` says the same thing about its returns.
 
-What is not here: `Record`, `Partial`, `Pick` and the rest of TypeScript's
-utility types, which are mapped types rather than generics, and
-`Generator<T>` — a generator's element type is not modelled yet.
+What is not here: `Generator<T>` — a generator's element type is not modelled
+yet. The utility types are above.
 
 ### Types across a file boundary
 

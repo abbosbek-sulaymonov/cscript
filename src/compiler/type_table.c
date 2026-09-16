@@ -65,8 +65,7 @@ bool csTypeIs(const TypeTable *table, TypeId type, CompositeKind kind) {
   return composite != NULL && composite->kind == kind;
 }
 
-/* A blank composite of the given kind, or NULL when the table is full. */
-static CompositeType *newComposite(TypeTable *table, CompositeKind kind, TypeId *idOut) {
+CompositeType *csTypeNewComposite(TypeTable *table, CompositeKind kind, TypeId *idOut) {
   if (table == NULL || table->compositeCount >= CS_MAX_COMPOSITE_TYPES) {
     if (table != NULL) table->full = true;
     return NULL;
@@ -76,6 +75,7 @@ static CompositeType *newComposite(TypeTable *table, CompositeKind kind, TypeId 
   composite->kind = kind;
   composite->inner = TYPE_DYNAMIC;
   composite->genericOf = TYPE_DYNAMIC;
+  composite->indexValue = TYPE_ERROR;
   *idOut = csTypeCompositeAt(table->compositeCount++);
   return composite;
 }
@@ -98,6 +98,33 @@ static bool sameSlots(const TypeTable *table, const CompositeType *composite, co
   return true;
 }
 
+TypeId csTypeLiteral(TypeTable *table, const char *text, int length) {
+  if (table == NULL) return TYPE_STRING;
+  for (int i = 0; i < table->compositeCount; i++) {
+    const CompositeType *composite = &table->composites[i];
+    if (composite->kind != COMPOSITE_LITERAL) continue;
+    if (composite->nameLength != length) continue;
+    if (csTypeNameMatches(text, length, composite->name)) return csTypeCompositeAt(i);
+  }
+
+  const char *owned = internName(table, text, length);
+  if (owned == NULL) return TYPE_STRING;
+
+  TypeId id;
+  CompositeType *composite = csTypeNewComposite(table, COMPOSITE_LITERAL, &id);
+  if (composite == NULL) return TYPE_STRING;
+  composite->name = owned;
+  composite->nameLength = length;
+  return id;
+}
+
+const char *csTypeLiteralText(const TypeTable *table, TypeId type, int *length) {
+  const CompositeType *composite = csTypeComposite(table, type);
+  if (composite == NULL || composite->kind != COMPOSITE_LITERAL) return NULL;
+  *length = composite->nameLength;
+  return composite->name;
+}
+
 TypeId csTypeArrayOf(TypeTable *table, TypeId element) {
   if (table == NULL) return TYPE_ARRAY;
   /* An array of nothing in particular is the primitive `array`, so the two
@@ -110,7 +137,7 @@ TypeId csTypeArrayOf(TypeTable *table, TypeId element) {
   }
 
   TypeId id;
-  CompositeType *composite = newComposite(table, COMPOSITE_ARRAY, &id);
+  CompositeType *composite = csTypeNewComposite(table, COMPOSITE_ARRAY, &id);
   if (composite == NULL) return TYPE_ARRAY;
   composite->inner = element;
   return id;
@@ -131,7 +158,7 @@ TypeId csTypeFunctionOf(TypeTable *table, const TypeId *params, int paramCount, 
   if (!csTypeTakeSlots(table, params, paramCount, &start)) return TYPE_FUNCTION;
 
   TypeId id;
-  CompositeType *composite = newComposite(table, COMPOSITE_FUNCTION, &id);
+  CompositeType *composite = csTypeNewComposite(table, COMPOSITE_FUNCTION, &id);
   if (composite == NULL) return TYPE_FUNCTION;
   composite->slotStart = start;
   composite->slotCount = paramCount;
@@ -191,7 +218,7 @@ TypeId csTypeUnionOf(TypeTable *table, const TypeId *members, int count) {
   if (!csTypeTakeSlots(table, flat, flatCount, &start)) return TYPE_DYNAMIC;
 
   TypeId id;
-  CompositeType *composite = newComposite(table, COMPOSITE_UNION, &id);
+  CompositeType *composite = csTypeNewComposite(table, COMPOSITE_UNION, &id);
   if (composite == NULL) return TYPE_DYNAMIC;
   composite->slotStart = start;
   composite->slotCount = flatCount;
@@ -247,7 +274,7 @@ TypeId csTypeDeclareInterface(TypeTable *table, const char *name, int length) {
   if (owned == NULL) return TYPE_ERROR;
 
   TypeId id;
-  CompositeType *composite = newComposite(table, COMPOSITE_INTERFACE, &id);
+  CompositeType *composite = csTypeNewComposite(table, COMPOSITE_INTERFACE, &id);
   if (composite == NULL) return TYPE_ERROR;
   composite->name = owned;
   composite->nameLength = length;
@@ -273,7 +300,7 @@ TypeId csTypeDeclareTypeVar(TypeTable *table, const char *name, int length) {
   if (owned == NULL) return TYPE_ERROR;
 
   TypeId id;
-  CompositeType *composite = newComposite(table, COMPOSITE_TYPEVAR, &id);
+  CompositeType *composite = csTypeNewComposite(table, COMPOSITE_TYPEVAR, &id);
   if (composite == NULL) return TYPE_ERROR;
   composite->name = owned;
   composite->nameLength = length;
@@ -381,6 +408,11 @@ bool csTypeLookupName(const TypeTable *table, const char *name, int length, Type
   return false;
 }
 
+TypeId csTypeIndexValue(const TypeTable *table, TypeId type) {
+  const CompositeType *composite = csTypeComposite(table, type);
+  return composite != NULL ? composite->indexValue : TYPE_ERROR;
+}
+
 const TypeMember *csTypeFindMember(const TypeTable *table, TypeId type, const char *name, int length) {
   const CompositeType *composite = csTypeComposite(table, type);
   if (composite == NULL || composite->kind != COMPOSITE_INTERFACE) return NULL;
@@ -474,6 +506,28 @@ static void renderType(const TypeTable *table, TypeId type, NameBuffer *buffer, 
         renderType(table, table->slots[composite->slotStart + i], buffer, depth + 1);
       }
       return;
+
+    case COMPOSITE_LITERAL: append(buffer, "\"%.*s\"", composite->nameLength, composite->name); return;
+
+    case COMPOSITE_KEYOF:
+      append(buffer, "keyof ");
+      renderType(table, composite->inner, buffer, depth + 1);
+      return;
+
+    case COMPOSITE_INDEXED:
+      renderType(table, composite->inner, buffer, depth + 1);
+      append(buffer, "[");
+      renderType(table, table->slots[composite->slotStart], buffer, depth + 1);
+      append(buffer, "]");
+      return;
+
+    case COMPOSITE_MAPPED:
+      append(buffer, "{ [%s in ", composite->slotCount > 0 ? "K" : "K");
+      renderType(table, composite->inner, buffer, depth + 1);
+      append(buffer, "]%s: ", composite->optionalMode == MODIFIER_ADD ? "?" : "");
+      if (composite->slotCount > 1) renderType(table, table->slots[composite->slotStart + 1], buffer, depth + 1);
+      append(buffer, " }");
+      return;
   }
   append(buffer, "%s", csTypeName(type));
 }
@@ -494,4 +548,3 @@ const char *csTypeNameIn(const TypeTable *table, TypeId type) {
   renderType(table, type, &buffer, 0);
   return buffer.out;
 }
-

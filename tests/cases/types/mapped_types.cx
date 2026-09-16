@@ -1,0 +1,62 @@
+// A type computed from another: the names of a shape, what one of its members
+// holds, and a shape built by mapping over both.
+
+interface User {
+  name: string;
+  age: number;
+  email?: string;
+}
+
+// --- literal types ---------------------------------------------------------
+// A set of names is a type, and asking which one narrows it in both branches.
+type Role = "admin" | "user" | "guest";
+
+function rights(role: Role): string {
+  if (role === "admin") return "all";
+  if (role === "user") return "some";
+  return "none";
+}
+console.log(rights("admin"), rights("user"), rights("guest"));
+
+// --- keyof, and indexed access ---------------------------------------------
+type UserKey = keyof User;
+const key: UserKey = "name";
+type Age = User["age"];
+const age: Age = 36;
+console.log(key, age);
+
+// `T[keyof T]` is what any of its members holds.
+type AnyValue = User[keyof User];
+const held: AnyValue = "ada";
+console.log(held);
+
+// --- the utility types -----------------------------------------------------
+const draft: Partial<User> = { name: "ada" };
+const full: Required<User> = { name: "ada", age: 36, email: "a@b" };
+const summary: Pick<User, "name" | "age"> = { name: "ada", age: 36 };
+const noEmail: Omit<User, "email"> = { name: "ada", age: 36 };
+const counts: Record<string, number> = { a: 1, b: 2 };
+const flags: Record<"on" | "off", boolean> = { on: true, off: false };
+const frozen: Readonly<User> = { name: "ada", age: 36 };
+
+console.log(draft.name, full.email, summary.age, noEmail.name);
+console.log(counts.a + counts.b, flags.on, frozen.age);
+
+// A dictionary answers its value type for every key, however it is reached.
+console.log(counts["a"] + 1);
+
+// --- a mapping of one's own -------------------------------------------------
+// What T said about each member survives a mapping that does not say
+// otherwise: `email` is optional here because it is optional in User.
+type Nullable<T> = { [K in keyof T]: T[K] | null };
+const maybe: Nullable<User> = { name: null, age: 36 };
+console.log(maybe.age, maybe.name === null);
+
+// `?` adds, `-?` takes away, and `readonly` does the same for writing.
+type Every<T> = { [K in keyof T]-?: T[K] };
+const every: Every<User> = { name: "ada", age: 36, email: "a@b" };
+console.log(every.email);
+
+type Locked<T> = { readonly [K in keyof T]: T[K] };
+const locked: Locked<User> = { name: "ada", age: 36 };
+console.log(locked.name);

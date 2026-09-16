@@ -29,6 +29,7 @@
 
 #include "compiler/parser_internal.h"
 #include "compiler/type_internal.h"
+#include "compiler/type_internal.h"
 
 static bool parseTypeUnion(Parser *parser, TypeId *out);
 
@@ -104,7 +105,7 @@ static bool startsFunctionType(Parser *parser) {
 /* The parameter list of a function type or of an interface's method. The names
  * are read and dropped: what a function type says is what it takes and what it
  * answers, and TypeScript's grammar requires the names to be there. */
-static bool parseParameterTypes(Parser *parser, TypeId *params, int *paramCount, int *requiredCount, bool *hasRest, const char *what) {
+bool parseTypeParameterList(Parser *parser, TypeId *params, int *paramCount, int *requiredCount, bool *hasRest, const char *what) {
   *paramCount = 0;
   *requiredCount = 0;
   *hasRest = false;
@@ -146,7 +147,7 @@ static bool parseFunctionType(Parser *parser, TypeId *out) {
   int paramCount;
   int requiredCount;
   bool hasRest;
-  if (!parseParameterTypes(parser, params, &paramCount, &requiredCount, &hasRest, "expected ')' after the parameters of a function type")) return false;
+  if (!parseTypeParameterList(parser, params, &paramCount, &requiredCount, &hasRest, "expected ')' after the parameters of a function type")) return false;
 
   consume(parser, TOKEN_ARROW, "expected '=>' and a result type");
   if (parser->diag->panicMode) return false;
@@ -158,12 +159,32 @@ static bool parseFunctionType(Parser *parser, TypeId *out) {
 }
 
 static bool parseTypePrimary(Parser *parser, TypeId *out) {
+  /* `keyof T` — the names of T's members, as a union of them. Contextual, so
+   * `keyof` is still an ordinary name everywhere else. */
+  if (checkWord(parser, "keyof")) {
+    advanceToken(parser);
+    TypeId subject;
+    if (!parseTypePrimary(parser, &subject)) return false;
+    *out = csTypeKeyOf(parser->types, subject);
+    return true;
+  }
+
   if (check(parser, TOKEN_LEFT_PAREN)) {
     if (startsFunctionType(parser)) return parseFunctionType(parser, out);
     advanceToken(parser);
     if (!parseTypeUnion(parser, out)) return false;
     consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the type");
     return !parser->diag->panicMode;
+  }
+
+  /* `"admin"` — one string and nothing else, which is what makes a set of
+   * names a type. Written as it is written in TypeScript, and in a program. */
+  if (check(parser, TOKEN_STRING)) {
+    advanceToken(parser);
+    AstNode *text = makeStringLiteral(parser, parser->previous.start, parser->previous.length, parser->previous.line);
+    if (text == NULL) return false;
+    *out = csTypeLiteral(parser->types, text->as.string.chars, text->as.string.length);
+    return true;
   }
 
   /* `null` and `undefined` are keywords, so they do not arrive as identifiers
@@ -176,7 +197,14 @@ static bool parseTypePrimary(Parser *parser, TypeId *out) {
   const char *name = parser->previous.start;
   int length = parser->previous.length;
   int line = parser->previous.line;
-  if (!csTypeLookupName(parser->types, name, length, out)) {
+  /* The utility types are recognised by name rather than declared, because
+   * each is a mapping over an argument that has to be known before there is
+   * anything to map. Asked before the lookup, so that `Partial` is a type the
+   * parser knows even though nothing declared it. */
+  int utilityArity = 0;
+  csTypeUtility(parser->types, name, length, NULL, -1, &utilityArity);
+
+  if (utilityArity == 0 && !csTypeLookupName(parser->types, name, length, out)) {
     /* Some names are wrong in a way worth answering rather than merely
      * rejecting — `any` above all, which is the one a reader reaches for first
      * and the one this language is built on not having. */
@@ -197,7 +225,7 @@ static bool parseTypePrimary(Parser *parser, TypeId *out) {
    * type parameters, producing a shape whose members are the ones it will
    * really have. */
   if (check(parser, TOKEN_LESS)) {
-    int declared = isArraySpelling ? 1 : csTypeTypeParamCount(parser->types, *out);
+    int declared = isArraySpelling ? 1 : utilityArity > 0 ? utilityArity : csTypeTypeParamCount(parser->types, *out);
     if (declared == 0) {
       errorAtCurrent(parser, "this type takes no type arguments");
       return false;
@@ -221,8 +249,19 @@ static bool parseTypePrimary(Parser *parser, TypeId *out) {
                         argCount);
       return false;
     }
-    *out = isArraySpelling ? csTypeArrayOf(parser->types, args[0]) : csTypeInstantiate(parser->types, *out, args, argCount);
+    if (isArraySpelling) {
+      *out = csTypeArrayOf(parser->types, args[0]);
+    } else if (utilityArity > 0) {
+      *out = csTypeUtility(parser->types, name, length, args, argCount, &utilityArity);
+    } else {
+      *out = csTypeInstantiate(parser->types, *out, args, argCount);
+    }
     return true;
+  }
+
+  if (utilityArity > 0) {
+    csDiagnosticError(parser->diag, line, name, length, "'%.*s' takes %d type argument%s and was given none", length, name, utilityArity, utilityArity == 1 ? "" : "s");
+    return false;
   }
 
   /* `Promise` written bare is a Promise of something the checker cannot see: a
@@ -235,13 +274,24 @@ static bool parseTypePrimary(Parser *parser, TypeId *out) {
 static bool parseTypeSuffix(Parser *parser, TypeId *out) {
   if (!parseTypePrimary(parser, out)) return false;
 
-  /* `T[]`, and `T[][]` for an array of them. */
+  /* `T[]` is an array of them and `T[K]` is what their K holds — told apart by
+   * whether anything stands between the brackets. */
   while (check(parser, TOKEN_LEFT_BRACKET)) {
     Lexer probe = parser->lexer;
-    if (csLexerNext(&probe).type != TOKEN_RIGHT_BRACKET) break;
+    bool isArray = csLexerNext(&probe).type == TOKEN_RIGHT_BRACKET;
     advanceToken(parser);
-    advanceToken(parser);
-    *out = csTypeArrayOf(parser->types, *out);
+
+    if (isArray) {
+      advanceToken(parser);
+      *out = csTypeArrayOf(parser->types, *out);
+      continue;
+    }
+
+    TypeId key;
+    if (!parseTypeUnion(parser, &key)) return false;
+    consume(parser, TOKEN_RIGHT_BRACKET, "expected ']' after the key of an indexed access");
+    if (parser->diag->panicMode) return false;
+    *out = csTypeIndexedAccess(parser->types, *out, key);
   }
   return true;
 }
@@ -269,199 +319,4 @@ static bool parseTypeUnion(Parser *parser, TypeId *out) {
 /* The entry point used by annotations and by the declarations below. */
 bool parseTypeExpression(Parser *parser, TypeId *out) {
   return parseTypeUnion(parser, out);
-}
-
-/* Reads past a declaration that has already been reported on, so that the
- * statement after it parses cleanly. Without this a duplicate name produces a
- * second, meaningless message about the members. */
-static void skipDeclarationBody(Parser *parser) {
-  while (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_LEFT_BRACE) && !check(parser, TOKEN_SEMICOLON)) advanceToken(parser);
-  if (matchToken(parser, TOKEN_SEMICOLON)) return;
-  if (!check(parser, TOKEN_LEFT_BRACE)) return;
-
-  int depth = 0;
-  do {
-    if (check(parser, TOKEN_LEFT_BRACE)) depth++;
-    if (check(parser, TOKEN_RIGHT_BRACE)) depth--;
-    advanceToken(parser);
-  } while (depth > 0 && !check(parser, TOKEN_EOF));
-  matchToken(parser, TOKEN_SEMICOLON);
-}
-
-/* One member: `x: number;`, `x?: number,` or `area(): number;`.
- *
- * A method is recorded as a member whose type is a function type, so a call
- * through it is checked by the same rule as a call through a variable rather
- * than by a second rule for interfaces. */
-static bool parseInterfaceMember(Parser *parser, TypeId owner) {
-  consume(parser, TOKEN_IDENTIFIER, "expected a property name");
-  if (parser->diag->panicMode) return false;
-
-  TypeMember member;
-  member.name = csAstInternName(parser->arena, parser->previous.start, parser->previous.length, &member.length);
-  member.type = TYPE_DYNAMIC;
-  member.optional = false;
-  int line = parser->previous.line;
-  if (member.name == NULL) return false;
-
-  member.optional = matchToken(parser, TOKEN_QUESTION);
-
-  if (check(parser, TOKEN_LEFT_PAREN)) {
-    advanceToken(parser);
-    TypeId params[CS_MAX_TYPE_PARAMS * 8];
-    int paramCount;
-    int requiredCount;
-    bool hasRest;
-    if (!parseParameterTypes(parser, params, &paramCount, &requiredCount, &hasRest, "expected ')' after the parameters of a method")) return false;
-
-    /* `area();` with no result type answers something the interface does not
-     * say, which is honest rather than an implied `undefined`. */
-    TypeId result = TYPE_DYNAMIC;
-    if (matchToken(parser, TOKEN_COLON) && !parseTypeExpression(parser, &result)) return false;
-    member.type = csTypeFunctionOf(parser->types, params, paramCount, requiredCount, hasRest, result);
-  } else {
-    consume(parser, TOKEN_COLON, "expected ':' and a type after a property name");
-    if (parser->diag->panicMode) return false;
-    if (!parseTypeExpression(parser, &member.type)) return false;
-  }
-
-  /* `;` and `,` both separate members, as they do in TypeScript, and the last
-   * one may omit it before the closing brace. */
-  if (!matchToken(parser, TOKEN_SEMICOLON) && !matchToken(parser, TOKEN_COMMA) && !check(parser, TOKEN_RIGHT_BRACE)) {
-    errorAtCurrent(parser, "expected ';' after an interface member");
-    return false;
-  }
-
-  if (!csTypeAddMember(parser->types, owner, &member)) {
-    csDiagnosticError(parser->diag, line, member.name, member.length, "'%.*s' is declared twice, or this file declares more members than the checker can hold",
-                      member.length, member.name);
-    return false;
-  }
-  return true;
-}
-
-/* The members between `{` and `}`. */
-static bool parseInterfaceBody(Parser *parser, TypeId declared) {
-  consume(parser, TOKEN_LEFT_BRACE, "expected '{' before the members");
-  if (parser->diag->panicMode) return false;
-  while (!check(parser, TOKEN_RIGHT_BRACE) && !check(parser, TOKEN_EOF)) {
-    if (!parseInterfaceMember(parser, declared)) return false;
-  }
-  consume(parser, TOKEN_RIGHT_BRACE, "expected '}' after the members");
-  return !parser->diag->panicMode;
-}
-
-/* `interface Name<T> extends Other { ... }`
- *
- * `extends` copies the members across rather than recording a link, because
- * assignability here is structural: an interface is satisfied by what a value
- * has, so what an inherited member buys is exactly its presence in the list. */
-AstNode *parseInterfaceDeclaration(Parser *parser) {
-  int line = parser->current.line;
-  advanceToken(parser); /* the word `interface` */
-  consume(parser, TOKEN_IDENTIFIER, "expected a name after 'interface'");
-  if (parser->diag->panicMode) return NULL;
-
-  int nameLength;
-  const char *name = csAstInternName(parser->arena, parser->previous.start, parser->previous.length, &nameLength);
-  if (name == NULL) return NULL;
-
-  TypeId existing;
-  if (csTypeLookupName(parser->types, name, nameLength, &existing)) {
-    csDiagnosticError(parser->diag, line, name, nameLength, "'%.*s' already names a type", nameLength, name);
-    skipDeclarationBody(parser);
-    return NULL;
-  }
-
-  /* The type parameters are declared before the shape, so that `interface
-   * Box<T>` may say `T` in its own members. */
-  TypeId params[CS_MAX_TYPE_PARAMS];
-  int paramCount = 0;
-  if (!parseTypeParams(parser, params, &paramCount)) return NULL;
-
-  /* Registered before its members are read, so a member may name it: a linked
-   * list is `interface Node { next?: Node }` and nothing else. */
-  TypeId declared = csTypeDeclareInterface(parser->types, name, nameLength);
-  if (declared == TYPE_ERROR) {
-    csDiagnosticError(parser->diag, line, name, nameLength, "this file declares more types than the checker can hold");
-    return NULL;
-  }
-  csTypeSetTypeParams(parser->types, declared, params, paramCount);
-
-  if (matchToken(parser, TOKEN_EXTENDS)) {
-    TypeId parent;
-    if (!parseTypeExpression(parser, &parent)) return NULL;
-    const CompositeType *base = csTypeComposite(parser->types, parent);
-    if (base == NULL || base->kind != COMPOSITE_INTERFACE) {
-      csDiagnosticError(parser->diag, parser->previous.line, parser->previous.start, parser->previous.length,
-                        "an interface can only extend an interface, and '%.*s' is not one", parser->previous.length, parser->previous.start);
-      return NULL;
-    }
-    int start = base->memberStart;
-    int count = base->memberCount;
-    for (int i = 0; i < count; i++) {
-      TypeMember inherited = parser->types->members[start + i];
-      if (csTypeAddMember(parser->types, declared, &inherited)) continue;
-      csDiagnosticError(parser->diag, line, name, nameLength, "'%.*s' inherits a member it already has, or more than the checker can hold", nameLength, name);
-      return NULL;
-    }
-  }
-
-  if (!parseInterfaceBody(parser, declared)) return NULL;
-  closeTypeParams(parser, params, paramCount);
-
-  /* An interface is erased, so it compiles to what a lone `;` compiles to. */
-  return csAstBlock(parser->arena, line);
-}
-
-/* `type Name = number;`, `type Name = { x: number };`, `type Box<T> = …`
- *
- * The object form registers an interface under the alias's name: a shape
- * written inline and an interface declared with a name are the same thing
- * here, and giving them one representation means the checker has one rule. */
-AstNode *parseTypeAlias(Parser *parser) {
-  int line = parser->current.line;
-  advanceToken(parser); /* the word `type` */
-  consume(parser, TOKEN_IDENTIFIER, "expected a name after 'type'");
-  if (parser->diag->panicMode) return NULL;
-
-  int nameLength;
-  const char *name = csAstInternName(parser->arena, parser->previous.start, parser->previous.length, &nameLength);
-  if (name == NULL) return NULL;
-
-  TypeId existing;
-  if (csTypeLookupName(parser->types, name, nameLength, &existing)) {
-    csDiagnosticError(parser->diag, line, name, nameLength, "'%.*s' already names a type", nameLength, name);
-    skipDeclarationBody(parser);
-    return NULL;
-  }
-
-  TypeId params[CS_MAX_TYPE_PARAMS];
-  int paramCount = 0;
-  if (!parseTypeParams(parser, params, &paramCount)) return NULL;
-
-  consume(parser, TOKEN_EQUAL, "expected '=' after the name of a type");
-  if (parser->diag->panicMode) return NULL;
-
-  TypeId aliased;
-  if (check(parser, TOKEN_LEFT_BRACE)) {
-    aliased = csTypeDeclareInterface(parser->types, name, nameLength);
-    if (aliased == TYPE_ERROR) {
-      csDiagnosticError(parser->diag, line, name, nameLength, "this file declares more types than the checker can hold");
-      return NULL;
-    }
-    csTypeSetTypeParams(parser->types, aliased, params, paramCount);
-    if (!parseInterfaceBody(parser, aliased)) return NULL;
-  } else {
-    if (!parseTypeExpression(parser, &aliased)) return NULL;
-    if (!csTypeDeclareAlias(parser->types, name, nameLength, aliased)) {
-      csDiagnosticError(parser->diag, line, name, nameLength, "a file may declare at most %d type aliases", CS_MAX_TYPE_ALIASES);
-      return NULL;
-    }
-  }
-  closeTypeParams(parser, params, paramCount);
-
-  consume(parser, TOKEN_SEMICOLON, "expected ';' after a type alias");
-  if (parser->diag->panicMode) return NULL;
-  return csAstBlock(parser->arena, line);
 }

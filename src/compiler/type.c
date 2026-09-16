@@ -161,7 +161,17 @@ static bool assignable(const TypeTable *table, TypeId from, TypeId to, int depth
  * shape without one of them importing the other. */
 static bool satisfies(const TypeTable *table, TypeId from, TypeId to, int depth) {
   const CompositeType *required = csTypeComposite(table, to);
-  if (required == NULL) return false;
+  const CompositeType *given = csTypeComposite(table, from);
+  if (required == NULL || given == NULL) return false;
+
+  /* A shape that names no members and holds one type per key is satisfied by
+   * anything whose members all hold that type. */
+  if (required->indexValue != TYPE_ERROR) {
+    for (int i = 0; i < given->memberCount; i++) {
+      if (!assignable(table, table->members[given->memberStart + i].type, required->indexValue, depth + 1)) return false;
+    }
+    return true;
+  }
 
   for (int i = 0; i < required->memberCount; i++) {
     const TypeMember *want = &table->members[required->memberStart + i];
@@ -209,6 +219,13 @@ static bool assignable(const TypeTable *table, TypeId from, TypeId to, int depth
     }
     return false;
   }
+
+  /* `"admin"` is a string, and a string is not an `"admin"`: a set of names is
+   * a type only if the names are the only members of it. Two literals are the
+   * same type when they are the same text, which interning has already
+   * settled — so reaching here with both means they differ. */
+  if (source != NULL && source->kind == COMPOSITE_LITERAL) return to == TYPE_STRING;
+  if (target != NULL && target->kind == COMPOSITE_LITERAL) return false;
 
   if (source != NULL && source->kind == COMPOSITE_ARRAY) {
     /* `number[]` is an array and an object, as a bare `array` is. */

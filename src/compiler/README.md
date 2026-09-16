@@ -28,7 +28,8 @@ annotation is consumed, not erased.
 | [`parser_prefix.c`](parser_prefix.c) | The operators an expression can start with |
 | [`parser_arrow.c`](parser_arrow.c) | Template literals, arrows, and the function forms |
 | [`parser_statement.c`](parser_statement.c) | Blocks, conditionals, the four loop forms, `switch`, `try` |
-| [`parser_type.c`](parser_type.c) | `interface` and `type` — the two declarations that describe rather than produce |
+| [`parser_type.c`](parser_type.c) | The type grammar: unions, arrays, function types, `keyof`, `T[K]`, mapped types |
+| [`parser_type_decl.c`](parser_type_decl.c) | `interface` and `type` — the two declarations that describe rather than produce |
 | [`parser_declaration.c`](parser_declaration.c) | `let`, `const`, and the patterns either can destructure into |
 | [`parser_class.c`](parser_class.c) | The class body, in source order |
 | [`parser_module.c`](parser_module.c) | `import` and `export`, in every form |
@@ -45,12 +46,15 @@ annotation is consumed, not erased.
 | --- | --- |
 | [`typecheck.c`](typecheck.c) | The scope, the builtins, the signatures, the node dispatcher |
 | [`typecheck_value.c`](typecheck_value.c) | The type of an expression |
+| [`typecheck_call.c`](typecheck_call.c) | A call: what it takes, and what it answers |
 | [`typecheck_statement.c`](typecheck_statement.c) | The checking a statement needs — which is mostly the scope |
 | [`typecheck_internal.h`](typecheck_internal.h) | The checker's state |
 | [`type.c`](type.c) | The type names, and what may be assigned to what |
 | [`type_table.c`](type_table.c) | The table the composite types live in — arrays, functions, unions and shapes |
 | [`type_generic.c`](type_generic.c) | Substitution, instantiation, and what a call site infers |
 | [`type_prelude.c`](type_prelude.c) | The generic types every file starts with: `Map`, `Set`, `Promise` |
+| [`type_mapped.c`](type_mapped.c) | The types computed from other types: `keyof`, `T[K]`, and a mapping |
+| [`type_utility.c`](type_utility.c) | `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Record` |
 | [`type_import.c`](type_import.c) | Re-interning a type from one file's table into another's |
 | [`typecheck_module.c`](typecheck_module.c) | The types that cross a file boundary |
 | [`typecheck_narrow.c`](typecheck_narrow.c) | What a `typeof`, a null check or a guard proves about the thing it tested |

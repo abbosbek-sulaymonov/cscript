@@ -105,7 +105,33 @@ typedef enum {
    * instantiation; a leftover one is the checker admitting it could not infer
    * what the caller meant. */
   COMPOSITE_TYPEVAR,
+  /* `"admin"` — one string and nothing else. What makes a set of names a type
+   * rather than a comment, and what `keyof` is a union of. */
+  COMPOSITE_LITERAL,
+
+  /* The three below are *unevaluated*. Each describes a type computed from
+   * another, and each is worked out the moment what it is computed from stops
+   * being a variable — which is when a generic is instantiated. Until then it
+   * behaves as what the checker cannot see, because that is exactly what it
+   * is: `keyof T` inside `Partial<T>` has no answer until there is a T.
+   *
+   * `keyof T` — the names of T's members, as a union of literals. */
+  COMPOSITE_KEYOF,
+  /* `T[K]` — what T's member named K holds. */
+  COMPOSITE_INDEXED,
+  /* `{ [K in keyof T]?: T[K] }` — one member per name in the key source, each
+   * holding the value type with K standing for that name. The whole of what a
+   * mapped type is, and what every utility type below is made of. */
+  COMPOSITE_MAPPED,
 } CompositeKind;
+
+/* What a mapped type does to `?` and `readonly` as it goes: keeps what the
+ * source had, adds the modifier, or takes it away. */
+typedef enum {
+  MODIFIER_KEEP,
+  MODIFIER_ADD,
+  MODIFIER_REMOVE,
+} TypeModifier;
 
 /* One member of an interface. A method is a member like any other — its type
  * is a function type — so a call through it is checked the same way a call
@@ -117,6 +143,9 @@ typedef struct {
   /* `x?: number`. A missing key satisfies the interface; a present one still
    * has to have the right type. */
   bool optional;
+  /* `readonly x: number`. Reading is unchanged; assigning through it is
+   * refused, which is the whole of what `Readonly<T>` buys. */
+  bool readonly;
 } TypeMember;
 
 typedef struct {
@@ -153,6 +182,15 @@ typedef struct {
   /* For an instantiation — `Box<number>` — the generic it came from, so a
    * message can say which. TYPE_DYNAMIC when this is not one. */
   TypeId genericOf;
+
+  /* COMPOSITE_MAPPED: what it does to each member's `?` and `readonly`. */
+  TypeModifier optionalMode;
+  TypeModifier readonlyMode;
+
+  /* An index signature: `Record<string, number>` has no named members, and
+   * every key answers this. TYPE_ERROR when the shape has none, which is the
+   * ordinary case. */
+  TypeId indexValue;
 
   /* A type variable is only in scope inside the declaration that introduced
    * it. Ids are never reused, so the parser closes the scope by clearing this
@@ -248,6 +286,25 @@ const CompositeType *csTypeComposite(const TypeTable *table, TypeId type);
 
 /* True when the type is a composite of that kind. */
 bool csTypeIs(const TypeTable *table, TypeId type, CompositeKind kind);
+
+/* `"admin"` as a type. The text is copied into the table. */
+TypeId csTypeLiteral(TypeTable *table, const char *text, int length);
+
+/* The text a literal type holds, or NULL for anything else. */
+const char *csTypeLiteralText(const TypeTable *table, TypeId type, int *length);
+
+/* What every key of a shape answers — `Record<string, number>` answers a
+ * number for any of them. TYPE_ERROR when the shape names its members
+ * instead, which is the ordinary case. */
+TypeId csTypeIndexValue(const TypeTable *table, TypeId type);
+
+/* `keyof T`, `T[K]` and a mapped type. Each answers the type it describes when
+ * that can be worked out now, and an unevaluated one when it cannot — which is
+ * what makes `Partial<T>` a type before there is a T. */
+TypeId csTypeKeyOf(TypeTable *table, TypeId subject);
+TypeId csTypeIndexedAccess(TypeTable *table, TypeId subject, TypeId key);
+TypeId csTypeMapped(TypeTable *table, TypeId keys, TypeId variable, TypeId value, TypeModifier optionalMode, TypeModifier readonlyMode, const char *name,
+                    int nameLength, TypeId source);
 
 /* Interning constructors. Each answers an existing id when one already
  * describes the same type, so `number[]` is one type however often it is

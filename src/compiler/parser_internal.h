@@ -64,6 +64,7 @@ bool matchContextual(Parser *parser, const char *word);
 bool parseTypeExpression(Parser *parser, TypeId *out);
 bool parseTypeParams(Parser *parser, TypeId *params, int *countOut);
 void closeTypeParams(Parser *parser, const TypeId *params, int count);
+bool parseTypeParameterList(Parser *parser, TypeId *params, int *paramCount, int *requiredCount, bool *hasRest, const char *what);
 bool startsInterfaceDeclaration(Parser *parser);
 bool startsTypeAlias(Parser *parser);
 AstNode *parseInterfaceDeclaration(Parser *parser);

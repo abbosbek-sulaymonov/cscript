@@ -123,6 +123,12 @@ TypeId csTypeCheckShape(Checker *checker, AstNode *value, TypeId expected);
  * says it answers. */
 TypeId csTypeCheckCallThrough(Checker *checker, AstNode *node, TypeId functionType);
 
+/* typecheck_call.c — a call, and what it answers. */
+TypeId csTypeCheckCall(Checker *checker, AstNode *node);
+
+/* The literal type a written string has where it is compared against one. */
+TypeId csTypeRefineLiteral(Checker *checker, AstNode *node, TypeId against);
+
 /* typecheck_module.c — what an import brings with it, and what an export
  * leaves behind for the file that takes it. */
 TypeId csTypeImportedBinding(Checker *checker, const AstNode *node, const char *name, int length);
