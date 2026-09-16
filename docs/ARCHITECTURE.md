@@ -1683,13 +1683,51 @@ genuinely new stage, which only runs on code that has earned it.
 | Next | What it needs | Why it is next |
 | --- | --- | --- |
 | Replaying a conditional jump | The taken arm's state merged into its target, height included | It is the one thing still refusing `loops_control.cx` |
-| A property store that *adds* one | A shape transition in compiled code, which allocates | It is what a constructor does, and what excludes almost all of them |
 | Allocation in compiled code | A root range the collector walks, and a recorded frame size | Attempted and backed out; what the attempt found is in [ROADMAP.md](ROADMAP.md) |
 | Calling a CScript function | A frame, and a safepoint the collector can walk it at | Inlining takes the small straight-line callees; this is for everything else |
 | Guards and deoptimisation | A side exit that can also *undo* — the exits here only leave from points where nothing needs undoing | It is what would let the compiler take code the checker has not proved |
 | Cross-block liveness | Real dataflow, rather than the block-local approximation the allocator uses | Values crossing a block boundary keep a memory home today |
 | An x86-64 backend | A second encoder behind the same IR | The IR and everything above it are already architecture-neutral |
 
-The typing work has its own next step, unrelated to any of this: class names
-are not usable as type annotations, and types do not cross a module boundary.
-Nominal types are the milestone that fixes both.
+## Stage 9: the store that adds
+
+A store that *overwrites* has been compiled since stage 5, and a store that
+**adds** was what excluded almost every constructor: `this.x = x` transitions
+the object's layout, so the two stores in a two-field constructor expect two
+different shapes, and one slot may only carry one.
+
+An add is two stores — the value, then the new layout — provided three things
+are known. The first two come from the site's inline cache, which now records
+the *pair* it saw rather than only the result: the layout on the way in, and
+the one the object takes on. The third is that the storage already has room,
+because growing it allocates and compiled code cannot allocate.
+
+So the cache holds a transition, the lowering follows the chain of them
+through a block — each add's expected layout is what the last one produced —
+and the entry check gains one question beside the shapes: has this object room
+for every property the body will add?
+
+Room is what an instance is now built with. It reserves four slots, which is
+what the storage grows to on its first property anyway: the allocation is
+moved from the middle of the constructor to the moment before it, where it is
+not in anybody's way. An instance that gains no property at all pays the 32
+bytes it would have spent on gaining one.
+
+The same cache pair makes the *interpreter* faster, and that is most of the
+gain: an add there was a shape lookup, a transition lookup and a possible
+grow, and is now a compare and two stores.
+
+| Benchmark | Before | After |
+| --- | ---: | ---: |
+| 3M constructions, compiled | 0.45 s | **0.31 s** |
+| `bench/classes.cx`, compiled | 0.25 s | **0.18 s** |
+| 2M constructions, interpreted | 0.29 s | **0.22 s** |
+
+What is still refused: an object whose storage is full, a site that has seen
+more than one layout, and a constructor whose stores are not all adds of known
+names — `this[key] = v` names nothing at compile time.
+
+## What comes next
+
+The typing work has its own next step, unrelated to any of this: conditional
+types, which `Exclude` and `ReturnType` need.

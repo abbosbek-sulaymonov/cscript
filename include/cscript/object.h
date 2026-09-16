@@ -163,6 +163,12 @@ typedef struct ObjObject {
   } as;
 } ObjObject;
 
+/* How many slots an instance is built with. Four because that is what the
+ * storage grows to on its first property anyway, so this costs an instance
+ * that gains none the 32 bytes it would have spent on gaining one — and saves
+ * every other instance the allocation in the middle of its constructor. */
+#define CS_INSTANCE_RESERVED_SLOTS 4
+
 /* One source file, and the scope its top level lives in.
  *
  * Before modules there was a single globals table, so two files could not be

@@ -372,6 +372,15 @@ ObjObject *csInstanceNew(ObjClass *klass) {
   instance->attributes = NULL;
   instance->as.slots.values = NULL;
   instance->as.slots.capacity = 0;
+
+  /* Room for the fields the constructor is about to add. The first add would
+   * allocate this anyway — doing it here means the adds themselves are stores,
+   * which is what lets both the interpreter's cached store and compiled code
+   * take them. */
+  csPushTempRoot((Obj *)instance);
+  csObjectReserveSlots(instance, CS_INSTANCE_RESERVED_SLOTS);
+  csPopTempRoot();
+
   csPopTempRoot();
   return instance;
 }

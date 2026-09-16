@@ -65,6 +65,7 @@ int csChunkAddPropertyCache(Chunk *chunk) {
   int index = chunk->propertyCacheCount;
   chunk->propertyCaches = CS_GROW_ARRAY(PropertyCache, chunk->propertyCaches, index, index + 1);
   chunk->propertyCaches[index].shape = vm.absentShape;
+  chunk->propertyCaches[index].added = NULL;
   chunk->propertyCaches[index].slot = 0;
   chunk->propertyCacheCount = index + 1;
   return index;
@@ -86,7 +87,13 @@ void csChunkPruneCaches(Chunk *chunk) {
    * keeps it alive, or a program that builds many short-lived layouts would
    * retain every one of them for as long as the code that touched them. */
   for (int i = 0; i < chunk->propertyCacheCount; i++) {
-    Shape *shape = chunk->propertyCaches[i].shape;
-    if (!shape->obj.isMarked) chunk->propertyCaches[i].shape = vm.absentShape;
+    PropertyCache *cache = &chunk->propertyCaches[i];
+    bool lost = !cache->shape->obj.isMarked || (cache->added != NULL && !cache->added->obj.isMarked);
+    if (!lost) continue;
+    /* Either half going means the whole entry is stale: the shape it expects
+     * on the way in and the one it would adopt have to be the pair that was
+     * seen together. */
+    cache->shape = vm.absentShape;
+    cache->added = NULL;
   }
 }

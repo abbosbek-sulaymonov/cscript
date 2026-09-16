@@ -100,6 +100,26 @@ static ObjClass *findConstructorOwner(ObjClass *klass) {
 
 ObjClass *csVMConstructorOwner(ObjClass *klass) { return findConstructorOwner(klass); }
 
+bool csVMStoreCached(ObjObject *object, const PropertyCache *cache, Value value) {
+  /* An overwrite: the slot is already part of the shape the site matched. */
+  if (cache->added == NULL) {
+    object->as.slots.values[cache->slot] = value;
+    return true;
+  }
+
+  /* An add. Growing the storage allocates, and allocating may collect — so
+   * that case is left to the slow path, where the object and the value are
+   * rooted. With room already there this is two stores.
+   *
+   * The value goes in before the shape, because the collector sizes its walk
+   * of the slots from the shape: the other order would show it a slot the
+   * shape counts and nothing has written. */
+  if (object->as.slots.capacity <= cache->slot) return false;
+  object->as.slots.values[cache->slot] = value;
+  object->shape = cache->added;
+  return true;
+}
+
 /* The nearest constructor at or above `klass`, or NULL. */
 ObjClosure *findConstructor(ObjClass *klass) {
   ObjClass *owner = findConstructorOwner(klass);

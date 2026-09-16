@@ -71,6 +71,16 @@ ObjNative *csNativeNew(NativeFn function, const char *name, int arity);
 
 ObjObject *csObjectNew(const char *name);
 
+/* Makes room for `slots` properties without adding any.
+ *
+ * An instance is built to be filled: its constructor is about to add the
+ * fields, and the first of those would otherwise grow the storage from nothing
+ * — an allocation in the middle of the one path that most wants to be two
+ * stores. Reserving up front is the same allocation moved earlier, and it is
+ * what lets a cached add, in the interpreter and in compiled code, run without
+ * one. */
+void csObjectReserveSlots(ObjObject *object, int slots);
+
 /* Drops an object out of shape mode, so the write fast path stops recognising
  * it. Needed once any of its properties is not writable. */
 void csObjectLeaveShapeMode(ObjObject *object);

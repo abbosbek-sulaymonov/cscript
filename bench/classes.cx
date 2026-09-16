@@ -6,23 +6,23 @@ class Vec2 {
   x = 0;
   y = 0;
 
-  constructor(x, y) {
+  constructor(x: number, y: number) {
     this.x = x;
     this.y = y;
   }
 
-  dot(other) {
+  dot(other: object) {
     return this.x * other.x + this.y * other.y;
   }
 }
 
 class Scaled extends Vec2 {
-  constructor(x, y, k) {
+  constructor(x: number, y: number, k: number) {
     super(x, y);
     this.k = k;
   }
 
-  dot(other) {
+  dot(other: object) {
     return super.dot(other) * this.k;
   }
 }

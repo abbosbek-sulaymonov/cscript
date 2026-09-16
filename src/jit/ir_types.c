@@ -37,6 +37,7 @@ void csIrRegisterOperands(const IrInst *inst, int *a, int *b) {
     /* `a` is the frame slot and `c` the storage index; the value is in `b`,
      * the same place the other two stores keep theirs. */
     case IR_STORE_PROPERTY:
+    case IR_ADD_PROPERTY:
       *b = inst->b; /* `a` is the destination, not a value */
       break;
 
@@ -123,7 +124,7 @@ void csIrRemoveDeadStores(IrFunction *ir) {
        * lowered against a slot the function never writes, so there is no store
        * to remove — but relying on that coincidence is how the next change
        * breaks something quietly. */
-      if ((inst->op == IR_LOAD_PROPERTY || inst->op == IR_STORE_PROPERTY) && inst->a >= 0 && inst->a <= ir->slotCount) {
+      if ((inst->op == IR_LOAD_PROPERTY || inst->op == IR_STORE_PROPERTY || inst->op == IR_ADD_PROPERTY) && inst->a >= 0 && inst->a <= ir->slotCount) {
         isRead[inst->a] = true;
       }
 
@@ -387,7 +388,11 @@ bool csIrIsFullyTyped(const IrFunction *ir) {
    *
    * Equality is excluded on purpose: it is defined for every type and needs no
    * proof about its operands. */
-  bool sawArithmetic = false;
+  /* And whether there is anything here worth emitting at all. Arithmetic is
+   * the obvious answer, and a property touched is the other one: a constructor
+   * does no arithmetic and is two stores, which is exactly the shape this
+   * used to refuse for having nothing in it. */
+  bool sawWork = false;
   for (int b = 0; b < ir->blockCount; b++) {
     for (int i = 0; i < ir->blocks[b].count; i++) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
@@ -403,12 +408,19 @@ bool csIrIsFullyTyped(const IrFunction *ir) {
         case IR_GE:
           if (ir->registerTypes[inst->a] != IR_TYPE_NUMBER) return false;
           if (ir->registerTypes[inst->b] != IR_TYPE_NUMBER) return false;
-          sawArithmetic = true;
+          sawWork = true;
           break;
         case IR_NEG:
           if (ir->registerTypes[inst->a] != IR_TYPE_NUMBER) return false;
-          sawArithmetic = true;
+          sawWork = true;
           break;
+
+        /* A store is work: what it replaces is a shape compare, a cache read
+         * and an indexed store in the interpreter's loop. */
+        case IR_STORE_PROPERTY:
+        case IR_ADD_PROPERTY:
+        case IR_LOAD_PROPERTY: sawWork = true; break;
+
         case IR_BRANCH:
           /* A branch has to be on something the IR can test. */
           if (ir->registerTypes[inst->a] != IR_TYPE_BOOL) return false;
@@ -417,5 +429,5 @@ bool csIrIsFullyTyped(const IrFunction *ir) {
       }
     }
   }
-  return sawArithmetic;
+  return sawWork;
 }

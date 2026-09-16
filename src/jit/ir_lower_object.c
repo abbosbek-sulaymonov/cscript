@@ -41,18 +41,22 @@ static bool slotIsNeverWritten(const Chunk *chunk, int slot) {
 /* Records what a property read takes for granted, merging with an assumption
  * already made about the same slot and property. Two reads of the same field
  * cost one check. */
-static bool rememberEntryShape(IrFunction *ir, int slot, Shape *shape, int property, bool expectsNumber) {
+static bool rememberEntryShape(IrFunction *ir, int slot, Shape *shape, int property, bool expectsNumber, int minimumCapacity) {
   for (int i = 0; i < ir->entryShapeCount; i++) {
     IrEntryShape *existing = &ir->entryShapes[i];
     if (existing->slot != slot) continue;
-    /* One slot, one layout. A second shape for the same slot would mean the
-     * site is not monomorphic after all. */
+    /* One slot, one layout *on the way in*. A second shape for the same slot
+     * would mean the site is not monomorphic after all — an add is not a
+     * second shape here, because what it expects is still the entry one and
+     * what it produces is carried by the instruction. */
     if (existing->shape != shape) return false;
+    if (minimumCapacity > existing->minimumCapacity) existing->minimumCapacity = minimumCapacity;
     if (existing->property == property) {
       /* Read and written both: the read's requirement is the stricter one. */
       existing->expectsNumber = existing->expectsNumber || expectsNumber;
       return true;
     }
+    if (property < 0) return true; /* a capacity requirement and nothing more */
   }
 
   if (ir->entryShapeCount == ir->entryShapeCapacity) {
@@ -67,8 +71,20 @@ static bool rememberEntryShape(IrFunction *ir, int slot, Shape *shape, int prope
   ir->entryShapes[ir->entryShapeCount].shape = shape;
   ir->entryShapes[ir->entryShapeCount].property = property;
   ir->entryShapes[ir->entryShapeCount].expectsNumber = expectsNumber;
+  ir->entryShapes[ir->entryShapeCount].minimumCapacity = minimumCapacity;
   ir->entryShapeCount++;
   return true;
+}
+
+/* Raises how much room a slot's object must already have. The record itself
+ * was made by the first store on that slot; this is every one after it. */
+static bool raiseEntryCapacity(IrFunction *ir, int slot, int needed) {
+  for (int i = 0; i < ir->entryShapeCount; i++) {
+    if (ir->entryShapes[i].slot != slot) continue;
+    if (needed > ir->entryShapes[i].minimumCapacity) ir->entryShapes[i].minimumCapacity = needed;
+    return true;
+  }
+  return false;
 }
 
 bool csIrEntryShapesHold(const IrFunction *ir, const Value *slots) {
@@ -79,7 +95,11 @@ bool csIrEntryShapesHold(const IrFunction *ir, const Value *slots) {
 
     ObjObject *object = AS_OBJECT(held);
     if (object->shape != assumed->shape) return false;
-    if (assumed->property >= object->shape->slotCount) return false;
+    /* Room for every property the body adds. An add in compiled code is two
+     * stores; growing the storage is an allocation it cannot make, so the
+     * question is asked once here rather than at each store. */
+    if (object->as.slots.capacity < assumed->minimumCapacity) return false;
+    if (assumed->property >= 0 && assumed->property >= object->shape->slotCount) return false;
     if (assumed->expectsNumber && !IS_NUMBER(object->as.slots.values[assumed->property])) {
       return false;
     }
@@ -127,8 +147,35 @@ LowerResult csIrLowerObject(LowerAt *at) {
       }
 
       const PropertyCache *cache = &chunk->propertyCaches[cacheIndex];
-      if (slot < 0 || cache->shape == NULL || cache->shape == vm.absentShape || cache->slot < 0 || !slotIsNeverWritten(chunk, slot) ||
-          !rememberEntryShape(ir, slot, cache->shape, cache->slot, false)) {
+      if (slot < 0 || cache->shape == NULL || cache->shape == vm.absentShape || cache->slot < 0 || !slotIsNeverWritten(chunk, slot) || slot >= IR_MAX_SLOTS) {
+        low->reason = csOpcodeName((OpCode)opcode);
+        return LOWER_FAILED;
+      }
+
+      /* A store that *adds* — what a constructor does. The site's cache holds
+       * the pair it saw: the layout on the way in, and the one the object
+       * takes on. What has to hold here is that the object really has that
+       * first layout at this point, which is the entry shape for the first add
+       * and whatever the previous add produced for the ones after it.
+       *
+       * The room for the value is checked once at entry rather than here,
+       * because an add with nowhere to put the value would have to grow the
+       * storage, and growing it is an allocation compiled code cannot make. */
+      bool adds = cache->added != NULL;
+      Shape *expected = low->slotShape[slot] != NULL ? low->slotShape[slot] : cache->shape;
+      if (adds && cache->shape != expected) {
+        low->reason = csOpcodeName((OpCode)opcode);
+        return LOWER_FAILED;
+      }
+
+      /* The entry requirement is the layout the *first* store on this slot
+       * expected, and room for every property added to it. A later store in
+       * the chain has nothing new to say about the entry layout — only about
+       * how much room the storage needs. */
+      int needed = adds ? cache->added->slotCount : 0;
+      bool recorded =
+          low->slotShape[slot] != NULL ? raiseEntryCapacity(ir, slot, needed) : rememberEntryShape(ir, slot, cache->shape, adds ? -1 : cache->slot, false, needed);
+      if (!recorded) {
         low->reason = csOpcodeName((OpCode)opcode);
         return LOWER_FAILED;
       }
@@ -136,7 +183,11 @@ LowerResult csIrLowerObject(LowerAt *at) {
       csIrPop(low, block, line); /* the value */
       csIrPop(low, block, line); /* the object */
 
-      IrInst *inst = csIrAppend(block, IR_STORE_PROPERTY, line);
+      IrInst *inst = csIrAppend(block, adds ? IR_ADD_PROPERTY : IR_STORE_PROPERTY, line);
+      if (adds) {
+        inst->constant = OBJ_VAL(cache->added);
+        low->slotShape[slot] = cache->added;
+      }
       inst->result = -1;
       inst->a = slot;
       /* The value goes in `b` because that is where every other store keeps
@@ -183,7 +234,7 @@ LowerResult csIrLowerObject(LowerAt *at) {
 
       const PropertyCache *cache = &chunk->propertyCaches[cacheIndex];
       if (slot < 0 || cache->shape == NULL || cache->shape == vm.absentShape || cache->slot < 0 || !slotIsNeverWritten(chunk, slot) ||
-          !rememberEntryShape(ir, slot, cache->shape, cache->slot, true)) {
+          !rememberEntryShape(ir, slot, cache->shape, cache->slot, true, 0)) {
         low->reason = csOpcodeName((OpCode)opcode);
         return LOWER_FAILED;
       }
@@ -223,7 +274,7 @@ LowerResult csIrLowerObject(LowerAt *at) {
         return LOWER_FAILED;
       }
 
-      if (!rememberEntryShape(ir, slot, cache->shape, cache->slot, true)) {
+      if (!rememberEntryShape(ir, slot, cache->shape, cache->slot, true, 0)) {
         low->reason = csOpcodeName((OpCode)opcode);
         return LOWER_FAILED;
       }

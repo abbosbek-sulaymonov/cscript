@@ -183,6 +183,10 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
       blockFloor = low.stackTop;
       floorOffset = offset;
       floorCount = 0;
+      /* What a slot's object was transitioned to is only known along the run
+       * of instructions that transitioned it. A block reached another way
+       * starts again from what the entry guard proved. */
+      for (int s = 0; s < IR_MAX_SLOTS; s++) low.slotShape[s] = NULL;
       /* A callee placeholder never outlives the run of instructions it was
        * pushed in — callSiteFor refuses a call another path can reach — so
        * there is nothing here to clear. Clearing anyway is what keeps that

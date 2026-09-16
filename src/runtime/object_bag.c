@@ -45,6 +45,13 @@ ObjObject *csObjectNew(const char *name) {
   return object;
 }
 
+static void ensureSlots(ObjObject *object, int needed);
+
+void csObjectReserveSlots(ObjObject *object, int slots) {
+  if (object->shape == NULL) return;
+  ensureSlots(object, slots);
+}
+
 static void ensureSlots(ObjObject *object, int needed) {
   if (object->as.slots.capacity >= needed) return;
   int oldCapacity = object->as.slots.capacity;

@@ -211,9 +211,12 @@
 
         /* Overwriting a property that already exists cannot change the shape
          * and cannot allocate. It also cannot be a built-in namespace member:
-         * that case errors out below, so such a site never fills its cache. */
-        if (IS_OBJECT(receiver) && AS_OBJECT(receiver)->shape == cache->shape) {
-          AS_OBJECT(receiver)->as.slots.values[cache->slot] = value;
+         * that case errors out below, so such a site never fills its cache.
+         *
+         * Adding one is the same two instructions plus adopting the layout the
+         * site saw last time — as long as the storage already has room, which
+         * is the only part that could allocate. */
+        if (IS_OBJECT(receiver) && AS_OBJECT(receiver)->shape == cache->shape && csVMStoreCached(AS_OBJECT(receiver), cache, value)) {
           vm.stackTop -= 2;
           csVMPush(value);
           VM_NEXT();
@@ -237,8 +240,7 @@
         Value value = peekStack(0);
         Value receiver = peekStack(1);
 
-        if (IS_OBJECT(receiver) && AS_OBJECT(receiver)->shape == cache->shape) {
-          AS_OBJECT(receiver)->as.slots.values[cache->slot] = value;
+        if (IS_OBJECT(receiver) && AS_OBJECT(receiver)->shape == cache->shape && csVMStoreCached(AS_OBJECT(receiver), cache, value)) {
           vm.stackTop -= 2;
           VM_NEXT();
         }
