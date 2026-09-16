@@ -205,6 +205,18 @@ TypeId csTypeDeclareInterface(TypeTable *table, const char *name, int length) {
   return id;
 }
 
+TypeId csTypeDeclareClass(TypeTable *table, const char *name, int length) {
+  TypeId id = csTypeDeclareInterface(table, name, length);
+  if (id == TYPE_ERROR) return id;
+  table->composites[csTypeCompositeIndex(id)].open = true;
+  return id;
+}
+
+bool csTypeIsOpen(const TypeTable *table, TypeId type) {
+  const CompositeType *composite = csTypeComposite(table, type);
+  return composite != NULL && composite->open;
+}
+
 TypeId csTypeDeclareTypeVar(TypeTable *table, const char *name, int length) {
   TypeId id;
   CompositeType *composite = newComposite(table, COMPOSITE_TYPEVAR, &id);

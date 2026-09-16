@@ -35,6 +35,45 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
 
   AstNode *node = csAstClass(parser->arena, line, name, nameLength, superName, superLength);
 
+  /* A class's name is a type, and the shape behind it is built here as the
+   * members are read — the parser is where a name in an annotation is
+   * resolved, so this is the only place early enough to matter. It is
+   * registered before the body, so a method may take or answer one of its own
+   * class.
+   *
+   * A class expression has a name only for diagnostics and binds nothing, so
+   * it declares no type either. */
+  TypeId declared = TYPE_DYNAMIC;
+  if (parser->types != NULL && !node->as.classDecl.isExpression && name != NULL && nameLength > 0 && name[0] != ' ') {
+    TypeId taken;
+    if (csTypeLookupName(parser->types, name, nameLength, &taken)) {
+      csDiagnosticError(parser->diag, line, name, nameLength, "'%.*s' already names a type", nameLength, name);
+      return NULL;
+    }
+    int ownedLength;
+    const char *owned = csAstInternName(parser->arena, name, nameLength, &ownedLength);
+    if (owned != NULL) declared = csTypeDeclareClass(parser->types, owned, ownedLength);
+    if (declared == TYPE_ERROR) declared = TYPE_DYNAMIC;
+  }
+
+  /* `class Dog extends Animal` — what the base declared is part of this
+   * shape too, copied across for the same reason `interface … extends` copies
+   * it: assignability is structural, so presence is all that is ever asked. */
+  if (declared != TYPE_DYNAMIC && superName != NULL) {
+    TypeId base;
+    if (csTypeLookupName(parser->types, superName, superLength, &base)) {
+      const CompositeType *shape = csTypeComposite(parser->types, base);
+      if (shape != NULL && shape->kind == COMPOSITE_INTERFACE) {
+        int start = shape->memberStart;
+        int count = shape->memberCount;
+        for (int i = 0; i < count; i++) {
+          TypeMember inherited = parser->types->members[start + i];
+          csTypeAddMember(parser->types, declared, &inherited);
+        }
+      }
+    }
+  }
+
   consume(parser, TOKEN_LEFT_BRACE, "expected '{' to open the class body");
   if (parser->diag->panicMode) return NULL;
 
@@ -139,6 +178,36 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
       AstNode *method = parseFunctionRest(parser, memberLine, isConstructor ? name : memberName, isConstructor ? nameLength : memberLength, true);
       if (method == NULL) return NULL;
 
+      /* A method is a member holding a function type, so `dog.speak()` is
+       * checked and typed by the same rule as any other call. A static one
+       * belongs to the class rather than to an instance, a private one is
+       * invisible from outside, and a computed name is not known here. */
+      if (!isConstructor && !isStatic && declared != TYPE_DYNAMIC && computedKey == NULL && memberName[0] != '#' && memberKind != MEMBER_SETTER) {
+        TypeMember member;
+        member.name = csAstInternName(parser->arena, memberName, memberLength, &member.length);
+        member.optional = false;
+        if (memberKind == MEMBER_GETTER) {
+          /* `get label(): string` is read as a string, not called. */
+          member.type = method->as.function.returnType;
+        } else {
+          TypeId params[CS_MAX_TYPE_PARAMS * 8];
+          int paramCount = method->as.function.paramCount;
+          if (paramCount > (int)(sizeof params / sizeof params[0])) paramCount = (int)(sizeof params / sizeof params[0]);
+          for (int i = 0; i < paramCount; i++) {
+            params[i] = method->as.function.params[i].hasAnnotation ? method->as.function.params[i].type : TYPE_DYNAMIC;
+          }
+          int required = paramCount;
+          for (int i = 0; i < paramCount; i++) {
+            if (method->as.function.params[i].defaultValue == NULL) continue;
+            required = i;
+            break;
+          }
+          if (method->as.function.hasRest && required > 0) required--;
+          member.type = csTypeFunctionOf(parser->types, params, paramCount, required, method->as.function.hasRest, method->as.function.returnType);
+        }
+        if (member.name != NULL) csTypeAddMember(parser->types, declared, &member);
+      }
+
       if (isConstructor) {
         if (isStatic) {
           errorAtCurrent(parser, "a constructor cannot be static");
@@ -167,6 +236,17 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
     }
     consume(parser, TOKEN_SEMICOLON, "expected ';' after the field declaration");
     if (parser->diag->panicMode) return NULL;
+
+    /* A field is a member of the shape when it is written down here. One the
+     * constructor adds instead is why a class's shape is open. */
+    if (!isStatic && declared != TYPE_DYNAMIC && computedKey == NULL && memberName[0] != '#') {
+      TypeMember member;
+      member.name = csAstInternName(parser->arena, memberName, memberLength, &member.length);
+      member.length = memberLength;
+      member.type = annotated ? fieldType : TYPE_DYNAMIC;
+      member.optional = false;
+      if (member.name != NULL) csTypeAddMember(parser->types, declared, &member);
+    }
 
     csAstClassAddField(parser->arena, node, memberName, memberLength, initializer, fieldType, annotated, isStatic);
     node->as.classDecl.fields[node->as.classDecl.fieldCount - 1].computedKey = computedKey;

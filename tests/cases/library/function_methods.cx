@@ -28,7 +28,7 @@ console.log(tail(1), tail(1, 2, 3));
 const spread = (...xs: number) => xs.length;
 console.log(spread(1, 2), spread.length);
 
-class Collector { take(...items: array) { return items.join("/"); } }
+class Collector { take(...items: string) { return items.join("/"); } }
 console.log(new Collector().take("a", "b"));
 
 console.log(count(...[1, 2], 3));

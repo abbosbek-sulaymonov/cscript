@@ -98,6 +98,8 @@ static ObjClass *findConstructorOwner(ObjClass *klass) {
   return NULL;
 }
 
+ObjClass *csVMConstructorOwner(ObjClass *klass) { return findConstructorOwner(klass); }
+
 /* The nearest constructor at or above `klass`, or NULL. */
 ObjClosure *findConstructor(ObjClass *klass) {
   ObjClass *owner = findConstructorOwner(klass);
