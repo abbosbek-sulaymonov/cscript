@@ -453,6 +453,19 @@ and TypeScript erases its own, so this has no counterpart in either; it is the
 contract a sound structural boundary needs, and it is one comparison per annotated
 parameter per call — too small to measure on a call-heavy benchmark.
 
+### Fixed: a base class's fields when `super()` ran
+
+`class A { legs = 4; }` with `class B extends A { constructor() { super(); } }`
+left `legs` undefined. A class that declares no constructor keeps its field
+initialisers in a hidden method the VM calls where the implicit constructor
+would have — and `super()` looked for a *constructor* to call, found none above
+it, and ran nothing at all. The same gap swallowed the fields of every class
+between the superclass and whichever ancestor did have a constructor.
+
+`super()` now runs them, base-most first, in the order JavaScript runs them —
+which is observable through `Object.keys`, and is what the test compares
+against Node.
+
 ### Known, not yet fixed
 
 **Property order for integer-like keys.** JavaScript enumerates `{ b: 1, 2: 2 }`
@@ -564,13 +577,12 @@ Each of these produces an error that names it, rather than failing obscurely.
 | Unicode-correct string indexing | Strings are indexed by byte, which is correct for ASCII |
 | `with`, `eval` | No plans |
 
-A shape is described with `interface` or `type`, which are checked structurally
-and then erased — the same two declarations TypeScript has, read the same way,
-and stripped by Node exactly as they are here. What is missing beside them:
-generics, unions, and a class name as a type. A class instance is an `object`,
-and types do not cross a module boundary — what an imported binding holds is
-checked where it is used. Generics are the next typing milestone rather than
-part of this one.
+A class's name is a type, and a shape is described with `interface` or `type` —
+all checked structurally and then erased — the same two declarations TypeScript has, read the same way,
+and stripped by Node exactly as they are here. What is missing beside them: types do not
+cross a module boundary — what an imported binding holds is checked where it is
+used — and there is no way to say that a class *implements* an interface, since
+satisfying one is structural and needs no declaration.
 
 ---
 

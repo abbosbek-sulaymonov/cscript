@@ -157,6 +157,13 @@ typedef struct {
    * it. Ids are never reused, so the parser closes the scope by clearing this
    * rather than by removing the entry. */
   bool active;
+
+  /* A class's shape, which is **open**: a constructor may add a field that
+   * was never declared — `this.name = name` is the commonest line in one — so
+   * reading a member the class did not declare answers what the checker could
+   * not work out rather than an error. What it declares is still checked, and
+   * still has to be there for the instance to satisfy an interface. */
+  bool open;
 } CompositeType;
 
 /* Everything one file's types are made of. Built by the parser, read by the
@@ -260,6 +267,11 @@ bool csTypeIsCallable(const TypeTable *table, TypeId type);
 /* Declares an interface and answers its type, or TYPE_ERROR when the file has
  * more than the ceiling above. The name must outlive the table. */
 TypeId csTypeDeclareInterface(TypeTable *table, const char *name, int length);
+
+/* The same, for a class: what it declares is checked, and what it does not is
+ * not refused. See CompositeType.open. */
+TypeId csTypeDeclareClass(TypeTable *table, const char *name, int length);
+bool csTypeIsOpen(const TypeTable *table, TypeId type);
 
 /* False when the interface is full or already has a member of that name. */
 bool csTypeAddMember(TypeTable *table, TypeId type, const TypeMember *member);

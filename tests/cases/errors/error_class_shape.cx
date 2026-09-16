@@ -1,0 +1,23 @@
+// What a class's shape refuses. It is open — a member it never declared is
+// readable, because a constructor may add one — but what it *does* declare is
+// checked like any other shape.
+class Temp {
+  celsius: number = 0;
+  warmer(by: number): Temp {
+    this.celsius = this.celsius + by;
+    return this;
+  }
+}
+
+const t = new Temp();
+t.warmer("lots");
+
+const wrong: Temp = { celsius: "hot" };
+
+interface HasName {
+  name: string;
+}
+function greet(x: HasName): string {
+  return x.name;
+}
+greet(t);

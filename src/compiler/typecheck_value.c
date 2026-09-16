@@ -180,6 +180,14 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeId *out) {
        * before the program runs. */
       if (csTypeIs(checker->types, object, COMPOSITE_INTERFACE)) {
         const TypeMember *member = csTypeFindMember(checker->types, object, node->as.property.name, node->as.property.length);
+        /* A class may add a field its declaration never mentioned — `this.name
+         * = name` is the commonest line in a constructor — so a member it did
+         * not declare is dynamic rather than an error. An interface declares
+         * everything it has, and says so. */
+        if (member == NULL && csTypeIsOpen(checker->types, object)) {
+          result = TYPE_DYNAMIC;
+          break;
+        }
         if (member == NULL) {
           csTypeError(checker, node->line, "%s has no member '%.*s'", csTypeNameIn(checker->types, object), node->as.property.length, node->as.property.name);
           result = TYPE_ERROR;
@@ -310,11 +318,11 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeId *out) {
         AstNode *property = node->as.call.callee;
         TypeId receiver = property->as.property.object->resolvedType;
         const TypeMember *member = csTypeFindMember(checker->types, receiver, property->as.property.name, property->as.property.length);
-        /* A method is a function-typed member, so what the call answers is
-         * what that function type answers — the same rule as a call through a
-         * variable, rather than a second one for interfaces. */
+        /* A method is a function-typed member, so the call is checked by the
+         * same rule as a call through a variable rather than by a second one
+         * for interfaces — arguments included. */
         if (member != NULL && csTypeIs(checker->types, member->type, COMPOSITE_FUNCTION)) {
-          result = csTypeComposite(checker->types, member->type)->inner;
+          result = csTypeCheckCallThrough(checker, node, member->type);
           break;
         }
       }
@@ -336,10 +344,19 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeId *out) {
         if (variable != NULL) signature = variable->signature;
       }
 
-      /* `new F()` answers an instance, which is not what F's body returns and
-       * not something this lattice has a name for. */
+      /* `new Dog()` answers a Dog: a class's name is a type, and the shape
+       * behind it was registered where the class was read. Anything else
+       * constructed — a native, a class expression, a value holding one — has
+       * no shape to answer with. */
       if (node->as.call.isNew) {
         result = TYPE_DYNAMIC;
+        if (node->as.call.callee->type == AST_IDENTIFIER) {
+          TypeId instance;
+          if (csTypeLookupName(checker->types, node->as.call.callee->as.identifier.name, node->as.call.callee->as.identifier.length, &instance) &&
+              csTypeIsOpen(checker->types, instance)) {
+            result = instance;
+          }
+        }
         break;
       }
 
@@ -434,7 +451,11 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeId *out) {
         result = TYPE_ERROR;
         break;
       }
-      if (csTypeIsKnown(target) && target != TYPE_OBJECT && !csTypeIsArrayLike(checker->types, target) && target != TYPE_STRING) {
+      /* A shape is an object, so it may be indexed — with a key the checker
+       * cannot read, which is why the answer below is dynamic rather than a
+       * member's type. */
+      bool indexableShape = csTypeIs(checker->types, target, COMPOSITE_INTERFACE);
+      if (csTypeIsKnown(target) && target != TYPE_OBJECT && !indexableShape && !csTypeIsArrayLike(checker->types, target) && target != TYPE_STRING) {
         csTypeError(checker, node->line, "cannot index %s", csTypeNameIn(checker->types, target));
         result = TYPE_ERROR;
         break;

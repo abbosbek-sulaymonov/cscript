@@ -1,0 +1,4 @@
+error_class_shape.cx:13: error: argument 1 is string but this takes number
+error_class_shape.cx:15: error: member 'celsius' is string but Temp declares it number
+error_class_shape.cx:15: error: Temp needs a member 'warmer' and this has none
+error_class_shape.cx:23: error: argument 1 of 'greet' is Temp but the parameter is HasName

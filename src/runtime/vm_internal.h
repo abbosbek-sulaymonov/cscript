@@ -40,6 +40,7 @@ void csVMPush(Value value);
 Value csVMPop(void);
 bool runFieldInitializers(ObjClass *klass, ObjClass *stopAt, Value instance);
 ObjClosure *findConstructor(ObjClass *klass);
+ObjClass *csVMConstructorOwner(ObjClass *klass);
 
 /* src/vm_event.c */
 void csVMQueueMicrotask(Value callback, Value argument, ObjPromise *result, bool isRejection);

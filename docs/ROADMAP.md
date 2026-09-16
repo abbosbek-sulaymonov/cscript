@@ -76,6 +76,7 @@ already measured says it is the thing that pays.
 | **68 ✅** | No `any`: one-time autocasting, a checked top type with `typeof` narrowing, and parameters that must say |
 | **69 ✅** | `interface` and `type`, checked structurally and erased — and one top type, spelled `unknown` |
 | **70 ✅** | A type tree: `T[]`, `(a: A) => B`, `A \| B`, and generics with inference at the call site |
+| **71 ✅** | A class's name as a type — and the base-class fields `super()` never ran |
 | next | A property store that *adds* one, which is what a constructor does |
 | next | Allocating an object in compiled code — attempted, backed out; see below |
 | next | Calling a CScript function from compiled code, for the callees inlining will not take: it needs frames and safepoints |

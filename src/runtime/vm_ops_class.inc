@@ -316,12 +316,23 @@
         ObjClass *superclass = AS_CLASS(csVMPop());
         ObjClosure *constructor = findConstructor(superclass);
 
+        /* `this` sits under the arguments, and stays on the stack while the
+         * initialisers run so the collector can still see it. */
+        Value receiver = peekStack(argCount);
+
         if (constructor == NULL) {
           if (argCount != 0) {
             csVMRuntimeError("%s has no constructor but super() was given "
                              "%d argument%s",
                              superclass->name->chars, argCount,
                              argCount == 1 ? "" : "s");
+            HANDLE_FAILED_CALL();
+            VM_NEXT();
+          }
+          /* A superclass with no constructor still has fields, and they are
+           * what `super()` is there to run: JavaScript sets them in the
+           * implicit constructor this stands in for. */
+          if (!runFieldInitializers(superclass, NULL, receiver)) {
             HANDLE_FAILED_CALL();
             VM_NEXT();
           }
@@ -332,11 +343,43 @@
           VM_NEXT();
         }
 
-        if (!callMethod(constructor, argCount)) {
+        /* The constructor found may be further up than the superclass, and
+         * every class in between has fields of its own that nothing else will
+         * run — the same gap `new` handles for the classes under the one that
+         * owns the constructor. */
+        ObjClass *superOwner = csVMConstructorOwner(superclass);
+        bool superPendingFields = false;
+        for (ObjClass *c = superclass; c != superOwner; c = c->superclass) {
+          if (c->fieldInit == NULL) continue;
+          superPendingFields = true;
+          break;
+        }
+
+        if (!superPendingFields) {
+          if (!callMethod(constructor, argCount)) {
+            HANDLE_FAILED_CALL();
+            VM_NEXT();
+          }
+          frame = &vm.frames[vm.frameCount - 1];
+          VM_NEXT();
+        }
+
+        /* Those fields have to land after the inherited constructor returns,
+         * so it runs in a loop of its own and they follow it. The receiver is
+         * already in slot 0 and must stay there — blanking it the way an
+         * ordinary call does would take `this` away from the constructor. */
+        csPushTempRoot(AS_OBJ(receiver));
+        Value ignoredSuper;
+        bool superOk =
+            csVMCallCallbackWithReceiver(OBJ_VAL(constructor), argCount, &ignoredSuper) && runFieldInitializers(superclass, superOwner, receiver);
+        csPopTempRoot();
+        if (!superOk) {
           HANDLE_FAILED_CALL();
           VM_NEXT();
         }
         frame = &vm.frames[vm.frameCount - 1];
+        /* `super(...)` is an expression, and what it answers is undefined. */
+        csVMPush(UNDEFINED_VAL);
         VM_NEXT();
       }
 

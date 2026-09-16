@@ -1,0 +1,90 @@
+// A class's name is a type, and the shape behind it is what it declares.
+class Temp {
+  celsius: number = 0;
+
+  get label(): string {
+    return String(this.celsius) + "C";
+  }
+
+  warmer(by: number): Temp {
+    this.celsius = this.celsius + by;
+    return this;
+  }
+}
+
+const t = new Temp();
+console.log(t.warmer(3).label, t.celsius + 1);
+
+// A class satisfies an interface by having what it asks for — structurally,
+// with no declaration saying so.
+interface HasCelsius {
+  celsius: number;
+}
+function read(x: HasCelsius): number {
+  return x.celsius;
+}
+console.log(read(t));
+
+// `extends` carries the members down, as it does between interfaces.
+class Animal {
+  legs: number = 4;
+  speak(): string {
+    return "...";
+  }
+}
+
+class Dog extends Animal {
+  constructor(name: string) {
+    super();
+    this.name = name;
+  }
+  speak(): string {
+    return "woof";
+  }
+}
+
+const d = new Dog("rex");
+console.log(d.speak().toUpperCase(), d.legs, d.name);
+
+// A shape is open: a field the constructor added and the class never declared
+// is readable, because `this.name = name` is the commonest line in one.
+function walk(a: Animal): number {
+  return a.legs;
+}
+console.log(walk(d));
+
+// A base class's field initialisers run when a derived constructor calls
+// super(), which is where JavaScript runs them.
+class Base {
+  first: number = 1;
+  constructor() {
+    this.second = 2;
+  }
+}
+class Derived extends Base {
+  third: number = 3;
+  constructor() {
+    super();
+    this.fourth = 4;
+  }
+}
+console.log(Object.keys(new Derived()).join(","));
+
+// Three deep, with the constructor two levels up.
+class Outer {
+  a: number = 1;
+  constructor(x: number) {
+    this.given = x;
+  }
+}
+class Middle extends Outer {
+  b: number = 2;
+}
+class Inner extends Middle {
+  c: number = 3;
+  constructor() {
+    super(4);
+  }
+}
+const inner = new Inner();
+console.log(inner.a, inner.b, inner.c, inner.given, Object.keys(inner).join(","));

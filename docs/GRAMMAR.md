@@ -336,6 +336,43 @@ about a `T`, which is what lets the body be checked once for every
 instantiation at once. A declaration may take at most four of them, and a call
 that leaves one undetermined gets the type the checker could not work out.
 
+### A class's name is a type
+
+A class declares a shape as well as a constructor, and `new Dog()` answers it:
+
+```ts
+class Temp {
+  celsius: number = 0;
+  get label(): string { return String(this.celsius) + "C"; }
+  warmer(by: number): Temp { this.celsius += by; return this; }
+}
+
+const t = new Temp();
+t.warmer(3).label;      // a string — the method says what it answers
+t.warmer("lots");       // error: argument 1 is string but this takes number
+```
+
+The members are what the class writes down: annotated fields, methods (as
+function types), and a getter (as what it answers). A static member belongs to
+the class rather than to an instance, and a private `#field` is invisible from
+outside, so neither is part of the shape. `extends` carries the members down,
+as it does between interfaces.
+
+A class satisfies an interface **structurally**, with nothing declaring that it
+does:
+
+```ts
+interface HasCelsius { celsius: number; }
+function read(x: HasCelsius): number { return x.celsius; }
+read(t);   // fine: Temp has a celsius, and it is a number
+```
+
+A class's shape is **open**, and an interface's is not: reading a member a
+class never declared answers what the checker could not work out rather than an
+error, because `this.name = name` in a constructor is how half of them get
+their fields. What it *does* declare is checked, and still has to be there for
+an instance to satisfy an interface.
+
 ### `interface` and `type`
 
 An interface names a shape. It is checked and then erased — nothing it
