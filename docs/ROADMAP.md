@@ -81,7 +81,7 @@ already measured says it is the thing that pays.
 | **73 ✅** | The built-in generics — `Map<K, V>`, `Set<T>`, `Promise<T>`, `Array<T>` — and `await` that unwraps one |
 | **74 ✅** | Literal types, `keyof`, `T[K]`, mapped types, and the six utility types made of them |
 | **75 ✅** | A property store that *adds* one — a constructor reaches machine code, **1.45×** |
-| next | Allocating an object in compiled code — attempted, backed out; see below |
+| **76 ✅** | Allocating an object in compiled code — `bench/properties` **1.6×**, and what the backed-out attempt had missed |
 | next | Calling a CScript function from compiled code, for the callees inlining will not take: it needs frames and safepoints |
 
 ---
@@ -112,10 +112,11 @@ along with its height.
 
 ---
 
-## Allocation in compiled code: what an attempt found
+## Allocation in compiled code: what the attempt missed
 
-Tried and withdrawn, because it produced a wrong answer on `bench/properties`
-that was not diagnosed. What it turned up is worth keeping.
+Tried once and withdrawn, because it produced a wrong answer on
+`bench/properties` that was not diagnosed. It is in now, and the thing it had
+missed was not on the list below — see the end.
 
 **The collector cannot see a compiled frame.** On a call entry the slots are a
 local array in `csJitTryRun`; on the OSR path they are the interpreter's frame,
@@ -139,5 +140,22 @@ refused. `csIrRemoveDeadStores` counts a slot as read only through
 `IR_LOAD_LOCAL`, so a slot read through a property access looks dead; that one
 is now hardened, and it is the only part of the attempt that was kept.
 
-The wrong answer survived all of the above being fixed, so there is at least
-one more thing wrong, and the honest position is that it is not yet understood.
+All of the above is now done: the root range is `VM.jitRoots`, the slots an
+allocation reads and writes are named by `csIrWritesSlot` and `csIrReadsSlots`
+rather than inferred from stores, and the three passes ask those instead.
+
+**What the attempt had missed was a fourth pass, and a silence.** The
+forwarding pass — the one that turns a store followed by a load of the same
+slot into a register rename — tracked slots by looking for `IR_STORE_LOCAL`
+too. A slot written by an allocation looked untouched to it as well, so a load
+*after* the allocation was renamed to the register holding what the slot had
+held *before*. That is a wrong answer with nothing to see: no crash, no
+refusal, no diagnostic, just the previous iteration's object read back.
+
+The silence was worse. The machine-code emitter's switch had no `default`, so
+an instruction it did not know emitted **nothing at all** — the allocation
+simply did not happen, and whatever the slot held before was read as an object.
+That is how the first version of this change segfaulted rather than saying it
+could not compile the function. The switch refuses now, which costs the
+`-Wswitch` warning that would have named a new opcode and buys a compiler that
+cannot silently skip one.

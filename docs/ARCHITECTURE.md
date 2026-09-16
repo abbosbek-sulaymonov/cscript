@@ -1672,6 +1672,53 @@ macOS builds its runtime deadlocks inside `AsanInitInternal`, spinning on its
 own mutex before `main` is reached, and under some sandboxes it fails outright.
 Neither should be able to wedge `make test`.
 
+## Stage 10: allocating in compiled code
+
+Compiled code could not allocate, and so could not build an object — which is
+what the loop in `bench/properties` does three million times. What stood in the
+way was not the allocation but the collector: it walks the interpreter's stack
+up to `stackTop`, and neither way into compiled code puts its frame there. A
+call entry builds the slots as a local array; a back-edge hands over the
+interpreter's frame, but compiled code writes past what the interpreter has
+opened.
+
+A **root range** answers both, and a range is enough rather than a stack map
+because every value compiled code holds is a number except the objects in
+frame slots. The VM is told where the frame is for exactly as long as a run
+lasts. The IR interpreter gets a second range for its register file, which can
+hold an object between a load and its use.
+
+Then the rule that makes the build itself safe: **the object goes into its
+frame slot before any property is put on it.** From that instant it is inside
+the range, and putting a property on it may allocate. The values come from the
+slots above the destination, written there by ordinary stores — so they are in
+the frame rather than in registers, and the emitted code is a call with three
+arguments instead of a list.
+
+What it cost: `bench/properties` went from 0.32 s to **0.20 s**, and the
+differential suite's coverage rose from 42 programs to 46, with 73 reaching
+machine code where 70 did.
+
+### Two things the first attempt had missed
+
+It was withdrawn once, for a wrong answer on this same benchmark that was never
+diagnosed. Neither cause was among the three it had already fixed.
+
+**A fourth pass reasoned about slots by looking for stores.** The one that
+turns a store followed by a load of the same slot into a register rename. A
+slot written by an allocation looked untouched to it, so a load *after* the
+allocation was renamed to the register holding what the slot held *before* —
+the previous iteration's object, read back with nothing to see: no crash, no
+refusal, no diagnostic. Every pass now asks `csIrWritesSlot` and
+`csIrReadsSlots` rather than looking for `IR_STORE_LOCAL` itself.
+
+**The emitter's switch had no `default`.** An instruction it did not know
+emitted *nothing* — so the allocation silently did not happen and the slot was
+read as an object anyway. That is how the first version of this change
+segfaulted instead of refusing the function. It refuses now, which gives up the
+`-Wswitch` warning that would have named a new opcode and buys a backend that
+cannot quietly skip one.
+
 ## What comes next
 
 The pipeline has not changed shape since the first milestone, which was the
@@ -1683,7 +1730,6 @@ genuinely new stage, which only runs on code that has earned it.
 | Next | What it needs | Why it is next |
 | --- | --- | --- |
 | Replaying a conditional jump | The taken arm's state merged into its target, height included | It is the one thing still refusing `loops_control.cx` |
-| Allocation in compiled code | A root range the collector walks, and a recorded frame size | Attempted and backed out; what the attempt found is in [ROADMAP.md](ROADMAP.md) |
 | Calling a CScript function | A frame, and a safepoint the collector can walk it at | Inlining takes the small straight-line callees; this is for everything else |
 | Guards and deoptimisation | A side exit that can also *undo* — the exits here only leave from points where nothing needs undoing | It is what would let the compiler take code the checker has not proved |
 | Cross-block liveness | Real dataflow, rather than the block-local approximation the allocator uses | Values crossing a block boundary keep a memory home today |
@@ -1726,6 +1772,53 @@ grow, and is now a compare and two stores.
 What is still refused: an object whose storage is full, a site that has seen
 more than one layout, and a constructor whose stores are not all adds of known
 names — `this[key] = v` names nothing at compile time.
+
+## Stage 10: allocating in compiled code
+
+Compiled code could not allocate, and so could not build an object — which is
+what the loop in `bench/properties` does three million times. What stood in the
+way was not the allocation but the collector: it walks the interpreter's stack
+up to `stackTop`, and neither way into compiled code puts its frame there. A
+call entry builds the slots as a local array; a back-edge hands over the
+interpreter's frame, but compiled code writes past what the interpreter has
+opened.
+
+A **root range** answers both, and a range is enough rather than a stack map
+because every value compiled code holds is a number except the objects in
+frame slots. The VM is told where the frame is for exactly as long as a run
+lasts. The IR interpreter gets a second range for its register file, which can
+hold an object between a load and its use.
+
+Then the rule that makes the build itself safe: **the object goes into its
+frame slot before any property is put on it.** From that instant it is inside
+the range, and putting a property on it may allocate. The values come from the
+slots above the destination, written there by ordinary stores — so they are in
+the frame rather than in registers, and the emitted code is a call with three
+arguments instead of a list.
+
+What it cost: `bench/properties` went from 0.32 s to **0.20 s**, and the
+differential suite's coverage rose from 42 programs to 46, with 73 reaching
+machine code where 70 did.
+
+### Two things the first attempt had missed
+
+It was withdrawn once, for a wrong answer on this same benchmark that was never
+diagnosed. Neither cause was among the three it had already fixed.
+
+**A fourth pass reasoned about slots by looking for stores.** The one that
+turns a store followed by a load of the same slot into a register rename. A
+slot written by an allocation looked untouched to it, so a load *after* the
+allocation was renamed to the register holding what the slot held *before* —
+the previous iteration's object, read back with nothing to see: no crash, no
+refusal, no diagnostic. Every pass now asks `csIrWritesSlot` and
+`csIrReadsSlots` rather than looking for `IR_STORE_LOCAL` itself.
+
+**The emitter's switch had no `default`.** An instruction it did not know
+emitted *nothing* — so the allocation silently did not happen and the slot was
+read as an object anyway. That is how the first version of this change
+segfaulted instead of refusing the function. It refuses now, which gives up the
+`-Wswitch` warning that would have named a new opcode and buys a backend that
+cannot quietly skip one.
 
 ## What comes next
 

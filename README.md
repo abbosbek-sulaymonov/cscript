@@ -85,7 +85,7 @@ The full list, with the reasoning for each, is in
 ---
 ## Status
 
-**v0.53.0.** The language is feature-complete for everyday code and well past
+**v0.54.0.** The language is feature-complete for everyday code and well past
 it: objects and arrays, functions and closures, classes with private members
 and static blocks, modules, promises and `async`/`await`, generators and async
 generators, regular expressions, `Map`/`Set`, `Symbol`, `BigInt`, `Date`,

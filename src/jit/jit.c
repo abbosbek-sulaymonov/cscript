@@ -242,8 +242,19 @@ bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int a
        * csIrLower only produces one for code the interpreter would resume. */
       if (!assumptionsHold(hot[i].code)) return false;
 
+      /* The frame is a local array, which the collector has no way to find.
+       * Told about it for exactly as long as the run lasts — anything compiled
+       * code allocates is stored into one of these slots before anything else
+       * can collect. */
+      int savedRanges = vm.jitRootRanges;
+      vm.jitRoots[0].values = slots;
+      vm.jitRoots[0].count = hot[i].ir->slotCount;
+      vm.jitRootRanges = 1;
+
       int exit = -1;
       uint64_t bits = hot[i].code->entry(slots, hot[i].scratch, &exit);
+
+      vm.jitRootRanges = savedRanges;
       if (exit >= 0) return false;
       memcpy(out, &bits, sizeof(Value));
       substituted++;
@@ -284,8 +295,18 @@ bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *ou
       if (!csIrEntryShapesHold(hot[i].ir, slots)) return false;
       if (!csIrInlinedCalleesHold(hot[i].ir)) return false;
 
+      /* The slots above what the interpreter has opened, which the collector
+       * walks only as far as `stackTop`. The frame below it is already a root;
+       * this covers the rest for as long as compiled code is using it. */
+      int savedRanges = vm.jitRootRanges;
+      vm.jitRoots[0].values = slots;
+      vm.jitRoots[0].count = hot[i].ir->slotCount;
+      vm.jitRootRanges = 1;
+
       int exit = -1;
       uint64_t bits = hot[i].code->osr[o].entry(slots, hot[i].scratch, &exit);
+
+      vm.jitRootRanges = savedRanges;
 
       if (exit >= 0 && exit < hot[i].code->exitCount) {
         /* Not finished: the body reached something the compiler does not

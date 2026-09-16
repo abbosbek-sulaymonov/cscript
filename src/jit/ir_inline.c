@@ -231,6 +231,14 @@ void csIrMarkReferences(const IrFunction *ir) {
     csMarkObject((Obj *)ir->entryShapes[i].shape);
   }
 
+  /* The keys of every object literal this function builds: compiled code holds
+   * their addresses and has no chunk to find them in. */
+  for (int i = 0; i < ir->literalCount; i++) {
+    for (int k = 0; k < ir->literals[i].count; k++) {
+      csMarkObject((Obj *)ir->literals[i].keys[k]);
+    }
+  }
+
   /* The layout an added property gives the object. A transition edge is weak,
    * so between compiling the store and running it nothing else would keep the
    * new shape alive — and the compiled code holds its address. */

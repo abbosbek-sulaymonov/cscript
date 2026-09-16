@@ -41,6 +41,10 @@ void csIrRegisterOperands(const IrInst *inst, int *a, int *b) {
       *b = inst->b; /* `a` is the destination, not a value */
       break;
 
+    /* Neither operand is a register: `a` is the destination slot and `b` is an
+     * index into the literal table. The values come from the frame. */
+    case IR_NEW_OBJECT: break;
+
     case IR_NEG:
     case IR_RETURN:
     case IR_BRANCH:
@@ -99,6 +103,13 @@ void csIrForwardSlots(IrFunction *ir) {
         slotHolder[inst.a] = inst.b;
       } else if (inst.op == IR_LOAD_LOCAL && inst.a >= 0 && inst.a < IR_MAX_STACK) {
         slotHolder[inst.a] = inst.result;
+      } else {
+        /* Anything else that writes a slot ends what was believed about it. An
+         * allocation is the one that does: forwarding a load past it would
+         * answer with whatever register held the slot's *previous* value,
+         * which is the shape of a wrong answer that leaves no trace. */
+        int written = csIrWritesSlot(&inst);
+        if (written >= 0 && written < IR_MAX_STACK) slotHolder[written] = -1;
       }
 
       block->instructions[kept++] = inst;
@@ -124,9 +135,10 @@ void csIrRemoveDeadStores(IrFunction *ir) {
        * lowered against a slot the function never writes, so there is no store
        * to remove — but relying on that coincidence is how the next change
        * breaks something quietly. */
-      if ((inst->op == IR_LOAD_PROPERTY || inst->op == IR_STORE_PROPERTY || inst->op == IR_ADD_PROPERTY) && inst->a >= 0 && inst->a <= ir->slotCount) {
-        isRead[inst->a] = true;
-      }
+      int first;
+      int last;
+      csIrReadsSlots(ir, inst, &first, &last);
+      for (int s = first; s >= 0 && s <= last && s <= ir->slotCount; s++) isRead[s] = true;
 
       /* An exit reads everything. The interpreter picks the frame up from
        * there and its next instruction may be a load of any live slot — a
@@ -218,7 +230,13 @@ static bool walkBlockSlots(IrFunction *ir, int b, int *state, int slots, bool re
 
     if (inst->op == IR_STORE_LOCAL && inst->a >= 0 && inst->a < slots && inst->b >= 0 && inst->b <= ir->registerCount) {
       state[inst->a] = (int)ir->registerTypes[inst->b];
+      continue;
     }
+
+    /* A slot an allocation writes holds an object, which is not a number and
+     * not anything else this knows how to name. */
+    int written = csIrWritesSlot(inst);
+    if (written >= 0 && written < slots) state[written] = (int)IR_TYPE_UNKNOWN;
   }
   return changed;
 }
@@ -237,11 +255,13 @@ static void wholeFunctionMeet(const IrFunction *ir, IrType *meet, int slots) {
   for (int b = 0; b < ir->blockCount; b++) {
     for (int i = 0; i < ir->blocks[b].count; i++) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
-      if (inst->op != IR_STORE_LOCAL) continue;
+      if (inst->op != IR_STORE_LOCAL && inst->op != IR_NEW_OBJECT) continue;
       if (inst->a < 0 || inst->a >= slots) continue;
-      if (inst->b < 0 || inst->b > ir->registerCount) continue;
+      if (inst->op == IR_STORE_LOCAL && (inst->b < 0 || inst->b > ir->registerCount)) continue;
 
-      IrType stored = ir->registerTypes[inst->b];
+      /* What an allocation leaves in the slot is an object: not a number, and
+       * so not a slot that may be promoted into a floating-point register. */
+      IrType stored = inst->op == IR_NEW_OBJECT ? IR_TYPE_UNKNOWN : ir->registerTypes[inst->b];
       if (!written[inst->a]) {
         meet[inst->a] = stored;
         written[inst->a] = true;

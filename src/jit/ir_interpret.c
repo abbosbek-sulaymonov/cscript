@@ -38,6 +38,16 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
   Value *registers = (Value *)malloc(sizeof(Value) * (size_t)(ir->registerCount + 1));
   for (int i = 0; i < ir->registerCount; i++) registers[i] = UNDEFINED_VAL;
 
+  /* Both arrays are the collector's business now that an instruction here can
+   * allocate: the frame holds the objects, and a register holds one for as
+   * long as it is between a load and its use. */
+  int savedRanges = vm.jitRootRanges;
+  vm.jitRoots[0].values = slots;
+  vm.jitRoots[0].count = ir->slotCount;
+  vm.jitRoots[1].values = registers;
+  vm.jitRoots[1].count = ir->registerCount;
+  vm.jitRootRanges = 2;
+
   int block = 0;
   long steps = 0;
   bool ok = false;
@@ -81,6 +91,15 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
         case IR_STORE_PROPERTY: {
           ObjObject *target = AS_OBJECT(slots[inst->a]);
           target->as.slots.values[inst->c] = registers[inst->b];
+          break;
+        }
+
+        case IR_NEW_OBJECT: {
+          /* The same call compiled code makes, from the same frame. The IR
+           * interpreter runs on its own slot array, which is a root for the
+           * same reason and by the same means. */
+          if (inst->b < 0 || inst->b >= ir->literalCount) goto done;
+          csJitBuildObject(slots, inst->a, &ir->literals[inst->b]);
           break;
         }
 
@@ -174,6 +193,7 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
   }
 
 done:
+  vm.jitRootRanges = savedRanges;
   free(registers);
   return ok;
 }
