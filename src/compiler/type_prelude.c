@@ -24,6 +24,7 @@
 /* A member holding a function, spelled out at the call sites below. */
 static void addMethod(TypeTable *table, TypeId owner, const char *name, const TypeId *params, int paramCount, int requiredCount, TypeId result) {
   TypeMember member;
+  memset(&member, 0, sizeof member);
   member.name = name;
   member.length = (int)strlen(name);
   member.type = csTypeFunctionOf(table, params, paramCount, requiredCount, false, result);
@@ -33,6 +34,7 @@ static void addMethod(TypeTable *table, TypeId owner, const char *name, const Ty
 
 static void addField(TypeTable *table, TypeId owner, const char *name, TypeId type) {
   TypeMember member;
+  memset(&member, 0, sizeof member);
   member.name = name;
   member.length = (int)strlen(name);
   member.type = type;

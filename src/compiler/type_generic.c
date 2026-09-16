@@ -22,6 +22,9 @@ static bool mentions(const TypeTable *table, TypeId type, int depth) {
   const CompositeType *composite = csTypeComposite(table, type);
   if (composite == NULL || depth > 6) return false;
   if (composite->kind == COMPOSITE_TYPEVAR) return true;
+  /* An unevaluated form is waiting on something, and that something is a
+   * variable somewhere inside it. */
+  if (composite->kind == COMPOSITE_KEYOF || composite->kind == COMPOSITE_INDEXED || composite->kind == COMPOSITE_MAPPED) return true;
   if (mentions(table, composite->inner, depth + 1)) return true;
   for (int i = 0; i < composite->slotCount; i++) {
     if (mentions(table, table->slots[composite->slotStart + i], depth + 1)) return true;
@@ -47,7 +50,33 @@ static TypeId substitute(TypeTable *table, TypeId type, const TypeId *params, co
   if (composite == NULL) return type;
 
   switch (composite->kind) {
-    case COMPOSITE_TYPEVAR: return type;
+    case COMPOSITE_TYPEVAR:
+    /* A literal holds text and nothing that could mention a variable. */
+    case COMPOSITE_LITERAL: return type;
+
+    /* The computed forms: their pieces are substituted, and then the result is
+     * *evaluated* — which is where `Partial<T>` becomes a shape, because this
+     * is the moment T stopped being a variable. */
+    case COMPOSITE_KEYOF: {
+      TypeId subject = substitute(table, composite->inner, params, args, count, depth + 1);
+      return csTypeEvaluate(table, csTypeKeyOf(table, subject));
+    }
+
+    case COMPOSITE_INDEXED: {
+      TypeId subject = substitute(table, composite->inner, params, args, count, depth + 1);
+      TypeId key = substitute(table, table->slots[composite->slotStart], params, args, count, depth + 1);
+      return csTypeEvaluate(table, csTypeIndexedAccess(table, subject, key));
+    }
+
+    case COMPOSITE_MAPPED: {
+      TypeId keys = substitute(table, composite->inner, params, args, count, depth + 1);
+      TypeId variable = table->slots[composite->slotStart];
+      /* The value keeps its own variable — it is bound to each name in turn by
+       * the mapping itself, not by this substitution. */
+      TypeId value = substitute(table, table->slots[composite->slotStart + 1], params, args, count, depth + 1);
+      TypeId source = composite->slotCount > 2 ? substitute(table, table->slots[composite->slotStart + 2], params, args, count, depth + 1) : TYPE_DYNAMIC;
+      return csTypeMapped(table, keys, variable, value, composite->optionalMode, composite->readonlyMode, composite->name, composite->nameLength, source);
+    }
 
     case COMPOSITE_ARRAY: return csTypeArrayOf(table, substitute(table, composite->inner, params, args, count, depth + 1));
 

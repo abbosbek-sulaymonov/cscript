@@ -184,6 +184,7 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
        * invisible from outside, and a computed name is not known here. */
       if (!isConstructor && !isStatic && declared != TYPE_DYNAMIC && computedKey == NULL && memberName[0] != '#' && memberKind != MEMBER_SETTER) {
         TypeMember member;
+        memset(&member, 0, sizeof member);
         member.name = csAstInternName(parser->arena, memberName, memberLength, &member.length);
         member.optional = false;
         if (memberKind == MEMBER_GETTER) {
@@ -241,6 +242,7 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
      * constructor adds instead is why a class's shape is open. */
     if (!isStatic && declared != TYPE_DYNAMIC && computedKey == NULL && memberName[0] != '#') {
       TypeMember member;
+      memset(&member, 0, sizeof member);
       member.name = csAstInternName(parser->arena, memberName, memberLength, &member.length);
       member.length = memberLength;
       member.type = annotated ? fieldType : TYPE_DYNAMIC;

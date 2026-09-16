@@ -1,0 +1,24 @@
+// What the computed types refuse.
+interface User {
+  name: string;
+  age: number;
+  email?: string;
+}
+
+type Role = "admin" | "user";
+const role: Role = "root";
+
+type UserKey = keyof User;
+const key: UserKey = "nope";
+
+const draft: Partial<User> = { name: 1 };
+const missing: Required<User> = { name: "ada", age: 36 };
+const extra: Pick<User, "name"> = { name: "ada", age: 36 };
+const gone: Omit<User, "email"> = { name: "ada", age: 36, email: "a@b" };
+const counts: Record<string, number> = { a: "one" };
+const frozen: Readonly<User> = { name: "ada", age: 36 };
+frozen.age = 37;
+
+type Locked<T> = { readonly [K in keyof T]: T[K] };
+const locked: Locked<User> = { name: "ada", age: 36 };
+locked.name = "alan";

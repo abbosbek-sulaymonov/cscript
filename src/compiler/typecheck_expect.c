@@ -46,6 +46,15 @@ TypeId csTypeCheckShape(Checker *checker, AstNode *value, TypeId expected) {
     return ok ? expected : value->resolvedType;
   }
 
+  /* `const role: Role = "admin"` — the text is right there, so it is compared
+   * against what was asked for rather than widened to `string` first. This is
+   * the same rule as an object literal against a shape: a literal is proved
+   * where it is written, because that is the only place it can be. */
+  if (value->type == AST_STRING_LITERAL) {
+    TypeId literal = csTypeLiteral(checker->types, value->as.string.chars, value->as.string.length);
+    return csTypeAssignableIn(checker->types, literal, expected) ? literal : value->resolvedType;
+  }
+
   if (value->type != AST_OBJECT_LITERAL) return value->resolvedType;
 
   const CompositeType *required = csTypeComposite(checker->types, expected);
@@ -64,6 +73,19 @@ TypeId csTypeCheckShape(Checker *checker, AstNode *value, TypeId expected) {
   for (int i = 0; i < value->as.objectLiteral.count; i++) {
     AstNode *key = value->as.objectLiteral.keys[i];
     const TypeMember *member = csTypeFindMember(checker->types, expected, key->as.string.chars, key->as.string.length);
+
+    /* A shape with an index signature names no members and accepts every key,
+     * so what is checked is what each one holds. */
+    TypeId anyKey = csTypeIndexValue(checker->types, expected);
+    if (member == NULL && anyKey != TYPE_ERROR) {
+      TypeId given = csTypeCheckShape(checker, value->as.objectLiteral.values[i], anyKey);
+      if (csTypeAssignableIn(checker->types, given, anyKey)) continue;
+      csTypeError(checker, value->line, "member '%.*s' is %s but %s holds %s", key->as.string.length, key->as.string.chars, csTypeNameIn(checker->types, given),
+                  csTypeNameIn(checker->types, expected), csTypeNameIn(checker->types, anyKey));
+      ok = false;
+      continue;
+    }
+
     if (member == NULL) {
       csTypeError(checker, value->line, "%s has no member '%.*s'", csTypeNameIn(checker->types, expected), key->as.string.length, key->as.string.chars);
       ok = false;
@@ -140,4 +162,21 @@ TypeId csTypeCheckCallThrough(Checker *checker, AstNode *node, TypeId functionTy
     }
   }
   return signature->inner;
+}
+
+/* The literal type a string written in the source has, when the thing it is
+ * being compared against is made of literals. Anything else keeps the type it
+ * already had — a string stays a string, which is what almost every comparison
+ * wants. */
+TypeId csTypeRefineLiteral(Checker *checker, AstNode *node, TypeId against) {
+  if (node == NULL || node->type != AST_STRING_LITERAL) return node != NULL ? node->resolvedType : TYPE_DYNAMIC;
+  bool literalish = csTypeIs(checker->types, against, COMPOSITE_LITERAL);
+  const CompositeType *composite = csTypeComposite(checker->types, against);
+  if (!literalish && composite != NULL && composite->kind == COMPOSITE_UNION) {
+    for (int i = 0; i < composite->slotCount && !literalish; i++) {
+      literalish = csTypeIs(checker->types, checker->types->slots[composite->slotStart + i], COMPOSITE_LITERAL);
+    }
+  }
+  if (!literalish) return node->resolvedType;
+  return csTypeLiteral(checker->types, node->as.string.chars, node->as.string.length);
 }

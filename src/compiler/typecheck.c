@@ -419,6 +419,13 @@ TypeId csTypeCheckBinary(Checker *checker, AstNode *node) {
 
     case BINARY_EQUAL:
     case BINARY_NOT_EQUAL: {
+      /* `role === "admin"` — the text is written right there, so it is read as
+       * the literal type it is rather than as `string`. Without this the
+       * disjointness check below calls the comparison always-false, which is
+       * precisely backwards: asking which name it is, is what a set of names
+       * is for. */
+      left = csTypeRefineLiteral(checker, node->as.binary.left, right);
+      right = csTypeRefineLiteral(checker, node->as.binary.right, left);
       /* `===` between two known, different types can only ever be false, which
        * is a mistake worth naming rather than a value worth computing.
        *
@@ -434,7 +441,14 @@ TypeId csTypeCheckBinary(Checker *checker, AstNode *node) {
        * the question is what narrowing would answer. */
       bool involvesValue = left == TYPE_UNKNOWN || right == TYPE_UNKNOWN;
 
-      if (!involvesNullish && !involvesValue && csTypeIsKnown(left) && csTypeIsKnown(right) && left != right) {
+      /* Two types can match when either would be accepted where the other is
+       * wanted: `"admin"` against `"admin" | "user"` is the ordinary way to
+       * ask which one a value is, and a `number[]` against a bare `array` is
+       * the same question about elements. Only types with no overlap at all
+       * are always-false. */
+      bool couldMatch = csTypeAssignableIn(checker->types, left, right) || csTypeAssignableIn(checker->types, right, left);
+
+      if (!involvesNullish && !involvesValue && csTypeIsKnown(left) && csTypeIsKnown(right) && !couldMatch) {
         csTypeError(checker, line, "'%s' between %s and %s is always %s — the types can never match", name, csTypeNameIn(checker->types, left),
                     csTypeNameIn(checker->types, right), node->as.binary.op == BINARY_EQUAL ? "false" : "true");
         return TYPE_ERROR;

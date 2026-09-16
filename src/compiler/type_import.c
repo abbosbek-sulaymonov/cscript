@@ -55,6 +55,15 @@ static TypeId importType(TypeTable *dest, const TypeTable *src, TypeId type, int
      * binding has no call site here for the checker to read. */
     case COMPOSITE_TYPEVAR: return TYPE_DYNAMIC;
 
+    /* A literal is its text, and the text is all that has to cross. */
+    case COMPOSITE_LITERAL: return csTypeLiteral(dest, composite->name, composite->nameLength);
+
+    /* An unevaluated form crossing a boundary is one that never became a type:
+     * it was waiting on a variable, and a variable does not cross. */
+    case COMPOSITE_KEYOF:
+    case COMPOSITE_INDEXED:
+    case COMPOSITE_MAPPED: return TYPE_DYNAMIC;
+
     case COMPOSITE_ARRAY: return csTypeArrayOf(dest, importType(dest, src, composite->inner, depth + 1));
 
     case COMPOSITE_UNION: {
