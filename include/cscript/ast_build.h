@@ -15,10 +15,10 @@
  * destroyed as a unit once compilation is done. */
 typedef struct AstArenaBlock AstArenaBlock;
 
-typedef struct {
+struct AstArena {
   AstArenaBlock *head;
   size_t bytesAllocated;
-} AstArena;
+};
 
 void csAstArenaInit(AstArena *arena);
 void csAstArenaFree(AstArena *arena);
@@ -122,6 +122,15 @@ void csAstDestructureNest(AstNode *node, AstNode *pattern);
 void csAstParamPattern(AstNode *function, AstNode *pattern);
 AstNode *csAstReturn(AstArena *arena, int line, AstNode *value);
 AstNode *csAstProgram(AstArena *arena, int line);
+
+/* Records an exported binding's type. Called by the checker, once per name. */
+void csAstProgramAddExport(AstNode *program, const char *name, int length, TypeId type);
+
+/* Hands the program's type table to the caller, who then owns it. */
+TypeTable *csAstProgramTakeTypes(AstNode *program);
+
+/* Frees it, when nobody took it. */
+void csAstProgramFreeTypes(AstNode *program);
 
 /* Appends to a AST_PROGRAM or AST_BLOCK statement list. */
 void csAstProgramAdd(AstArena *arena, AstNode *parent, AstNode *statement);

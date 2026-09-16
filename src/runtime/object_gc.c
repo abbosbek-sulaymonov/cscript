@@ -320,6 +320,11 @@ void csObjectFree(Obj *object) {
       csTableFree(&module->globals);
       csTableFree(&module->globalConsts);
       csTableFree(&module->exports);
+      /* The types this file declared, which outlived the arena that parsed it
+       * precisely so that an importer could read them. */
+      free(module->types);
+      for (int i = 0; i < module->exportTypeCount; i++) free(module->exportTypes[i].name);
+      free(module->exportTypes);
       CS_FREE(ObjModule, object);
       break;
     }

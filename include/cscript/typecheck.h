@@ -12,7 +12,12 @@
 #include "cscript/common.h"
 #include "cscript/diagnostic.h"
 
-/* Returns false when a type error was reported. */
-bool csTypeCheck(AstNode *program, Diagnostics *diag);
+/* Returns false when a type error was reported.
+ *
+ * `sourcePath` is the file being checked, resolved and absolute, or NULL when
+ * there is no file — `-e` and the REPL. It is what an `import` is resolved
+ * against, so that the types of what a module exports reach the file that
+ * imported it. */
+bool csTypeCheck(AstNode *program, Diagnostics *diag, const char *sourcePath);
 
 #endif /* CSCRIPT_TYPECHECK_H */

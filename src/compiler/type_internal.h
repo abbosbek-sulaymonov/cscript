@@ -12,4 +12,8 @@
 /* A NUL-terminated candidate against a name that may not be. */
 bool csTypeNameMatches(const char *name, int length, const char *candidate);
 
+/* Reserves a run of the slot pool and fills it. False when the table is full,
+ * which is the one failure every constructor here degrades to DYNAMIC on. */
+bool csTypeTakeSlots(TypeTable *table, const TypeId *values, int count, int *startOut);
+
 #endif /* CSCRIPT_COMPILER_TYPE_INTERNAL_H */

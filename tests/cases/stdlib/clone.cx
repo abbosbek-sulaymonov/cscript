@@ -5,6 +5,12 @@ const nested = { a: 1, inner: { b: 2 }, list: [1, [2]] };
 
 const flat = shallow(nested);
 ok(isDeepEqual(flat, nested));
+
+/* `shallow` answers whatever it was given — a primitive is its own copy — so
+ * writing through the copy means saying what it is first. For a copy of an
+ * object that always succeeds, and the language asks for it to be written
+ * down rather than assumed. */
+if (typeof flat !== "object" || flat === null) throw new Error("a copy of an object is an object");
 flat.a = 99;
 equal(nested.a, 1, "the top level is copied");
 flat.inner.b = 99;

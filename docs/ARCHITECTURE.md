@@ -130,6 +130,14 @@ need one, and deliberately not before. The table hangs off the program node
 rather than sitting in a global, because a module is parsed and checked in the
 middle of the compile of the module that imported it.
 
+It outlives the parse, though, and deliberately: the loader reads a file's
+dependencies *before* checking it, so by the time a file is checked every
+module it imports has a settled table of its own, handed to the module object
+when its arena went. Importing a type is then re-interning one table's entry
+into another's — which works only because the whole relation is structural. A
+shape written in two files is one type, and neither has to import the other's
+name for that to hold.
+
 The checker keeps its own scope stack rather than sharing the compiler's. That
 duplication is deliberate: it means the compiler can be changed without silently
 altering what is or is not a type error.

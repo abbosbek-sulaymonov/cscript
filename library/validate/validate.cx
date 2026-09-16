@@ -254,7 +254,7 @@ export function anything() {
 }
 
 /* `array(string())`, with `min`/`max`/`length` applying to how many. */
-export function array(inner: Function) {
+export function array(inner: object) {
   return new Schema("array", [inner]);
 }
 
@@ -264,7 +264,7 @@ export function object(shape: object) {
 }
 
 /* `optional(string())`, or with something to use instead. */
-export function optional(inner: Function, fallback: unknown = undefined) {
+export function optional(inner: object, fallback: unknown = undefined) {
   return inner.optional(fallback);
 }
 

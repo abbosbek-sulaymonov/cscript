@@ -40,6 +40,12 @@ const char *csModuleDisplayPath(const char *path);
 /* The module already loaded for an absolute path, or NULL. */
 ObjModule *csModuleFind(const char *resolvedPath);
 
+/* The type a module gives one of the names it exports, in that module's own
+ * table — which is what csTypeImport re-interns into the importer's. Answers
+ * false when the module has no types, does not export the name, or is still
+ * loading, which is what a cycle looks like from here. */
+bool csModuleExportType(const ObjModule *module, const char *name, int length, const TypeTable **table, TypeId *type);
+
 /* Loads, parses and compiles a file and everything it imports, unless that has
  * already happened. Errors are reported against `from` when one is given — so
  * a missing file is reported at the import that named it — and printed plainly

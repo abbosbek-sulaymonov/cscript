@@ -16,7 +16,10 @@
 import { and, xor, wrap, shiftLeft, shiftRight, rotateLeft, toHex } from "std:bits";
 import { fromString } from "std:bytes";
 
-function asBytes(input: unknown) {
+/* Every hash here takes either text or the bytes themselves, which is what
+ * this says: a union rather than an `unknown`, so that what comes back is
+ * known to be an array and the callers below need no narrowing of their own. */
+function asBytes(input: string | array): array {
   return typeof input === "string" ? fromString(input) : input;
 }
 
@@ -25,7 +28,7 @@ function asBytes(input: unknown) {
 /* The one to reach for by default: two operations per byte, a good spread, and
  * short enough to read. 32-bit, which is enough for a hash table and not
  * enough for a content address. */
-export function fnv1a(input: unknown): number {
+export function fnv1a(input: string | array): number {
   let value = 2166136261;
   for (const byte of asBytes(input)) {
     value = xor(value, byte);
@@ -43,7 +46,7 @@ export function fnv1a(input: unknown): number {
 
 /* Bernstein's, kept because it is the one people recognise and because its
  * behaviour on short ASCII keys is well understood. */
-export function djb2(input: unknown): number {
+export function djb2(input: string | array): number {
   let value = 5381;
   for (const byte of asBytes(input)) {
     /* value * 33 + byte, in 32 bits. */
@@ -75,7 +78,7 @@ function buildCrcTable() {
   return table;
 }
 
-export function crc32(input: unknown): number {
+export function crc32(input: string | array): number {
   if (crcTable === null) crcTable = buildCrcTable();
   let value = 4294967295;
   for (const byte of asBytes(input)) {
@@ -90,7 +93,7 @@ export function crc32(input: unknown): number {
  * table that has to hold a million things. The constants are the published
  * ones; a seed makes two tables over the same keys disagree, which is what
  * stops a shared worst case. */
-export function murmur3(input: unknown, seed: number = 0): number {
+export function murmur3(input: string | array, seed: number = 0): number {
   const bytes = asBytes(input);
   let value = wrap(seed);
   const blocks = Math.floor(bytes.length / 4);
@@ -159,7 +162,7 @@ export function toHexString(value: number): string {
 /* Which of `count` buckets this falls in. The modulo is here rather than at
  * every call site because `hash % count` with a signed hash is negative half
  * the time, and every hash here is unsigned for exactly that reason. */
-export function bucket(input: unknown, count: number): number {
+export function bucket(input: string | array, count: number): number {
   if (count < 1) throw new Error("hash.bucket needs at least one bucket");
   return fnv1a(input) % count;
 }
@@ -167,6 +170,6 @@ export function bucket(input: unknown, count: number): number {
 /* A short, stable, human-typable identifier for a value — for a cache
  * filename or a test snapshot name. Not unique: eight hex digits is four
  * billion, so a collision is likely in the tens of thousands. */
-export function fingerprint(input: unknown): string {
+export function fingerprint(input: string | array): string {
   return toHexString(murmur3(input));
 }

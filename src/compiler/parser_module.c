@@ -224,13 +224,17 @@ AstNode *parseExport(Parser *parser) {
     return node;
   }
 
-  /* An interface is erased, and types do not cross a module boundary yet, so
-   * exporting one would export nothing. Saying so beats "expected a
-   * declaration", which reads as though the syntax were wrong. */
-  if (startsInterfaceDeclaration(parser) || startsTypeAlias(parser)) {
-    errorAtCurrent(parser, "a type is file-local: types do not cross a module boundary yet, so there is nothing to export");
-    return NULL;
-  }
+  /* `export interface Point { … }` — written the way TypeScript writes it, and
+   * erased the way TypeScript erases it. The `export` binds nothing, because
+   * a *name* for a type is file-local: the parser resolves an annotation where
+   * it reads it, and the file this one imports has not been read yet.
+   *
+   * What crosses instead is the type itself, carried by the values: a function
+   * exported from there arrives here knowing what it takes and answers, and a
+   * shape written in both files is one type, because everything is compared
+   * structurally. */
+  if (startsInterfaceDeclaration(parser)) return parseInterfaceDeclaration(parser);
+  if (startsTypeAlias(parser)) return parseTypeAlias(parser);
 
   bool exportsAsyncFunction = checkWord(parser, "async") && nextStartsFunction(parser);
   if (!exportsAsyncFunction && !check(parser, TOKEN_LET) && !check(parser, TOKEN_CONST) && !check(parser, TOKEN_FUNCTION) && !check(parser, TOKEN_CLASS)) {

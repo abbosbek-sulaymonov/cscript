@@ -370,7 +370,10 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeId *out) {
           result = csTypeCheckCallThrough(checker, node, callee);
           break;
         }
-        result = TYPE_DYNAMIC;
+        /* A union of callables answers one of their results, and what it takes
+         * is only agreed where they agree — so the arguments go to the runtime
+         * and what comes back is still known. */
+        result = csTypeResultOf(checker->types, callee);
         break;
       }
 
@@ -499,10 +502,26 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeId *out) {
 
     case AST_CONDITIONAL: {
       checkNode(checker, node->as.conditional.condition);
+
+      /* `typeof x === "string" ? fromString(x) : x` — a test narrows its arms
+       * here exactly as it narrows the branches of an `if`. It is the shape a
+       * one-line guard takes, and leaving it out sent every such line back to
+       * the runtime. */
+#define NARROWED_AT_ONCE 8
+      Variable *narrowed[NARROWED_AT_ONCE];
+      TypeId saved[NARROWED_AT_ONCE];
+
+      int count = csTypeNarrowAll(checker, node->as.conditional.condition, true, narrowed, saved, NARROWED_AT_ONCE);
       TypeId thenType = checkNode(checker, node->as.conditional.thenValue);
+      for (int i = 0; i < count; i++) narrowed[i]->type = saved[i];
+
+      count = csTypeNarrowAll(checker, node->as.conditional.condition, false, narrowed, saved, NARROWED_AT_ONCE);
       TypeId elseType = checkNode(checker, node->as.conditional.elseValue);
-      /* Without union types the result is only known when both arms agree. */
-      result = thenType == elseType ? thenType : TYPE_DYNAMIC;
+      for (int i = 0; i < count; i++) narrowed[i]->type = saved[i];
+#undef NARROWED_AT_ONCE
+
+      /* One of the two, which is what a union is for. */
+      result = csTypeUnionWith(checker->types, thenType, elseType);
       break;
     }
 

@@ -250,7 +250,7 @@ static InterpretResult compileSource(const char *source, const char *sourceName,
 
   /* Static checking sits between parsing and code generation: it needs the
    * whole tree, and the compiler benefits from the types it resolves. */
-  if (!csTypeCheck(program, &diag)) {
+  if (!csTypeCheck(program, &diag, NULL)) {
     csAstArenaFree(&arena);
     return CS_COMPILE_ERROR;
   }

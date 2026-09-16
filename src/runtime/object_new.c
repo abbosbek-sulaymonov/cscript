@@ -101,6 +101,9 @@ ObjModule *csModuleNew(ObjString *path) {
   csObjectRegister((Obj *)module, OBJ_MODULE);
   module->path = path;
   module->body = NULL;
+  module->types = NULL;
+  module->exportTypes = NULL;
+  module->exportTypeCount = 0;
   module->namespaceView = NULL;
   module->loading = false;
   module->executed = false;

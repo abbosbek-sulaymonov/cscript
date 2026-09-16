@@ -84,6 +84,12 @@ typedef struct {
    * names a type goes through csTypeNameIn with it, and every assignability
    * question through csTypeAssignableIn. */
   TypeTable *types;
+
+  /* The file being checked, so an `import` can be resolved against it, and the
+   * program node, so an `export` can record what it exports. Both NULL for a
+   * check with no file behind it. */
+  const char *path;
+  AstNode *program;
 } Checker;
 
 /* What a built-in method on a primitive answers.
@@ -116,6 +122,11 @@ TypeId csTypeCheckShape(Checker *checker, AstNode *value, TypeId expected);
 /* Checks a call whose callee has a function type, and answers what that type
  * says it answers. */
 TypeId csTypeCheckCallThrough(Checker *checker, AstNode *node, TypeId functionType);
+
+/* typecheck_module.c — what an import brings with it, and what an export
+ * leaves behind for the file that takes it. */
+TypeId csTypeImportedBinding(Checker *checker, const AstNode *node, const char *name, int length);
+void csTypeRecordExports(Checker *checker, const AstNode *node);
 
 void csTypeBeginScope(Checker *checker);
 void csTypeDeclareVariable(Checker *checker, const char *name, int length, TypeId type);

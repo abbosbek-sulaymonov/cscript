@@ -1,0 +1,26 @@
+import twice, { origin, length, labels, scale, names, Counter } from "./shapes.cx";
+
+/* A function imported from another file knows what it takes and answers. */
+const here = origin();
+console.log(length(here) + scale, here.x + here.y);
+console.log(length({ x: 3, y: 4 }));
+
+/* An array knows what it holds, across the boundary. */
+console.log(names[0].toUpperCase(), names.length);
+console.log(labels([{ x: 1, y: 2 }]).join("|"));
+
+/* A class's shape crosses too. */
+const counter = new Counter();
+console.log(counter.bump(2) + counter.bump(3), counter.count);
+
+/* And the default export. */
+console.log(twice(21));
+
+/* A shape written in both files is one type, because everything is compared
+ * structurally: this file never imported the name `Point`. */
+interface Coordinates {
+  x: number;
+  y: number;
+}
+const mine: Coordinates = { x: 6, y: 8 };
+console.log(length(mine));

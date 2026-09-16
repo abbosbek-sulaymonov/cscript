@@ -579,10 +579,11 @@ Each of these produces an error that names it, rather than failing obscurely.
 
 A class's name is a type, and a shape is described with `interface` or `type` —
 all checked structurally and then erased — the same two declarations TypeScript has, read the same way,
-and stripped by Node exactly as they are here. What is missing beside them: types do not
-cross a module boundary — what an imported binding holds is checked where it is
-used — and there is no way to say that a class *implements* an interface, since
-satisfying one is structural and needs no declaration.
+and stripped by Node exactly as they are here. Types cross a module boundary with the values that
+carry them, though a type's *name* does not — a shape written in two files is
+one type, because everything is compared structurally. What is missing beside
+them: generics do not survive an import, and there is no way to say that a
+class *implements* an interface, since satisfying one needs no declaration.
 
 ---
 

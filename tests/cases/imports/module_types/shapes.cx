@@ -1,0 +1,35 @@
+/* What this file exports is described here, and the description crosses the
+ * boundary with the value: nothing in main.cx repeats it. */
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export function origin(): Point {
+  return { x: 0, y: 0 };
+}
+
+export function length(p: Point): number {
+  return Math.sqrt(p.x * p.x + p.y * p.y);
+}
+
+export function labels(points: Point[]): string[] {
+  const out = [];
+  for (const point of points) out.push(String(point.x) + "," + String(point.y));
+  return out;
+}
+
+export const scale: number = 2;
+export const names: string[] = ["a", "b"];
+
+export class Counter {
+  count: number = 0;
+  bump(by: number): number {
+    this.count = this.count + by;
+    return this.count;
+  }
+}
+
+export default function twice(n: number): number {
+  return n * 2;
+}

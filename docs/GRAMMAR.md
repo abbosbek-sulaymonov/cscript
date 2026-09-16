@@ -336,6 +336,46 @@ about a `T`, which is what lets the body be checked once for every
 instantiation at once. A declaration may take at most four of them, and a call
 that leaves one undetermined gets the type the checker could not work out.
 
+### Types across a file boundary
+
+What a module exports carries its type with it. An imported function knows what
+it takes and answers, an imported array knows what it holds, and an imported
+class keeps its shape:
+
+```ts
+// shapes.cx
+export interface Point { x: number; y: number; }
+export function length(p: Point): number { … }
+export const names: string[] = ["a", "b"];
+
+// main.cx
+import { length, names } from "./shapes.cx";
+length({ x: 1 });          // error: Point needs a member 'y' and this has none
+names[0].toUpperCase();    // a string, checked
+```
+
+This works because the loader reads dependencies first: by the time a file is
+checked, every module it imports has been parsed, checked and had its types
+put somewhere that outlives the parse. Importing a type is then re-interning
+it into this file's table — and that is possible at all because everything is
+structural. **A shape written in two files is one type**, with neither file
+importing the other's name.
+
+What does not cross:
+
+- **a type's name.** `import { Point }` does not bring `Point` into this file's
+  annotations: the parser resolves an annotation where it reads it, and when
+  this file is parsed the one it imports has not been read yet. Write the shape
+  again — structural typing makes the two the same type — or let the values
+  carry it, which is what the example above does. `export interface` is
+  accepted and erased, as TypeScript writes it and as Node strips it.
+- **a generic's type variables**, erased on the way across: a generic is
+  instantiated at its call site, and an imported binding has no call site the
+  checker can see.
+- **anything from a module still loading**, which is what an import cycle looks
+  like from here. Those bindings are what the checker could not work out, and
+  the runtime checks them.
+
 ### A class's name is a type
 
 A class declares a shape as well as a constructor, and `new Dog()` answers it:
@@ -429,8 +469,8 @@ where it reads it, in one pass:
 - a type must be **declared before it is named**, except by itself: an
   interface's own name exists before its members are read, so
   `interface Link { next?: Link }` is the way a list is written
-- a type is **file-local**. Types do not cross a module boundary yet, so
-  `export interface` says so rather than exporting nothing
+- a type *name* is **file-local**, though the types themselves are not: see
+  below
 - a generic takes the number of arguments it declared, and says so when it
   does not: the annotation cannot be resolved at all without them
 
@@ -478,7 +518,7 @@ other side has a known, different type. Those checks are idiomatic, and without
 union types there is no way to write "a string, or null" — so rejecting them
 would punish correct code for a hole in the type system.
 
-**An object's properties are dynamic unless an interface names them.**
+**An object's properties are dynamic unless a shape names them.**
 `Math.PI` and a plain `point.x` are not modelled; reading one answers a type
 the checker does not know, and the runtime checks it where it lands. Declaring
 an `interface` is how a program opts a shape into being checked.

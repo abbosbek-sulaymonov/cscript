@@ -1,0 +1,4 @@
+error_module_types.cx:5: error: argument 1 of 'length' is string but the parameter is Point
+error_module_types.cx:6: error: Point needs a member 'y' and this has none
+error_module_types.cx:7: error: cannot assign string[] to 'n', declared as number
+error_module_types.cx:8: error: cannot read property 'toUpperCase' of number

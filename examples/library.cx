@@ -67,8 +67,8 @@ console.log("most common letter: " + String(letters.mostCommon(1)[0][0]));
 
 /* A pipeline, because the shape of the calculation is the point of it. */
 const summarise = pipe(
-  (rs: unknown) => toArray(map(rs, (r: object) => r.reading)),
-  (values: unknown) => describe(values),
+  (rs: array) => toArray(map(rs, (r: object) => r.reading)),
+  (values: array) => describe(values),
   (summary: object) => format("{count} readings, spread {spread}", {
     count: summary.count,
     spread: summary.max - summary.min,

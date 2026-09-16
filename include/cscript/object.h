@@ -5,6 +5,7 @@
 #include "cscript/chunk.h"
 #include "cscript/common.h"
 #include "cscript/table.h"
+#include "cscript/type.h"
 #include "cscript/bigint.h"
 #include "cscript/value.h"
 
@@ -168,6 +169,13 @@ typedef struct ObjObject {
  * combined without their top-level names colliding. A module owns its own.
  * Built-ins are copied in when it is created, which keeps every global lookup
  * one uniform mechanism rather than a lookup with a fallback behind it. */
+/* One exported name and its type, in the module's own table. */
+typedef struct ModuleExportType {
+  char *name; /* owned: the arena that held the parsed name is gone */
+  int length;
+  TypeId type;
+} ModuleExportType;
+
 struct ObjModule {
   Obj obj;
   ObjString *path; /* resolved and absolute: the registry key */
@@ -187,6 +195,15 @@ struct ObjModule {
    * `import * as a` and `await import(…)` of the same file give the same
    * object — and rebuilding it would quietly make them different. */
   ObjObject *namespaceView;
+
+  /* The types this file declared, and the type of each name it exports —
+   * handed over when the module was checked, and the only part of a compile
+   * that outlives its arena. What an importer knows about a binding it took
+   * from here, it learns from these. NULL for a module whose check did not get
+   * that far. */
+  TypeTable *types;
+  struct ModuleExportType *exportTypes;
+  int exportTypeCount;
 
   /* Loaded but not finished: a module reached again while this is set closes
    * an import cycle. */

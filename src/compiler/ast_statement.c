@@ -449,14 +449,46 @@ AstNode *csAstReturn(AstArena *arena, int line, AstNode *value) {
   return node;
 }
 
+void csAstProgramAddExport(AstNode *program, const char *name, int length, TypeId type) {
+  if (program == NULL || program->type != AST_PROGRAM) return;
+  AstArena *arena = program->as.program.arena;
+  if (arena == NULL) return;
+  int count = program->as.program.exportTypeCount;
+  AstExportType *grown = (AstExportType *)csAstArenaAlloc(arena, sizeof(AstExportType) * (size_t)(count + 1));
+  if (grown == NULL) return;
+  for (int i = 0; i < count; i++) grown[i] = program->as.program.exportTypes[i];
+  grown[count].name = csAstInternName(arena, name, length, &grown[count].length);
+  grown[count].type = type;
+  program->as.program.exportTypes = grown;
+  program->as.program.exportTypeCount = count + 1;
+}
+
+TypeTable *csAstProgramTakeTypes(AstNode *program) {
+  if (program == NULL || program->type != AST_PROGRAM) return NULL;
+  TypeTable *types = program->as.program.types;
+  program->as.program.types = NULL;
+  return types;
+}
+
+void csAstProgramFreeTypes(AstNode *program) {
+  if (program == NULL || program->type != AST_PROGRAM) return;
+  free(program->as.program.types);
+  program->as.program.types = NULL;
+}
+
 AstNode *csAstProgram(AstArena *arena, int line) {
   AstNode *node = csAstNewNode(arena, AST_PROGRAM, line);
   if (node == NULL) return NULL;
   node->as.program.statements = NULL;
   node->as.program.count = 0;
   node->as.program.capacity = 0;
-  node->as.program.types = (TypeTable *)csAstArenaAlloc(arena, sizeof(TypeTable));
+  /* Not in the arena: the table outlives the tree, because an importer reads
+   * what a module exports long after the parse that produced it. */
+  node->as.program.types = (TypeTable *)malloc(sizeof(TypeTable));
   if (node->as.program.types != NULL) csTypeTableInit(node->as.program.types);
+  node->as.program.exportTypes = NULL;
+  node->as.program.exportTypeCount = 0;
+  node->as.program.arena = arena;
   return node;
 }
 

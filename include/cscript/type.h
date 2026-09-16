@@ -87,6 +87,7 @@ typedef int TypeId;
 #define CS_MAX_TYPE_MEMBERS 768
 #define CS_MAX_TYPE_SLOTS 768
 #define CS_MAX_TYPE_ALIASES 64
+#define CS_MAX_TYPE_NAME_CHARS 8192
 #define CS_MAX_TYPE_PARAMS 4
 
 typedef enum {
@@ -186,6 +187,12 @@ typedef struct {
   } aliases[CS_MAX_TYPE_ALIASES];
   int aliasCount;
 
+  /* Every name this table uses, copied in. The table outlives the arena that
+   * parsed the file — a module's exports are read long afterwards — so a name
+   * pointing at the source text would dangle exactly when it is needed. */
+  char names[CS_MAX_TYPE_NAME_CHARS];
+  int nameCount;
+
   /* Set once the table is full, so the overflow is reported once rather than
    * at every type that follows it. */
   bool full;
@@ -259,13 +266,18 @@ TypeId csTypeElementOf(const TypeTable *table, TypeId array);
 /* True when `type` is an array of any kind, bare or knowing. */
 bool csTypeIsArrayLike(const TypeTable *table, TypeId type);
 
-/* True when `type` is callable: `Function`, or a function type. */
+/* True when `type` is callable: `Function`, a function type, or a union of
+ * things that are. */
 bool csTypeIsCallable(const TypeTable *table, TypeId type);
+
+/* What calling one answers — the union of the results when it is a union.
+ * TYPE_DYNAMIC for a bare `Function`, which says nothing. */
+TypeId csTypeResultOf(TypeTable *table, TypeId callable);
 
 /* --- declared types ------------------------------------------------------ */
 
 /* Declares an interface and answers its type, or TYPE_ERROR when the file has
- * more than the ceiling above. The name must outlive the table. */
+ * more than the ceiling above. The name is copied into the table. */
 TypeId csTypeDeclareInterface(TypeTable *table, const char *name, int length);
 
 /* The same, for a class: what it declares is checked, and what it does not is
@@ -299,6 +311,16 @@ const char *csTypeNameIn(const TypeTable *table, TypeId type);
  * requires; an array is assignable when its elements are; a function when it
  * takes no more than it is given and answers no less. */
 bool csTypeAssignableIn(const TypeTable *table, TypeId from, TypeId to);
+
+/* Re-interns a type declared in one file's table into another's, so that what
+ * a module exports can be named by whatever imports it.
+ *
+ * Structural all the way down, which is what makes this possible at all: two
+ * files describing the same shape end up with the same type without either
+ * knowing the other. A type variable is erased to DYNAMIC on the way across —
+ * a generic's instantiation happens at its call site, and an imported binding
+ * has no call site the checker can see. */
+TypeId csTypeImport(TypeTable *dest, const TypeTable *src, TypeId type);
 
 /* --- generics ------------------------------------------------------------ */
 

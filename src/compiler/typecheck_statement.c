@@ -201,15 +201,27 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeId *out) {
       if (node->as.import.namespaceName != NULL) {
         csTypeDeclareVariable(checker, node->as.import.namespaceName, node->as.import.namespaceLength, TYPE_OBJECT);
       }
+      /* Types cross the boundary with the binding. The module was loaded and
+       * checked before this file was — the loader reads dependencies first —
+       * so what it exports is already settled, and importing a type is
+       * re-interning it into this file's table. */
       for (int i = 0; i < node->as.import.nameCount; i++) {
         const AstModuleName *entry = &node->as.import.names[i];
-        csTypeDeclareVariable(checker, entry->alias, entry->aliasLength, TYPE_DYNAMIC);
+        TypeId imported = csTypeImportedBinding(checker, node, entry->name, entry->nameLength);
+        csTypeDeclareVariable(checker, entry->alias, entry->aliasLength, imported);
+      }
+      if (node->as.import.defaultName != NULL) {
+        TypeId imported = csTypeImportedBinding(checker, node, "default", 7);
+        csTypeDeclareVariable(checker, node->as.import.defaultName, node->as.import.defaultLength, imported);
       }
       result = TYPE_UNDEFINED;
       break;
 
     case AST_EXPORT:
       checkNode(checker, node->as.export.declaration);
+      /* What this file gives away, and what each one is: read by whatever
+       * imports the file, which is the only way a type crosses a boundary. */
+      csTypeRecordExports(checker, node);
       result = TYPE_UNDEFINED;
       break;
 
