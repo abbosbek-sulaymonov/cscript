@@ -46,7 +46,7 @@ export function toString(bytes: array): string {
   return parts.join("");
 }
 
-export function of(...values: array) {
+export function of(...values: number) {
   const out = [];
   for (let i = 0; i < values.length; i++) out.push(check(values[i], i));
   return out;
@@ -165,7 +165,7 @@ export function startsWith(bytes: array, prefix: array): boolean {
   return true;
 }
 
-export function endsWith(bytes: array, suffix: string): boolean {
+export function endsWith(bytes: array, suffix: array): boolean {
   if (suffix.length > bytes.length) return false;
   const offset = bytes.length - suffix.length;
   for (let i = 0; i < suffix.length; i++) {

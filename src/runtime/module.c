@@ -295,6 +295,43 @@ bool csModuleLoadImports(const AstNode *program, const char *fromPath, Diagnosti
   return ok;
 }
 
+/* Moves a checked file's types onto its module: the table itself, and one
+ * entry per exported name. The names are copied because the arena that held
+ * them is about to go. */
+static void takeTypes(ObjModule *module, AstNode *program) {
+  module->types = csAstProgramTakeTypes(program);
+  int count = program->as.program.exportTypeCount;
+  if (module->types == NULL || count == 0) return;
+
+  module->exportTypes = (ModuleExportType *)malloc(sizeof(ModuleExportType) * (size_t)count);
+  if (module->exportTypes == NULL) return;
+  for (int i = 0; i < count; i++) {
+    const AstExportType *source = &program->as.program.exportTypes[i];
+    char *name = (char *)malloc((size_t)source->length + 1);
+    if (name == NULL) break;
+    memcpy(name, source->name, (size_t)source->length);
+    name[source->length] = '\0';
+    module->exportTypes[module->exportTypeCount].name = name;
+    module->exportTypes[module->exportTypeCount].length = source->length;
+    module->exportTypes[module->exportTypeCount].type = source->type;
+    module->exportTypeCount++;
+  }
+}
+
+bool csModuleExportType(const ObjModule *module, const char *name, int length, const TypeTable **table, TypeId *type) {
+  /* A module still loading is one this file is in a cycle with. Its types are
+   * not settled, so what it exports is what the checker could not work out. */
+  if (module == NULL || module->types == NULL || module->loading) return false;
+  for (int i = 0; i < module->exportTypeCount; i++) {
+    if (module->exportTypes[i].length != length) continue;
+    if (memcmp(module->exportTypes[i].name, name, (size_t)length) != 0) continue;
+    *table = module->types;
+    *type = module->exportTypes[i].type;
+    return true;
+  }
+  return false;
+}
+
 ObjModule *csModuleLoadResolved(const char *resolvedPath, const char *shownAs, Diagnostics *from, int line) {
   ObjString *key = csStringCopy(resolvedPath, (int)strlen(resolvedPath));
   csPushTempRoot((Obj *)key);
@@ -352,7 +389,11 @@ ObjModule *csModuleLoadResolved(const char *resolvedPath, const char *shownAs, D
   AstNode *program = csParse(source, &arena, &diag);
   bool ok = program != NULL;
   if (ok) ok = csModuleLoadImports(program, resolvedPath, &diag);
-  if (ok) ok = csTypeCheck(program, &diag);
+  if (ok) ok = csTypeCheck(program, &diag, resolvedPath);
+
+  /* The types this file declared move to the module, which outlives the arena
+   * — everything that imports this file reads them from there. */
+  if (ok) takeTypes(module, program);
   if (ok && csDumping(CS_DUMP_AST)) csAstPrint(program);
 
   ObjFunction *body = ok ? csCompile(program, module, &diag) : NULL;
@@ -360,6 +401,7 @@ ObjModule *csModuleLoadResolved(const char *resolvedPath, const char *shownAs, D
     csDisassembleChunk(&body->chunk, csModuleDisplayPath(module->path->chars));
   }
 
+  csAstProgramFreeTypes(program);
   csAstArenaFree(&arena);
   free(source);
   module->loading = false;

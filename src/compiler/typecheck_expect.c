@@ -29,6 +29,23 @@
  */
 TypeId csTypeCheckShape(Checker *checker, AstNode *value, TypeId expected) {
   if (value == NULL) return expected;
+
+  /* `[{ x: 1, y: 2 }]` given to a `Point[]` — the elements are literals too,
+   * and each is proved against what the array holds. Without this the array
+   * would be an `object[]`, which satisfies nothing shaped. */
+  if (value->type == AST_ARRAY_LITERAL && csTypeIs(checker->types, expected, COMPOSITE_ARRAY)) {
+    TypeId element = csTypeElementOf(checker->types, expected);
+    bool ok = true;
+    for (int i = 0; i < value->as.arrayLiteral.count; i++) {
+      AstNode *item = value->as.arrayLiteral.elements[i];
+      if (item->type == AST_SPREAD) return value->resolvedType;
+      TypeId given = csTypeCheckShape(checker, item, element);
+      if (csTypeAssignableIn(checker->types, given, element)) continue;
+      ok = false;
+    }
+    return ok ? expected : value->resolvedType;
+  }
+
   if (value->type != AST_OBJECT_LITERAL) return value->resolvedType;
 
   const CompositeType *required = csTypeComposite(checker->types, expected);
@@ -113,7 +130,14 @@ TypeId csTypeCheckCallThrough(Checker *checker, AstNode *node, TypeId functionTy
     TypeId want = checker->types->slots[signature->slotStart + at];
     TypeId have = csTypeCheckShape(checker, node->as.call.arguments[i], want);
     if (csTypeAssignableIn(checker->types, have, want)) continue;
-    csTypeError(checker, node->line, "argument %d is %s but this takes %s", i + 1, csTypeNameIn(checker->types, have), csTypeNameIn(checker->types, want));
+    /* Named where the callee has a name — an imported function is the common
+     * case, and "argument 1 of 'length'" beats "argument 1 of this". */
+    if (node->as.call.callee->type == AST_IDENTIFIER) {
+      csTypeError(checker, node->line, "argument %d of '%.*s' is %s but the parameter is %s", i + 1, node->as.call.callee->as.identifier.length,
+                  node->as.call.callee->as.identifier.name, csTypeNameIn(checker->types, have), csTypeNameIn(checker->types, want));
+    } else {
+      csTypeError(checker, node->line, "argument %d is %s but this takes %s", i + 1, csTypeNameIn(checker->types, have), csTypeNameIn(checker->types, want));
+    }
   }
   return signature->inner;
 }

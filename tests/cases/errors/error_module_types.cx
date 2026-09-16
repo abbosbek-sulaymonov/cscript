@@ -1,0 +1,8 @@
+// What crosses a module boundary is checked on the far side, exactly as if the
+// function had been declared here.
+import { length, names, scale } from "../imports/module_types/shapes.cx";
+
+length("not a point");
+length({ x: 1 });
+const n: number = names;
+console.log(scale.toUpperCase());

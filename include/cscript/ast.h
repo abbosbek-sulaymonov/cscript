@@ -11,6 +11,9 @@
 #include "cscript/common.h"
 #include "cscript/type.h"
 
+/* Defined in ast_build.h, which every builder includes. */
+typedef struct AstArena AstArena;
+
 typedef enum {
   /* Expressions. */
   AST_NUMBER_LITERAL,
@@ -203,6 +206,13 @@ typedef struct AstClassMember {
    * so it is an expression rather than a constant. */
   AstNode *computedKey;
 } AstClassMember;
+
+/* One exported binding and the type the checker resolved for it. */
+typedef struct AstExportType {
+  const char *name; /* arena-owned, NUL-terminated */
+  int length;
+  TypeId type;
+} AstExportType;
 
 /* One declared parameter. Stored inline in the function node's array. */
 typedef struct AstParam {
@@ -473,11 +483,25 @@ struct AstNode {
       AstNode **statements;
       int count;
       int capacity;
-      /* The interfaces and aliases this file declared. The parser fills it and
-       * the checker reads it; nothing else in the pipeline needs types by
-       * name, and hanging it here is what keeps a module compiled inside
-       * another module's compile from sharing one. */
+      /* The types this file declared. The parser fills it and the checker
+       * reads it; nothing else in the pipeline needs types by name, and
+       * hanging it here is what keeps a module compiled inside another
+       * module's compile from sharing one.
+       *
+       * Allocated apart from the arena, because it outlives the tree: what a
+       * module exports is described in its own table, and an importer reads it
+       * long after the arena that parsed it is gone. csAstProgramTakeTypes
+       * hands ownership over; csAstProgramFreeTypes ends it. */
       TypeTable *types;
+
+      /* What this file exports, and the type of each — filled by the checker,
+       * read by whatever imports the file. */
+      struct AstExportType *exportTypes;
+      int exportTypeCount;
+
+      /* What allocated this tree, so a later pass can allocate into it without
+       * being handed the arena a second time. */
+      AstArena *arena;
     } program;
   } as;
 };

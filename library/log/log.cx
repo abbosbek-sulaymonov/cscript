@@ -137,7 +137,7 @@ export class Logger {
  *
  * The level is padded so the messages line up, which is the whole reason a
  * terminal format exists separately: a column a reader can scan. */
-function renderText(level: number, message: string, fields: object, at: unknown): string {
+function renderText(level: number, message: string, fields: object, at: number | undefined): string {
   const parts = [];
   if (at !== undefined) parts.push(formatInstant(at));
   parts.push(levelName(level).padEnd(5));
@@ -164,7 +164,7 @@ function renderValue(value: unknown): string {
  * hand rather than through std:json to keep the field order fixed — time,
  * level, message, then the fields — since a log file that reorders its own
  * columns is a log file nobody can diff. */
-function renderJson(level: number, message: string, fields: object, at: unknown): string {
+function renderJson(level: number, message: string, fields: object, at: number | undefined): string {
   const parts = [];
   if (at !== undefined) parts.push("\"time\":" + quote(formatInstant(at)));
   parts.push("\"level\":" + quote(levelName(level)));

@@ -226,7 +226,7 @@ export function stripSuffix(text: string, suffix: string): string {
  * template literal cannot serve, because it is compiled. A name with no value
  * is left alone rather than replaced with "undefined", so a mistake in the
  * pattern survives to be seen. */
-export function format(pattern: string, values: array): string {
+export function format(pattern: string, values: object): string {
   let out = "";
   let i = 0;
   while (i < pattern.length) {

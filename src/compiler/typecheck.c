@@ -456,7 +456,7 @@ TypeId checkNode(Checker *checker, AstNode *node) {
   return result;
 }
 
-bool csTypeCheck(AstNode *program, Diagnostics *diag) {
+bool csTypeCheck(AstNode *program, Diagnostics *diag, const char *sourcePath) {
   Checker checker;
   checker.diag = diag;
   checker.count = 0;
@@ -467,6 +467,8 @@ bool csTypeCheck(AstNode *program, Diagnostics *diag) {
   checker.inferredReturn = TYPE_ERROR;
   checker.functionDepth = 0;
   checker.types = program != NULL && program->type == AST_PROGRAM ? program->as.program.types : NULL;
+  checker.path = sourcePath;
+  checker.program = program;
 
   declareBuiltins(&checker);
   checkNode(&checker, program);
