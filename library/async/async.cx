@@ -33,7 +33,7 @@ export function delay(value: unknown, milliseconds: number) {
  * long the *caller* waits, not how long the work runs. The timer is cleared
  * either way, so a fast answer does not leave the program waiting for a timer
  * nobody is listening to. */
-export function timeout(work: array, milliseconds: number,
+export function timeout(work: Promise, milliseconds: number,
                         message: string = "timed out") {
   return new Promise((resolve: Function, reject: Function) => {
     const timer = setTimeout(() => reject(new Error(message)), milliseconds);

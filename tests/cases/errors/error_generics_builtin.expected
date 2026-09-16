@@ -1,0 +1,7 @@
+error_generics_builtin.cx:3: error: argument 1 is number but this takes string
+error_generics_builtin.cx:3: error: argument 2 is string but this takes number
+error_generics_builtin.cx:7: error: cannot read property 'toFixed' of number | undefined
+error_generics_builtin.cx:10: error: argument 1 is string but this takes number
+error_generics_builtin.cx:12: error: cannot assign string[] to 'xs', declared as number[]
+error_generics_builtin.cx:15: error: cannot return string from a function declared number
+error_generics_builtin.cx:20: error: cannot read property 'toUpperCase' of number

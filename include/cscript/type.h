@@ -322,6 +322,20 @@ bool csTypeAssignableIn(const TypeTable *table, TypeId from, TypeId to);
  * has no call site the checker can see. */
 TypeId csTypeImport(TypeTable *dest, const TypeTable *src, TypeId type);
 
+/* --- the built-in generics ----------------------------------------------- */
+
+/* Declares `Map<K, V>`, `Set<T>` and `Promise<T>` into a fresh table, so that
+ * they resolve exactly as a file's own `interface` does. Called once per
+ * table, before anything the file itself declares.
+ *
+ * `Array<T>` is not among them: it is a spelling of `T[]`, turned into one by
+ * the parser so the two can never become two types. */
+void csTypeDeclarePrelude(TypeTable *table);
+
+/* True when the type is a Promise however it was instantiated, and answers
+ * what it resolves to — which is what `await` unwraps. */
+bool csTypeIsPromise(const TypeTable *table, TypeId type, TypeId *resolves);
+
 /* --- generics ------------------------------------------------------------ */
 
 /* Declares `T` inside the declaration that introduced it. In scope until the

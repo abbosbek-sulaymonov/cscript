@@ -52,8 +52,19 @@ bool csTypeFromName(const char *name, int length, TypeId *out) {
     const char *name;
     TypeId type;
   } table[] = {
-      {"unknown", TYPE_UNKNOWN}, {"number", TYPE_NUMBER},       {"bigint", TYPE_BIGINT},     {"string", TYPE_STRING}, {"boolean", TYPE_BOOLEAN},
-      {"null", TYPE_NULL},       {"undefined", TYPE_UNDEFINED}, {"Function", TYPE_FUNCTION}, {"array", TYPE_ARRAY},   {"object", TYPE_OBJECT},
+      {"unknown", TYPE_UNKNOWN},
+      {"number", TYPE_NUMBER},
+      {"bigint", TYPE_BIGINT},
+      {"string", TYPE_STRING},
+      {"boolean", TYPE_BOOLEAN},
+      {"null", TYPE_NULL},
+      {"undefined", TYPE_UNDEFINED},
+      {"Function", TYPE_FUNCTION},
+      {"array", TYPE_ARRAY},
+      /* TypeScript's other spelling of the same thing. `Array<T>` becomes a
+       * `T[]` where it is parsed, and a bare `Array` is a bare `array`. */
+      {"Array", TYPE_ARRAY},
+      {"object", TYPE_OBJECT},
   };
 
   for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {

@@ -336,6 +336,51 @@ about a `T`, which is what lets the body be checked once for every
 instantiation at once. A declaration may take at most four of them, and a call
 that leaves one undetermined gets the type the checker could not work out.
 
+### The built-in generics
+
+Three of the runtime's own types are generic, and are spelled as TypeScript
+spells them. They are declared into every file before anything it declares
+itself, and instantiate through the same machinery a program's own generic
+does:
+
+```ts
+const counts: Map<string, number> = new Map();
+counts.set("a", 1).set("b", 2);       // checked, and `set` answers the Map
+counts.set(1, "one");                 // error: argument 1 is number but this takes string
+
+const seen: Set<string> = new Set();
+seen.add("x").add("y");
+
+async function later(n: number): Promise<string> { … }
+const text = await later(7);          // a string — `await` unwraps the promise
+```
+
+`Map.get` answers **`V | undefined`**, because a key that is not there is the
+case a caller has to handle, and now the one the type says out loud:
+
+```ts
+const found = counts.get("b");
+found + 1;                            // error: the undefined half is not a number
+if (found !== undefined) found + 1;   // fine
+```
+
+`Array<T>` is a fourth spelling that is *not* a separate type: it becomes `T[]`
+where it is parsed, so the two can never diverge.
+
+Written bare, a generic is one of whatever the checker cannot see: `Promise` is
+`Promise<…>` with nothing known about what it resolves to, and `new Map()` with
+no annotation is a Map whose members are still checked and whose keys and
+values are not.
+
+An **async function's return type** is written the way TypeScript writes it —
+`Promise<string>` — and a `return` inside gives what that promise resolves to.
+The older spelling still means what it did: annotating an async function
+`string` says the same thing about its returns.
+
+What is not here: `Record`, `Partial`, `Pick` and the rest of TypeScript's
+utility types, which are mapped types rather than generics, and
+`Generator<T>` — a generator's element type is not modelled yet.
+
 ### Types across a file boundary
 
 What a module exports carries its type with it. An imported function knows what

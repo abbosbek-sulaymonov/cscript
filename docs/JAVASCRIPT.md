@@ -47,6 +47,7 @@ asserted here.
 | --- | --- |
 | Declarations | `let`, `const`, several per statement and per `for` initialiser |
 | Type declarations | `interface`, `interface … extends`, `type` — both contextual, both erased |
+| Built-in generics | `Map<K, V>`, `Set<T>`, `Promise<T>`, `Array<T>`, with `await` unwrapping a promise |
 | Classes as values | `const C = class { … }`, named or not |
 | Numeric separators | `1_000_000`, `0xFF_FF` |
 | `void` and the comma operator | `void x`, `(a, b)` — the operator, not the separator |

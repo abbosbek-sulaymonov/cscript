@@ -50,6 +50,8 @@ annotation is consumed, not erased.
 | [`type.c`](type.c) | The type names, and what may be assigned to what |
 | [`type_table.c`](type_table.c) | The table the composite types live in — arrays, functions, unions and shapes |
 | [`type_generic.c`](type_generic.c) | Substitution, instantiation, and what a call site infers |
+| [`type_prelude.c`](type_prelude.c) | The generic types every file starts with: `Map`, `Set`, `Promise` |
+| [`type_import.c`](type_import.c) | Re-interning a type from one file's table into another's |
 | [`typecheck_module.c`](typecheck_module.c) | The types that cross a file boundary |
 | [`typecheck_narrow.c`](typecheck_narrow.c) | What a `typeof`, a null check or a guard proves about the thing it tested |
 | [`typecheck_expect.c`](typecheck_expect.c) | The two checks that need to know what was expected: a literal against a shape, a call through a function type |

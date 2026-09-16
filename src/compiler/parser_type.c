@@ -28,6 +28,7 @@
 #include <string.h>
 
 #include "compiler/parser_internal.h"
+#include "compiler/type_internal.h"
 
 static bool parseTypeUnion(Parser *parser, TypeId *out);
 
@@ -188,11 +189,15 @@ static bool parseTypePrimary(Parser *parser, TypeId *out) {
     return false;
   }
 
+  /* `Array<T>` is TypeScript's other spelling of `T[]`, and is turned into one
+   * here: two spellings of one type must not become two types. */
+  bool isArraySpelling = csTypeNameMatches(name, length, "Array") && *out == TYPE_ARRAY;
+
   /* `Box<number>` — the arguments are substituted for the declaration's own
    * type parameters, producing a shape whose members are the ones it will
    * really have. */
   if (check(parser, TOKEN_LESS)) {
-    int declared = csTypeTypeParamCount(parser->types, *out);
+    int declared = isArraySpelling ? 1 : csTypeTypeParamCount(parser->types, *out);
     if (declared == 0) {
       errorAtCurrent(parser, "this type takes no type arguments");
       return false;
@@ -216,8 +221,14 @@ static bool parseTypePrimary(Parser *parser, TypeId *out) {
                         argCount);
       return false;
     }
-    *out = csTypeInstantiate(parser->types, *out, args, argCount);
+    *out = isArraySpelling ? csTypeArrayOf(parser->types, args[0]) : csTypeInstantiate(parser->types, *out, args, argCount);
+    return true;
   }
+
+  /* `Promise` written bare is a Promise of something the checker cannot see: a
+   * generic left uninstantiated would leak its own type variables into the
+   * annotation, and nothing outside a declaration should ever see one. */
+  if (csTypeTypeParamCount(parser->types, *out) > 0) *out = csTypeInstantiate(parser->types, *out, NULL, 0);
   return true;
 }
 

@@ -73,28 +73,41 @@ static TypeId substitute(TypeTable *table, TypeId type, const TypeId *params, co
     }
 
     case COMPOSITE_INTERFACE: {
-      /* A new shape with the arguments put through it, recorded as an
-       * instantiation of the one it came from so that a message can say
-       * `Box<number>` rather than a second, unexplained `Box`. */
+      /* The same generic with the same arguments is the same type, and asking
+       * that *first* is what makes a shape that mentions itself work: `set` on
+       * a `Map<K, V>` answers a Map, and substituting through it would
+       * otherwise build one copy per level until the depth cap stopped it. */
+      for (int i = 0; i < table->compositeCount; i++) {
+        const CompositeType *candidate = &table->composites[i];
+        if (candidate->genericOf != type || candidate->slotCount != count) continue;
+        bool same = true;
+        for (int j = 0; j < count && same; j++) same = table->slots[candidate->slotStart + j] == args[j];
+        if (same) return csTypeCompositeAt(i);
+      }
+
       int sourceStart = composite->memberStart;
       int sourceCount = composite->memberCount;
 
       TypeId copy = csTypeDeclareInterface(table, composite->name, composite->nameLength);
       if (copy == TYPE_ERROR) return type;
 
+      /* Recorded as an instantiation *before* its members are copied, so that
+       * the search above finds it while they are still being built — and so a
+       * message can say `Box<number>` rather than a second, unexplained Box. */
+      int start;
+      CompositeType *made = &table->composites[csTypeCompositeIndex(copy)];
+      made->genericOf = type;
+      made->open = composite->open;
+      if (csTypeTakeSlots(table, args, count, &start)) {
+        made->slotStart = start;
+        made->slotCount = count;
+      }
+
       for (int i = 0; i < sourceCount; i++) {
         TypeMember member = table->members[sourceStart + i];
         member.type = substitute(table, member.type, params, args, count, depth + 1);
         if (!csTypeAddMember(table, copy, &member)) break;
       }
-
-      int start;
-      CompositeType *made = &table->composites[csTypeCompositeIndex(copy)];
-      if (csTypeTakeSlots(table, args, count, &start)) {
-        made->slotStart = start;
-        made->slotCount = count;
-      }
-      made->genericOf = type;
       return copy;
     }
   }

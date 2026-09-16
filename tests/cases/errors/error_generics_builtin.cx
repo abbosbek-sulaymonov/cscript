@@ -1,0 +1,22 @@
+// What the built-in generics refuse.
+const counts: Map<string, number> = new Map();
+counts.set(1, "one");
+
+// `get` answers `V | undefined`, and the undefined half has to be handled
+// before the value can be used.
+counts.get("a").toFixed(2);
+
+const seen: Set<number> = new Set();
+seen.add("x");
+
+const xs: Array<number> = ["not a number"];
+
+async function later(): Promise<number> {
+  return "text";
+}
+
+async function main() {
+  const n = await later();
+  n.toUpperCase();
+}
+main();

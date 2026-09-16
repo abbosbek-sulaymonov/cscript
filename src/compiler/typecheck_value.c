@@ -352,9 +352,17 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeId *out) {
         result = TYPE_DYNAMIC;
         if (node->as.call.callee->type == AST_IDENTIFIER) {
           TypeId instance;
-          if (csTypeLookupName(checker->types, node->as.call.callee->as.identifier.name, node->as.call.callee->as.identifier.length, &instance) &&
-              csTypeIsOpen(checker->types, instance)) {
-            result = instance;
+          if (csTypeLookupName(checker->types, node->as.call.callee->as.identifier.name, node->as.call.callee->as.identifier.length, &instance)) {
+            /* `new Map()` with nothing said about what it holds is a Map of
+             * things the checker cannot see — the members are still known, so
+             * a misspelled one is still caught, and what they answer is not.
+             * `const m: Map<string, number> = new Map()` is how a program says
+             * more, and the annotation is what carries it. */
+            if (csTypeTypeParamCount(checker->types, instance) > 0) {
+              result = csTypeInstantiate(checker->types, instance, NULL, 0);
+            } else if (csTypeIsOpen(checker->types, instance)) {
+              result = instance;
+            }
           }
         }
         break;
@@ -552,13 +560,15 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeId *out) {
     case AST_NEW_TARGET:
     case AST_SUPER: result = TYPE_DYNAMIC; break;
 
-    /* What a promise resolves to is not modelled, so awaiting one is dynamic.
-     * An async function's declared return type describes what it resolves to
-     * rather than what calling it produces, so it is not checked either. */
-    case AST_AWAIT:
-      checkNode(checker, node->as.unary.operand);
-      result = TYPE_DYNAMIC;
+    /* `await` unwraps a `Promise<T>` to its T, which is the whole reason the
+     * built-in generic is worth having. Awaiting anything else answers what it
+     * already was: `await 1` is 1, as it is in JavaScript. */
+    case AST_AWAIT: {
+      TypeId awaited = checkNode(checker, node->as.unary.operand);
+      TypeId resolves;
+      result = csTypeIsPromise(checker->types, awaited, &resolves) ? resolves : awaited;
       break;
+    }
 
       /* Types do not cross a module boundary yet: the checker runs per file and
        * has no record of what another file resolved. An imported binding is
