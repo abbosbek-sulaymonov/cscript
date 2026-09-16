@@ -20,6 +20,9 @@ void resetStack(void) {
   vm.hasPendingException = false;
   vm.openUpvalues = NULL;
   vm.tempRootCount = 0;
+  /* No compiled frame is running: one is announced only for the length of a
+   * run, and a reset means there is none. */
+  vm.jitRootRanges = 0;
 }
 
 /* The main program's execution state. A fiber for `await` gets its own arrays

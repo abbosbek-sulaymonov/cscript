@@ -33,6 +33,7 @@ tests and has nothing to deoptimise to.
 | [`ir_lower_data.c`](ir_lower_data.c) | Constants, globals, locals, the operand stack |
 | [`ir_lower_arith.c`](ir_lower_arith.c) | Arithmetic and comparison, on operands proved to be numbers |
 | [`ir_lower_object.c`](ir_lower_object.c) | Property reads and writes, and the layouts they assume |
+| [`ir_allocate.c`](ir_allocate.c) | Building an object from compiled code, and the slots that involves |
 | [`ir_lower_flow.c`](ir_lower_flow.c) | Jumps, branches, calls and returns |
 | [`ir_inline.c`](ir_inline.c) | Splicing a small callee's body in where the call was |
 | [`ir_replay.c`](ir_replay.c) | What the interpreter does across a hand-over, modelled rather than run |

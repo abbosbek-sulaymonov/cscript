@@ -1,0 +1,49 @@
+// Building an object from compiled code — the one thing there that allocates,
+// and so the one that can collect.
+//
+// Three rules make it sound. The object goes into its frame slot before any
+// property is put on it, because the slot is inside the range the collector
+// walks for the length of a compiled run. The values come from the slots above
+// it, written by ordinary stores, so they are in the frame rather than in
+// registers the collector cannot see. And nothing may believe it knows what
+// that slot held before: a load after an allocation is a real load.
+
+let total = 0;
+for (let i = 0; i < 200000; i++) {
+  const point = { x: i, y: i + 1 };
+  total = total + point.x + point.y;
+}
+console.log(total);
+
+// Three keys, read back in a different order, and written through as well —
+// the write is an overwrite of a property the literal already made.
+let mixed = 0;
+for (let i = 0; i < 200000; i++) {
+  const p = { a: i, b: i + 1, c: i + 2 };
+  mixed = mixed + p.c + p.a + p.b;
+  p.a = p.c;
+  mixed = mixed + p.a;
+}
+console.log(mixed);
+
+// The objects are real ones: what the literal built is there, in order, and
+// survives being handed back to the interpreter.
+const made = { x: 1, y: 2, z: 3 };
+console.log(Object.keys(made).join(","), JSON.stringify(made));
+
+// One built in a loop and kept, so it outlives the run that built it and has
+// to survive every collection after.
+const kept = [];
+for (let i = 0; i < 50; i++) {
+  kept.push({ n: i, m: i * 2 });
+}
+console.log(kept.length, kept[0].n, kept[49].m, JSON.stringify(kept[7]));
+
+// A literal whose values are not all numbers, which compiled code leaves to
+// the interpreter — the answer has to be the same either way.
+let strings = 0;
+for (let i = 0; i < 1000; i++) {
+  const labelled = { name: "p", size: i };
+  strings = strings + labelled.size + labelled.name.length;
+}
+console.log(strings);

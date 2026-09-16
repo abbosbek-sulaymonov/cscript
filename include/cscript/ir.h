@@ -115,6 +115,19 @@ typedef enum {
    * keep the new layout alive between compiling this and running it. */
   IR_ADD_PROPERTY,
 
+  /* `slots[a] = { … }` — an object literal, built by calling out.
+   *
+   * The one instruction here that allocates, and the reason the collector had
+   * to be told where a compiled frame is: the call inside it can collect, and
+   * everything live at that moment is in the frame this writes into.
+   *
+   * The keys are in the function's literal table at `b`; the values are in the
+   * slots above the destination, put there by ordinary stores, so this needs
+   * only two operands and the emitter needs no list. The object is stored into
+   * its slot *before* the properties are put on it, which is what keeps it
+   * reachable while they allocate. */
+  IR_NEW_OBJECT,
+
   IR_JUMP,   /* -> block a                             */
   IR_BRANCH, /* if a then block b else block c         */
   IR_RETURN, /* return a                               */
@@ -160,6 +173,18 @@ typedef struct {
    * A property both read and written keeps the stricter of the two. */
   bool expectsNumber;
 } IrEntryShape;
+
+/* The keys of one object literal, in source order.
+ *
+ * Held here rather than read from the chunk at run time because the compiled
+ * code has no chunk: what it has is this table, and an index into it. The
+ * strings are marked with the rest of what the IR references. */
+#define IR_MAX_LITERAL_KEYS 8
+
+typedef struct {
+  ObjString *keys[IR_MAX_LITERAL_KEYS];
+  int count;
+} IrObjectLiteral;
 
 /* A call whose body was spliced in where the call was.
  *
@@ -227,6 +252,12 @@ typedef struct {
   IrEntryShape *entryShapes;
   int entryShapeCount;
   int entryShapeCapacity;
+
+  /* The object literals this function builds. Empty for one that builds none,
+   * which is every function until it allocates. */
+  IrObjectLiteral *literals;
+  int literalCount;
+  int literalCapacity;
 
   /* The callees whose bodies were spliced into this one, and the bindings they
    * were read from. Empty for a function that inlined nothing. */
@@ -366,5 +397,18 @@ bool csIrIsFullyTyped(const IrFunction *ir);
  * before any machine code exists. `args` are the arguments; the result goes to
  * `out`. Returns false when the IR runs off the end of what it supports. */
 bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value *out);
+
+/* Which frame slot an instruction writes, or -1, and which it reads without a
+ * load to show for it. Every pass that reasons about slots asks these: a store
+ * is not the only thing that writes one, and a property access and an
+ * allocation both read slots no IR_LOAD_LOCAL names.
+ *
+ * In ir_allocate.c, beside the allocation that made them necessary. */
+int csIrWritesSlot(const IrInst *inst);
+
+/* Builds one object literal into a frame slot, called from compiled code and
+ * from the IR interpreter. In ir_allocate.c, where what makes it safe is. */
+void csJitBuildObject(Value *slots, int destination, const IrObjectLiteral *literal);
+void csIrReadsSlots(const IrFunction *ir, const IrInst *inst, int *first, int *last);
 
 #endif /* CSCRIPT_IR_H */

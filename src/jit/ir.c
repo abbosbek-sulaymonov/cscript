@@ -505,6 +505,7 @@ void csIrFree(IrFunction *ir) {
   free(ir->registerTypes);
   free(ir->slotTypes);
   free(ir->entryShapes);
+  free(ir->literals);
   free(ir->inlined);
   free(ir->blockEntryTypes);
   free(ir->blockEntrySeeded);

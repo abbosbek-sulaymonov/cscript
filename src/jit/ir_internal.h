@@ -80,6 +80,10 @@ typedef struct {
   const char *reason;
 } Lowering;
 
+/* ir_allocate.c — building an object from compiled code, and the slots that
+ * involves. */
+int csIrAddLiteral(IrFunction *ir, ObjString **keys, int count);
+
 /* ---- lowering one instruction ------------------------------------------- */
 
 /* What lowering an instruction concluded.

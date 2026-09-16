@@ -102,6 +102,15 @@ static void markRoots(void) {
     csMarkValue(*slot);
   }
 
+  /* The frame of a compiled run, which is not on the stack above — see
+   * VM.jitRoots. Walked whole: a slot compiled code has not written yet holds
+   * the undefined it was initialised with, which marks nothing. */
+  for (int r = 0; r < vm.jitRootRanges; r++) {
+    for (int i = 0; i < vm.jitRoots[r].count; i++) {
+      csMarkValue(vm.jitRoots[r].values[i]);
+    }
+  }
+
   /* Every active call keeps its closure alive, and a closure keeps its function
    * and therefore its whole constant pool alive — OP_CONSTANT can push any
    * literal at any point, so all of them are live for the length of the call. */

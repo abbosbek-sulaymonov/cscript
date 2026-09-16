@@ -107,6 +107,23 @@ bool *csJitPromotableSlots(const IrFunction *ir) {
     }
   }
 
+  /* A slot an allocation writes holds an object, and one it *reads* has to be
+   * read from memory: the builder is a C function handed the frame, and a
+   * value living in a register is not in the frame at all. Both are why a
+   * pass that looks only for stores is not enough — see csIrWritesSlot. */
+  for (int b = 0; b < ir->blockCount; b++) {
+    for (int i = 0; i < ir->blocks[b].count; i++) {
+      const IrInst *inst = &ir->blocks[b].instructions[i];
+      int written = csIrWritesSlot(inst);
+      if (written >= 0 && written <= ir->slotCount && inst->op != IR_STORE_LOCAL) promotable[written] = false;
+
+      int first;
+      int last;
+      csIrReadsSlots(ir, inst, &first, &last);
+      for (int s = first; s >= 0 && s <= last && s <= ir->slotCount; s++) promotable[s] = false;
+    }
+  }
+
   /* A parameter is only known to be a number if it was declared one. */
   for (int s = 1; s <= ir->slotCount; s++) {
     if (ir->slotTypes != NULL && s <= ir->slotCount && ir->slotTypes[s] != IR_TYPE_NUMBER) {

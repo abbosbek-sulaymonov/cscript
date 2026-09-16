@@ -38,6 +38,17 @@ static bool slotIsNeverWritten(const Chunk *chunk, int slot) {
   return true;
 }
 
+/* The instruction that produced a register, searched backwards in the block
+ * it was produced in. A key is pushed by the instruction just before the one
+ * that reads it, so the search is short — and a register produced in another
+ * block is not one this can answer for, which is the conservative answer. */
+static const IrInst *definitionOf(const IrBlock *block, int reg) {
+  for (int i = block->count - 1; i >= 0; i--) {
+    if (block->instructions[i].result == reg) return &block->instructions[i];
+  }
+  return NULL;
+}
+
 /* Records what a property read takes for granted, merging with an assumption
  * already made about the same slot and property. Two reads of the same field
  * cost one check. */
@@ -202,6 +213,85 @@ LowerResult csIrLowerObject(LowerAt *at) {
       /* `obj.x = v` is an expression and leaves the value; the _POP form is
        * the same store in statement position and leaves nothing. */
       if (opcode == OP_SET_PROPERTY && !csIrPush(low, block, value, line)) return LOWER_FAILED;
+      break;
+    }
+
+    /* `{ x: 1, y: 2 }` — the one instruction here that allocates.
+     *
+     * The keys are constants pushed just before it and the values are whatever
+     * produced them, so what has to be true is that each key really is a
+     * string constant and each value really is a number. The values are then
+     * stored into the slots above the destination, and a call builds the
+     * object from there.
+     *
+     * The destination is where the object lands on the operand stack, which is
+     * a frame slot like any other: a local *is* its stack position, which is
+     * what lets the property reads below reach it by slot. */
+    case OP_OBJECT: {
+      int count = chunk->code[offset + 1];
+      if (count <= 0 || count > IR_MAX_LITERAL_KEYS || low->stackTop < count * 2) {
+        low->reason = csOpcodeName((OpCode)opcode);
+        return LOWER_FAILED;
+      }
+
+      int destination = low->stackTop - count * 2;
+      if (destination < 0 || destination + count >= IR_MAX_SLOTS) {
+        low->reason = csOpcodeName((OpCode)opcode);
+        return LOWER_FAILED;
+      }
+
+      /* The pairs, bottom first: a key that is not a plain string constant, or
+       * a value that is not known to be a number, and this is not a literal
+       * the compiler can build. */
+      ObjString *keys[IR_MAX_LITERAL_KEYS];
+      int values[IR_MAX_LITERAL_KEYS];
+      for (int i = 0; i < count; i++) {
+        int keyRegister = low->stack[destination + i * 2];
+        int valueRegister = low->stack[destination + i * 2 + 1];
+        if (keyRegister < 0 || valueRegister < 0 || ir->registerTypes[valueRegister] != IR_TYPE_NUMBER) {
+          low->reason = csOpcodeName((OpCode)opcode);
+          return LOWER_FAILED;
+        }
+
+        const IrInst *producer = definitionOf(block, keyRegister);
+        if (producer == NULL || producer->op != IR_CONST || !IS_STRING(producer->constant)) {
+          low->reason = csOpcodeName((OpCode)opcode);
+          return LOWER_FAILED;
+        }
+        keys[i] = AS_STRING(producer->constant);
+        values[i] = valueRegister;
+      }
+
+      int literal = csIrAddLiteral(ir, keys, count);
+      if (literal < 0) {
+        low->reason = csOpcodeName((OpCode)opcode);
+        return LOWER_FAILED;
+      }
+
+      for (int i = 0; i < count * 2; i++) csIrPop(low, block, line);
+
+      /* Each value into the slot the builder will read it from. Ordinary
+       * stores, so every pass that reasons about slots sees them. */
+      for (int i = 0; i < count; i++) {
+        IrInst *store = csIrAppend(block, IR_STORE_LOCAL, line);
+        store->result = -1;
+        store->a = destination + 1 + i;
+        store->b = values[i];
+      }
+
+      IrInst *inst = csIrAppend(block, IR_NEW_OBJECT, line);
+      inst->result = -1;
+      inst->a = destination;
+      inst->b = literal;
+      if (destination + count + 1 > ir->slotCount) ir->slotCount = destination + count + 1;
+
+      /* The object is in its slot; what the stack holds is a read of it. */
+      int result = csIrNewRegister(ir, IR_TYPE_UNKNOWN);
+      IrInst *load = csIrAppend(block, IR_LOAD_LOCAL, line);
+      load->result = result;
+      load->a = destination;
+      load->type = IR_TYPE_UNKNOWN;
+      if (!csIrPush(low, block, result, line)) return LOWER_FAILED;
       break;
     }
 

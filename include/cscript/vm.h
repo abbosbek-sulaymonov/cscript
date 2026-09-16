@@ -142,6 +142,26 @@ typedef struct {
   Value pendingException;
   bool hasPendingException;
 
+  /* The frame compiled code is running on, for as long as it is running.
+   *
+   * The collector walks the interpreter's stack up to `stackTop`, and neither
+   * of the two ways into compiled code puts its frame there: a call entry
+   * builds the slots as a local array, and a back-edge hands over the
+   * interpreter's frame but compiled code writes *past* what the interpreter
+   * has opened. Both were harmless while compiled code could not allocate.
+   *
+   * A range rather than a stack map, because every value compiled code holds
+   * is a number except the objects in these slots — so what has to be walked
+   * is exactly this, and nothing has to describe where. */
+  /* Two of them: a compiled run has one — its frame — and the IR interpreter
+   * has that and its register file, which can hold an object read out of a
+   * slot the next instruction overwrites. */
+  struct {
+    Value *values;
+    int count;
+  } jitRoots[2];
+  int jitRootRanges;
+
   Value *stack;
   Value *stackTop;
   int stackCapacity;

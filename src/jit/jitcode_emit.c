@@ -462,6 +462,27 @@ bool csJitEmitInstruction(EmitAt *at) {
       break;
     }
 
+    case IR_NEW_OBJECT: {
+      /* The one place compiled code calls out to build something.
+       *
+       * The values are already in the slots above the destination, put there
+       * by the stores the lowering emitted — which is why this needs no list
+       * of registers and why those slots are kept out of registers. What is
+       * passed is the frame, the destination, and the keys.
+       *
+       * Everything live across the call is either in a callee-saved register
+       * — the allocator is restricted to those for a function that calls out
+       * — or in the frame, which is where the collector will look. */
+      const IrObjectLiteral *literal = &ir->literals[inst->b];
+
+      csJitMovRegister(encoder, 0, REG_SLOTS);
+      csJitMovImmediate(encoder, 1, (uint64_t)inst->a);
+      csJitMovImmediate(encoder, 2, (uint64_t)(uintptr_t)literal);
+      csJitMovImmediate(encoder, REG_TEMP, (uint64_t)(uintptr_t)csJitBuildObject);
+      csJitWord(encoder, 0xD63F0000u | ((uint32_t)REG_TEMP << 5)); /* blr x9 */
+      break;
+    }
+
     case IR_EXIT: {
       /* Give the frame back. Every promoted slot goes home first: the
        * interpreter reads locals out of the frame and knows nothing about
@@ -481,6 +502,16 @@ bool csJitEmitInstruction(EmitAt *at) {
       csJitWord(encoder, 0xAA0903E0u); /* mov x0, x9 */
       csJitEmitEpilogue(encoder);
       break;
+    }
+    /* Deliberate, and the reason it is here rather than left to -Wswitch: a
+     * switch with no default emits *nothing* for an instruction it does not
+     * know, and nothing is a silent miscompile — the value the instruction was
+     * to produce is simply absent, and whatever reads it reads what was there
+     * before. Refusing the function is the safe answer to a new opcode, and
+     * the warning that would have named it is worth giving up for that. */
+    default: {
+      *why = "an IR instruction this backend has no encoding for";
+      return false;
     }
   }
   if (encoder->failed) {
