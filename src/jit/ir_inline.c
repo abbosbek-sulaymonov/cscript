@@ -230,6 +230,17 @@ void csIrMarkReferences(const IrFunction *ir) {
   for (int i = 0; i < ir->entryShapeCount; i++) {
     csMarkObject((Obj *)ir->entryShapes[i].shape);
   }
+
+  /* The layout an added property gives the object. A transition edge is weak,
+   * so between compiling the store and running it nothing else would keep the
+   * new shape alive — and the compiled code holds its address. */
+  for (int b = 0; b < ir->blockCount; b++) {
+    const IrBlock *block = &ir->blocks[b];
+    for (int i = 0; i < block->count; i++) {
+      if (block->instructions[i].op != IR_ADD_PROPERTY) continue;
+      csMarkObject(AS_OBJ(block->instructions[i].constant));
+    }
+  }
   for (int i = 0; i < ir->inlinedCount; i++) {
     csMarkObject((Obj *)ir->inlined[i].name);
     csMarkObject((Obj *)ir->inlined[i].callee);

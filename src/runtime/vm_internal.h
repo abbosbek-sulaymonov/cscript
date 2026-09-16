@@ -39,6 +39,11 @@ InterpretResult run(int baseFrame);
 void csVMPush(Value value);
 Value csVMPop(void);
 bool runFieldInitializers(ObjClass *klass, ObjClass *stopAt, Value instance);
+
+/* The cached store, for an object whose shape the site expects. Answers false
+ * when the store cannot be done here — an add with no room for the value —
+ * which sends the site to the slow path that can allocate. */
+bool csVMStoreCached(ObjObject *object, const PropertyCache *cache, Value value);
 ObjClosure *findConstructor(ObjClass *klass);
 ObjClass *csVMConstructorOwner(ObjClass *klass);
 

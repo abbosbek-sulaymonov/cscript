@@ -1,0 +1,73 @@
+// A store that *adds* a property, which is what a constructor does.
+//
+// The site's cache records the pair it saw — the layout on the way in and the
+// one the object takes on — so the add is two stores: the value, then the new
+// layout. What makes that sound in compiled code is checked once at entry:
+// the object really has the first layout, and its storage already has room,
+// because growing it would allocate and compiled code cannot.
+
+class Point {
+  constructor(x: number, y: number) {
+    this.x = x;
+    this.y = y;
+  }
+}
+
+function sumPoints(n: number): number {
+  let total = 0;
+  for (let i = 0; i < n; i++) {
+    const p = new Point(i, i + 1);
+    total = total + p.x + p.y;
+  }
+  return total;
+}
+console.log(sumPoints(100000));
+
+// A constructor whose class declares fields as well: the field initialisers
+// give the instance a layout before the body runs, so the body's stores are
+// overwrites and adds in the same function.
+class Tagged {
+  seen: number = 0;
+
+  constructor(label: string) {
+    this.seen = 1;
+    this.label = label;
+  }
+}
+
+function tag(n: number): number {
+  let seen = 0;
+  for (let i = 0; i < n; i++) {
+    const t = new Tagged("x");
+    seen = seen + t.seen;
+  }
+  return seen;
+}
+console.log(tag(100000));
+
+// Three fields, all added: the chain of transitions is followed through the
+// block rather than assumed to be one layout.
+class Triple {
+  constructor(a: number, b: number, c: number) {
+    this.a = a;
+    this.b = b;
+    this.c = c;
+  }
+}
+
+function spread(n: number): number {
+  let total = 0;
+  for (let i = 0; i < n; i++) {
+    const t = new Triple(i, i, i);
+    total = total + t.a + t.b + t.c;
+  }
+  return total;
+}
+console.log(spread(100000));
+
+// The objects are real ones afterwards: what was added is there, in the order
+// it was added, and reading it takes the ordinary path.
+const one = new Point(3, 4);
+console.log(one.x, one.y, Object.keys(one).join(","));
+const two = new Triple(1, 2, 3);
+console.log(Object.keys(two).join(","), JSON.stringify(two));

@@ -80,7 +80,7 @@ already measured says it is the thing that pays.
 | **72 ✅** | Types across a module boundary: what a file exports arrives knowing what it is |
 | **73 ✅** | The built-in generics — `Map<K, V>`, `Set<T>`, `Promise<T>`, `Array<T>` — and `await` that unwraps one |
 | **74 ✅** | Literal types, `keyof`, `T[K]`, mapped types, and the six utility types made of them |
-| next | A property store that *adds* one, which is what a constructor does |
+| **75 ✅** | A property store that *adds* one — a constructor reaches machine code, **1.45×** |
 | next | Allocating an object in compiled code — attempted, backed out; see below |
 | next | Calling a CScript function from compiled code, for the callees inlining will not take: it needs frames and safepoints |
 

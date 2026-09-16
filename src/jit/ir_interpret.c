@@ -84,6 +84,17 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
           break;
         }
 
+        case IR_ADD_PROPERTY: {
+          /* The value first and the layout second: the collector sizes its
+           * walk of the slots from the shape, so the other order would show it
+           * a slot the shape counts and nothing has written. Room for it was
+           * proved at entry. */
+          ObjObject *target = AS_OBJECT(slots[inst->a]);
+          target->as.slots.values[inst->c] = registers[inst->b];
+          target->shape = (Shape *)AS_OBJ(inst->constant);
+          break;
+        }
+
         case IR_LOAD_PROPERTY: {
           /* Unguarded, because the entry check already proved the layout and
            * the slot is one this function never writes. */

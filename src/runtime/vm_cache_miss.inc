@@ -390,17 +390,28 @@ static bool propertyWriteSlow(ObjString *name, PropertyCache *cache, Value recei
     return false;
   }
 
-  csObjectPut(AS_OBJECT(receiver), name, value);
-
-  /* Cache the resulting layout, not the one on the way in. A site that keeps
-   * adding fresh properties fills the cache with a shape it has already left,
-   * but a site that assigns to the same field of many like-shaped objects —
-   * the common one — hits from then on. */
+  /* What the object had on the way in, so that an *add* can be cached as the
+   * transition it is: this shape, that slot, and the shape it becomes. A site
+   * that adds the same property to like-shaped objects — every `this.x = x` in
+   * a constructor — then costs a compare and two stores instead of a lookup
+   * and a table probe. */
   ObjObject *target = AS_OBJECT(receiver);
+  Shape *before = target->shape;
+
+  csObjectPut(target, name, value);
+
   int slot;
   if (target->shape != NULL && csShapeLookup(target->shape, name, &slot)) {
-    cache->shape = target->shape;
     cache->slot = slot;
+    if (before == target->shape) {
+      /* The property was already there: an overwrite, and the shape the site
+       * expects is the one it also leaves behind. */
+      cache->shape = target->shape;
+      cache->added = NULL;
+    } else {
+      cache->shape = before;
+      cache->added = target->shape;
+    }
   }
   return true;
 }

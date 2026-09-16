@@ -95,13 +95,25 @@ typedef enum {
    * it is not generational.
    *
    * A store that *adds* a property is therefore not this instruction, and is
-   * refused rather than compiled. That is what excludes most constructors:
-   * `this.x = x; this.y = y;` on a fresh object sees a different shape at each
-   * store, because each one transitions it — and one slot may only carry one
-   * recorded layout. A class whose fields are declared is the exception, since
-   * the field initialisers give the instance its final shape before the
-   * constructor body runs. */
+   * refused rather than compiled — for a store that *overwrites*. A store that
+   * *adds* is IR_ADD_PROPERTY below: it transitions the layout rather than
+   * expecting one, so `this.x = x; this.y = y;` on a fresh object is a chain
+   * of known transitions rather than two contradictory expectations. */
   IR_STORE_PROPERTY,
+
+  /* `slots[a].<new property c> = b`, adopting the layout in `constant`.
+   *
+   * A store that *adds* — which is what a constructor does, and what the note
+   * above says used to refuse one. What makes it emittable is that an add is
+   * two stores and nothing else, provided three things are known: the object's
+   * layout on the way in, the layout it takes on, and that its storage already
+   * has room. The first two come from the site's cache, which records the pair
+   * it saw; the third is checked once at entry, beside the shapes.
+   *
+   * The shape it adopts is held as the instruction's constant so that the
+   * collector can see it: a transition edge is weak, and nothing else would
+   * keep the new layout alive between compiling this and running it. */
+  IR_ADD_PROPERTY,
 
   IR_JUMP,   /* -> block a                             */
   IR_BRANCH, /* if a then block b else block c         */
@@ -135,7 +147,13 @@ typedef struct {
 typedef struct {
   int slot;     /* the frame slot holding the object */
   Shape *shape; /* the layout it must still have */
-  int property; /* the storage index the reads and writes use */
+  int property; /* the storage index the reads and writes use, or -1 */
+
+  /* How much room the object's storage must already have, for a function that
+   * *adds* properties: an add in compiled code is two stores, and growing the
+   * storage is an allocation it cannot make. Checked here so the adds
+   * themselves need no branch. 0 for a function that adds nothing. */
+  int minimumCapacity;
   /* Whether the property has to *hold* a number at entry. A read needs that —
    * its result is used as one. A write does not: it only needs the slot to be
    * where the shape says, and what was there before is about to be replaced.

@@ -17,6 +17,17 @@
 typedef struct {
   Shape *shape; /* vm.absentShape until filled; never NULL */
   int slot;
+
+  /* For a store that *adds* the property: the layout the object takes on.
+   *
+   * `shape` is what the object had on the way in and `slot` is where the value
+   * goes, so a site that adds the same property to like-shaped objects — every
+   * `this.x = x` in a constructor — can do it without a lookup: store, then
+   * adopt this. NULL for a site that only ever overwrote a property that was
+   * already there, which is every other store.
+   *
+   * Weak, like `shape`, and cleared by the same pruning. */
+  Shape *added;
 } PropertyCache;
 
 /* What one global site learned. A globals table never moves an Entry except on

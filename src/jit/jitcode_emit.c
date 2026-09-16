@@ -87,6 +87,40 @@ bool csJitEmitInstruction(EmitAt *at) {
       break;
     }
 
+    case IR_ADD_PROPERTY: {
+      /* A store that adds: the same address computation as the one above, and
+       * then the layout the object takes on.
+       *
+       * Nothing is looked up and nothing is allocated. The pair — the layout
+       * expected on the way in and the one adopted here — came from the site's
+       * cache, the first was checked at entry, and the room for the value was
+       * checked there too. What is left is two stores.
+       *
+       * The value goes in before the shape, because the collector sizes its
+       * walk of an object's slots from the shape: the other order would show
+       * it a slot the shape counts and nothing has written. */
+      if (slotHome[inst->a] >= 0) {
+        *why = "a property add on a slot held as a number";
+        return false;
+      }
+
+      int value = csJitReadOperand(encoder, home, inst->b, ALLOC_FIRST_SCRATCH);
+
+      csJitLdrGeneral(encoder, REG_TEMP, REG_SLOTS, inst->a * 8);
+      csJitMovImmediate(encoder, 10, ~(CS_SIGN_BIT | CS_QNAN));
+      csJitAndRegisters(encoder, REG_TEMP, REG_TEMP, 10);
+
+      /* The object is needed after the storage pointer is loaded, so the two
+       * live in different registers rather than one being recomputed. */
+      csJitMovRegister(encoder, 11, REG_TEMP);
+      csJitLdrGeneral(encoder, REG_TEMP, REG_TEMP, (int)offsetof(ObjObject, as.slots.values));
+      csJitStrDouble(encoder, value, REG_TEMP, inst->c * 8);
+
+      csJitMovImmediate(encoder, 10, (uint64_t)(uintptr_t)AS_OBJ(inst->constant));
+      csJitStrGeneral(encoder, 10, 11, (int)offsetof(ObjObject, shape));
+      break;
+    }
+
     case IR_LOAD_PROPERTY: {
       /* `slots[a].<property b>`, with no guard on it.
        *

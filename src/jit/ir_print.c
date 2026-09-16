@@ -44,6 +44,7 @@ static const char *opName(IrOp op) {
     case IR_RETURN: return "return";
     case IR_LOAD_PROPERTY: return "loadprop";
     case IR_STORE_PROPERTY: return "storeprop";
+    case IR_ADD_PROPERTY: return "addprop";
     case IR_EXIT: return "exit";
     case IR_LOAD_GLOBAL: return "loadg";
     case IR_STORE_GLOBAL: return "storeg";
@@ -89,6 +90,7 @@ void csIrPrint(const IrFunction *ir) {
         case IR_LOAD_GLOBAL: printf(" global%d", inst->a); break;
         case IR_STORE_GLOBAL: printf(" global%d, r%d", inst->a, inst->b); break;
         case IR_STORE_PROPERTY: printf(" slot%d.%d, r%d", inst->a, inst->c, inst->b); break;
+        case IR_ADD_PROPERTY: printf(" slot%d.+%d, r%d", inst->a, inst->c, inst->b); break;
         case IR_NEG: printf(" r%d", inst->a); break;
         default: printf(" r%d, r%d", inst->a, inst->b); break;
       }

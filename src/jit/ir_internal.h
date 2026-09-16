@@ -67,6 +67,16 @@ typedef struct {
   int pendingName[IR_MAX_STACK]; /* the binding it was read from */
   int pendingCount;
 
+  /* What layout each frame slot's object has *here*, for the slots a store
+   * adds to. An add transitions the object, so the next store on the same slot
+   * expects what the last one produced rather than what it had at entry — the
+   * one fact that makes a constructor's chain of `this.x = x` lowerable.
+   *
+   * NULL for a slot nothing has added to, which is nearly all of them. Reset
+   * per block, because only a straight run of instructions proves the chain
+   * ran in that order. */
+  Shape *slotShape[IR_MAX_SLOTS];
+
   const char *reason;
 } Lowering;
 
