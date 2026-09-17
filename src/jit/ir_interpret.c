@@ -76,7 +76,7 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
       if (inst->op == IR_STORE_LOCAL && (inst->b < 0 || inst->b >= ir->registerCount)) {
         goto done;
       }
-      if (inst->op == IR_EXIT) goto done;
+      if (inst->op == IR_EXIT || inst->op == IR_GUARD_SHAPE) goto done;
       if (inst->op == IR_STORE_GLOBAL && (inst->b < 0 || inst->b >= ir->registerCount)) {
         goto done;
       }
@@ -195,6 +195,9 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
           goto done;
 
         case IR_EXIT:
+        /* A guard is an exit that happens mid-block, and this interpreter can
+         * take neither. */
+        case IR_GUARD_SHAPE:
           /* This interpreter runs a whole function in place of the bytecode,
            * so it has nowhere to hand a half-finished frame back to. Only
            * machine code entered through OSR can take an exit; here it simply

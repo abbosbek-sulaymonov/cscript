@@ -1921,6 +1921,86 @@ first use is the shape a property read was lowered against, checked at the read
 rather than at entry, so a site only some paths reach stops refusing the call
 the other paths would have been answered by.
 
+## Stage 13: guards at the site
+
+A property read is lowered against the layout its inline cache has settled on,
+and stage 5 checked that layout **once**, at entry, before the body started.
+One check per call, nothing at the read, and for a slot the caller filled it is
+still the right answer — a method's `this.x` and a parameter's `p.x` both keep
+it.
+
+It is the wrong answer for a slot the body itself writes:
+
+    function boxed(n: number): number {
+      const made = { a: n, b: n + 1 };
+      return made.a + made.b;
+    }
+
+At entry `made`'s slot holds nothing at all. The entry check therefore failed
+on **every single call**, and the whole call was interpreted — arithmetic,
+allocation and all — for the sake of a check that could never have held. It was
+not visible as a refusal: the function compiled, reached machine code, and was
+then declined at the door three hundred thousand times.
+
+`IR_GUARD_SHAPE` asks the same question at the read. When it does not hold, the
+frame goes back to the interpreter at the property instruction, which then does
+the read its own way — which is the first thing stage 12's deoptimisation was
+for, and the reason the note in `ir.h` saying a guard would cost more than it
+bought is gone.
+
+### Which route a site takes
+
+Whether anything lowered so far has *written* the slot. That is not the
+question that was being asked: the old one looked in the bytecode for an
+assignment, and in this VM a local *is* its stack position, so `const p = { … }`
+assigns nothing and the slot looked untouched. `csIrWritesSlot` — the same
+function the allocation work introduced for exactly this kind of mistake —
+knows about the allocation, the call and the push, and is what decides now.
+
+A second read of the same object needs no second guard, provided nothing wrote
+the slot in between. Tracked per block, because a guard proves nothing about a
+path that did not go through it.
+
+The check itself is a call out to `csJitShapeHolds`, which shares its body with
+the entry check so the two cannot come to disagree about what an assumption
+means. A function with a guard in it therefore allocates only from the
+callee-saved bank, the same restriction `IR_MOD` and the object builder already
+imposed. Inlining the check into arm64 is the obvious thing to try next and was
+left out deliberately: the first version of a guard should be one whose
+correctness is readable.
+
+### The refusals that were never refusals
+
+The same file was refusing whole functions for one property it could not
+compile. A cache that saw the property **absent** — found on a prototype, or
+not found — names no layout to read from and none to guard on, and that
+accounted for 20 of the 26 hot functions the corpus refused outright.
+
+Nothing about it warranted refusing the function. With an exit that happens at
+the instruction (stage 12), the frame goes back to the interpreter there and
+the rest of the body still compiles. Every property and object-literal case
+that could refuse hands over instead now, and the refusals are gone entirely.
+
+| | Before | After |
+| --- | ---: | ---: |
+| Hot functions lowered to typed IR | 249 of 275 | **275 of 275** |
+| Reaching machine code | 70 | **86** |
+| `bench/jit/jit_guards`, compiled | 389 ms | **278 ms** |
+| …calls answered by compiled code | 0 | 2,000,000 |
+| `make test-jit` takes part in | 59 | **61** |
+| `make test-jit` reaches machine code | 83 | **88** |
+| `make test-jit-gc` takes part in | 38 | **40** |
+| `make test-jit-gc` reaches machine code | 60 | **66** |
+
+### What is still checked at entry
+
+Everything else: the parameter types the lowering guessed, the globals it baked
+addresses for, the bindings its inlined bodies came from, and the layouts of
+slots the caller filled. Those are all facts about the frame on the way in, and
+a check at the door is the cheapest deoptimisation there is — nothing has
+happened yet, so there is nothing to undo. What moved is only what the door
+could not see.
+
 ## What comes next
 
 The pipeline has not changed shape since the first milestone, which was the
@@ -1932,7 +2012,7 @@ genuinely new stage, which only runs on code that has earned it.
 | Next | What it needs | Why it is next |
 | --- | --- | --- |
 | Replaying a conditional jump | The taken arm's state merged into its target, height included | It is the one thing still refusing `loops_control.cx` |
-| Guards at the site | A shape checked where it is used, with a deoptimising exit behind it | The mechanism is in; what is left is choosing where one check beats one at entry |
+| Speculative guards | A type *guessed* rather than proved, checked where it is used | It is what would let the compiler take arithmetic the checker could not settle |
 | Cross-block liveness | Real dataflow, rather than the block-local approximation the allocator uses | Values crossing a block boundary keep a memory home today |
 | An x86-64 backend | A second encoder behind the same IR | The IR and everything above it are already architecture-neutral |
 

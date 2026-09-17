@@ -521,6 +521,44 @@ bool csJitEmitInstruction(EmitAt *at) {
       break;
     }
 
+    case IR_GUARD_SHAPE: {
+      /* An exit in the middle of a block, which is what makes it a guard: the
+       * check is asked at the read rather than once on the way in, and when it
+       * does not hold the interpreter picks the frame up at the property
+       * instruction and does the read its own way.
+       *
+       * The object is read out of the frame by the helper, which is why the
+       * guarded slot is kept out of a register, and why a function with a
+       * guard in it allocates only from the callee-saved bank. */
+      const IrEntryShape *guard = &ir->entryShapes[inst->b];
+
+      csJitMovRegister(encoder, 0, REG_SLOTS);
+      csJitMovImmediate(encoder, 1, (uint64_t)(uintptr_t)guard);
+      csJitMovImmediate(encoder, REG_TEMP, (uint64_t)(uintptr_t)csJitShapeHolds);
+      csJitWord(encoder, 0xD63F0000u | ((uint32_t)REG_TEMP << 5)); /* blr x9 */
+
+      /* `cbnz w0, over` — the layout held, so carry on. */
+      int over = encoder->count;
+      csJitWord(encoder, 0x35000000u); /* cbnz w0, <patched> */
+
+      /* It did not. Every promoted slot goes home, exactly as an ordinary exit
+       * does it: the interpreter reads locals out of the frame and knows
+       * nothing about the registers they have been living in. */
+      for (int s = 0; s <= ir->slotCount; s++) {
+        if (slotHome[s] >= 0) csJitStrDouble(encoder, slotHome[s], REG_SLOTS, s * 8);
+      }
+
+      int leave = csJitAddExit(at, guard->deoptOffset, guard->deoptHeight);
+      csJitMovImmediate(encoder, REG_TEMP, (uint64_t)leave);
+      csJitStrWord32(encoder, REG_TEMP, REG_EXIT);
+      csJitMovImmediate(encoder, REG_TEMP, (uint64_t)UNDEFINED_VAL);
+      csJitWord(encoder, 0xAA0903E0u); /* mov x0, x9 */
+      csJitEmitEpilogue(encoder);
+
+      csJitPatchToHere(encoder, over);
+      break;
+    }
+
     case IR_EXIT: {
       /* Give the frame back. Every promoted slot goes home first: the
        * interpreter reads locals out of the frame and knows nothing about

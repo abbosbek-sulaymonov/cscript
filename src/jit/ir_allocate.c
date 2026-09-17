@@ -118,6 +118,10 @@ void csIrReadsSlots(const IrFunction *ir, const IrInst *inst, int *first, int *l
     case IR_LOAD_PROPERTY:
     case IR_STORE_PROPERTY:
     case IR_ADD_PROPERTY:
+    /* A guard reads the object out of the frame, the same way, and for the
+     * same reason it must stay there: the check is a C function handed the
+     * slots, and a value living in a register is not in the frame at all. */
+    case IR_GUARD_SHAPE:
       *first = inst->a;
       *last = inst->a;
       return;

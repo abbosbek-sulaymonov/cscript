@@ -187,6 +187,8 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
        * of instructions that transitioned it. A block reached another way
        * starts again from what the entry guard proved. */
       for (int s = 0; s < IR_MAX_SLOTS; s++) low.slotShape[s] = NULL;
+      for (int s = 0; s < IR_MAX_SLOTS; s++) low.slotGuard[s] = NULL;
+      for (int s = 0; s < IR_MAX_SLOTS; s++) low.slotGuardRecord[s] = -1;
       /* A callee placeholder never outlives the run of instructions it was
        * pushed in — callSiteFor refuses a call another path can reach — so
        * there is nothing here to clear. Clearing anyway is what keeps that
