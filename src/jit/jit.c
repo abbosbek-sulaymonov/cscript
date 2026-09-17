@@ -194,7 +194,8 @@ static bool assumptionsHold(const JitCode *code) {
   return true;
 }
 
-bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int argCount, Value *out) {
+bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int argCount, Value *out, bool *failed) {
+  *failed = false;
   /* Both states are runnable: JIT_HOT has lowered IR, JIT_COMPILED also has
    * machine code. Admitting only the first rejected exactly the functions that
    * had got furthest. */
@@ -246,16 +247,31 @@ bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int a
        * Told about it for exactly as long as the run lasts — anything compiled
        * code allocates is stored into one of these slots before anything else
        * can collect. */
+      /* Announced for the length of the run, and *pushed*: a compiled function
+       * that calls another one leaves this frame live while the inner run adds
+       * its own. Replacing rather than pushing would unroot the caller. */
+      if (vm.jitRootRanges >= CS_JIT_ROOT_MAX) return false;
       int savedRanges = vm.jitRootRanges;
-      vm.jitRoots[0].values = slots;
-      vm.jitRoots[0].count = hot[i].ir->slotCount;
-      vm.jitRootRanges = 1;
+      vm.jitRoots[vm.jitRootRanges].values = slots;
+      vm.jitRoots[vm.jitRootRanges].count = hot[i].ir->slotCount;
+      vm.jitRootRanges++;
 
       int exit = -1;
       uint64_t bits = hot[i].code->entry(slots, hot[i].scratch, &exit);
 
       vm.jitRootRanges = savedRanges;
-      if (exit >= 0) return false;
+
+      /* A call entry takes no ordinary exit — csIrLower produces one only for
+       * code the interpreter would resume, and entryUsable refuses a function
+       * that has any. The one exit it can take is a call that failed, and
+       * that must not send the caller back to interpret this function: the
+       * callee already ran. */
+      if (exit >= 0) {
+        if (exit < hot[i].code->exitCount && hot[i].code->exits[exit].bytecodeOffset == CS_JIT_EXIT_FAILED) {
+          *failed = true;
+        }
+        return false;
+      }
       memcpy(out, &bits, sizeof(Value));
       substituted++;
       return true;
@@ -267,8 +283,9 @@ bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int a
   return false;
 }
 
-bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *out, int *resumeAt, int *resumeHeight) {
+bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *out, int *resumeAt, int *resumeHeight, bool *failed) {
   *resumeAt = -1;
+  *failed = false;
   if (function->jitOsrRefusedAt == bytecodeOffset) return false;
 
   /* The entry recorded on the function itself, so a back-edge costs no search
@@ -298,10 +315,11 @@ bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *ou
       /* The slots above what the interpreter has opened, which the collector
        * walks only as far as `stackTop`. The frame below it is already a root;
        * this covers the rest for as long as compiled code is using it. */
+      if (vm.jitRootRanges >= CS_JIT_ROOT_MAX) return false;
       int savedRanges = vm.jitRootRanges;
-      vm.jitRoots[0].values = slots;
-      vm.jitRoots[0].count = hot[i].ir->slotCount;
-      vm.jitRootRanges = 1;
+      vm.jitRoots[vm.jitRootRanges].values = slots;
+      vm.jitRoots[vm.jitRootRanges].count = hot[i].ir->slotCount;
+      vm.jitRootRanges++;
 
       int exit = -1;
       uint64_t bits = hot[i].code->osr[o].entry(slots, hot[i].scratch, &exit);
@@ -309,6 +327,13 @@ bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *ou
       vm.jitRootRanges = savedRanges;
 
       if (exit >= 0 && exit < hot[i].code->exitCount) {
+        /* A call this loop made threw. There is no offset to resume at — the
+         * callee ran, and re-entering the loop would run it again — so this
+         * says so rather than handing back a frame. */
+        if (hot[i].code->exits[exit].bytecodeOffset == CS_JIT_EXIT_FAILED) {
+          *failed = true;
+          return false;
+        }
         /* Not finished: the body reached something the compiler does not
          * implement, and the interpreter takes it from there. */
         *resumeAt = hot[i].code->exits[exit].bytecodeOffset;

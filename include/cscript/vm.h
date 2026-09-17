@@ -28,6 +28,10 @@ typedef enum {
  * with what `callback` returned or — when there is no callback — with the
  * value that arrived, which is how an outcome passes through a `.then` that
  * did not ask about it. `result` is NULL for queueMicrotask. */
+/* How deeply compiled runs may nest before one is refused and interpreted
+ * instead. Each run announces one range; the IR interpreter announces two. */
+#define CS_JIT_ROOT_MAX 128
+
 typedef struct {
   Value callback;
   Value argument;
@@ -153,13 +157,15 @@ typedef struct {
    * A range rather than a stack map, because every value compiled code holds
    * is a number except the objects in these slots — so what has to be walked
    * is exactly this, and nothing has to describe where. */
-  /* Two of them: a compiled run has one — its frame — and the IR interpreter
-   * has that and its register file, which can hold an object read out of a
-   * slot the next instruction overwrites. */
+  /* A stack of them, because compiled runs nest: a compiled function that
+   * calls another one is a second frame the collector must see while the first
+   * is still live. One range per compiled run — its frame — and two for the IR
+   * interpreter, whose register file can hold an object read out of a slot the
+   * next instruction overwrites. */
   struct {
     Value *values;
     int count;
-  } jitRoots[2];
+  } jitRoots[CS_JIT_ROOT_MAX];
   int jitRootRanges;
 
   Value *stack;
@@ -373,6 +379,11 @@ Value csVMPeek(int distance);
  * Depth is bounded by CS_FRAMES_MAX, the same limit ordinary calls obey, so
  * this adds no new way to run out of stack. */
 bool csVMCallCallback(Value callee, int argCount, Value *result);
+
+/* The same, for a call compiled code is making: the callee goes through the
+ * ordinary call entry, so one that is itself compiled is entered as compiled
+ * code rather than interpreted. */
+bool csVMCallFromCompiled(Value callee, int argCount, Value *result);
 
 /* Text for a string conversion: an object's own `toString` when it has one,
  * and the built-in rendering otherwise. The caller owns the buffer. */

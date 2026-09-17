@@ -250,9 +250,11 @@
           Value produced;
           int resumeAt = -1;
           int resumeHeight = 0;
+          bool compiledFailed = false;
           if (csJitOsr(frame->closure->function,
                        (int)(frame->ip - frame->closure->function->chunk.code),
-                       frame->slots, &produced, &resumeAt, &resumeHeight)) {
+                       frame->slots, &produced, &resumeAt, &resumeHeight,
+                       &compiledFailed)) {
             /* Handed back part-way: the compiled code took the loop and left
              * whatever follows it alone. The frame is already in the shape the
              * interpreter expects — the slots are the same slots — so only the
@@ -279,6 +281,10 @@
             csVMPush(produced);
             if (vm.frameCount == baseFrame) return CS_OK;
             frame = &vm.frames[vm.frameCount - 1];
+          } else if (compiledFailed) {
+            /* A call the compiled loop made threw. The loop is over; this
+             * frame takes the throw where it stands. */
+            HANDLE_FAILED_CALL();
           }
         }
 #endif

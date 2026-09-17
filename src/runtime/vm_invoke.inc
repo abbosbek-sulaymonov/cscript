@@ -14,6 +14,33 @@
 /* clang-format off */
 
 
+/* A call made from compiled code.
+ *
+ * The same entry an ordinary call takes — which is the point. `csVMCallCallback`
+ * goes straight to `callClosure`, so a callee that is itself compiled would be
+ * *interpreted* when reached this way, and a caller that made the call in
+ * compiled code came out slower than one that handed the loop back. This goes
+ * through `callValue`, so a compiled callee is entered as compiled code, a
+ * native answers directly, and only a callee that needs a frame gets one.
+ *
+ * The callee and its arguments are already pushed, exactly as `OP_CALL` leaves
+ * them. Answers false when the call threw, with the exception pending. */
+bool csVMCallFromCompiled(Value callee, int argCount, Value *result) {
+  int baseFrame = vm.frameCount;
+  if (!callValue(callee, argCount)) return false;
+
+  /* No frame means it was answered without one — by compiled code, or by a
+   * native — and the result is already on the stack. */
+  if (vm.frameCount == baseFrame) {
+    *result = csVMPop();
+    return true;
+  }
+
+  if (run(baseFrame) != CS_OK) return false;
+  *result = csVMPop();
+  return true;
+}
+
 bool callValue(Value callee, int argCount) {
   if (IS_CLOSURE(callee)) {
     ObjClosure *closure = AS_CLOSURE(callee);
@@ -42,15 +69,20 @@ bool callValue(Value callee, int argCount) {
       if (!parameterTypesHold(closure->function, argCount)) return false;
 
       Value lowered;
+      bool compiledFailed = false;
       /* An ordinary call leaves the callee in slot 0, except where the body
        * says `this` — which the interpreter blanks, and so does this. */
       Value slotZero = closure->function->usesThis ? UNDEFINED_VAL : callee;
       if (csJitTryRun(closure->function, slotZero, vm.stackTop - argCount,
-                      argCount, &lowered)) {
+                      argCount, &lowered, &compiledFailed)) {
         vm.stackTop -= argCount + 1;
         csVMPush(lowered);
         return true;
       }
+      /* The compiled body made a call that threw. The frame is over and the
+       * exception is already pending; interpreting the body again would run
+       * everything it did a second time. */
+      if (compiledFailed) return false;
     }
 #endif
 
@@ -150,10 +182,12 @@ static Table *methodTableFor(Value receiver) {
  * `new` never reached the compiler at all before this, so a constructor could
  * compile and then only ever be interpreted — the same gap methods had. */
 static bool constructorAnsweredByCompiler(ObjObject *built, ObjClosure *body,
-                                          int argCount, Value *returned) {
+                                          int argCount, Value *returned,
+                                          bool *failed) {
+  *failed = false;
 #ifdef CS_DEBUG_JIT
   if (!csJitTryRun(body->function, OBJ_VAL(built), vm.stackTop - argCount,
-                   argCount, returned)) {
+                   argCount, returned, failed)) {
     return false;
   }
   vm.stackTop -= argCount + 1;
@@ -182,11 +216,12 @@ static bool constructorAnsweredByCompiler(ObjObject *built, ObjClosure *body,
  * method reading `this.x` failed its entry check against an undefined slot and
  * compiled code was never entered. */
 static bool methodAnsweredByCompiler(Value receiver, ObjClosure *method,
-                                     int argCount) {
+                                     int argCount, bool *failed) {
+  *failed = false;
 #ifdef CS_DEBUG_JIT
   Value produced;
   if (!csJitTryRun(method->function, receiver, vm.stackTop - argCount, argCount,
-                   &produced)) {
+                   &produced, failed)) {
     return false;
   }
   vm.stackTop -= argCount + 1;
@@ -223,9 +258,13 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
        * because that is what its `this` resolves to. Anything else is just a
        * function that happens to live on an object, and gets no receiver. */
       if (IS_CLOSURE(method) && wantsReceiver(AS_CLOSURE(method))) {
-        if (methodAnsweredByCompiler(receiver, AS_CLOSURE(method), argCount)) {
+        bool compiledFailed = false;
+        if (methodAnsweredByCompiler(receiver, AS_CLOSURE(method), argCount, &compiledFailed)) {
           return true;
         }
+        /* A call the compiled body made threw: the frame is over, and running
+         * the method again would repeat whatever it already did. */
+        if (compiledFailed) return false;
         return callMethod(AS_CLOSURE(method), argCount);
       }
 
@@ -242,7 +281,9 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
     if (instance->klass != NULL) {
       ObjClosure *classMethod = csClassFindMethod(instance->klass, name);
       if (classMethod != NULL) {
-        if (methodAnsweredByCompiler(receiver, classMethod, argCount)) return true;
+        bool compiledFailed = false;
+        if (methodAnsweredByCompiler(receiver, classMethod, argCount, &compiledFailed)) return true;
+        if (compiledFailed) return false;
         return callMethod(classMethod, argCount);
       }
     }

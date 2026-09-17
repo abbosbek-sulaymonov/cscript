@@ -41,12 +41,16 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
   /* Both arrays are the collector's business now that an instruction here can
    * allocate: the frame holds the objects, and a register holds one for as
    * long as it is between a load and its use. */
+  if (vm.jitRootRanges + 2 > CS_JIT_ROOT_MAX) {
+    free(registers);
+    return false;
+  }
   int savedRanges = vm.jitRootRanges;
-  vm.jitRoots[0].values = slots;
-  vm.jitRoots[0].count = ir->slotCount;
-  vm.jitRoots[1].values = registers;
-  vm.jitRoots[1].count = ir->registerCount;
-  vm.jitRootRanges = 2;
+  vm.jitRoots[vm.jitRootRanges].values = slots;
+  vm.jitRoots[vm.jitRootRanges].count = ir->slotCount;
+  vm.jitRoots[vm.jitRootRanges + 1].values = registers;
+  vm.jitRoots[vm.jitRootRanges + 1].count = ir->registerCount;
+  vm.jitRootRanges += 2;
 
   int block = 0;
   long steps = 0;
@@ -91,6 +95,17 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
         case IR_STORE_PROPERTY: {
           ObjObject *target = AS_OBJECT(slots[inst->a]);
           target->as.slots.values[inst->c] = registers[inst->b];
+          break;
+        }
+
+        case IR_CALL: {
+          /* The same call compiled code makes. A failure ends the run: the
+           * exception is already pending and this frame is over. */
+          if (inst->b < 0 || inst->b >= ir->callCount) goto done;
+          if (!csJitCallClosure(slots, inst->a, &ir->calls[inst->b])) {
+            ok = false;
+            goto done;
+          }
           break;
         }
 

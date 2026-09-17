@@ -480,6 +480,12 @@ struct ObjFunction {
    * Holds TypeId values, one per parameter, indexed from zero. */
   uint8_t *paramTypes;
 
+  /* What the function was declared to answer, or TYPE_DYNAMIC. Carried to the
+   * run time for the same reason the parameter types are: a call the compiler
+   * emits rather than splices needs to know whether what comes back is a
+   * number, or the arithmetic after it cannot be compiled. */
+  uint8_t returnType;
+
   /* Tiering. `hotness` counts calls and loop back-edges together, because a
    * function called a million times and one called once around a millionfold
    * loop are equally worth compiling. See jit.h. */

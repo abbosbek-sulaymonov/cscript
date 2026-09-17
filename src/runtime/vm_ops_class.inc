@@ -146,10 +146,17 @@
            * return a different object, and discards anything that is not one.
            * That choice cannot be made by leaving the frame to unwind. */
           Value returned;
+          bool compiledFailed = false;
           if (constructorAnsweredByCompiler(built, constructor, argCount,
-                                            &returned)) {
+                                            &returned, &compiledFailed)) {
             csPopTempRoot();
             csVMPush(IS_OBJECT(returned) ? returned : OBJ_VAL(built));
+            VM_NEXT();
+          }
+          /* A call the compiled constructor made threw. */
+          if (compiledFailed) {
+            csPopTempRoot();
+            HANDLE_FAILED_CALL();
             VM_NEXT();
           }
 
@@ -220,9 +227,14 @@
            * constructor's result is always the instance, which is the rule the
            * frame version relies on too. */
           Value ignoredResult;
+          bool compiledFailed = false;
           if (constructorAnsweredByCompiler(instance, owner->initializer,
-                                            argCount, &ignoredResult)) {
+                                            argCount, &ignoredResult, &compiledFailed)) {
             csVMPush(OBJ_VAL(instance));
+            VM_NEXT();
+          }
+          if (compiledFailed) {
+            HANDLE_FAILED_CALL();
             VM_NEXT();
           }
 

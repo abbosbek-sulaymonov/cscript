@@ -23,7 +23,9 @@
 
 #include "cscript/object_ops.h"
 #include "cscript/shape.h"
+#include "cscript/type.h"
 #include "cscript/vm.h"
+#include "jit/ir_internal.h"
 #include "jit/ir_internal.h"
 
 /* Called from compiled code. `slots` is the frame, which the collector is
@@ -81,7 +83,30 @@ int csIrAddLiteral(IrFunction *ir, ObjString **keys, int count) {
 int csIrWritesSlot(const IrInst *inst) {
   if (inst->op == IR_STORE_LOCAL) return inst->a;
   if (inst->op == IR_NEW_OBJECT) return inst->a;
+  if (inst->op == IR_CALL) return inst->a;
   return -1;
+}
+
+/* What a call answers, as a type: a number where the callee declared one, and
+ * otherwise a value the compiled code may move but do no arithmetic to.
+ *
+ * The declaration is the whole of the proof. A call site sees one closure —
+ * checked at entry, like an inlined one — and that closure's function said
+ * what it returns, so the caller's arithmetic can be compiled on the strength
+ * of it. Without this the call is lowered and then the function is refused for
+ * adding an untyped value to a number, which is the shape of a feature that
+ * technically works. */
+IrType csIrCallResultType(const IrFunction *ir, int site) {
+  if (site < 0 || site >= ir->callCount) return IR_TYPE_UNKNOWN;
+  const ObjFunction *callee = ir->calls[site].callee->function;
+  return callee->returnType == (uint8_t)TYPE_NUMBER ? IR_TYPE_NUMBER : IR_TYPE_UNKNOWN;
+}
+
+/* What an instruction leaves in the slot it writes. */
+IrType csIrWrittenType(const IrFunction *ir, const IrInst *inst) {
+  if (inst->op == IR_CALL) return csIrCallResultType(ir, inst->b);
+  if (inst->op == IR_STORE_LOCAL && inst->b >= 0 && inst->b <= ir->registerCount) return ir->registerTypes[inst->b];
+  return IR_TYPE_UNKNOWN;
 }
 
 /* And which slots it reads without a load to show for it: the object a
@@ -104,6 +129,120 @@ void csIrReadsSlots(const IrFunction *ir, const IrInst *inst, int *first, int *l
       return;
     }
 
+    /* A call reads its arguments from the slots above the destination, the
+     * same way a literal reads its values. */
+    case IR_CALL: {
+      if (inst->b < 0 || inst->b >= ir->callCount) return;
+      *first = inst->a + 1;
+      *last = inst->a + ir->calls[inst->b].argCount;
+      return;
+    }
+
     default: return;
   }
+}
+
+/* --- calling out --------------------------------------------------------- */
+
+/* Calls a closure the way the interpreter would: the callee and its arguments
+ * pushed, and the ordinary call machinery from there — so the callee may be
+ * interpreted, compiled, or compiled and entered through its own guard, and
+ * this does not have to know which.
+ *
+ * The arguments are read out of the frame rather than taken as C arguments,
+ * for the same reason the values of an object literal are: they are already
+ * there, the frame is what the collector is walking, and a call with a fixed
+ * shape is one the emitter can make without a list.
+ *
+ * Answers false when the callee threw or failed. Compiled code has no handler
+ * and cannot have one — a `try` in the caller was never lowered — so what it
+ * does with a false is leave, and the frame fails as it would have had the
+ * interpreter made the call. */
+bool csJitCallClosure(Value *slots, int destination, const IrCallSite *site) {
+  csVMPush(OBJ_VAL(site->callee));
+  for (int i = 0; i < site->argCount; i++) {
+    csVMPush(slots[destination + 1 + i]);
+  }
+
+  Value answered;
+  if (!csVMCallFromCompiled(OBJ_VAL(site->callee), site->argCount, &answered)) return false;
+
+  /* Into the frame, where the interpreter leaves a call's result and where the
+   * collector can see it: the operand stack a compiled function runs on *is*
+   * these slots. */
+  slots[destination] = answered;
+  return true;
+}
+
+/* Lowers a call the splice would not take.
+ *
+ * The arguments go into the slots above the callee's position — where the
+ * interpreter would have left them, because the operand stack is the frame —
+ * and the result comes back into the callee's own position, which is where the
+ * interpreter leaves one. So the frame after the call looks exactly as it
+ * would have, and an exit anywhere downstream needs nothing put back.
+ *
+ * Answers the register holding the result, or -1. */
+int csIrLowerRealCall(LowerAt *at, ObjClosure *closure, int base, const int *args, int argCount) {
+  IrFunction *ir = at->ir;
+  IrBlock *block = at->block;
+  Lowering *low = at->low;
+  const int line = at->line;
+
+  if (base < 0 || base + argCount + 1 >= IR_MAX_SLOTS) return -1;
+  if (low->pendingName[base] < 0) return -1;
+
+  ObjString *name = AS_STRING(at->chunk->constants.values[low->pendingName[base]]);
+  int site = csIrAddCall(ir, &at->function->module->globals, name, closure, argCount);
+  if (site < 0) return -1;
+
+  for (int a = 0; a < argCount; a++) {
+    if (args[a] < 0) return -1;
+    IrInst *store = csIrAppend(block, IR_STORE_LOCAL, line);
+    store->result = -1;
+    store->a = base + 1 + a;
+    store->b = args[a];
+  }
+
+  IrInst *call = csIrAppend(block, IR_CALL, line);
+  call->result = -1;
+  call->a = base;
+  call->b = site;
+  if (base + argCount + 1 > ir->slotCount) ir->slotCount = base + argCount + 1;
+
+  /* What comes back is a number only where the callee said so. Anything else
+   * is a value the compiled code may move and hand back but not do arithmetic
+   * to — which is what refuses the function if it tries. */
+  IrType type = csIrCallResultType(ir, site);
+  int result = csIrNewRegister(ir, type);
+  IrInst *load = csIrAppend(block, IR_LOAD_LOCAL, line);
+  load->result = result;
+  load->a = base;
+  load->type = type;
+  return result;
+}
+
+/* Records a call site, answering the index compiled code will use. */
+int csIrAddCall(IrFunction *ir, Table *globals, ObjString *name, ObjClosure *callee, int argCount) {
+  if (callee == NULL || name == NULL) return -1;
+
+  for (int i = 0; i < ir->callCount; i++) {
+    const IrCallSite *existing = &ir->calls[i];
+    if (existing->callee == callee && existing->argCount == argCount && existing->globals == globals && existing->name == name) return i;
+  }
+
+  if (ir->callCount == ir->callCapacity) {
+    int capacity = ir->callCapacity < 4 ? 4 : ir->callCapacity * 2;
+    IrCallSite *grown = (IrCallSite *)realloc(ir->calls, sizeof(IrCallSite) * (size_t)capacity);
+    if (grown == NULL) return -1;
+    ir->calls = grown;
+    ir->callCapacity = capacity;
+  }
+
+  IrCallSite *site = &ir->calls[ir->callCount];
+  site->globals = globals;
+  site->name = name;
+  site->callee = callee;
+  site->argCount = argCount;
+  return ir->callCount++;
 }

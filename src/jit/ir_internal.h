@@ -83,6 +83,7 @@ typedef struct {
 /* ir_allocate.c — building an object from compiled code, and the slots that
  * involves. */
 int csIrAddLiteral(IrFunction *ir, ObjString **keys, int count);
+int csIrAddCall(IrFunction *ir, Table *globals, ObjString *name, ObjClosure *callee, int argCount);
 
 /* ---- lowering one instruction ------------------------------------------- */
 
@@ -113,6 +114,10 @@ typedef struct {
   int line;
   int jumpTarget; /* where a jump here would land; meaningless otherwise */
 } LowerAt;
+
+/* ir_allocate.c, again: a call the splice would not take. Declared here rather
+ * than above because it needs LowerAt. */
+int csIrLowerRealCall(LowerAt *at, ObjClosure *closure, int base, const int *args, int argCount);
 
 LowerResult csIrLowerData(LowerAt *at);
 LowerResult csIrLowerObject(LowerAt *at);
@@ -157,6 +162,7 @@ IrType csIrTypeOfConstant(Value constant);
 
 /* Whether this function's body can go where a call to it is. */
 bool csIrCalleeIsInlinable(const ObjFunction *callee, int argCount);
+bool csIrCalleeIsCallable(const ObjFunction *callee, int argCount);
 
 /* Where the call a callee load feeds is, or -1. */
 int csIrCallSiteFor(const Chunk *chunk, const bool *leader, int calleeOffset, int *argCountOut);

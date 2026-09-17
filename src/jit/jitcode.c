@@ -95,7 +95,7 @@ JitCode *csJitCompile(const IrFunction *ir, const char **why) {
   for (int b = 0; b < ir->blockCount && !callSafe; b++) {
     for (int i = 0; i < ir->blocks[b].count; i++) {
       IrOp op = ir->blocks[b].instructions[i].op;
-      if (op == IR_MOD || op == IR_NEW_OBJECT) {
+      if (op == IR_MOD || op == IR_NEW_OBJECT || op == IR_CALL) {
         callSafe = true;
         break;
       }

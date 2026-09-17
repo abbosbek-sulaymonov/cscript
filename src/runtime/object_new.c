@@ -33,6 +33,7 @@ ObjFunction *csFunctionNew(void) {
   function->isGenerator = false;
   function->usesThis = false;
   function->paramTypes = NULL;
+  function->returnType = (uint8_t)TYPE_DYNAMIC;
   function->observedParams = NULL;
   function->hotness = 0;
   function->jitState = 0; /* JIT_INTERPRETED */
