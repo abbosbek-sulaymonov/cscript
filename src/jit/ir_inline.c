@@ -82,6 +82,24 @@ static bool inlinableOpcode(uint8_t opcode) {
  * match exactly: a call the VM would have refused for passing too few
  * arguments must still be refused, and a default parameter is applied by the
  * frame the VM builds — which is the frame this is removing. */
+/* Whether a call to this closure can be *made* — as against spliced.
+ *
+ * The same structural conditions the splice needs about the frame the VM would
+ * have built, and none of the ones about the body: what makes a call worth
+ * emitting is precisely that the body is more than the splice will take.
+ *
+ * A generator or an async function answers something other than what its body
+ * returns, and a method needs a receiver this has no value for. All three are
+ * left to the interpreter. */
+bool csIrCalleeIsCallable(const ObjFunction *callee, int argCount) {
+  if (callee == NULL) return false;
+  if (callee->arity != argCount || callee->paramCount != argCount) return false;
+  if (callee->hasRest) return false;
+  if (callee->isAsync || callee->isGenerator || callee->isMethod) return false;
+  if (callee->usesThis) return false;
+  return argCount + 1 < IR_MAX_STACK;
+}
+
 bool csIrCalleeIsInlinable(const ObjFunction *callee, int argCount) {
   if (callee == NULL) return false;
   if (callee->arity != argCount || callee->paramCount != argCount) return false;
@@ -229,6 +247,13 @@ bool csIrInlinedCalleesHold(const IrFunction *ir) {
 void csIrMarkReferences(const IrFunction *ir) {
   for (int i = 0; i < ir->entryShapeCount; i++) {
     csMarkObject((Obj *)ir->entryShapes[i].shape);
+  }
+
+  /* The callees this function calls without splicing, and the names they were
+   * read from — the same pair an inlined call keeps, for the same reason. */
+  for (int i = 0; i < ir->callCount; i++) {
+    csMarkObject((Obj *)ir->calls[i].name);
+    csMarkObject((Obj *)ir->calls[i].callee);
   }
 
   /* The keys of every object literal this function builds: compiled code holds

@@ -107,7 +107,13 @@ void csJitMarkRoots(void);
  * assuming undefined is what lets a method be answered from compiled code —
  * the entry checks read slot 0 like any other, and a method's property reads
  * are mostly through it. */
-bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int argCount, Value *out);
+/* Answers true when compiled code ran the call and `out` holds the result.
+ *
+ * `failed` says which kind of false it is: a call the compiled code made threw,
+ * so the frame is over and the caller must *not* interpret the function again —
+ * whatever the callee did, it did. False with `failed` clear means the compiled
+ * code simply did not run, and interpreting is the ordinary next step. */
+bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int argCount, Value *out, bool *failed);
 
 /* Takes over a loop that is already running, at `bytecodeOffset`.
  *
@@ -123,8 +129,12 @@ bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int a
  * On success one of two things happened. `*resumeAt` is -1 when the function
  * ran to completion and `out` holds its result. Otherwise the compiled code
  * reached something it does not implement and handed the frame back: resume
- * the bytecode at `*resumeAt` with the operand stack `*resumeHeight` deep. */
-bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *out, int *resumeAt, int *resumeHeight);
+ * the bytecode at `*resumeAt` with the operand stack `*resumeHeight` deep.
+ *
+ * `failed` is the third case, and the reason it is not one of the other two: a
+ * call the compiled loop made threw. The loop is over and its frame is not
+ * resumable at any offset, so the interpreter takes the throw instead. */
+bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *out, int *resumeAt, int *resumeHeight, bool *failed);
 
 /* Why a function was refused, or NULL when it was not. */
 const char *csJitRefusalReason(const ObjFunction *function);

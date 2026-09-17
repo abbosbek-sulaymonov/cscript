@@ -32,7 +32,6 @@ in `include/cscript/`, and a debug flag that dumps what it produced.
   └─────────┘
 ```
 
-
 ## Where things live
 
 ```
@@ -1672,69 +1671,6 @@ macOS builds its runtime deadlocks inside `AsanInitInternal`, spinning on its
 own mutex before `main` is reached, and under some sandboxes it fails outright.
 Neither should be able to wedge `make test`.
 
-## Stage 10: allocating in compiled code
-
-Compiled code could not allocate, and so could not build an object — which is
-what the loop in `bench/properties` does three million times. What stood in the
-way was not the allocation but the collector: it walks the interpreter's stack
-up to `stackTop`, and neither way into compiled code puts its frame there. A
-call entry builds the slots as a local array; a back-edge hands over the
-interpreter's frame, but compiled code writes past what the interpreter has
-opened.
-
-A **root range** answers both, and a range is enough rather than a stack map
-because every value compiled code holds is a number except the objects in
-frame slots. The VM is told where the frame is for exactly as long as a run
-lasts. The IR interpreter gets a second range for its register file, which can
-hold an object between a load and its use.
-
-Then the rule that makes the build itself safe: **the object goes into its
-frame slot before any property is put on it.** From that instant it is inside
-the range, and putting a property on it may allocate. The values come from the
-slots above the destination, written there by ordinary stores — so they are in
-the frame rather than in registers, and the emitted code is a call with three
-arguments instead of a list.
-
-What it cost: `bench/properties` went from 0.32 s to **0.20 s**, and the
-differential suite's coverage rose from 42 programs to 46, with 73 reaching
-machine code where 70 did.
-
-### Two things the first attempt had missed
-
-It was withdrawn once, for a wrong answer on this same benchmark that was never
-diagnosed. Neither cause was among the three it had already fixed.
-
-**A fourth pass reasoned about slots by looking for stores.** The one that
-turns a store followed by a load of the same slot into a register rename. A
-slot written by an allocation looked untouched to it, so a load *after* the
-allocation was renamed to the register holding what the slot held *before* —
-the previous iteration's object, read back with nothing to see: no crash, no
-refusal, no diagnostic. Every pass now asks `csIrWritesSlot` and
-`csIrReadsSlots` rather than looking for `IR_STORE_LOCAL` itself.
-
-**The emitter's switch had no `default`.** An instruction it did not know
-emitted *nothing* — so the allocation silently did not happen and the slot was
-read as an object anyway. That is how the first version of this change
-segfaulted instead of refusing the function. It refuses now, which gives up the
-`-Wswitch` warning that would have named a new opcode and buys a backend that
-cannot quietly skip one.
-
-## What comes next
-
-The pipeline has not changed shape since the first milestone, which was the
-point of building it that way. Everything since has been added inside it: the
-parser grew statement forms, the compiler grew scope resolution and classes,
-the VM grew opcodes and fibers, the collector grew object types — and one
-genuinely new stage, which only runs on code that has earned it.
-
-| Next | What it needs | Why it is next |
-| --- | --- | --- |
-| Replaying a conditional jump | The taken arm's state merged into its target, height included | It is the one thing still refusing `loops_control.cx` |
-| Calling a CScript function | A frame, and a safepoint the collector can walk it at | Inlining takes the small straight-line callees; this is for everything else |
-| Guards and deoptimisation | A side exit that can also *undo* — the exits here only leave from points where nothing needs undoing | It is what would let the compiler take code the checker has not proved |
-| Cross-block liveness | Real dataflow, rather than the block-local approximation the allocator uses | Values crossing a block boundary keep a memory home today |
-| An x86-64 backend | A second encoder behind the same IR | The IR and everything above it are already architecture-neutral |
-
 ## Stage 9: the store that adds
 
 A store that *overwrites* has been compiled since stage 5, and a store that
@@ -1820,7 +1756,93 @@ segfaulted instead of refusing the function. It refuses now, which gives up the
 `-Wswitch` warning that would have named a new opcode and buys a backend that
 cannot quietly skip one.
 
+## Stage 11: calling a function from compiled code
+
+Inlining (stage 6) answers a call by not making one, and takes the callees for
+which that works: small, straight-line, no branches. Everything else handed the
+whole of the caller back to the interpreter — `digitSum` in
+`bench/jit/jit_calls_out` is four lines long, has a loop, and cost the outer
+loop every one of its three million iterations.
+
+**The frame is the operand stack, so a call needs nothing new.** The arguments
+go into the slots above the callee's own position, which is where the
+interpreter would have left them; the result comes back into that position,
+which is where the interpreter leaves one. The emitted code is a call to one C
+helper with the frame, the destination and a call-site index — the same shape
+as an object literal's, and for the same reason: the values are already in the
+frame, so there is no list to build.
+
+**Both frames have to be rooted at once.** `VM.jitRoots` was a single range,
+replaced for the length of a run. A compiled function that calls a compiled one
+has two frames live, and replacing would have unrooted the caller — so it is a
+stack of ranges now, pushed on the way in and popped on the way out. Nothing in
+`markRoots` changed but the loop around it.
+
+**A callee that throws ends the compiled frame.** The exits stage 5 introduced
+hand a frame back at a bytecode offset, which works because nothing before that
+point has run twice. A failed call is not like that: the callee already ran, so
+resuming the caller anywhere would run it again. The exit records
+`CS_JIT_EXIT_FAILED` instead of an offset, and both entry points —
+`csJitTryRun` and `csJitOsr` — report it as `failed` rather than as a frame
+handed back. The interpreter takes the throw where it stands, through the same
+`HANDLE_FAILED_CALL` a native callback has always used.
+
+**Arithmetic on the result needs the callee's declared return type.** A call
+whose result is an unknown value is a value the compiled code may move but not
+add to, and `total = total + digitSum(i)` is an add. `ObjFunction` carries the
+return type the checker proved, so a callee that said `: number` lets the
+caller's arithmetic compile. Without it the call lowers and the function is
+then refused for the addition, which is the shape of a feature that technically
+works.
+
+Nothing had to be spilled around the call: a function that calls out already
+allocates only from `d8`–`d15`, the registers the C ABI obliges a callee to
+preserve. That was built for `IR_MOD`, which calls `fmod`.
+
+### Two silent failures on the way
+
+**The splice's rollback took the arguments with it.** `OP_CALL` tries inlining
+first and drops what the attempt emitted when it does not take. The mark it
+rolled back to was taken *before* the arguments came off the abstract stack —
+and taking an argument off may emit a load. So the fallback stored registers
+whose defining instructions had just been deleted, and the callee was handed
+whatever those registers happened to hold. `digitSum` was called with garbage
+and answered 0: a plausible number, no crash, no refusal. The mark is taken
+after the arguments now.
+
+**The call was slower than not making it.** `csVMCallCallback` — what a native
+uses to call back into user code — goes straight to `callClosure`, skipping the
+entry that consults the compiler, so a compiled callee reached that way is
+*interpreted*. The first working version ran `jit_calls_out` in 346 ms against
+the 293 ms it took with the caller handed back and only the callee compiled:
+the feature was a regression, and passing tests said nothing about it.
+`csVMCallFromCompiled` goes through `callValue` instead — the ordinary entry,
+so a compiled callee is entered as compiled code and a native answers directly.
+
+| `bench/jit/jit_calls_out` | Interpreted | Compiled |
+| --- | ---: | ---: |
+| Before | 831 ms | 293 ms |
+| Through `csVMCallCallback` | 850 ms | 346 ms |
+| Through `callValue` | 850 ms | **170 ms** |
+
+One thing is knowingly given up: a compiled frame is not on `vm.frames`, so a
+stack trace taken inside a callee does not name the compiled caller that made
+the call.
+
 ## What comes next
+
+The pipeline has not changed shape since the first milestone, which was the
+point of building it that way. Everything since has been added inside it: the
+parser grew statement forms, the compiler grew scope resolution and classes,
+the VM grew opcodes and fibers, the collector grew object types — and one
+genuinely new stage, which only runs on code that has earned it.
+
+| Next | What it needs | Why it is next |
+| --- | --- | --- |
+| Replaying a conditional jump | The taken arm's state merged into its target, height included | It is the one thing still refusing `loops_control.cx` |
+| Guards and deoptimisation | A side exit that can also *undo* — the exits here only leave from points where nothing needs undoing | It is what would let the compiler take code the checker has not proved |
+| Cross-block liveness | Real dataflow, rather than the block-local approximation the allocator uses | Values crossing a block boundary keep a memory home today |
+| An x86-64 backend | A second encoder behind the same IR | The IR and everything above it are already architecture-neutral |
 
 The typing work has its own next step, unrelated to any of this: conditional
 types, which `Exclude` and `ReturnType` need.

@@ -128,6 +128,21 @@ typedef enum {
    * reachable while they allocate. */
   IR_NEW_OBJECT,
 
+  /* `slots[a] = callee(slots[a + 1] … )` — a real call, for the callees
+   * inlining will not take.
+   *
+   * The arguments are in the slots above the destination, put there by
+   * ordinary stores, and the result lands in the destination: exactly where
+   * the interpreter leaves a call's result, because the operand stack *is*
+   * the frame. `b` indexes the call table, which holds the closure and how
+   * many arguments it takes.
+   *
+   * What makes it safe is the same thing that makes an allocation safe — the
+   * frame is a root for the length of the run — plus one thing of its own: the
+   * callee may throw, and compiled code has no handler. A call that fails
+   * leaves through the exit reserved for it, and the frame fails with it. */
+  IR_CALL,
+
   IR_JUMP,   /* -> block a                             */
   IR_BRANCH, /* if a then block b else block c         */
   IR_RETURN, /* return a                               */
@@ -185,6 +200,18 @@ typedef struct {
   ObjString *keys[IR_MAX_LITERAL_KEYS];
   int count;
 } IrObjectLiteral;
+
+/* A call compiled code makes, rather than splices in.
+ *
+ * The closure is held for the same reason an inlined one is: a global is not a
+ * constant, and the binding has to still mean this function when the code
+ * runs. Checked at both entries, beside the inlined ones. */
+typedef struct {
+  Table *globals;     /* the module table the binding lives in */
+  ObjString *name;    /* the binding the callee was read from */
+  ObjClosure *callee; /* the closure whose body will run */
+  int argCount;
+} IrCallSite;
 
 /* A call whose body was spliced in where the call was.
  *
@@ -252,6 +279,12 @@ typedef struct {
   IrEntryShape *entryShapes;
   int entryShapeCount;
   int entryShapeCapacity;
+
+  /* The calls this function makes without splicing. Empty for one that makes
+   * none, which is every function whose callees all inlined. */
+  IrCallSite *calls;
+  int callCount;
+  int callCapacity;
 
   /* The object literals this function builds. Empty for one that builds none,
    * which is every function until it allocates. */
@@ -405,10 +438,18 @@ bool csIrInterpret(const IrFunction *ir, const Value *args, int argCount, Value 
  *
  * In ir_allocate.c, beside the allocation that made them necessary. */
 int csIrWritesSlot(const IrInst *inst);
+IrType csIrWrittenType(const IrFunction *ir, const IrInst *inst);
+IrType csIrCallResultType(const IrFunction *ir, int site);
 
 /* Builds one object literal into a frame slot, called from compiled code and
  * from the IR interpreter. In ir_allocate.c, where what makes it safe is. */
 void csJitBuildObject(Value *slots, int destination, const IrObjectLiteral *literal);
+
+/* Calls a closure with the arguments in the slots above `destination`, leaving
+ * what it answers in `slots[destination]`. Answers false when the callee threw
+ * or failed, with the exception already pending — the caller's frame is over
+ * either way. */
+bool csJitCallClosure(Value *slots, int destination, const IrCallSite *site);
 void csIrReadsSlots(const IrFunction *ir, const IrInst *inst, int *first, int *last);
 
 #endif /* CSCRIPT_IR_H */

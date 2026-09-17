@@ -64,7 +64,10 @@ LowerResult csIrLowerData(LowerAt *at) {
         int argCount = 0;
         int callAt = csIrCallSiteFor(chunk, leader, offset, &argCount);
         ObjClosure *closure = callAt < 0 ? NULL : csIrGlobalCallable(function, chunk, index);
-        if (closure == NULL || !csIrCalleeIsInlinable(closure->function, argCount)) {
+        /* Inlinable, or at least callable: a body the splice will not take is
+         * what the call exists for, and the placeholder is the same either
+         * way — what differs is what the OP_CALL below does with it. */
+        if (closure == NULL || (!csIrCalleeIsInlinable(closure->function, argCount) && !csIrCalleeIsCallable(closure->function, argCount))) {
           return LOWER_HAND_OVER;
         }
         if (low->stackTop >= IR_MAX_STACK) {

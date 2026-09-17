@@ -1,0 +1,26 @@
+// A callee inlining will not take.
+//
+// `digitSum` has a loop of its own, so there is no straight-line body to
+// splice into the caller — and until compiled code could make a call, that one
+// call handed the whole of the outer loop back to the interpreter. What this
+// measures is the difference between a hot loop that has to be interpreted
+// because of one call in it and one that does not.
+function digitSum(n: number): number {
+  let left: number = n;
+  let sum: number = 0;
+  while (left > 0) {
+    sum = sum + left % 10;
+    left = (left - left % 10) / 10;
+  }
+  return sum;
+}
+
+function total(rounds: number): number {
+  let sum: number = 0;
+  for (let i: number = 0; i < rounds; i = i + 1) {
+    sum = sum + digitSum(i);
+  }
+  return sum;
+}
+
+console.log(total(3000000));

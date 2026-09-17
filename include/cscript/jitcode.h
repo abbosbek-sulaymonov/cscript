@@ -63,6 +63,11 @@ typedef struct {
   int stackHeight;
 } JitExit;
 
+/* The offset an exit carries when it is not a place to resume at all: the
+ * call it left through failed, and the frame is over. Negative so that no real
+ * bytecode offset can be mistaken for it. */
+#define CS_JIT_EXIT_FAILED (-1)
+
 typedef struct {
   CompiledFn entry;
   void *memory;

@@ -139,31 +139,47 @@ LowerResult csIrLowerFlow(LowerAt *at) {
       if (ir->inlinedInstructions >= IR_INLINE_MAX_TOTAL) return LOWER_HAND_OVER;
 
       ObjClosure *closure = low->pendingCallee[base];
-      int emittedBefore = block->count;
-      int heightBefore = low->stackTop;
 
+      /* The arguments come off the abstract stack first, and deliberately
+       * before the mark the splice rolls back to: taking one may emit a load,
+       * and the fallback below stores these same registers into the callee's
+       * slots. A register whose defining instruction was rolled back is not a
+       * value at all, and storing it stored whatever that register happened to
+       * hold — which is how a called function was handed an argument it was
+       * never passed. */
       int args[IR_MAX_STACK];
-      bool loaded = true;
-      for (int a = argCount - 1; a >= 0 && loaded; a--) {
+      for (int a = argCount - 1; a >= 0; a--) {
         args[a] = csIrPop(low, block, line);
         if (low->reason != NULL) {
           low->reason = NULL;
-          loaded = false;
+          return LOWER_HAND_OVER;
         }
       }
 
-      int result = loaded ? csIrInlineCallee(ir, block, closure->function, args, argCount, line) : -1;
+      int emittedBefore = block->count;
+      int heightBefore = low->stackTop;
+
+      int result = csIrInlineCallee(ir, block, closure->function, args, argCount, line);
       if (result >= 0 && !csIrRememberInlinedCall(ir, &function->module->globals, AS_STRING(chunk->constants.values[low->pendingName[base]]), closure)) {
         result = -1;
       }
       if (result < 0) {
-        /* Nothing of the attempt survives: the emitted instructions go, the
-         * abstract stack goes back to where the call found it, and the frame
-         * is handed over at the floor exactly as an unlowerable call always
-         * was. */
+        /* Nothing of the splice survives: the emitted instructions go and the
+         * abstract stack goes back to where the call found it. */
         block->count = emittedBefore;
         low->stackTop = heightBefore;
-        return LOWER_HAND_OVER;
+
+        /* What inlining would not take, compiled code can still *call*. The
+         * arguments go into the slots above the callee's position — where the
+         * interpreter would have left them, and where the helper reads them
+         * from — and the result lands where the interpreter leaves one. */
+        result = csIrLowerRealCall(at, closure, base, args, argCount);
+        if (result < 0) return LOWER_HAND_OVER;
+        low->stackTop = base;
+        low->pendingCallee[base] = NULL;
+        low->pendingCount--;
+        if (!csIrPush(low, block, result, line)) return LOWER_FAILED;
+        break;
       }
 
       low->stackTop = base; /* the placeholder held no value to load */

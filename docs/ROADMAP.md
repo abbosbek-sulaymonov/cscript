@@ -82,7 +82,8 @@ already measured says it is the thing that pays.
 | **74 ✅** | Literal types, `keyof`, `T[K]`, mapped types, and the six utility types made of them |
 | **75 ✅** | A property store that *adds* one — a constructor reaches machine code, **1.45×** |
 | **76 ✅** | Allocating an object in compiled code — `bench/properties` **1.6×**, and what the backed-out attempt had missed |
-| next | Calling a CScript function from compiled code, for the callees inlining will not take: it needs frames and safepoints |
+| **77 ✅** | Calling a CScript function from compiled code, for the callees inlining will not take — **5.0×** on `bench/jit/jit_calls_out` |
+| next | Deoptimisation: a guard that fails resumes the interpreter mid-function rather than refusing the whole of it |
 
 ---
 
@@ -159,3 +160,55 @@ That is how the first version of this change segfaulted rather than saying it
 could not compile the function. The switch refuses now, which costs the
 `-Wswitch` warning that would have named a new opcode and buys a compiler that
 cannot silently skip one.
+
+---
+
+## Calling out of compiled code: three things and one measurement
+
+Inlining answers a call by not making one, which works for a callee whose body
+is straight-line and small. A callee with a loop of its own has no body to
+splice, and until this one call handed the whole of the caller back to the
+interpreter — `digitSum` in `bench/jit/jit_calls_out` is four lines long and
+cost the outer loop everything.
+
+**The frame is the operand stack.** A call needs the callee's arguments where
+the interpreter would have left them, which is the slots above the callee's own
+position, and leaves its result in that position. Doing it that way means an
+exit anywhere downstream needs nothing put back: the frame after a compiled
+call looks exactly as it would have after an interpreted one.
+
+**The caller's frame has to stay rooted while the callee runs.** `VM.jitRoots`
+was one range, replaced for the length of a run. A compiled function that calls
+another compiled one has two live frames, and replacing would have unrooted the
+caller — so it is a stack of ranges now, pushed and popped around each entry.
+Nothing else changed in `markRoots`.
+
+**A callee that throws ends the compiled frame.** There is no offset to resume
+at: the callee already ran, and re-entering the caller would run it again. So a
+failed call takes an exit whose recorded offset is `CS_JIT_EXIT_FAILED`, and
+both entry points — `csJitTryRun` and `csJitOsr` — report it as `failed` rather
+than as a frame handed back. The interpreter then takes the throw where it
+stands, through the same `HANDLE_FAILED_CALL` a native callback uses.
+
+Two things went wrong on the way, and both were silent.
+
+**The splice's rollback took the arguments with it.** `OP_CALL` tries inlining
+first and drops what the attempt emitted when it does not take. The mark it
+rolled back to was recorded *before* the arguments came off the abstract stack
+— and taking one may emit a load. So the fallback stored registers whose
+defining instructions had just been deleted, and the callee was handed whatever
+those registers happened to hold. `digitSum` was called with garbage and
+answered 0, which is a plausible-looking wrong answer. The mark is recorded
+after the arguments now.
+
+**The call was slower than not making it.** `csVMCallCallback` — what a native
+uses to call back into user code — goes straight to `callClosure`, skipping the
+entry that consults the compiler. A compiled callee reached that way is
+*interpreted*, so the first working version of this ran `jit_calls_out` in
+346 ms against the 293 ms it took when the caller was handed back to the
+interpreter and only the callee compiled. `csVMCallFromCompiled` goes through
+`callValue` instead, which is the ordinary entry: 170 ms, and 5.0× against the
+same binary with the compiler off.
+
+One thing is knowingly lost: a compiled frame is not on `vm.frames`, so a stack
+trace taken inside a callee does not name the compiled caller.

@@ -462,6 +462,44 @@ bool csJitEmitInstruction(EmitAt *at) {
       break;
     }
 
+    case IR_CALL: {
+      /* A real call: the arguments are already in the slots above the
+       * destination, and the helper pushes them where the interpreter would
+       * have. What comes back lands in the destination slot, so the frame
+       * after this looks exactly as it would have had the interpreter made
+       * the call — which is what lets an exit downstream need nothing put
+       * back.
+       *
+       * The callee may throw, and compiled code has no handler. A false
+       * answer leaves through the exit reserved for exactly this, and the
+       * frame fails with it. */
+      const IrCallSite *site = &ir->calls[inst->b];
+
+      /* Nothing is spilled around it. The arguments are in the frame because
+       * the slots a call reads are never promoted, and everything else the
+       * compiled code holds is in a callee-saved register — which is what
+       * `callSafe` restricts the allocator to for a function that calls out. */
+      csJitMovRegister(encoder, 0, REG_SLOTS);
+      csJitMovImmediate(encoder, 1, (uint64_t)inst->a);
+      csJitMovImmediate(encoder, 2, (uint64_t)(uintptr_t)site);
+      csJitMovImmediate(encoder, REG_TEMP, (uint64_t)(uintptr_t)csJitCallClosure);
+      csJitWord(encoder, 0xD63F0000u | ((uint32_t)REG_TEMP << 5)); /* blr x9 */
+
+      /* `cbnz w0, over` — anything but false carries on. */
+      int over = encoder->count;
+      csJitWord(encoder, 0x35000000u); /* cbnz w0, <patched> */
+
+      int failed = csJitAddExit(at, CS_JIT_EXIT_FAILED, 0);
+      csJitMovImmediate(encoder, REG_TEMP, (uint64_t)failed);
+      csJitStrWord32(encoder, REG_TEMP, REG_EXIT);
+      csJitMovImmediate(encoder, REG_TEMP, (uint64_t)UNDEFINED_VAL);
+      csJitWord(encoder, 0xAA0903E0u); /* mov x0, x9 */
+      csJitEmitEpilogue(encoder);
+
+      csJitPatchToHere(encoder, over);
+      break;
+    }
+
     case IR_NEW_OBJECT: {
       /* The one place compiled code calls out to build something.
        *

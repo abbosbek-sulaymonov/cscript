@@ -1,0 +1,106 @@
+// Calling a CScript function from compiled code — the callee inlining will not
+// take.
+//
+// A splice needs a straight-line body; a callee with a loop of its own has
+// none, and until compiled code could make a real call, one such call handed
+// the whole of the caller back to the interpreter. What makes the call sound is
+// that the arguments live in the frame the collector walks, that the result
+// comes back into the slot the interpreter would have left it in, and that a
+// callee which throws ends the compiled frame rather than being run twice.
+
+function digitSum(n: number): number {
+  let left: number = n;
+  let sum: number = 0;
+  while (left > 0) {
+    sum = sum + left % 10;
+    left = (left - left % 10) / 10;
+  }
+  return sum;
+}
+
+function total(rounds: number): number {
+  let sum: number = 0;
+  for (let i: number = 0; i < rounds; i = i + 1) {
+    sum = sum + digitSum(i);
+  }
+  return sum;
+}
+
+console.log(total(30000));
+
+// Two arguments, and the result used in arithmetic: the callee said it answers
+// a number, which is what lets the caller add to it without a guard.
+function span(from: number, to: number): number {
+  let sum: number = 0;
+  let at: number = from;
+  while (at < to) {
+    sum = sum + at;
+    at = at + 1;
+  }
+  return sum;
+}
+
+function spans(rounds: number): number {
+  let sum: number = 0;
+  for (let i: number = 0; i < rounds; i = i + 1) {
+    sum = sum + span(i, i + 3);
+  }
+  return sum;
+}
+
+console.log(spans(30000));
+
+// A callee that allocates, called from compiled code: what it builds has to
+// survive a collection that the call itself can provoke, and the caller's own
+// frame has to survive it too.
+function boxed(n: number): number {
+  const made = { a: n, b: n + 1 };
+  return made.a + made.b;
+}
+
+function boxes(rounds: number): number {
+  let sum: number = 0;
+  for (let i: number = 0; i < rounds; i = i + 1) {
+    sum = sum + boxed(i % 7);
+  }
+  return sum;
+}
+
+console.log(boxes(30000));
+
+// And one that throws, after the caller is hot. The compiled frame is over —
+// the callee already ran — so the throw is taken where the caller stands
+// rather than by interpreting the caller a second time.
+let ceiling: number = 1000000000;
+
+function guarded(n: number): number {
+  let sum: number = 0;
+  let at: number = 0;
+  while (at < n) {
+    sum = sum + at;
+    at = at + 1;
+  }
+  if (sum > ceiling) {
+    throw new Error("over " + ceiling);
+  }
+  return sum;
+}
+
+function guards(rounds: number): number {
+  let sum: number = 0;
+  for (let i: number = 0; i < rounds; i = i + 1) {
+    sum = sum + guarded(5);
+  }
+  return sum;
+}
+
+for (let r: number = 0; r < 6; r = r + 1) {
+  try {
+    console.log(guards(20000));
+  } catch (e) {
+    console.log("caught: " + e.message);
+  }
+  if (r === 3) {
+    ceiling = 1;
+  }
+}

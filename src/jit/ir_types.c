@@ -43,7 +43,10 @@ void csIrRegisterOperands(const IrInst *inst, int *a, int *b) {
 
     /* Neither operand is a register: `a` is the destination slot and `b` is an
      * index into the literal table. The values come from the frame. */
-    case IR_NEW_OBJECT: break;
+    case IR_NEW_OBJECT:
+    /* Neither operand is a register here either: the arguments are in the
+     * frame and `b` indexes the call table. */
+    case IR_CALL: break;
 
     case IR_NEG:
     case IR_RETURN:
@@ -233,10 +236,10 @@ static bool walkBlockSlots(IrFunction *ir, int b, int *state, int slots, bool re
       continue;
     }
 
-    /* A slot an allocation writes holds an object, which is not a number and
-     * not anything else this knows how to name. */
+    /* A slot an allocation writes holds an object; one a call writes holds
+     * whatever the callee declared it answers. */
     int written = csIrWritesSlot(inst);
-    if (written >= 0 && written < slots) state[written] = (int)IR_TYPE_UNKNOWN;
+    if (written >= 0 && written < slots) state[written] = (int)csIrWrittenType(ir, inst);
   }
   return changed;
 }
@@ -255,13 +258,13 @@ static void wholeFunctionMeet(const IrFunction *ir, IrType *meet, int slots) {
   for (int b = 0; b < ir->blockCount; b++) {
     for (int i = 0; i < ir->blocks[b].count; i++) {
       const IrInst *inst = &ir->blocks[b].instructions[i];
-      if (inst->op != IR_STORE_LOCAL && inst->op != IR_NEW_OBJECT) continue;
+      if (csIrWritesSlot(inst) < 0) continue;
       if (inst->a < 0 || inst->a >= slots) continue;
       if (inst->op == IR_STORE_LOCAL && (inst->b < 0 || inst->b > ir->registerCount)) continue;
 
       /* What an allocation leaves in the slot is an object: not a number, and
        * so not a slot that may be promoted into a floating-point register. */
-      IrType stored = inst->op == IR_NEW_OBJECT ? IR_TYPE_UNKNOWN : ir->registerTypes[inst->b];
+      IrType stored = csIrWrittenType(ir, inst);
       if (!written[inst->a]) {
         meet[inst->a] = stored;
         written[inst->a] = true;

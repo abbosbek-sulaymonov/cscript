@@ -175,6 +175,13 @@ void compileFunctionAs(const AstNode *node, FunctionKind kind) {
     }
   }
 
+  /* And what it answers, when it said. A generator answers a generator and an
+   * async function a promise, neither of which is what the annotation
+   * describes — so neither carries one here. */
+  if (node->as.function.hasReturnAnnotation && !node->as.function.isAsync && !node->as.function.isGenerator) {
+    compiler.function->returnType = (uint8_t)node->as.function.returnType;
+  }
+
   compileParameterPrologue(node, line);
 
   compileStatements(node->as.function.body->as.block.statements, node->as.function.body->as.block.count);
