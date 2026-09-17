@@ -44,6 +44,9 @@ void csIrRegisterOperands(const IrInst *inst, int *a, int *b) {
     /* Neither operand is a register: `a` is the destination slot and `b` is an
      * index into the literal table. The values come from the frame. */
     case IR_NEW_OBJECT:
+    /* Nor here: `a` is the slot being checked and `b` indexes the shape
+     * table. The guard reads the frame, not a register. */
+    case IR_GUARD_SHAPE:
     /* Neither operand is a register here either: the arguments are in the
      * frame and `b` indexes the call table. */
     case IR_CALL: break;
@@ -150,6 +153,13 @@ void csIrRemoveDeadStores(IrFunction *ir) {
        * hand back the value it started with. */
       if (inst->op == IR_EXIT) {
         for (int s = 0; s <= ir->slotCount && s < inst->b; s++) isRead[s] = true;
+      }
+
+      /* And so does a guard, at the height its record names: it is an exit
+       * that happens to be in the middle of a block. */
+      if (inst->op == IR_GUARD_SHAPE && inst->b >= 0 && inst->b < ir->entryShapeCount) {
+        int height = ir->entryShapes[inst->b].deoptHeight;
+        for (int s = 0; s <= ir->slotCount && s < height; s++) isRead[s] = true;
       }
     }
   }

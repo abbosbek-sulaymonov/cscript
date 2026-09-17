@@ -77,6 +77,15 @@ typedef struct {
    * ran in that order. */
   Shape *slotShape[IR_MAX_SLOTS];
 
+  /* What a guard in this block has already proved about a slot, and where in
+   * the block it proved it. A second read of the same object needs no second
+   * check, provided nothing wrote the slot in between — which is what the
+   * position is for. Cleared at every block boundary, because a guard proves
+   * nothing about a path that did not go through it. */
+  Shape *slotGuard[IR_MAX_SLOTS];
+  int slotGuardAt[IR_MAX_SLOTS];
+  int slotGuardRecord[IR_MAX_SLOTS];
+
   const char *reason;
 } Lowering;
 

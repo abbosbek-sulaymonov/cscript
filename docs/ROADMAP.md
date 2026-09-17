@@ -84,7 +84,8 @@ already measured says it is the thing that pays.
 | **76 ✅** | Allocating an object in compiled code — `bench/properties` **1.6×**, and what the backed-out attempt had missed |
 | **77 ✅** | Calling a CScript function from compiled code, for the callees inlining will not take — **5.0×** on `bench/jit/jit_calls_out` |
 | **78 ✅** | Deoptimisation — an exit builds the frame it resumes in, and happens where it is forced rather than at the last empty stack |
-| next | Guards at the site: a shape checked where it is used rather than once at entry, so one cold path stops refusing a whole call |
+| **79 ✅** | Guards at the site — a shape checked where it is used, and every hot function in the corpus lowers |
+| next | Speculative guards: a type *guessed* rather than proved, so the arithmetic the checker could not settle still compiles |
 
 ---
 
@@ -270,3 +271,64 @@ forced by something the compiler has no encoding for, never by a type it
 guessed. The mechanism a guard needs is what was missing, and it is here: a
 guard can now fail anywhere in a body, on any entry, and the interpreter picks
 the frame up at that instruction.
+
+---
+
+## Guards at the site: what an entry assumption cannot say
+
+A property read is lowered against the layout its inline cache has settled on,
+and that layout was checked *once*, at entry, before the body started. One
+check per call, for free at the read — and it is still the right answer for a
+slot the caller filled.
+
+It is the wrong answer for a slot the **body writes**. The clearest case is an
+object built inside the function:
+
+    function boxed(n: number): number {
+      const made = { a: n, b: n + 1 };
+      return made.a + made.b;
+    }
+
+At entry `made`'s slot holds nothing at all, so the entry check failed on every
+single call and the whole call was interpreted — for the sake of a check that
+could never have held. `IR_GUARD_SHAPE` asks the same question at the read,
+where it is true, and deoptimises when it is not: the frame goes back to the
+interpreter at the property instruction, which then does the read its own way.
+That is the first thing the deoptimisation work was for.
+
+Which route a site takes is decided by whether anything lowered so far has
+written the slot. The bytecode question — is there an assignment to it? — was
+the one being asked, and it misses this entirely: a local *is* its stack
+position in this VM, so `const p = { … }` assigns nothing and the slot looked
+untouched. `csIrWritesSlot` knows better, and is what decides now.
+
+A second read of the same object needs no second guard, provided nothing wrote
+the slot in between. That is tracked per block, because a guard proves nothing
+about a path that did not go through it.
+
+## And the refusals that were never refusals
+
+The same file was refusing whole functions for one property it could not
+compile. A cache that saw the property **absent** — reached through a prototype,
+or not there at all — names no layout to read from and none to guard on, and
+that was 20 of the 26 hot functions the corpus refused outright.
+
+Nothing about it warranted refusing the function. With an exit that happens at
+the instruction, the frame simply goes back to the interpreter there and the
+rest of the body still compiles. Every property and object case that could
+refuse now hands over instead.
+
+| | Before | After |
+| --- | ---: | ---: |
+| Hot functions lowered to typed IR | 249 of 275 | **275 of 275** |
+| Reaching machine code | 70 | **86** |
+| `bench/jit/jit_guards`, compiled | 389 ms | **278 ms** |
+| …calls answered by compiled code | 0 | 2,000,000 |
+| `make test-jit` takes part in / machine code | 59 / 83 | **61 / 88** |
+| `make test-jit-gc` takes part in / machine code | 38 / 60 | **40 / 66** |
+
+The guard costs a call out to `csJitShapeHolds`, which is why a function with
+one in it allocates only from the callee-saved bank — the same restriction
+`IR_MOD` and the object builder already imposed. Inlining that check into arm64
+is the obvious next thing to try on it, and was left out here deliberately: the
+first version of a guard should be one whose correctness is readable.

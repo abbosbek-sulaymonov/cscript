@@ -1,0 +1,20 @@
+// Property reads on an object the function itself built.
+//
+// An entry assumption cannot speak for that slot: it holds nothing at all
+// until the body puts something there, so the check failed on every single
+// call and the whole call was interpreted — arithmetic, allocation and all.
+// A guard at the read asks the same question where it is true, and a second
+// read of the same object needs no second guard.
+function mix(n: number): number {
+  const made = { a: n * 3, b: n + 1, c: n * n };
+  const one = made.a * 2 + made.b;
+  const two = made.c - made.a + made.b * 3;
+  const three = made.a + made.b + made.c;
+  return one % 1000 + two % 997 + three % 991;
+}
+
+let total: number = 0;
+for (let i: number = 0; i < 2000000; i = i + 1) {
+  total = total + mix(i % 9);
+}
+console.log(total);

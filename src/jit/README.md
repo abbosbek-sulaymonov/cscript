@@ -32,7 +32,7 @@ tests and has nothing to deoptimise to.
 | [`ir_build.c`](ir_build.c) | Registers, instructions, block boundaries, and the push and pop the walk rests on |
 | [`ir_lower_data.c`](ir_lower_data.c) | Constants, globals, locals, the operand stack |
 | [`ir_lower_arith.c`](ir_lower_arith.c) | Arithmetic and comparison, on operands proved to be numbers |
-| [`ir_lower_object.c`](ir_lower_object.c) | Property reads and writes, and the layouts they assume |
+| [`ir_lower_object.c`](ir_lower_object.c) | Property reads and writes, and the layouts they assume — at entry where the caller filled the slot, at the read where the body did |
 | [`ir_allocate.c`](ir_allocate.c) | Building an object from compiled code, calling a function from it, and the slots both involve |
 | [`ir_lower_flow.c`](ir_lower_flow.c) | Jumps, branches, returns, and a call — spliced where that takes, made where it does not |
 | [`ir_inline.c`](ir_inline.c) | Splicing a small callee's body in where the call was |

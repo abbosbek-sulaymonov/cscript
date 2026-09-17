@@ -48,6 +48,7 @@ static const char *opName(IrOp op) {
     case IR_NEW_OBJECT: return "newobject";
     case IR_CALL: return "call";
     case IR_EXIT: return "exit";
+    case IR_GUARD_SHAPE: return "guard";
     case IR_LOAD_GLOBAL: return "loadg";
     case IR_STORE_GLOBAL: return "storeg";
   }
@@ -94,6 +95,10 @@ void csIrPrint(const IrFunction *ir) {
         case IR_STORE_PROPERTY: printf(" slot%d.%d, r%d", inst->a, inst->c, inst->b); break;
         case IR_ADD_PROPERTY: printf(" slot%d.+%d, r%d", inst->a, inst->c, inst->b); break;
         case IR_NEW_OBJECT: printf(" slot%d, literal%d", inst->a, inst->b); break;
+        case IR_GUARD_SHAPE:
+          printf(" slot%d shape%d -> bytecode %d, stack %d", inst->a, inst->b, inst->b < ir->entryShapeCount ? ir->entryShapes[inst->b].deoptOffset : -1,
+                 inst->b < ir->entryShapeCount ? ir->entryShapes[inst->b].deoptHeight : -1);
+          break;
         case IR_CALL: printf(" slot%d, call%d", inst->a, inst->b); break;
         case IR_NEG: printf(" r%d", inst->a); break;
         default: printf(" r%d, r%d", inst->a, inst->b); break;

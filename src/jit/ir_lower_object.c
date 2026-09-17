@@ -52,10 +52,54 @@ static const IrInst *definitionOf(const IrBlock *block, int reg) {
 /* Records what a property read takes for granted, merging with an assumption
  * already made about the same slot and property. Two reads of the same field
  * cost one check. */
+/* Room for one more record in the table both kinds share. Answers its index,
+ * zeroed, or -1. */
+static int takeShapeRecord(IrFunction *ir) {
+  if (ir->entryShapeCount == ir->entryShapeCapacity) {
+    int capacity = ir->entryShapeCapacity < 4 ? 4 : ir->entryShapeCapacity * 2;
+    IrEntryShape *grown = (IrEntryShape *)realloc(ir->entryShapes, sizeof(IrEntryShape) * (size_t)capacity);
+    if (grown == NULL) return -1;
+    ir->entryShapes = grown;
+    ir->entryShapeCapacity = capacity;
+  }
+  IrEntryShape *record = &ir->entryShapes[ir->entryShapeCount];
+  memset(record, 0, sizeof *record);
+  return ir->entryShapeCount++;
+}
+
+/* A check at the property site, for what an entry assumption cannot say.
+ *
+ * Answers the record's index, which the instruction carries, or -1. Two reads
+ * of the same property at the same offset share one — the same merge the entry
+ * records do, and for the same reason. */
+static int rememberSiteGuard(IrFunction *ir, int slot, Shape *shape, int property, int offset, int height) {
+  for (int i = 0; i < ir->entryShapeCount; i++) {
+    IrEntryShape *existing = &ir->entryShapes[i];
+    if (!existing->atSite || existing->slot != slot || existing->shape != shape) continue;
+    if (existing->deoptOffset != offset) continue;
+    existing->numberSlots |= 1u << property;
+    return i;
+  }
+
+  int index = takeShapeRecord(ir);
+  if (index < 0) return -1;
+  IrEntryShape *record = &ir->entryShapes[index];
+  record->slot = slot;
+  record->shape = shape;
+  /* A site guard carries its requirements in the mask, not in `property`: one
+   * guard answers for every read that follows it. */
+  record->property = -1;
+  record->numberSlots = 1u << property;
+  record->atSite = true;
+  record->deoptOffset = offset;
+  record->deoptHeight = height;
+  return index;
+}
+
 static bool rememberEntryShape(IrFunction *ir, int slot, Shape *shape, int property, bool expectsNumber, int minimumCapacity) {
   for (int i = 0; i < ir->entryShapeCount; i++) {
     IrEntryShape *existing = &ir->entryShapes[i];
-    if (existing->slot != slot) continue;
+    if (existing->atSite || existing->slot != slot) continue;
     /* One slot, one layout *on the way in*. A second shape for the same slot
      * would mean the site is not monomorphic after all — an add is not a
      * second shape here, because what it expects is still the entry one and
@@ -70,20 +114,14 @@ static bool rememberEntryShape(IrFunction *ir, int slot, Shape *shape, int prope
     if (property < 0) return true; /* a capacity requirement and nothing more */
   }
 
-  if (ir->entryShapeCount == ir->entryShapeCapacity) {
-    int capacity = ir->entryShapeCapacity < 4 ? 4 : ir->entryShapeCapacity * 2;
-    IrEntryShape *grown = (IrEntryShape *)realloc(ir->entryShapes, sizeof(IrEntryShape) * (size_t)capacity);
-    if (grown == NULL) return false;
-    ir->entryShapes = grown;
-    ir->entryShapeCapacity = capacity;
-  }
-
-  ir->entryShapes[ir->entryShapeCount].slot = slot;
-  ir->entryShapes[ir->entryShapeCount].shape = shape;
-  ir->entryShapes[ir->entryShapeCount].property = property;
-  ir->entryShapes[ir->entryShapeCount].expectsNumber = expectsNumber;
-  ir->entryShapes[ir->entryShapeCount].minimumCapacity = minimumCapacity;
-  ir->entryShapeCount++;
+  int index = takeShapeRecord(ir);
+  if (index < 0) return false;
+  IrEntryShape *record = &ir->entryShapes[index];
+  record->slot = slot;
+  record->shape = shape;
+  record->property = property;
+  record->expectsNumber = expectsNumber;
+  record->minimumCapacity = minimumCapacity;
   return true;
 }
 
@@ -91,31 +129,151 @@ static bool rememberEntryShape(IrFunction *ir, int slot, Shape *shape, int prope
  * was made by the first store on that slot; this is every one after it. */
 static bool raiseEntryCapacity(IrFunction *ir, int slot, int needed) {
   for (int i = 0; i < ir->entryShapeCount; i++) {
-    if (ir->entryShapes[i].slot != slot) continue;
+    if (ir->entryShapes[i].atSite || ir->entryShapes[i].slot != slot) continue;
     if (needed > ir->entryShapes[i].minimumCapacity) ir->entryShapes[i].minimumCapacity = needed;
     return true;
   }
   return false;
 }
 
+/* One record, asked of one frame. Shared by the entry check and the guard the
+ * compiled code calls, so the two can never come to disagree about what an
+ * assumption means. */
+static bool shapeRecordHolds(const IrEntryShape *assumed, const Value *slots) {
+  Value held = slots[assumed->slot];
+  if (!IS_OBJECT(held)) return false;
+
+  ObjObject *object = AS_OBJECT(held);
+  if (object->shape != assumed->shape) return false;
+  /* Room for every property the body adds. An add in compiled code is two
+   * stores; growing the storage is an allocation it cannot make, so the
+   * question is asked once rather than at each store. */
+  if (object->as.slots.capacity < assumed->minimumCapacity) return false;
+
+  /* A site guard stands for every read that follows it, and those read
+   * different properties. The layout alone proves nothing about the values:
+   * two objects of one shape can hold a number in one slot and a string in the
+   * next. So every property the reads will take as a number is asked for. */
+  if (assumed->atSite) {
+    for (int index = 0; index < 32; index++) {
+      if (((assumed->numberSlots >> index) & 1u) == 0) continue;
+      if (index >= object->shape->slotCount) return false;
+      if (!IS_NUMBER(object->as.slots.values[index])) return false;
+    }
+    return true;
+  }
+
+  if (assumed->property >= 0 && assumed->property >= object->shape->slotCount) return false;
+  if (assumed->expectsNumber && !IS_NUMBER(object->as.slots.values[assumed->property])) return false;
+  return true;
+}
+
+/* Called from compiled code, once per guarded read. False means deoptimise. */
+bool csJitShapeHolds(const Value *slots, const IrEntryShape *guard) {
+  return shapeRecordHolds(guard, slots);
+}
+
 bool csIrEntryShapesHold(const IrFunction *ir, const Value *slots) {
   for (int i = 0; i < ir->entryShapeCount; i++) {
     const IrEntryShape *assumed = &ir->entryShapes[i];
-    Value held = slots[assumed->slot];
-    if (!IS_OBJECT(held)) return false;
-
-    ObjObject *object = AS_OBJECT(held);
-    if (object->shape != assumed->shape) return false;
-    /* Room for every property the body adds. An add in compiled code is two
-     * stores; growing the storage is an allocation it cannot make, so the
-     * question is asked once here rather than at each store. */
-    if (object->as.slots.capacity < assumed->minimumCapacity) return false;
-    if (assumed->property >= 0 && assumed->property >= object->shape->slotCount) return false;
-    if (assumed->expectsNumber && !IS_NUMBER(object->as.slots.values[assumed->property])) {
-      return false;
-    }
+    /* A site guard says nothing about the frame on the way in — that is the
+     * whole of why it is at the site. */
+    if (assumed->atSite) continue;
+    if (!shapeRecordHolds(assumed, slots)) return false;
   }
   return true;
+}
+
+/* Has anything lowered so far put a value in this slot?
+ *
+ * The bytecode question — slotIsNeverWritten — is about assignment, and misses
+ * the case that matters most: `const p = { … }` assigns nothing, because a
+ * local *is* its stack position, so a slot holding an object the body built
+ * looks untouched. What is asked here is what an entry assumption actually
+ * needs to be false, and the IR is where the answer is: an allocation, a call
+ * and a push all write a slot, and csIrWritesSlot names all three.
+ *
+ * "So far" is the whole of it, and that is not a gap. The two ways a slot gets
+ * a value are a declaration and an assignment; assignment is what the bytecode
+ * question already covers, and a declaration is lowered before every read of
+ * what it declares. So a write this has not seen yet cannot be the source of
+ * the value the read is about to take — the only other source is the caller,
+ * which is exactly what an entry assumption checks. */
+static bool slotWrittenSoFar(const IrFunction *ir, int slot) {
+  for (int b = 0; b < ir->blockCount; b++) {
+    for (int i = 0; i < ir->blocks[b].count; i++) {
+      if (csIrWritesSlot(&ir->blocks[b].instructions[i]) == slot) return true;
+    }
+  }
+  return false;
+}
+
+/* The record of a guard earlier in this block that already proved this slot
+ * holds an object of this layout, with nothing written to the slot since — or
+ * -1. Answering the record rather than a yes is what lets the read that reuses
+ * it add its own property to what that guard asks for. */
+static int reusableGuard(const Lowering *low, const IrBlock *block, int slot, const Shape *shape) {
+  if (slot < 0 || slot >= IR_MAX_SLOTS || low->slotGuard[slot] != shape) return -1;
+  for (int i = low->slotGuardAt[slot]; i < block->count; i++) {
+    if (csIrWritesSlot(&block->instructions[i]) == slot) return -1;
+  }
+  return low->slotGuardRecord[slot];
+}
+
+/* Emits a read of `slot`.`property`, guarding at the site when an entry
+ * assumption cannot speak for it — and answering false when neither route is
+ * open, which is a hand-over rather than a refusal.
+ *
+ * Two things stop an entry assumption. A slot the body *writes* holds nothing
+ * at entry worth checking: an object built inside the function is the clearest
+ * case, and reading a property of one failed the entry check on every single
+ * call, so the whole call was interpreted for the sake of a check that could
+ * never have held. And a slot that already has a layout recorded cannot take a
+ * second one — one of the two sites has to ask for itself. */
+static bool lowerPropertyRead(LowerAt *at, int slot, const PropertyCache *cache, int height) {
+  Lowering *low = at->low;
+  IrFunction *ir = at->ir;
+  IrBlock *block = at->block;
+  const int line = at->line;
+
+  bool checked = slotIsNeverWritten(at->chunk, slot) && !slotWrittenSoFar(ir, slot) && rememberEntryShape(ir, slot, cache->shape, cache->slot, true, 0);
+
+  if (!checked) {
+    /* Two reads of the same object cost one check: the guard already emitted
+     * takes this read's property on as well, and asks for both. */
+    int reused = reusableGuard(low, block, slot, cache->shape);
+    if (reused >= 0) {
+      ir->entryShapes[reused].numberSlots |= 1u << cache->slot;
+      checked = true;
+    }
+  }
+
+  if (!checked) {
+    /* The interpreter picks the frame up at this instruction and does the read
+     * its own way, so the height is the one the instruction started at and
+     * nothing of it has happened yet. */
+    int guard = rememberSiteGuard(ir, slot, cache->shape, cache->slot, at->offset, height);
+    if (guard < 0) return false;
+
+    IrInst *check = csIrAppend(block, IR_GUARD_SHAPE, line);
+    check->result = -1;
+    check->a = slot;
+    check->b = guard;
+    ir->hasExits = true;
+
+    low->slotGuard[slot] = cache->shape;
+    low->slotGuardAt[slot] = block->count;
+    low->slotGuardRecord[slot] = guard;
+  }
+
+  int result = csIrNewRegister(ir, IR_TYPE_NUMBER);
+  IrInst *inst = csIrAppend(block, IR_LOAD_PROPERTY, line);
+  inst->result = result;
+  inst->a = slot;
+  inst->b = cache->slot;
+  inst->type = IR_TYPE_NUMBER;
+  if (slot + 1 > ir->slotCount) ir->slotCount = slot + 1;
+  return csIrPush(low, block, result, line);
 }
 
 LowerResult csIrLowerObject(LowerAt *at) {
@@ -143,12 +301,14 @@ LowerResult csIrLowerObject(LowerAt *at) {
         return LOWER_FAILED;
       }
 
+      /* Everything below is a reason this one store cannot be compiled, and
+       * none of them is a reason to refuse the function: nothing has been
+       * popped yet, so the frame at this instruction is one the interpreter
+       * can pick up and redo the store from. */
+
       int value = low->stack[low->stackTop - 1];
       int object = low->stack[low->stackTop - 2];
-      if (value < 0 || object < 0 || ir->registerTypes[value] != IR_TYPE_NUMBER) {
-        low->reason = csOpcodeName((OpCode)opcode);
-        return LOWER_FAILED;
-      }
+      if (value < 0 || object < 0 || ir->registerTypes[value] != IR_TYPE_NUMBER) return LOWER_HAND_OVER;
 
       int slot = -1;
       for (int i = block->count - 1; i >= 0; i--) {
@@ -159,8 +319,7 @@ LowerResult csIrLowerObject(LowerAt *at) {
 
       const PropertyCache *cache = &chunk->propertyCaches[cacheIndex];
       if (slot < 0 || cache->shape == NULL || cache->shape == vm.absentShape || cache->slot < 0 || !slotIsNeverWritten(chunk, slot) || slot >= IR_MAX_SLOTS) {
-        low->reason = csOpcodeName((OpCode)opcode);
-        return LOWER_FAILED;
+        return LOWER_HAND_OVER;
       }
 
       /* A store that *adds* — what a constructor does. The site's cache holds
@@ -174,10 +333,7 @@ LowerResult csIrLowerObject(LowerAt *at) {
        * storage, and growing it is an allocation compiled code cannot make. */
       bool adds = cache->added != NULL;
       Shape *expected = low->slotShape[slot] != NULL ? low->slotShape[slot] : cache->shape;
-      if (adds && cache->shape != expected) {
-        low->reason = csOpcodeName((OpCode)opcode);
-        return LOWER_FAILED;
-      }
+      if (adds && cache->shape != expected) return LOWER_HAND_OVER;
 
       /* The entry requirement is the layout the *first* store on this slot
        * expected, and room for every property added to it. A later store in
@@ -186,10 +342,7 @@ LowerResult csIrLowerObject(LowerAt *at) {
       int needed = adds ? cache->added->slotCount : 0;
       bool recorded =
           low->slotShape[slot] != NULL ? raiseEntryCapacity(ir, slot, needed) : rememberEntryShape(ir, slot, cache->shape, adds ? -1 : cache->slot, false, needed);
-      if (!recorded) {
-        low->reason = csOpcodeName((OpCode)opcode);
-        return LOWER_FAILED;
-      }
+      if (!recorded) return LOWER_HAND_OVER;
 
       csIrPop(low, block, line); /* the value */
       csIrPop(low, block, line); /* the object */
@@ -229,16 +382,10 @@ LowerResult csIrLowerObject(LowerAt *at) {
      * what lets the property reads below reach it by slot. */
     case OP_OBJECT: {
       int count = chunk->code[offset + 1];
-      if (count <= 0 || count > IR_MAX_LITERAL_KEYS || low->stackTop < count * 2) {
-        low->reason = csOpcodeName((OpCode)opcode);
-        return LOWER_FAILED;
-      }
+      if (count <= 0 || count > IR_MAX_LITERAL_KEYS || low->stackTop < count * 2) return LOWER_HAND_OVER;
 
       int destination = low->stackTop - count * 2;
-      if (destination < 0 || destination + count >= IR_MAX_SLOTS) {
-        low->reason = csOpcodeName((OpCode)opcode);
-        return LOWER_FAILED;
-      }
+      if (destination < 0 || destination + count >= IR_MAX_SLOTS) return LOWER_HAND_OVER;
 
       /* The pairs, bottom first: a key that is not a plain string constant, or
        * a value that is not known to be a number, and this is not a literal
@@ -248,25 +395,16 @@ LowerResult csIrLowerObject(LowerAt *at) {
       for (int i = 0; i < count; i++) {
         int keyRegister = low->stack[destination + i * 2];
         int valueRegister = low->stack[destination + i * 2 + 1];
-        if (keyRegister < 0 || valueRegister < 0 || ir->registerTypes[valueRegister] != IR_TYPE_NUMBER) {
-          low->reason = csOpcodeName((OpCode)opcode);
-          return LOWER_FAILED;
-        }
+        if (keyRegister < 0 || valueRegister < 0 || ir->registerTypes[valueRegister] != IR_TYPE_NUMBER) return LOWER_HAND_OVER;
 
         const IrInst *producer = definitionOf(block, keyRegister);
-        if (producer == NULL || producer->op != IR_CONST || !IS_STRING(producer->constant)) {
-          low->reason = csOpcodeName((OpCode)opcode);
-          return LOWER_FAILED;
-        }
+        if (producer == NULL || producer->op != IR_CONST || !IS_STRING(producer->constant)) return LOWER_HAND_OVER;
         keys[i] = AS_STRING(producer->constant);
         values[i] = valueRegister;
       }
 
       int literal = csIrAddLiteral(ir, keys, count);
-      if (literal < 0) {
-        low->reason = csOpcodeName((OpCode)opcode);
-        return LOWER_FAILED;
-      }
+      if (literal < 0) return LOWER_HAND_OVER;
 
       for (int i = 0; i < count * 2; i++) csIrPop(low, block, line);
 
@@ -322,22 +460,27 @@ LowerResult csIrLowerObject(LowerAt *at) {
         break;
       }
 
+      /* A cache that saw the property *absent* names no layout to read from:
+       * what it found was on a prototype, or nowhere. Nothing here can compile
+       * that, and the frame goes back to the interpreter at this instruction
+       * rather than the function being refused for it — which is what used to
+       * happen, and what kept twenty of the corpus's hot functions out of the
+       * compiler entirely. */
       const PropertyCache *cache = &chunk->propertyCaches[cacheIndex];
-      if (slot < 0 || cache->shape == NULL || cache->shape == vm.absentShape || cache->slot < 0 || !slotIsNeverWritten(chunk, slot) ||
-          !rememberEntryShape(ir, slot, cache->shape, cache->slot, true, 0)) {
-        low->reason = csOpcodeName((OpCode)opcode);
-        return LOWER_FAILED;
+      /* The mask a site guard carries is 32 bits wide; a storage index past it
+       * is one nothing here can speak for. */
+      if (slot < 0 || cache->shape == NULL || cache->shape == vm.absentShape || cache->slot < 0 || cache->slot >= 32 || slot >= IR_MAX_SLOTS) {
+        return LOWER_HAND_OVER;
       }
 
+      /* The height a guard resumes at is the one this instruction started at:
+       * the interpreter finds the object still on the stack and does the read
+       * its own way. So it is taken before the pop. */
+      int height = low->stackTop;
       csIrPop(low, block, line);
-      int result = csIrNewRegister(ir, IR_TYPE_NUMBER);
-      IrInst *inst = csIrAppend(block, IR_LOAD_PROPERTY, line);
-      inst->result = result;
-      inst->a = slot;
-      inst->b = cache->slot;
-      inst->type = IR_TYPE_NUMBER;
-      if (slot + 1 > ir->slotCount) ir->slotCount = slot + 1;
-      if (!csIrPush(low, block, result, line)) return LOWER_FAILED;
+      if (!lowerPropertyRead(at, slot, cache, height)) {
+        return low->reason != NULL ? LOWER_FAILED : LOWER_HAND_OVER;
+      }
       break;
     }
 
@@ -359,24 +502,13 @@ LowerResult csIrLowerObject(LowerAt *at) {
       }
 
       const PropertyCache *cache = &chunk->propertyCaches[cacheIndex];
-      if (cache->shape == NULL || cache->shape == vm.absentShape || cache->slot < 0 || !slotIsNeverWritten(chunk, slot)) {
-        low->reason = csOpcodeName((OpCode)opcode);
-        return LOWER_FAILED;
+      if (cache->shape == NULL || cache->shape == vm.absentShape || cache->slot < 0 || cache->slot >= 32 || slot >= IR_MAX_SLOTS) {
+        return LOWER_HAND_OVER;
       }
 
-      if (!rememberEntryShape(ir, slot, cache->shape, cache->slot, true, 0)) {
-        low->reason = csOpcodeName((OpCode)opcode);
-        return LOWER_FAILED;
+      if (!lowerPropertyRead(at, slot, cache, low->stackTop)) {
+        return low->reason != NULL ? LOWER_FAILED : LOWER_HAND_OVER;
       }
-
-      int result = csIrNewRegister(ir, IR_TYPE_NUMBER);
-      IrInst *inst = csIrAppend(block, IR_LOAD_PROPERTY, line);
-      inst->result = result;
-      inst->a = slot;
-      inst->b = cache->slot;
-      inst->type = IR_TYPE_NUMBER;
-      if (slot + 1 > ir->slotCount) ir->slotCount = slot + 1;
-      if (!csIrPush(low, block, result, line)) return LOWER_FAILED;
       break;
     }
 

@@ -74,17 +74,12 @@ typedef enum {
   /* `result := slots[a].<property b>`, where `b` is an index into the object's
    * own storage rather than a name.
    *
-   * There is no guard on it, and it is still the right answer. The shape the
-   * read was lowered against is recorded as an entry assumption and checked
-   * once, before the body starts: see IrEntryShape. That works because the
-   * object comes from a frame slot the function never writes, so what was true
-   * at entry is still true here — and one check beats one per iteration.
-   *
-   * It used to be the *only* answer, because an exit meant the call entry was
-   * refused outright. It does not any more: an exit on a call entry builds the
-   * frame the interpreter resumes in (see csVMDeoptimise), so a guard here is
-   * now possible. What it would buy is a site whose shape only some paths
-   * reach — today one of those refuses the whole call. */
+   * Whether anything guards it is decided by where the object came from. A
+   * slot the caller filled — a parameter, or a method's `this` — is checked
+   * once at entry, before the body starts, which is the cheapest check there
+   * is: see IrEntryShape. A slot the *body* writes cannot be: it holds nothing
+   * at entry worth checking, so an IR_GUARD_SHAPE goes in front of this and
+   * asks at the read instead. */
   IR_LOAD_PROPERTY,
 
   /* `slots[a].<property c> := b`, and unguarded for the same reason as the
@@ -159,6 +154,21 @@ typedef enum {
    * locals in the interpreter's own frame at the interpreter's own offsets, so
    * leaving is the mirror of arriving. */
   IR_EXIT,
+
+  /* Deoptimise unless `slots[a]` is still an object of the recorded layout.
+   *
+   * `b` indexes the same table the entry assumptions live in — see
+   * IrEntryShape — and the record says which slot, which layout, and which
+   * property has to hold a number. It also says where to resume, because
+   * unlike every other exit this one is not at a block's end: the interpreter
+   * picks the frame up at the property instruction and does the read itself.
+   *
+   * This is what an entry assumption cannot say. A slot the function *writes*
+   * holds nothing at entry worth checking — an object built inside the body is
+   * the clearest case, and reading a property of one used to fail the entry
+   * check on every single call. A second layout for a slot that already has
+   * one is the other: one of the two sites has to ask for itself. */
+  IR_GUARD_SHAPE,
 } IrOp;
 
 typedef struct {
@@ -179,6 +189,21 @@ typedef struct {
   int slot;     /* the frame slot holding the object */
   Shape *shape; /* the layout it must still have */
   int property; /* the storage index the reads and writes use, or -1 */
+
+  /* Checked at the site rather than at entry, by IR_GUARD_SHAPE, and skipped
+   * by the entry check. `deoptOffset` and `deoptHeight` are where the
+   * interpreter picks the frame up when it does not hold — the property
+   * instruction itself, which it then does in its own way.
+   *
+   * `numberSlots` is a bit per storage index that must hold a number, rather
+   * than the single `property` an entry record carries. One guard stands for
+   * every read of the same object that follows it, and those read different
+   * properties: two objects of one layout can hold a number in one slot and a
+   * string in the next, so the layout alone proves nothing about the values. */
+  bool atSite;
+  uint32_t numberSlots;
+  int deoptOffset;
+  int deoptHeight;
 
   /* How much room the object's storage must already have, for a function that
    * *adds* properties: an add in compiled code is two stores, and growing the
@@ -367,6 +392,10 @@ bool csIrFirstUntyped(const IrFunction *ir, const char **producer, const char **
 /* Do a frame's slots still match what the body was lowered to assume? Both
  * entries ask this, and neither may skip it. */
 bool csIrEntryShapesHold(const IrFunction *ir, const Value *slots);
+
+/* The same question asked of one record, from compiled code, at the read that
+ * assumes it. False means deoptimise: see IR_GUARD_SHAPE. */
+bool csJitShapeHolds(const Value *slots, const IrEntryShape *guard);
 
 /* Do the bindings the inlined callees came from still hold those callees?
  *
