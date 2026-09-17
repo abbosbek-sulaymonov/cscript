@@ -74,14 +74,17 @@ typedef enum {
   /* `result := slots[a].<property b>`, where `b` is an index into the object's
    * own storage rather than a name.
    *
-   * There is no guard on it, and that is the whole design. A guard in the body
-   * would be an exit, and a function with an exit can only be entered where a
-   * frame already exists — so guarding here would have bought property reads
-   * at the price of never answering a call with them, which is the only place
-   * they would pay. Instead the shape the read was lowered against is recorded
-   * as an entry assumption and checked once, before the body starts: see
-   * IrEntryShape. That works because the object comes from a frame slot the
-   * function never writes, so what was true at entry is still true here. */
+   * There is no guard on it, and it is still the right answer. The shape the
+   * read was lowered against is recorded as an entry assumption and checked
+   * once, before the body starts: see IrEntryShape. That works because the
+   * object comes from a frame slot the function never writes, so what was true
+   * at entry is still true here — and one check beats one per iteration.
+   *
+   * It used to be the *only* answer, because an exit meant the call entry was
+   * refused outright. It does not any more: an exit on a call entry builds the
+   * frame the interpreter resumes in (see csVMDeoptimise), so a guard here is
+   * now possible. What it would buy is a site whose shape only some paths
+   * reach — today one of those refuses the whole call. */
   IR_LOAD_PROPERTY,
 
   /* `slots[a].<property c> := b`, and unguarded for the same reason as the

@@ -107,13 +107,27 @@ void csJitMarkRoots(void);
  * assuming undefined is what lets a method be answered from compiled code —
  * the entry checks read slot 0 like any other, and a method's property reads
  * are mostly through it. */
-/* Answers true when compiled code ran the call and `out` holds the result.
- *
- * `failed` says which kind of false it is: a call the compiled code made threw,
- * so the frame is over and the caller must *not* interpret the function again —
- * whatever the callee did, it did. False with `failed` clear means the compiled
- * code simply did not run, and interpreting is the ordinary next step. */
-bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int argCount, Value *out, bool *failed);
+/* What became of a call the compiler was offered. */
+typedef enum {
+  /* Compiled code did not run. Interpret the call, as if it had never been
+   * offered — by far the common answer, and the cheap one. */
+  JIT_RUN_DECLINED,
+
+  /* Compiled code ran the whole call and `out` holds the result. */
+  JIT_RUN_ANSWERED,
+
+  /* Compiled code gave up part-way and **a frame has been pushed** for the
+   * interpreter to resume in, at the offset the compiled code stopped at. The
+   * caller does nothing but let its dispatch loop pick the new frame up. */
+  JIT_RUN_DEOPTIMISED,
+
+  /* A call the compiled code made threw. The frame is over and the exception
+   * is pending: the caller must *not* interpret the function again, because
+   * whatever the callee did, it did. */
+  JIT_RUN_FAILED,
+} JitRunResult;
+
+JitRunResult csJitTryRun(ObjClosure *closure, Value receiver, const Value *args, int argCount, Value *out);
 
 /* Takes over a loop that is already running, at `bytecodeOffset`.
  *

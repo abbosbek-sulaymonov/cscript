@@ -64,6 +64,11 @@ static long osrEntered = 0;
  * taking on. */
 static long exited = 0;
 
+/* Of those, how many were entered by a *call* — where handing the frame back
+ * means building one. Counted apart because it is the thing that says a body
+ * with an exit in it is being entered at all rather than refused. */
+static long deoptimised = 0;
+
 /* Opcodes a first backend would not attempt.
  *
  * Not a permanent list — it is what the *first* code generator would leave to
@@ -194,22 +199,42 @@ static bool assumptionsHold(const JitCode *code) {
   return true;
 }
 
-bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int argCount, Value *out, bool *failed) {
-  *failed = false;
+/* Whether a deoptimising entry can build the frame the interpreter will
+ * resume in.
+ *
+ * The frame has to be the one the call would have got, and `csVMCheckArity`
+ * builds that by *padding*: a missing argument becomes undefined, a rest
+ * parameter becomes an array, and a default is filled in by a prologue at the
+ * top of the body. All three happen before the offset a deoptimising exit
+ * resumes at, so a call that needs any of them would have them done twice.
+ * Exactly as many arguments as parameters, and none of it arises. */
+static bool deoptimisableCall(const ObjFunction *function, int argCount) {
+  return argCount == function->arity && !function->hasRest && function->paramCount == function->arity;
+}
+
+JitRunResult csJitTryRun(ObjClosure *closure, Value receiver, const Value *args, int argCount, Value *out) {
+  ObjFunction *function = closure->function;
   /* Both states are runnable: JIT_HOT has lowered IR, JIT_COMPILED also has
    * machine code. Admitting only the first rejected exactly the functions that
    * had got furthest. */
-  if (function->jitState != JIT_HOT && function->jitState != JIT_COMPILED) return false;
+  if (function->jitState != JIT_HOT && function->jitState != JIT_COMPILED) return JIT_RUN_DECLINED;
   /* The entry recorded on the function itself, so a call costs no search. */
   int index = function->jitSlot;
   if (index >= 0 && index < hotCount && hot[index].function == function) {
-    if (!hot[index].entryUsable) return false;
+    if (!hot[index].entryUsable) return JIT_RUN_DECLINED;
     int i = index;
+
+    /* A body with an exit in it can be entered, and leaves through the exit
+     * into a frame built on the way out — but only where that frame is the one
+     * the call would have got anyway. */
+    bool mayDeoptimise = hot[i].code != NULL && deoptimisableCall(function, argCount);
+    if (hot[i].ir->hasExits && !mayDeoptimise) return JIT_RUN_DECLINED;
+
     /* Only while what was *observed* still holds. A parameter the lowering
      * took to be a number on the strength of the calls it had seen is checked
      * here, every time — that is the difference between an observation and the
      * annotation next to it, and the reason speculating is safe. */
-    if (!observedTypesHold(hot[i].function, args, argCount)) return false;
+    if (!observedTypesHold(hot[i].function, args, argCount)) return JIT_RUN_DECLINED;
 
     /* The frame, built once.
      *
@@ -217,7 +242,7 @@ bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int a
      * to run on — which cost more per call than interpreting the call did, and
      * left a method answered three million times by compiled code exactly as
      * fast as one that was not. */
-    if (hot[i].ir->slotCount > 256) return false;
+    if (hot[i].ir->slotCount > 256) return JIT_RUN_DECLINED;
     Value slots[256];
     for (int s = 0; s < hot[i].ir->slotCount; s++) slots[s] = UNDEFINED_VAL;
     if (hot[i].ir->slotCount > 0) slots[0] = receiver;
@@ -228,20 +253,18 @@ bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int a
     /* The layouts the property reads were lowered against, asked of the frame
      * they will actually run on. */
     if (hot[i].ir->entryShapeCount > 0 && !csIrEntryShapesHold(hot[i].ir, slots)) {
-      return false;
+      return JIT_RUN_DECLINED;
     }
 
     /* And the bindings the inlined bodies came from, which have to still mean
      * the functions whose bodies those are. */
     if (hot[i].ir->inlinedCount > 0 && !csIrInlinedCalleesHold(hot[i].ir)) {
-      return false;
+      return JIT_RUN_DECLINED;
     }
 
     /* Compiled code, when there is any. */
     if (hot[i].code != NULL) {
-      /* A call entry cannot take an exit: there is no frame to hand back, and
-       * csIrLower only produces one for code the interpreter would resume. */
-      if (!assumptionsHold(hot[i].code)) return false;
+      if (!assumptionsHold(hot[i].code)) return JIT_RUN_DECLINED;
 
       /* The frame is a local array, which the collector has no way to find.
        * Told about it for exactly as long as the run lasts — anything compiled
@@ -250,7 +273,7 @@ bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int a
       /* Announced for the length of the run, and *pushed*: a compiled function
        * that calls another one leaves this frame live while the inner run adds
        * its own. Replacing rather than pushing would unroot the caller. */
-      if (vm.jitRootRanges >= CS_JIT_ROOT_MAX) return false;
+      if (vm.jitRootRanges >= CS_JIT_ROOT_MAX) return JIT_RUN_DECLINED;
       int savedRanges = vm.jitRootRanges;
       vm.jitRoots[vm.jitRootRanges].values = slots;
       vm.jitRoots[vm.jitRootRanges].count = hot[i].ir->slotCount;
@@ -259,28 +282,47 @@ bool csJitTryRun(ObjFunction *function, Value receiver, const Value *args, int a
       int exit = -1;
       uint64_t bits = hot[i].code->entry(slots, hot[i].scratch, &exit);
 
-      vm.jitRootRanges = savedRanges;
-
-      /* A call entry takes no ordinary exit — csIrLower produces one only for
-       * code the interpreter would resume, and entryUsable refuses a function
-       * that has any. The one exit it can take is a call that failed, and
-       * that must not send the caller back to interpret this function: the
-       * callee already ran. */
       if (exit >= 0) {
-        if (exit < hot[i].code->exitCount && hot[i].code->exits[exit].bytecodeOffset == CS_JIT_EXIT_FAILED) {
-          *failed = true;
+        if (exit >= hot[i].code->exitCount) {
+          vm.jitRootRanges = savedRanges;
+          return JIT_RUN_DECLINED;
         }
-        return false;
+
+        /* A call the compiled code made threw. That must not send the caller
+         * back to interpret this function: the callee already ran. */
+        if (hot[i].code->exits[exit].bytecodeOffset == CS_JIT_EXIT_FAILED) {
+          vm.jitRootRanges = savedRanges;
+          return JIT_RUN_FAILED;
+        }
+
+        /* An ordinary exit: the compiled code reached something it does not
+         * implement. Nothing between the exit's offset and here ran — the
+         * lowering drops everything it emitted past that point — so the
+         * interpreter picks the function up there, on a frame holding what
+         * compiled code has computed so far.
+         *
+         * The frame stays announced until its values have been copied into the
+         * one the interpreter will use: pushing a frame is allowed to allocate,
+         * and until the copy is done this array is the only thing holding what
+         * compiled code built. */
+        bool moved = csVMDeoptimise(closure, argCount, slots, hot[i].ir->slotCount, hot[i].code->exits[exit].bytecodeOffset, hot[i].code->exits[exit].stackHeight);
+        vm.jitRootRanges = savedRanges;
+        if (!moved) return JIT_RUN_FAILED;
+        exited++;
+        deoptimised++;
+        return JIT_RUN_DEOPTIMISED;
       }
+
+      vm.jitRootRanges = savedRanges;
       memcpy(out, &bits, sizeof(Value));
       substituted++;
-      return true;
+      return JIT_RUN_ANSWERED;
     }
-    if (!csIrInterpret(hot[i].ir, args, argCount, out)) return false;
+    if (!csIrInterpret(hot[i].ir, args, argCount, out)) return JIT_RUN_DECLINED;
     substituted++;
-    return true;
+    return JIT_RUN_ANSWERED;
   }
-  return false;
+  return JIT_RUN_DECLINED;
 }
 
 bool csJitOsr(ObjFunction *function, int bytecodeOffset, Value *slots, Value *out, int *resumeAt, int *resumeHeight, bool *failed) {
@@ -397,9 +439,11 @@ void csJitConsider(ObjFunction *function) {
   hot[hotCount].codeRefusal = NULL;
   hot[hotCount].scratch = NULL;
 
-  /* Decided here, once. A body with an exit in it is entered only through OSR,
-   * where a frame already exists for the interpreter to be handed back. */
-  hot[hotCount].entryUsable = hot[hotCount].ir != NULL && csIrIsFullyTyped(hot[hotCount].ir) && !hot[hotCount].ir->hasExits;
+  /* Decided here, once. A body with an exit in it is admitted now: the exit
+   * builds the frame the interpreter resumes in — see csVMDeoptimise — where
+   * before it meant the call entry was refused outright. The IR interpreter
+   * still cannot take one, and csJitTryRun keeps that apart. */
+  hot[hotCount].entryUsable = hot[hotCount].ir != NULL && csIrIsFullyTyped(hot[hotCount].ir);
   function->jitSlot = hotCount;
 
   /* Machine code only where every arithmetic operand is proved a number.
@@ -557,6 +601,7 @@ void csJitDumpProfile(void) {
   printf("  %ld call%s answered without the interpreter\n", substituted, substituted == 1 ? "" : "s");
   printf("  %ld loop%s taken over while already running\n", osrEntered, osrEntered == 1 ? "" : "s");
   printf("  %ld handed back to the interpreter part-way\n", exited);
+  printf("  %ld of those deoptimised into a frame built on the way out\n", deoptimised);
 
   int sites = typedTotal + genericTotal;
   printf("\n  %d of %d compilable without falling back to the interpreter\n", compilable, hotCount);
