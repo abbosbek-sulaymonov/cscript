@@ -232,6 +232,13 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
       floorCount = block->count;
     }
 
+    /* Where this one instruction begins, which is where a hand-over forced by
+     * it rewinds to. Every push has already stored its value into the slot it
+     * occupies — see csIrPush — so the frame at this point is one the
+     * interpreter can read, whatever the operand stack is holding. */
+    int heightHere = low.stackTop;
+    int emittedHere = block->count;
+
     uint8_t opcode = chunk->code[offset];
     int line = chunk->lines[offset];
     int next = csInstructionLength(chunk, offset);
@@ -313,21 +320,46 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
   handOver: {
     /* Something this form cannot express, or arithmetic it cannot prove.
      * Rather than refuse the whole function, the frame goes back to the
-     * interpreter here — at the last point the operand stack was at this
-     * block's floor, because a value pushed since then lives in a register
-     * the interpreter has no name for. Everything emitted since is dropped:
-     * none of it ran, and the interpreter redoes that statement from its
-     * beginning. */
-    if (blockFloor < 0 || blockFloor >= IR_MAX_STACK || floorCount > block->count) {
+     * interpreter — at this instruction, with everything its own lowering
+     * emitted dropped. None of that ran, so the interpreter redoes exactly
+     * one instruction's worth of work.
+     *
+     * It used to rewind further, to the last point the operand stack was at
+     * the block's floor, on the reasoning that a value pushed since then
+     * lived in a register the interpreter has no name for. It does not: a
+     * push stores into the slot it occupies as well, because the operand
+     * stack and the frame are the same array, so every position below the
+     * current height is already where the interpreter reads it from. For a
+     * body of straight-line declarations the floor never moves off the
+     * block's start, and rewinding to it threw the whole block away.
+     *
+     * The one position that is not materialised is a callee placeholder,
+     * which stands for a global the lowering resolved and never pushed. A
+     * hand-over with one live still rewinds to the floor, which is below it
+     * by construction. */
+    bool atInstruction = low.pendingCount == 0 && heightHere >= 0 && heightHere < IR_MAX_STACK && emittedHere <= block->count;
+    int exitOffset = atInstruction ? offset : floorOffset;
+    int exitHeight = atInstruction ? heightHere : blockFloor;
+
+    if (exitHeight < 0 || exitHeight >= IR_MAX_STACK) {
       low.reason = csOpcodeName((OpCode)opcode);
       goto failed;
     }
-    block->count = floorCount;
+    if (atInstruction) {
+      block->count = emittedHere;
+    } else {
+      if (floorCount > block->count) {
+        low.reason = csOpcodeName((OpCode)opcode);
+        goto failed;
+      }
+      block->count = floorCount;
+    }
     csIrClearPendingCallees(&low);
 
     IrInst *exit = csIrAppend(block, IR_EXIT, line);
-    exit->a = floorOffset;
-    exit->b = blockFloor;
+    exit->a = exitOffset;
+    exit->b = exitHeight;
+    if (exitHeight > ir->slotCount) ir->slotCount = exitHeight;
     ir->hasExits = true;
     /* Remembered so the tiering report can say what the compiler gave up on
      * rather than only that it did. The first one is the interesting one:
@@ -355,7 +387,7 @@ IrFunction *csIrLower(ObjFunction *function, const char **reason) {
      * is what lets a loop below a function declaration still compile. */
     ReplayJump taken;
     const char *replayRefusal = NULL;
-    int resumed = csIrReplayHandedOver(chunk, low.slotType, floorOffset, skip, blockFloor, &taken, &replayRefusal);
+    int resumed = csIrReplayHandedOver(chunk, low.slotType, exitOffset, skip, exitHeight, &taken, &replayRefusal);
 
     /* A run that ends in a jump has a second arm, and the block it lands on
      * has to know about it or every entry type derived for that block comes

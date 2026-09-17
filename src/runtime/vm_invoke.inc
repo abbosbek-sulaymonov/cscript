@@ -41,6 +41,34 @@ bool csVMCallFromCompiled(Value callee, int argCount, Value *result) {
   return true;
 }
 
+/* Builds the frame a deoptimising call needs, and puts the compiled frame in
+ * it. See the declaration in vm.h for why one has to be built at all.
+ *
+ * The frame is pushed with the receiver already in place, because slot 0 of
+ * the compiled frame is exactly what slot 0 of this one has to hold — the
+ * callee for an ordinary call, `this` for a method or a constructor — and it
+ * is copied over along with everything else. */
+bool csVMDeoptimise(ObjClosure *closure, int argCount, const Value *slots, int slotCount, int bytecodeOffset, int stackHeight) {
+  if (!csVMCallClosureWith(closure, argCount, true)) return false;
+
+  CallFrame *frame = &vm.frames[vm.frameCount - 1];
+  int wanted = slotCount > stackHeight ? slotCount : stackHeight;
+  if (frame->slots + wanted >= vm.stack + vm.stackCapacity) {
+    vm.frameCount--;
+    csVMRuntimeError("stack overflow");
+    return false;
+  }
+
+  for (int s = 0; s < slotCount; s++) frame->slots[s] = slots[s];
+
+  /* Where the compiled code stopped, and how much of the operand stack the
+   * interpreter will find there. Both come from the exit, and both mean the
+   * same as they do on the back-edge path. */
+  frame->ip = closure->function->chunk.code + bytecodeOffset;
+  vm.stackTop = frame->slots + stackHeight;
+  return true;
+}
+
 bool callValue(Value callee, int argCount) {
   if (IS_CLOSURE(callee)) {
     ObjClosure *closure = AS_CLOSURE(callee);
@@ -69,20 +97,24 @@ bool callValue(Value callee, int argCount) {
       if (!parameterTypesHold(closure->function, argCount)) return false;
 
       Value lowered;
-      bool compiledFailed = false;
       /* An ordinary call leaves the callee in slot 0, except where the body
        * says `this` — which the interpreter blanks, and so does this. */
       Value slotZero = closure->function->usesThis ? UNDEFINED_VAL : callee;
-      if (csJitTryRun(closure->function, slotZero, vm.stackTop - argCount,
-                      argCount, &lowered, &compiledFailed)) {
-        vm.stackTop -= argCount + 1;
-        csVMPush(lowered);
-        return true;
+      switch (csJitTryRun(closure, slotZero, vm.stackTop - argCount, argCount,
+                          &lowered)) {
+        case JIT_RUN_ANSWERED:
+          vm.stackTop -= argCount + 1;
+          csVMPush(lowered);
+          return true;
+        /* A frame is pushed and part-way through the body; the dispatch loop
+         * picks it up exactly as it would an ordinary call's. */
+        case JIT_RUN_DEOPTIMISED: return true;
+        /* The compiled body made a call that threw. The frame is over and the
+         * exception is already pending; interpreting the body again would run
+         * everything it did a second time. */
+        case JIT_RUN_FAILED: return false;
+        case JIT_RUN_DECLINED: break;
       }
-      /* The compiled body made a call that threw. The frame is over and the
-       * exception is already pending; interpreting the body again would run
-       * everything it did a second time. */
-      if (compiledFailed) return false;
     }
 #endif
 
@@ -186,12 +218,29 @@ static bool constructorAnsweredByCompiler(ObjObject *built, ObjClosure *body,
                                           bool *failed) {
   *failed = false;
 #ifdef CS_DEBUG_JIT
-  if (!csJitTryRun(body->function, OBJ_VAL(built), vm.stackTop - argCount,
-                   argCount, returned, failed)) {
-    return false;
+  int baseFrame = vm.frameCount;
+  switch (csJitTryRun(body, OBJ_VAL(built), vm.stackTop - argCount, argCount,
+                      returned)) {
+    case JIT_RUN_ANSWERED:
+      vm.stackTop -= argCount + 1;
+      return true;
+
+    /* Part-way through the body, on a frame of its own. `new` decides its
+     * result from what the constructor answers, so this frame is run to
+     * completion here rather than handed to the dispatch loop — which is the
+     * same reason the uncompiled path runs in a loop of its own. */
+    case JIT_RUN_DEOPTIMISED:
+      if (run(baseFrame) != CS_OK) {
+        *failed = true;
+        return false;
+      }
+      *returned = csVMPop();
+      return true;
+
+    case JIT_RUN_FAILED: *failed = true; return false;
+    case JIT_RUN_DECLINED: return false;
   }
-  vm.stackTop -= argCount + 1;
-  return true;
+  return false;
 #else
   (void)built;
   (void)body;
@@ -216,13 +265,18 @@ static bool constructorAnsweredByCompiler(ObjObject *built, ObjClosure *body,
  * method reading `this.x` failed its entry check against an undefined slot and
  * compiled code was never entered. */
 static bool methodAnsweredByCompiler(Value receiver, ObjClosure *method,
-                                     int argCount, bool *failed) {
+                                     int argCount, bool *failed,
+                                     bool *deoptimised) {
   *failed = false;
+  *deoptimised = false;
 #ifdef CS_DEBUG_JIT
   Value produced;
-  if (!csJitTryRun(method->function, receiver, vm.stackTop - argCount, argCount,
-                   &produced, failed)) {
-    return false;
+  switch (csJitTryRun(method, receiver, vm.stackTop - argCount, argCount,
+                      &produced)) {
+    case JIT_RUN_ANSWERED: break;
+    case JIT_RUN_DEOPTIMISED: *deoptimised = true; return false;
+    case JIT_RUN_FAILED: *failed = true; return false;
+    case JIT_RUN_DECLINED: return false;
   }
   vm.stackTop -= argCount + 1;
   csVMPush(produced);
@@ -231,6 +285,7 @@ static bool methodAnsweredByCompiler(Value receiver, ObjClosure *method,
   (void)receiver;
   (void)method;
   (void)argCount;
+  (void)deoptimised;
   return false;
 #endif
 }
@@ -259,9 +314,14 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
        * function that happens to live on an object, and gets no receiver. */
       if (IS_CLOSURE(method) && wantsReceiver(AS_CLOSURE(method))) {
         bool compiledFailed = false;
-        if (methodAnsweredByCompiler(receiver, AS_CLOSURE(method), argCount, &compiledFailed)) {
+        bool compiledDeoptimised = false;
+        if (methodAnsweredByCompiler(receiver, AS_CLOSURE(method), argCount, &compiledFailed, &compiledDeoptimised)) {
           return true;
         }
+        /* A frame is pushed, part-way through the body: this reports a call
+         * made exactly as an interpreted method would, and both call sites
+         * recompute their frame pointer. */
+        if (compiledDeoptimised) return true;
         /* A call the compiled body made threw: the frame is over, and running
          * the method again would repeat whatever it already did. */
         if (compiledFailed) return false;
@@ -282,7 +342,9 @@ static bool invokeMethod(Value receiver, ObjString *name, int argCount) {
       ObjClosure *classMethod = csClassFindMethod(instance->klass, name);
       if (classMethod != NULL) {
         bool compiledFailed = false;
-        if (methodAnsweredByCompiler(receiver, classMethod, argCount, &compiledFailed)) return true;
+        bool compiledDeoptimised = false;
+        if (methodAnsweredByCompiler(receiver, classMethod, argCount, &compiledFailed, &compiledDeoptimised)) return true;
+        if (compiledDeoptimised) return true;
         if (compiledFailed) return false;
         return callMethod(classMethod, argCount);
       }

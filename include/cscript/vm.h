@@ -385,6 +385,19 @@ bool csVMCallCallback(Value callee, int argCount, Value *result);
  * code rather than interpreted. */
 bool csVMCallFromCompiled(Value callee, int argCount, Value *result);
 
+/* Hands a compiled frame back to the interpreter, part-way through a function.
+ *
+ * Compiled code that reaches something it does not implement stops at a
+ * bytecode offset and the interpreter carries on from there. On a back-edge
+ * entry that costs nothing — the interpreter's own frame is what compiled code
+ * was running on. On a *call* entry there is no frame at all: the slots are a
+ * local array belonging to the run, so one has to be built.
+ *
+ * `slots` is that array, `stackHeight` how deep the operand stack is at the
+ * offset, and the callee and its arguments are still on the stack exactly as
+ * `OP_CALL` left them. Answers false with the error already reported. */
+bool csVMDeoptimise(ObjClosure *closure, int argCount, const Value *slots, int slotCount, int bytecodeOffset, int stackHeight);
+
 /* Text for a string conversion: an object's own `toString` when it has one,
  * and the built-in rendering otherwise. The caller owns the buffer. */
 char *csVMValueToText(Value value, size_t *length);

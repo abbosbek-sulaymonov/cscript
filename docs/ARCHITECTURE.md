@@ -1829,6 +1829,98 @@ One thing is knowingly given up: a compiled frame is not on `vm.frames`, so a
 stack trace taken inside a callee does not name the compiled caller that made
 the call.
 
+## Stage 12: deoptimisation
+
+An exit hands the frame back at a bytecode offset and the interpreter carries
+on from there. It has existed since stage 5. Two restrictions on it meant that
+most of what it was for did not happen, and both were in the machinery rather
+than in the idea.
+
+### A body with an exit could not be entered by a call
+
+On a back-edge entry the interpreter's own frame is what compiled code runs on,
+so handing it back costs nothing: put the instruction pointer at the offset,
+put the operand stack at the height, carry on. A call entry has no frame at
+all — `csJitTryRun` builds the slots as a local array belonging to the run — so
+there was nothing to hand back, and any function with an exit anywhere in it
+was refused the call entry outright. One unsupported opcode in the tail of a
+body meant every call to it was interpreted from its first instruction,
+including a loop the compiler would otherwise have taken. 40 of the 261
+functions the test corpus lowers were in that position.
+
+`csVMDeoptimise` builds the frame on the way out. It pushes the frame the call
+would have got, copies the compiled slots into it, points the instruction
+pointer at the exit's offset and sets the operand stack to the exit's height.
+The frame stays announced to the collector until the copy is done, because
+pushing a frame may allocate and until then that array is the only thing
+holding what compiled code built.
+
+Only for a call whose arity is exact. A missing argument, a rest parameter and
+a parameter with a default are each filled in by something that runs *before*
+the offset being resumed at — `csVMCheckArity` pads, and the defaults prologue
+sits at the top of the body — so a call needing any of them would have it done
+twice. Exactly as many arguments as parameters, and none of it arises.
+
+Three call sites take a deoptimised frame differently, and the difference is
+what each promises its caller. An ordinary call and a method call both report
+a call that was *made*, and their dispatch loops recompute the frame pointer
+either way. A constructor cannot: `new` decides its result from what the body
+answers, so a deoptimised constructor is run to completion in a loop of its
+own, exactly as the uncompiled path already was — which is also why
+`new.target` has to be set before the compiler is asked rather than after it
+declines.
+
+### An exit rewound to the last point the operand stack was empty
+
+The reason given was that a value pushed since then lives in a register the
+interpreter has no name for. That turned out not to be true: `csIrPush` emits a
+store into the slot as well, because in this VM the operand stack and the frame
+are the same array. Every position below the current height is already where
+the interpreter reads it from, so an exit can be at the instruction that forced
+it, with only that one instruction's own emitted work dropped.
+
+What the rewind cost is easiest to see in a body of straight-line declarations.
+`const x = …` leaves its value on the stack and calls that position a local, so
+the stack never returns to the block's floor, so the floor never moves off the
+block's start. A hand-over anywhere in such a body threw the whole block away —
+a function of eight arithmetic statements ending in an array literal lowered to
+exactly one instruction:
+
+    ir for mix: 1 block, 105 registers, 13 slots
+      block 0:
+                      exit     -> bytecode 0, stack 3
+
+The one position that is *not* materialised is a callee placeholder — a global
+the lowering resolved to a closure and never pushed a value for. A hand-over
+with one live still rewinds to the floor, which is below it by construction.
+
+### What it is worth
+
+| | Compiled | Calls answered by compiled code |
+| --- | ---: | ---: |
+| `bench/jit/jit_deopt` before | 133 ms | 0 |
+| `bench/jit/jit_deopt` after | **61 ms** | 1,990,000 |
+
+The benchmark is a body with one branch the compiler cannot take, reached by
+one call in a thousand. Before, that branch cost the other 999 their compiled
+code entirely.
+
+Coverage moved further than the clock did: the differential suite went from 52
+programs the compiler takes part in to 59, and from 77 reaching machine code to
+83. Under a collection at every allocation, from 29–30 and 54 to 38 and 60.
+
+### What this is not
+
+A speculative guard. An exit is still only ever forced by something the
+compiler has no encoding for, never by a type it guessed — the entry
+assumptions are still checked once, at entry, and a call whose shapes do not
+hold is still declined whole. What was missing was the mechanism a guard needs,
+and that is what is here: a guard can now fail anywhere in a body, on either
+entry, and the interpreter picks the frame up at that instruction. The obvious
+first use is the shape a property read was lowered against, checked at the read
+rather than at entry, so a site only some paths reach stops refusing the call
+the other paths would have been answered by.
+
 ## What comes next
 
 The pipeline has not changed shape since the first milestone, which was the
@@ -1840,7 +1932,7 @@ genuinely new stage, which only runs on code that has earned it.
 | Next | What it needs | Why it is next |
 | --- | --- | --- |
 | Replaying a conditional jump | The taken arm's state merged into its target, height included | It is the one thing still refusing `loops_control.cx` |
-| Guards and deoptimisation | A side exit that can also *undo* — the exits here only leave from points where nothing needs undoing | It is what would let the compiler take code the checker has not proved |
+| Guards at the site | A shape checked where it is used, with a deoptimising exit behind it | The mechanism is in; what is left is choosing where one check beats one at entry |
 | Cross-block liveness | Real dataflow, rather than the block-local approximation the allocator uses | Values crossing a block boundary keep a memory home today |
 | An x86-64 backend | A second encoder behind the same IR | The IR and everything above it are already architecture-neutral |
 

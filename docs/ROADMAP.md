@@ -83,7 +83,8 @@ already measured says it is the thing that pays.
 | **75 ✅** | A property store that *adds* one — a constructor reaches machine code, **1.45×** |
 | **76 ✅** | Allocating an object in compiled code — `bench/properties` **1.6×**, and what the backed-out attempt had missed |
 | **77 ✅** | Calling a CScript function from compiled code, for the callees inlining will not take — **5.0×** on `bench/jit/jit_calls_out` |
-| next | Deoptimisation: a guard that fails resumes the interpreter mid-function rather than refusing the whole of it |
+| **78 ✅** | Deoptimisation — an exit builds the frame it resumes in, and happens where it is forced rather than at the last empty stack |
+| next | Guards at the site: a shape checked where it is used rather than once at entry, so one cold path stops refusing a whole call |
 
 ---
 
@@ -212,3 +213,60 @@ same binary with the compiler off.
 
 One thing is knowingly lost: a compiled frame is not on `vm.frames`, so a stack
 trace taken inside a callee does not name the compiled caller.
+
+---
+
+## Deoptimisation: two things an exit could not do
+
+An exit hands the frame back at a bytecode offset and the interpreter carries
+on from there. It has existed since stage 5, and two restrictions on it meant
+most of what it was for did not happen.
+
+**A body with an exit in it could not be entered by a call.** On a back-edge
+entry the interpreter's own frame is what compiled code runs on, so handing it
+back costs nothing. A call entry has no frame at all — the slots are a local
+array belonging to the run — so there was nothing to hand back, and `csJitTryRun`
+refused any function with an exit anywhere in it. One unsupported opcode in the
+tail of a body meant every call to it was interpreted from its first
+instruction. 40 of the 261 functions the corpus compiles were in that position.
+
+The frame is built on the way out now. `csVMDeoptimise` pushes the frame the
+call would have got, copies the compiled slots into it, points the instruction
+pointer at the exit's offset and sets the operand stack to the exit's height.
+Only for a call whose arity is exact: a missing argument, a rest parameter and
+a default are all filled in by something that runs *before* the offset being
+resumed at, and would be done twice.
+
+**An exit rewound to the last point the operand stack was empty.** The reason
+given was that a value pushed since then lives in a register the interpreter
+has no name for. It does not: `csIrPush` stores into the slot as well, because
+in this VM the operand stack and the frame are the same array. So every
+position below the current height is already where the interpreter reads it
+from, and the exit can be at the instruction that forced it, with only that one
+instruction's emitted work dropped.
+
+What the old rewind cost is easiest to see in a body of straight-line
+declarations. `const` leaves its value on the stack, so the stack never returns
+to the block's floor, so the floor never moves off the block's start — and a
+hand-over anywhere in such a body threw away the whole block. A function of
+eight arithmetic statements ending in an array literal lowered to exactly one
+instruction: `exit -> bytecode 0`.
+
+The one position that is not materialised is a callee placeholder, which stands
+for a global the lowering resolved and never pushed. A hand-over with one live
+still rewinds to the floor, which is below it by construction.
+
+| | Compiled | Calls answered |
+| --- | ---: | ---: |
+| `bench/jit/jit_deopt` before | 133 ms | 0 |
+| `bench/jit/jit_deopt` after | **61 ms** | 1,990,000 |
+
+The differential suite went from 52 programs the compiler takes part in to 59,
+and from 77 reaching machine code to 83; under a collection at every allocation,
+from 29–30 and 54 to 38 and 60.
+
+What this does **not** add is a speculative guard — an exit is still only ever
+forced by something the compiler has no encoding for, never by a type it
+guessed. The mechanism a guard needs is what was missing, and it is here: a
+guard can now fail anywhere in a body, on any entry, and the interpreter picks
+the frame up at that instruction.

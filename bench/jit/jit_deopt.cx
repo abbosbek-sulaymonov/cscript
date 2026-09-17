@@ -1,0 +1,24 @@
+// A body with one path the compiler cannot take, and one it can.
+//
+// The arithmetic compiles; the array literal on the rare branch is an opcode
+// the lowering has no encoding for, so the body ends up with an exit in it.
+// Until an exit could hand a frame back on a call entry, one exit anywhere
+// meant the call entry was refused outright — so every one of these calls was
+// interpreted from its first instruction for the sake of a branch one in a
+// thousand of them takes.
+function classify(n: number): number {
+  const half = n / 2;
+  const scaled = half * 3 + 1;
+  const mixed = scaled % 1000 + half * 7;
+  if (mixed % 1000 === 0) {
+    const parts = [mixed, scaled];
+    return parts[0] - parts[1];
+  }
+  return mixed;
+}
+
+let total: number = 0;
+for (let i: number = 0; i < 2000000; i = i + 1) {
+  total = total + classify(i);
+}
+console.log(total);

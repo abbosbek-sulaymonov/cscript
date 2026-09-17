@@ -1,0 +1,118 @@
+// Deoptimisation: compiled code that gives up part-way, on a call entry.
+//
+// An exit hands the frame back at a bytecode offset. On a back-edge entry the
+// interpreter's own frame is what compiled code was running on, so that costs
+// nothing; on a *call* entry there is no frame at all — the slots are a local
+// array — so one is built on the way out. What this pins is that the frame it
+// builds holds what compiled code computed, at the offset it stopped at.
+
+// The plain shape: arithmetic the compiler takes, then an array literal it has
+// no encoding for. Every local the arithmetic wrote has to be in the frame the
+// interpreter picks up, or the sum below is wrong.
+function tail(n: number): number {
+  const half = n * 2;
+  const more = half + n;
+  const most = more * 3 - half;
+  const parts = [most, more, half];
+  return parts[0] + parts[1] + parts[2];
+}
+
+let sum: number = 0;
+for (let i: number = 0; i < 30000; i = i + 1) {
+  sum = sum + tail(i);
+}
+console.log(sum);
+
+// A loop the compiler takes, and a tail it does not: the deoptimised frame has
+// to carry the loop's result and resume after it, not before.
+function loopThenGive(n: number): number {
+  let acc: number = 0;
+  for (let i: number = 0; i < n; i = i + 1) {
+    acc = acc + i * i;
+  }
+  const kept = [acc];
+  return kept[0];
+}
+
+let loops: number = 0;
+for (let i: number = 0; i < 30000; i = i + 1) {
+  loops = loops + loopThenGive(6);
+}
+console.log(loops);
+
+// Only one branch gives up. The other is answered by compiled code, so the two
+// have to agree about the frame they leave behind.
+function branchy(n: number): number {
+  const scaled = n * 3 + 1;
+  if (scaled % 7 === 0) {
+    const parts = [scaled, n];
+    return parts[0] - parts[1];
+  }
+  return scaled;
+}
+
+let mixed: number = 0;
+for (let i: number = 0; i < 30000; i = i + 1) {
+  mixed = mixed + branchy(i);
+}
+console.log(mixed);
+
+// A method, reached through OP_INVOKE, which answers a call without pushing a
+// frame — so a deoptimised one pushing a frame has to be reported as a call
+// that was made rather than as one that was answered.
+class Meter {
+  base: number;
+
+  constructor(base: number) {
+    this.base = base;
+  }
+
+  reading(n: number): number {
+    const scaled = n * 4 + this.base;
+    const parts = [scaled, n];
+    return parts[0] + parts[1];
+  }
+}
+
+const meter = new Meter(11);
+let readings: number = 0;
+for (let i: number = 0; i < 30000; i = i + 1) {
+  readings = readings + meter.reading(i);
+}
+console.log(readings);
+
+// A constructor, whose result is decided by what the body answers — so a
+// deoptimised one is run to completion rather than handed to the dispatch
+// loop, and `new.target` has to survive that.
+class Sample {
+  a: number;
+  b: number;
+
+  constructor(n: number) {
+    this.a = n * 2;
+    const parts = [n, n + 1];
+    this.b = parts[0] + parts[1];
+  }
+}
+
+let built: number = 0;
+for (let i: number = 0; i < 30000; i = i + 1) {
+  const s = new Sample(i);
+  built = built + s.a + s.b;
+}
+console.log(built);
+
+// Objects the compiled part allocated have to survive the hand-over: the frame
+// built on the way out is what the collector sees them through afterwards.
+function boxThenGive(n: number): number {
+  const box = { x: n, y: n + 1 };
+  const total = box.x + box.y;
+  const parts = [total];
+  return parts[0];
+}
+
+let boxes: number = 0;
+for (let i: number = 0; i < 30000; i = i + 1) {
+  boxes = boxes + boxThenGive(i % 5);
+}
+console.log(boxes);

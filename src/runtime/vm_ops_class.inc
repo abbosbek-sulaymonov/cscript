@@ -147,8 +147,14 @@
            * That choice cannot be made by leaving the frame to unwind. */
           Value returned;
           bool compiledFailed = false;
-          if (constructorAnsweredByCompiler(built, constructor, argCount,
-                                            &returned, &compiledFailed)) {
+          /* Set before the compiler is asked, because a body that gives up
+           * part-way is finished on a frame the deoptimising exit pushes, and
+           * a frame reads `new.target` as it is built. */
+          vm.pendingNewTarget = target;
+          bool answered = constructorAnsweredByCompiler(built, constructor, argCount,
+                                                        &returned, &compiledFailed);
+          vm.pendingNewTarget = UNDEFINED_VAL;
+          if (answered) {
             csPopTempRoot();
             csVMPush(IS_OBJECT(returned) ? returned : OBJ_VAL(built));
             VM_NEXT();
@@ -228,8 +234,11 @@
            * frame version relies on too. */
           Value ignoredResult;
           bool compiledFailed = false;
-          if (constructorAnsweredByCompiler(instance, owner->initializer,
-                                            argCount, &ignoredResult, &compiledFailed)) {
+          vm.pendingNewTarget = target;
+          bool answered = constructorAnsweredByCompiler(instance, owner->initializer,
+                                                        argCount, &ignoredResult, &compiledFailed);
+          vm.pendingNewTarget = UNDEFINED_VAL;
+          if (answered) {
             csVMPush(OBJ_VAL(instance));
             VM_NEXT();
           }
