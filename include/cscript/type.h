@@ -70,6 +70,18 @@ typedef enum {
   TYPE_ARRAY,
   TYPE_OBJECT,
 
+  /* The bottom type: the one nothing is a value of.
+   *
+   * It is what a conditional type answers on a branch that cannot be taken,
+   * and the reason `Exclude<"a" | "b", "a">` is `"b"` rather than something
+   * vaguer — a `never` arm has to *vanish* from the union it is built into,
+   * which is exactly what an identity element does.
+   *
+   * Assignable to everything and nothing is assignable to it, which is the
+   * mirror of `unknown` at the other end of the lattice. A program may write
+   * it, mostly to say that a function does not return. */
+  TYPE_NEVER,
+
   /* An error was already reported for this expression. It absorbs every
    * operation silently, so one bad subexpression does not produce a cascade of
    * complaints about everything built on top of it. */
@@ -109,7 +121,7 @@ typedef enum {
    * rather than a comment, and what `keyof` is a union of. */
   COMPOSITE_LITERAL,
 
-  /* The three below are *unevaluated*. Each describes a type computed from
+  /* The four below are *unevaluated*. Each describes a type computed from
    * another, and each is worked out the moment what it is computed from stops
    * being a variable — which is when a generic is instantiated. Until then it
    * behaves as what the checker cannot see, because that is exactly what it
@@ -123,6 +135,11 @@ typedef enum {
    * holding the value type with K standing for that name. The whole of what a
    * mapped type is, and what every utility type below is made of. */
   COMPOSITE_MAPPED,
+  /* `T extends U ? X : Y` — one of two types, chosen by whether T is
+   * assignable to U. The one computed type whose answer is a *choice* rather
+   * than a transformation, which is what makes `Exclude` and `NonNullable`
+   * expressible rather than built in. */
+  COMPOSITE_CONDITIONAL,
 } CompositeKind;
 
 /* What a mapped type does to `?` and `readonly` as it goes: keeps what the
@@ -203,6 +220,20 @@ typedef struct {
    * not work out rather than an error. What it declares is still checked, and
    * still has to be there for the instance to satisfy an interface. */
   bool open;
+
+  /* COMPOSITE_CONDITIONAL: whether it distributes over a union.
+   *
+   * TypeScript's rule, and it is a rule about the *source* rather than about
+   * what the type turns out to be: a conditional whose checked side was
+   * written as a bare type parameter is applied to each member of a union
+   * separately and the answers joined. That is the whole of why
+   * `Exclude<"a" | "b", "a">` is `"b"` — without it the union is asked as one
+   * thing, is not assignable to `"a"`, and the answer is the whole union.
+   *
+   * Decided where the type is built, because that is the only point the
+   * distinction still exists: after substitution a bare `T` and a written-out
+   * union look the same. */
+  bool distributes;
 
   /* A class's constructor, as a function type, or TYPE_ERROR for a shape with
    * none. Kept here rather than as a member because a member would take part
@@ -418,6 +449,10 @@ int csTypeTypeParamCount(const TypeTable *table, TypeId type);
 /* `Box<number>` — substitutes the arguments for the declaration's own type
  * parameters, throughout. Answers `generic` unchanged when it takes none. */
 TypeId csTypeInstantiate(TypeTable *table, TypeId generic, const TypeId *args, int argCount);
+
+/* `T extends U ? X : Y`. Kept unevaluated while the checked side is still a
+ * variable, and worked out by assignability the moment it is not. */
+TypeId csTypeConditional(TypeTable *table, TypeId check, TypeId extends, TypeId whenTrue, TypeId whenFalse);
 
 /* A class's constructor as a function type, or TYPE_ERROR when it has none. */
 TypeId csTypeConstructorOf(const TypeTable *table, TypeId type);

@@ -1,0 +1,23 @@
+// What a conditional type refuses.
+//
+// It answers one of two types, and which one is settled where both sides are
+// known — so what it answers is checked like any other type, and a `never`
+// leaves nothing that could be assigned at all.
+type Role = "admin" | "user" | "guest";
+
+const wrongArm: Exclude<Role, "guest"> = "guest";
+const wrongExtract: Extract<Role, "admin"> = "user";
+const stillNull: NonNullable<string | null> = null;
+
+type Pick2<T> = T extends string ? "text" : "other";
+const wrongChoice: Pick2<number> = "text";
+
+// Nothing is a value of `never`, which is what the bottom type means.
+let nothing: never = 1;
+
+// Excluding every member leaves `never`, so there is nothing to pass.
+type Gone = Exclude<"a", "a">;
+function unreachable(x: Gone): string {
+  return "";
+}
+unreachable("a");

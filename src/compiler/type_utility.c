@@ -12,6 +12,9 @@
  *     Pick<T, K>      only the members named in K
  *     Omit<T, K>      every member except those
  *     Record<K, V>    one member per name in K, each holding V
+ *     Exclude<T, U>   the members of T not assignable to U
+ *     Extract<T, U>   the members of T that are
+ *     NonNullable<T>  T without null and undefined
  *
  * Each answers a shape named after itself, so a message says `Partial` rather
  * than describing what it produced. What each refuses is what its argument
@@ -95,6 +98,36 @@ static TypeId makeRecord(TypeTable *table, TypeId keys, TypeId held) {
   return made;
 }
 
+/* `Exclude<T, U>` and `Extract<T, U>` — the members of T that are, or are not,
+ * assignable to U.
+ *
+ * Written out here for the same reason the five above are: they are asked for
+ * by name at the point both sides are known, so there is nothing to keep
+ * unevaluated. What they *mean* is a conditional — `T extends U ? never : T` —
+ * and a program can write that now and get the same answer, member by member,
+ * because a distributing conditional is exactly this loop. */
+static TypeId filterUnion(TypeTable *table, TypeId subject, TypeId against, bool keepMatching) {
+  const CompositeType *shape = csTypeComposite(table, subject);
+  if (shape == NULL || shape->kind != COMPOSITE_UNION) {
+    /* Not a union: one member, kept or dropped whole. Dropping it leaves
+     * nothing, which is what `never` is. */
+    bool matches = csTypeAssignableIn(table, subject, against);
+    return matches == keepMatching ? subject : TYPE_NEVER;
+  }
+
+  TypeId kept[16];
+  int count = shape->slotCount;
+  if (count > (int)(sizeof kept / sizeof kept[0])) return TYPE_DYNAMIC;
+  for (int i = 0; i < count; i++) {
+    TypeId member = table->slots[shape->slotStart + i];
+    bool matches = csTypeAssignableIn(table, member, against);
+    kept[i] = matches == keepMatching ? member : TYPE_NEVER;
+  }
+  /* The dropped members are `never`, and a `never` is the identity of a
+   * union — so they are gone by the time this answers. */
+  return csTypeUnionOf(table, kept, count);
+}
+
 /* Applies the utility of that name, or answers TYPE_ERROR when the name is not
  * one — which is how the caller knows to carry on looking. `wanted` says how
  * many arguments the name takes, so the parser can report a miscount the same
@@ -104,7 +137,7 @@ TypeId csTypeUtility(TypeTable *table, const char *name, int length, const TypeI
     const char *name;
     int arity;
   } known[] = {
-      {"Partial", 1}, {"Required", 1}, {"Readonly", 1}, {"Pick", 2}, {"Omit", 2}, {"Record", 2},
+      {"Partial", 1}, {"Required", 1}, {"Readonly", 1}, {"Pick", 2}, {"Omit", 2}, {"Record", 2}, {"Exclude", 2}, {"Extract", 2}, {"NonNullable", 1},
   };
 
   *wanted = 0;
@@ -130,6 +163,12 @@ TypeId csTypeUtility(TypeTable *table, const char *name, int length, const TypeI
   }
   if (csTypeNameMatches(name, length, "Omit")) {
     return mapMembers(table, "Omit", 4, args[0], args[1], false, MODIFIER_KEEP, MODIFIER_KEEP);
+  }
+  if (csTypeNameMatches(name, length, "Exclude")) return filterUnion(table, args[0], args[1], false);
+  if (csTypeNameMatches(name, length, "Extract")) return filterUnion(table, args[0], args[1], true);
+  if (csTypeNameMatches(name, length, "NonNullable")) {
+    TypeId absent[2] = {TYPE_NULL, TYPE_UNDEFINED};
+    return filterUnion(table, args[0], csTypeUnionOf(table, absent, 2), false);
   }
   return makeRecord(table, args[0], args[1]);
 }
