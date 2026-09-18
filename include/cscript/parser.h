@@ -25,6 +25,15 @@ typedef struct {
    * writes to it. */
   TypeTable *types;
 
+  /* The `infer R` names read while the left of a conditional's `extends` is
+   * being parsed. They are collected rather than returned because they can sit
+   * anywhere inside that type — `(a: infer A) => infer B` declares two, at two
+   * depths — and the conditional that owns them is built only once the whole
+   * of it has been read. Saved and restored around each conditional, so a
+   * nested one does not take its outer's. */
+  TypeId inferVars[CS_MAX_TYPE_PARAMS];
+  int inferCount;
+
   /* Set between reading `async` and building the function node it belongs to.
    * `async` is contextual, so it is recognised at the call site and handed to
    * whichever of the three function forms follows it. */

@@ -112,13 +112,11 @@ AstNode *parseEnumDeclaration(Parser *parser) {
    * alias is looked up first. */
   TypeId shape = csTypeDeclareInterface(parser->types, name, nameLength);
 
-  /* What the members are, as a type. A string enum's is exact — a union of its
-   * values, because this lattice has literal string types. A numeric one's is
-   * `number`, because it has no literal number types, so a numeric enum says
-   * less about a parameter than a string enum does. */
+  /* What the members are, as a type: the union of their values, exactly. Both
+   * kinds of member have a literal type, so a numeric enum says as much about
+   * a parameter as a string one does. */
   TypeId literals[CS_MAX_ENUM_MEMBERS];
   int literalCount = 0;
-  bool anyNumeric = false;
 
   double counter = 0;
   int memberCount = 0;
@@ -154,12 +152,12 @@ AstNode *parseEnumDeclaration(Parser *parser) {
     /* `A = 2, B` — counting resumes from what was written down, which is the
      * rule TypeScript follows and the reason a member after a string one must
      * say its own value. */
-    TypeId held = TYPE_NUMBER;
+    TypeId held = isString ? csTypeLiteral(parser->types, text, textLength) : csTypeNumberLiteral(parser->types, number);
+    if (literalCount < CS_MAX_ENUM_MEMBERS) literals[literalCount++] = held;
     if (isString) {
-      held = csTypeLiteral(parser->types, text, textLength);
-      if (literalCount < CS_MAX_ENUM_MEMBERS) literals[literalCount++] = held;
+      /* Nothing more: a string member has no reverse entry, because its value
+       * could collide with a name. */
     } else {
-      anyNumeric = true;
       counter = number + 1;
 
       /* The number back to the name, which is how a program prints one. Only
@@ -215,13 +213,9 @@ AstNode *parseEnumDeclaration(Parser *parser) {
   }
   matchToken(parser, TOKEN_SEMICOLON);
 
-  TypeId valueType = anyNumeric || literalCount == 0 ? TYPE_NUMBER : csTypeUnionOf(parser->types, literals, literalCount);
-  if (anyNumeric && literalCount > 0) {
-    /* Mixed, which TypeScript allows: what a member holds is either, and this
-     * lattice can say that exactly. */
-    literals[literalCount] = TYPE_NUMBER;
-    valueType = csTypeUnionOf(parser->types, literals, literalCount + 1);
-  }
+  /* Mixed kinds are allowed, as TypeScript allows them, and the union says so
+   * exactly rather than widening to what the two have in common. */
+  TypeId valueType = literalCount == 0 ? TYPE_NUMBER : csTypeUnionOf(parser->types, literals, literalCount);
   csTypeDeclareAlias(parser->types, name, nameLength, valueType);
 
   return csAstVarDecl(parser->arena, line, name, nameLength, object, true, shape == TYPE_ERROR ? TYPE_DYNAMIC : shape, shape != TYPE_ERROR);

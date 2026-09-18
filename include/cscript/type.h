@@ -120,6 +120,13 @@ typedef enum {
   /* `"admin"` — one string and nothing else. What makes a set of names a type
    * rather than a comment, and what `keyof` is a union of. */
   COMPOSITE_LITERAL,
+  /* `42` — one number and nothing else. Kept apart from the string literal
+   * above rather than flagged inside it, because everything that walks a set
+   * of *names* — `keyof`, a mapped type's keys, an indexed access — means the
+   * string kind and nothing else, and a flag would have to be checked at every
+   * one of those. The text is stored canonically, so `1` and `1.0` are one
+   * type rather than two that print the same. */
+  COMPOSITE_NUMBER_LITERAL,
 
   /* The four below are *unevaluated*. Each describes a type computed from
    * another, and each is worked out the moment what it is computed from stops
@@ -331,6 +338,10 @@ bool csTypeIs(const TypeTable *table, TypeId type, CompositeKind kind);
 /* `"admin"` as a type. The text is copied into the table. */
 TypeId csTypeLiteral(TypeTable *table, const char *text, int length);
 
+/* `42` as a type. The value is canonicalised, so the type a program writes as
+ * `1.0` is the one it writes as `1`. */
+TypeId csTypeNumberLiteral(TypeTable *table, double value);
+
 /* The text a literal type holds, or NULL for anything else. */
 const char *csTypeLiteralText(const TypeTable *table, TypeId type, int *length);
 
@@ -452,7 +463,11 @@ TypeId csTypeInstantiate(TypeTable *table, TypeId generic, const TypeId *args, i
 
 /* `T extends U ? X : Y`. Kept unevaluated while the checked side is still a
  * variable, and worked out by assignability the moment it is not. */
-TypeId csTypeConditional(TypeTable *table, TypeId check, TypeId extends, TypeId whenTrue, TypeId whenFalse);
+/* `infers` are the `infer R` names written inside `extends`. When there are
+ * any, the checked type is *matched* against `extends` rather than merely
+ * asked whether it is assignable to it, and what the names caught is
+ * substituted into the true arm. */
+TypeId csTypeConditional(TypeTable *table, TypeId check, TypeId extends, TypeId whenTrue, TypeId whenFalse, const TypeId *infers, int inferCount);
 
 /* A class's constructor as a function type, or TYPE_ERROR when it has none. */
 TypeId csTypeConstructorOf(const TypeTable *table, TypeId type);

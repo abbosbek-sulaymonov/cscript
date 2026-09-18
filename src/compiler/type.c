@@ -236,6 +236,14 @@ static bool assignable(const TypeTable *table, TypeId from, TypeId to, int depth
   if (source != NULL && source->kind == COMPOSITE_LITERAL) return to == TYPE_STRING;
   if (target != NULL && target->kind == COMPOSITE_LITERAL) return false;
 
+  /* A number literal is a number, and a number is not one of them — the same
+   * one-way rule a string literal follows, and for the same reason: a set of
+   * values is a type only if those values are the whole of it. Two of them are
+   * the same type when they are the same value, which the canonical text has
+   * already settled, so reaching here with both means they differ. */
+  if (source != NULL && source->kind == COMPOSITE_NUMBER_LITERAL) return to == TYPE_NUMBER;
+  if (target != NULL && target->kind == COMPOSITE_NUMBER_LITERAL) return false;
+
   if (source != NULL && source->kind == COMPOSITE_ARRAY) {
     /* `number[]` is an array and an object, as a bare `array` is. */
     if (to == TYPE_ARRAY || to == TYPE_OBJECT) return true;

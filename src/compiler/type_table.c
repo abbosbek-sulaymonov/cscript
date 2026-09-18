@@ -14,6 +14,7 @@
  */
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "compiler/type_internal.h"
@@ -114,6 +115,44 @@ TypeId csTypeLiteral(TypeTable *table, const char *text, int length) {
   TypeId id;
   CompositeType *composite = csTypeNewComposite(table, COMPOSITE_LITERAL, &id);
   if (composite == NULL) return TYPE_STRING;
+  composite->name = owned;
+  composite->nameLength = length;
+  return id;
+}
+
+/* The canonical text of a number, which is what makes `1` and `1.0` one type.
+ * `%.17g` round-trips a double exactly, and trims to the short form for the
+ * whole numbers that are nearly all of what a program writes. */
+TypeId csTypeNumberLiteral(TypeTable *table, double value) {
+  if (table == NULL) return TYPE_NUMBER;
+
+  char text[32];
+  int length = snprintf(text, sizeof text, "%.17g", value);
+  if (length <= 0 || length >= (int)sizeof text) return TYPE_NUMBER;
+  /* The shortest form that reads back as the same double. */
+  for (int digits = 1; digits < 17; digits++) {
+    char shorter[32];
+    int shortLength = snprintf(shorter, sizeof shorter, "%.*g", digits, value);
+    if (shortLength <= 0 || shortLength >= (int)sizeof shorter) break;
+    if (strtod(shorter, NULL) != value) continue;
+    memcpy(text, shorter, (size_t)shortLength + 1);
+    length = shortLength;
+    break;
+  }
+
+  for (int i = 0; i < table->compositeCount; i++) {
+    const CompositeType *composite = &table->composites[i];
+    if (composite->kind != COMPOSITE_NUMBER_LITERAL) continue;
+    if (composite->nameLength != length) continue;
+    if (csTypeNameMatches(text, length, composite->name)) return csTypeCompositeAt(i);
+  }
+
+  const char *owned = internName(table, text, length);
+  if (owned == NULL) return TYPE_NUMBER;
+
+  TypeId id;
+  CompositeType *composite = csTypeNewComposite(table, COMPOSITE_NUMBER_LITERAL, &id);
+  if (composite == NULL) return TYPE_NUMBER;
   composite->name = owned;
   composite->nameLength = length;
   return id;
@@ -516,6 +555,10 @@ static void renderType(const TypeTable *table, TypeId type, NameBuffer *buffer, 
       return;
 
     case COMPOSITE_LITERAL: append(buffer, "\"%.*s\"", composite->nameLength, composite->name); return;
+
+    /* Unquoted, because that is how it was written and how TypeScript prints
+     * it: `42` is a type, `"42"` is a different one. */
+    case COMPOSITE_NUMBER_LITERAL: append(buffer, "%.*s", composite->nameLength, composite->name); return;
 
     case COMPOSITE_KEYOF:
       append(buffer, "keyof ");

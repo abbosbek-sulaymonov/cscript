@@ -1,0 +1,66 @@
+// Number literal types, and `infer`.
+//
+// The lattice had literal *string* types from the start, so a set of names was
+// a type and a set of numbers was not. That gap showed twice: a numeric enum
+// could only say `number`, and a conditional could not answer `1` or `2`.
+
+type Bit = 0 | 1;
+
+const low: Bit = 0;
+const high: Bit = 1;
+console.log(low, high);
+
+// Negative and fractional ones, and `1` and `1.0` are one type rather than two
+// that print the same.
+type Sign = -1 | 0 | 1;
+const back: Sign = -1;
+const same: 1 = 1.0;
+console.log(back, same);
+
+// Narrowed the way a string literal union is.
+function bitName(b: Bit): string {
+  if (b === 0) return "zero";
+  return "one";
+}
+console.log(bitName(0), bitName(1));
+
+// A numeric enum is exact now: its type is the union of its members' values.
+enum Level {
+  Low,
+  High,
+}
+
+function label(l: Level): string {
+  if (l === Level.Low) return "low";
+  return "high";
+}
+console.log(label(Level.Low), label(Level.High), Level.High);
+
+// `infer R` names whatever stands where it is written, in the type being
+// matched. It is what lets a conditional take a type *apart* rather than only
+// choose between two written down in advance.
+type Answers<T> = T extends (a: number) => infer R ? R : never;
+
+const answered: Answers<(a: number) => string> = "text";
+console.log(answered.toUpperCase());
+
+type Held<T> = T extends (infer E)[] ? E : never;
+
+const held: Held<number[]> = 7;
+console.log(held + 1);
+
+// Two names at two depths, in one pattern.
+type Middle<T> = T extends (a: infer A) => infer B ? A : never;
+const first: Middle<(a: boolean) => string> = true;
+console.log(first);
+
+// Nothing matches, so the other arm answers.
+type OrElse<T> = T extends (a: number) => infer R ? R : "no match";
+const missed: OrElse<string> = "no match";
+console.log(missed);
+
+// `ReturnType` asked directly, since a function type already carries what it
+// answers.
+type Handler = (a: number, b: string) => boolean;
+const done: ReturnType<Handler> = true;
+console.log(done);

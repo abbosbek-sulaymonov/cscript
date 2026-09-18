@@ -423,6 +423,22 @@ A literal is a string, and a string is not a literal: that asymmetry is what
 makes the set closed. Like an object literal, a written string is checked
 against what it is being given to — which is the only place it can be.
 
+**A number may be one too**, with the same rule:
+
+```ts
+type Bit = 0 | 1;
+type Sign = -1 | 0 | 1;
+
+const low: Bit = 0;        // proved where it is written
+const bad: Bit = 5;        // error: cannot assign number to 'bad'
+
+let counted: number = 1;
+const from: Bit = counted; // error — what a variable holds could have changed
+```
+
+`1` and `1.0` are one type rather than two that print the same, and a numeric
+enum's type is the union of its members' values, exactly as a string enum's is.
+
 ### `keyof`, and indexed access
 
 ```ts
@@ -478,6 +494,25 @@ type Kind<T> = T extends string ? "text" : T extends number ? "digits" : "other"
 They chain to the right, and are kept unevaluated while the checked side is
 still a variable — the same way `keyof T` inside `Partial<T>` is.
 
+**`infer R`** names whatever stands where it is written, in the type being
+matched. It is what lets a conditional take a type *apart* rather than only
+choose between two written down in advance:
+
+```ts
+type Answers<T> = T extends (a: number) => infer R ? R : never;
+Answers<(a: number) => string>;     // string
+
+type Held<T> = T extends (infer E)[] ? E : never;
+Held<number[]>;                      // number
+```
+
+A name is in scope for the true arm and nowhere else, and a pattern may declare
+up to four. With `infer` in it the checked type is *matched* against the
+pattern rather than merely asked whether it is assignable to it — and then the
+pattern is rebuilt from what was caught and the ordinary assignability question
+is asked of that, because matching fills what it can and says nothing about the
+rest.
+
 A conditional written over a **bare type parameter distributes**: it is applied
 to each member of a union separately and the answers joined. That is a rule
 about what was written, not about what the type turns out to be, and it is what
@@ -502,7 +537,7 @@ let nothing: never = 1;    // error: cannot assign number to 'nothing'
 
 ### The utility types
 
-The nine TypeScript's library defines as mappings and conditionals, here
+The ten TypeScript's library defines as mappings and conditionals, here
 applied directly:
 
 | Written | Means |
@@ -516,6 +551,7 @@ applied directly:
 | `Exclude<T, U>` | the members of T not assignable to U |
 | `Extract<T, U>` | the members of T that are |
 | `NonNullable<T>` | T without `null` and `undefined` |
+| `ReturnType<T>` | what the function type T answers |
 
 ```ts
 const draft: Partial<User> = { name: "ada" };
@@ -533,12 +569,12 @@ const staff: Exclude<Role, "guest"> = "admin";
 const sure: NonNullable<string | null> = "here";
 ```
 
-The last three are what a program can now write for itself — `Exclude<T, U>` is
+The last four are what a program can now write for itself — `Exclude<T, U>` is
 `T extends U ? never : T` and answers the same thing — and they are here
 because they are asked for by name often enough to be worth the shorthand.
 
-What is missing beside them: `ReturnType` and `Parameters` need `infer`, which
-names a type found by matching rather than one written down.
+What is missing beside them: `Parameters<T>`, which needs tuple types to have
+somewhere to put the answer.
 
 ### The built-in generics
 

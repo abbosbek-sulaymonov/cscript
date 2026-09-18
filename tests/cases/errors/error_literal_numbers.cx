@@ -1,0 +1,32 @@
+// What a number literal type refuses.
+//
+// The same one-way rule a string literal follows: a literal is a number, and a
+// number is not one of them, because a set of values is a type only if those
+// values are the whole of it.
+type Bit = 0 | 1;
+
+const outside: Bit = 5;
+
+// Only a value written out is one the checker can still see. What a variable
+// holds could have changed since.
+let counted: number = 1;
+const fromVariable: Bit = counted;
+
+// A numeric enum is exact, so a number that is not one of its members is not
+// one of it.
+enum Level {
+  Low,
+  High,
+}
+function at(l: Level): number {
+  return l;
+}
+at(7);
+
+// `infer` catches what stood where it was written, and the arm is checked like
+// any other type.
+type Answers<T> = T extends (a: number) => infer R ? R : never;
+const wrong: Answers<(a: number) => string> = 1;
+
+// Nothing to catch, so the other arm answers — and `never` has no values.
+const nothing: Answers<string> = "anything";

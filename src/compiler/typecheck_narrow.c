@@ -177,11 +177,15 @@ Variable *csTypeNarrow(Checker *checker, AstNode *condition, bool whenTrue, Type
    * which one narrows it. Both branches say something: the one the test
    * selects keeps that name, and the other drops it, which is what makes a
    * chain of them exhaustive. */
-  if (left->type == AST_IDENTIFIER && right->type == AST_STRING_LITERAL) {
+  if (left->type == AST_IDENTIFIER && (right->type == AST_STRING_LITERAL || right->type == AST_NUMBER_LITERAL)) {
     Variable *variable = csTypeFindVariable(checker, left->as.identifier.name, left->as.identifier.length);
     if (variable == NULL || variable->awaiting) return NULL;
-    TypeId literal = csTypeLiteral(checker->types, right->as.string.chars, right->as.string.length);
-    if (!csTypeIs(checker->types, variable->type, COMPOSITE_UNION) && !csTypeIs(checker->types, variable->type, COMPOSITE_LITERAL)) return NULL;
+    TypeId literal = right->type == AST_STRING_LITERAL ? csTypeLiteral(checker->types, right->as.string.chars, right->as.string.length)
+                                                       : csTypeNumberLiteral(checker->types, right->as.number);
+    if (!csTypeIs(checker->types, variable->type, COMPOSITE_UNION) && !csTypeIs(checker->types, variable->type, COMPOSITE_LITERAL) &&
+        !csTypeIs(checker->types, variable->type, COMPOSITE_NUMBER_LITERAL)) {
+      return NULL;
+    }
     *saved = variable->type;
     variable->type = narrowedTo(checker, variable->type, literal, whenTrue == equality);
     return variable;

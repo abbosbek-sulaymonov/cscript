@@ -50,6 +50,19 @@ TypeId csTypeCheckShape(Checker *checker, AstNode *value, TypeId expected) {
    * against what was asked for rather than widened to `string` first. This is
    * the same rule as an object literal against a shape: a literal is proved
    * where it is written, because that is the only place it can be. */
+  /* `-1` is a negation of a literal rather than a literal, and the only way a
+   * negative one can be written. Taken here so that `const s: -1 | 1 = -1`
+   * reads the way it is written. */
+  if (value->type == AST_UNARY && value->as.unary.op == UNARY_NEGATE && value->as.unary.operand != NULL && value->as.unary.operand->type == AST_NUMBER_LITERAL) {
+    TypeId literal = csTypeNumberLiteral(checker->types, -value->as.unary.operand->as.number);
+    return csTypeAssignableIn(checker->types, literal, expected) ? literal : value->resolvedType;
+  }
+
+  if (value->type == AST_NUMBER_LITERAL) {
+    TypeId literal = csTypeNumberLiteral(checker->types, value->as.number);
+    return csTypeAssignableIn(checker->types, literal, expected) ? literal : value->resolvedType;
+  }
+
   if (value->type == AST_STRING_LITERAL) {
     TypeId literal = csTypeLiteral(checker->types, value->as.string.chars, value->as.string.length);
     return csTypeAssignableIn(checker->types, literal, expected) ? literal : value->resolvedType;
@@ -164,19 +177,38 @@ TypeId csTypeCheckCallThrough(Checker *checker, AstNode *node, TypeId functionTy
   return signature->inner;
 }
 
-/* The literal type a string written in the source has, when the thing it is
- * being compared against is made of literals. Anything else keeps the type it
- * already had — a string stays a string, which is what almost every comparison
- * wants. */
-TypeId csTypeRefineLiteral(Checker *checker, AstNode *node, TypeId against) {
-  if (node == NULL || node->type != AST_STRING_LITERAL) return node != NULL ? node->resolvedType : TYPE_DYNAMIC;
-  bool literalish = csTypeIs(checker->types, against, COMPOSITE_LITERAL);
+/* True when `against` is that kind of literal, or a union with one in it. */
+static bool expectsLiteral(Checker *checker, TypeId against, CompositeKind kind) {
+  if (csTypeIs(checker->types, against, kind)) return true;
   const CompositeType *composite = csTypeComposite(checker->types, against);
-  if (!literalish && composite != NULL && composite->kind == COMPOSITE_UNION) {
-    for (int i = 0; i < composite->slotCount && !literalish; i++) {
-      literalish = csTypeIs(checker->types, checker->types->slots[composite->slotStart + i], COMPOSITE_LITERAL);
-    }
+  if (composite == NULL || composite->kind != COMPOSITE_UNION) return false;
+  for (int i = 0; i < composite->slotCount; i++) {
+    if (csTypeIs(checker->types, checker->types->slots[composite->slotStart + i], kind)) return true;
   }
-  if (!literalish) return node->resolvedType;
-  return csTypeLiteral(checker->types, node->as.string.chars, node->as.string.length);
+  return false;
+}
+
+/* The literal type a value written in the source has, when the thing it is
+ * being compared against is made of literals. Anything else keeps the type it
+ * already had — a string stays a string and a number stays a number, which is
+ * what almost every comparison wants.
+ *
+ * A written-out value is the only thing this applies to. `let n = 1` gives `n`
+ * the type number, and passing it where `0 | 1` is wanted is refused: what the
+ * variable holds could have changed since, and only the literal in the source
+ * is a value the checker can still see. */
+TypeId csTypeRefineLiteral(Checker *checker, AstNode *node, TypeId against) {
+  if (node == NULL) return TYPE_DYNAMIC;
+
+  if (node->type == AST_STRING_LITERAL) {
+    if (!expectsLiteral(checker, against, COMPOSITE_LITERAL)) return node->resolvedType;
+    return csTypeLiteral(checker->types, node->as.string.chars, node->as.string.length);
+  }
+
+  if (node->type == AST_NUMBER_LITERAL) {
+    if (!expectsLiteral(checker, against, COMPOSITE_NUMBER_LITERAL)) return node->resolvedType;
+    return csTypeNumberLiteral(checker->types, node->as.number);
+  }
+
+  return node->resolvedType;
 }

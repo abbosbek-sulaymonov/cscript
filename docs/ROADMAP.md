@@ -87,6 +87,7 @@ already measured says it is the thing that pays.
 | **79 ✅** | Guards at the site — a shape checked where it is used, and every hot function in the corpus lowers |
 | **80 ✅** | `enum`, and type parameters on a class — with the constructor as what `new Box(3)` infers from |
 | **81 ✅** | Conditional types and `never` — and the three utility types that needed them |
+| **82 ✅** | Number literal types and `infer` — a numeric enum is exact, and a conditional can take a type apart |
 | next | Speculative guards: a type *guessed* rather than proved, so the arithmetic the checker could not settle still compiles |
 
 ---
@@ -460,3 +461,58 @@ else's.
 What is still missing beside them is `infer`, which `ReturnType` and
 `Parameters` need: a name for a type found by matching rather than written
 down.
+
+---
+
+## Number literal types, and `infer`
+
+Two gaps the conditional-type work left visible, both about a type the lattice
+could not *name*.
+
+### A set of numbers is a type
+
+The lattice had literal string types from the start, so `"admin" | "user"` was
+a type and `0 | 1` was not. That showed twice. A numeric enum could only say
+`number`, so `at(7)` passed where `Level` was wanted — the limit was documented
+honestly and it was still a hole. And a conditional could choose between two
+strings but not between two numbers: `T extends string ? 1 : 2` did not parse.
+
+`COMPOSITE_NUMBER_LITERAL` is a kind of its own rather than a flag inside the
+string one. Everything that walks a set of *names* — `keyof`, a mapped type's
+keys, an indexed access — means the string kind and nothing else, and a flag
+would have to be checked at every one of those.
+
+The text is stored canonically, by finding the shortest form that reads back as
+the same double, so `1` and `1.0` are one type rather than two that print the
+same. The one-way rule is the string literal's: a literal is a number, a number
+is not a literal, and only a value *written out* is refined against what it is
+given to — what a variable holds could have changed since.
+
+A numeric enum's type is now the union of its members' values, so `Level` is
+`0 | 1` and a stray number is refused. That is what the previous round said
+would close the gap, and it did.
+
+### `infer` names what stood where it was written
+
+A conditional could choose between two types written down in advance. It could
+not take one *apart* — and taking one apart is what `ReturnType` is.
+
+`T extends (a: number) => infer R ? R : never` declares `R`, matches the
+checked type against the pattern, and answers what `R` caught. The matching is
+`csTypeInfer`, the same structural walk a generic call already used to work out
+what `T` was from an argument, so there was nothing new to write for it.
+
+Matching alone is not a proof: it fills what it can and says nothing about the
+rest. So the pattern is rebuilt with what was caught and the ordinary
+assignability question is asked of *that*. A pattern that did not match answers
+the false arm.
+
+The names belong to the conditional that declared them, which is why they are
+carried in its slots past the three types — substitution must not touch them,
+because they are bound by matching rather than by the caller. They are in scope
+for the true arm and closed with the declaration, and a conditional may declare
+four.
+
+`ReturnType<T>` follows, asked directly rather than through a conditional: a
+function type already carries what it answers. `Parameters<T>` does not follow,
+and will not until there are tuple types to put the answer in.

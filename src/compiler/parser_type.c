@@ -25,6 +25,7 @@
  * reference. An interface may name *itself*, because its name is registered
  * before its members are read.
  */
+#include <stdlib.h>
 #include <string.h>
 
 #include "compiler/parser_internal.h"
@@ -202,6 +203,49 @@ static bool parseTypePrimary(Parser *parser, TypeId *out) {
     return true;
   }
 
+  /* `infer R` — a name for whatever stands here in the type being matched.
+   * Only meaningful inside the pattern of a conditional, and it is the parse
+   * of that pattern which collects it; anywhere else it is a variable nothing
+   * will ever bind, which is what the checker could not work out. */
+  if (checkWord(parser, "infer")) {
+    Lexer probe = parser->lexer;
+    if (csLexerNext(&probe).type == TOKEN_IDENTIFIER) {
+      advanceToken(parser); /* `infer` */
+      advanceToken(parser); /* the name */
+
+      int length;
+      const char *named = csAstInternName(parser->arena, parser->previous.start, parser->previous.length, &length);
+      if (named == NULL) return false;
+
+      TypeId declared = csTypeDeclareTypeVar(parser->types, named, length);
+      if (declared == TYPE_ERROR) {
+        errorAtCurrent(parser, "this file declares more types than the checker can hold");
+        return false;
+      }
+      if (parser->inferCount >= CS_MAX_TYPE_PARAMS) {
+        errorAtCurrent(parser, "a conditional type may infer at most four names");
+        return false;
+      }
+      parser->inferVars[parser->inferCount++] = declared;
+      *out = declared;
+      return true;
+    }
+  }
+
+  /* `42`, and `-1` — one number and nothing else. A leading minus belongs to
+   * the literal here rather than being an operator, because a type position
+   * has no arithmetic in it for one to be part of. */
+  if (check(parser, TOKEN_NUMBER) || (check(parser, TOKEN_MINUS) && !parser->diag->panicMode)) {
+    bool negated = matchToken(parser, TOKEN_MINUS);
+    if (!matchToken(parser, TOKEN_NUMBER)) {
+      errorAtCurrent(parser, "expected a number after '-' in a type");
+      return false;
+    }
+    double value = strtod(parser->previous.start, NULL);
+    *out = csTypeNumberLiteral(parser->types, negated ? -value : value);
+    return true;
+  }
+
   /* `null` and `undefined` are keywords, so they do not arrive as identifiers
    * even though they are perfectly good type names. */
   if (!matchToken(parser, TOKEN_NULL) && !matchToken(parser, TOKEN_UNDEFINED)) {
@@ -340,6 +384,11 @@ bool parseTypeExpression(Parser *parser, TypeId *out) {
   if (!parseTypeUnion(parser, out)) return false;
   if (!matchToken(parser, TOKEN_EXTENDS)) return true;
 
+  /* Any `infer R` inside the pattern belongs to *this* conditional. Collected
+   * from here so a nested one does not take them, and closed below: they are
+   * in scope for the true arm and nowhere else. */
+  int inferStart = parser->inferCount;
+
   TypeId extends;
   if (!parseTypeUnion(parser, &extends)) return false;
 
@@ -355,6 +404,9 @@ bool parseTypeExpression(Parser *parser, TypeId *out) {
   TypeId whenFalse;
   if (!parseTypeExpression(parser, &whenFalse)) return false;
 
-  *out = csTypeConditional(parser->types, *out, extends, whenTrue, whenFalse);
+  *out = csTypeConditional(parser->types, *out, extends, whenTrue, whenFalse, &parser->inferVars[inferStart], parser->inferCount - inferStart);
+
+  for (int i = inferStart; i < parser->inferCount; i++) csTypeCloseTypeVar(parser->types, parser->inferVars[i]);
+  parser->inferCount = inferStart;
   return true;
 }

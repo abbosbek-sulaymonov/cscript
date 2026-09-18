@@ -31,7 +31,7 @@ console.log(Level.Low, Level.Medium, Level.High, Level.Higher);
 console.log(Level[2], Level[11]);
 
 // A string enum has no reverse half: a member's value could collide with a
-// name. What it has instead is an exact type — the union of its values.
+// name. Its type is the union of its values, exactly — as a numeric enum's is.
 enum Direction {
   Up = "up",
   Down = "down",
