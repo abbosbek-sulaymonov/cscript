@@ -335,6 +335,20 @@ AstNode *parseTypeAlias(Parser *parser) {
     if (!parseInterfaceBody(parser, aliased)) return NULL;
   } else {
     if (!parseTypeExpression(parser, &aliased)) return NULL;
+
+    /* `type Drop<T, U> = T extends U ? never : T` — the parameters belong to
+     * the computed form, which is what an instantiation substitutes through.
+     *
+     * Only for a computed form, and that is the whole of the condition. Those
+     * are interned on the pieces they are built from, and those pieces include
+     * this declaration's own type variables, so the composite is this alias's
+     * and no one else's. An ordinary type is interned on its *shape* — every
+     * `number[]` in the file is one composite — so tagging one with parameters
+     * would make every other use of it generic. */
+    if (paramCount > 0 && (csTypeIs(parser->types, aliased, COMPOSITE_CONDITIONAL) || csTypeIs(parser->types, aliased, COMPOSITE_KEYOF) ||
+                           csTypeIs(parser->types, aliased, COMPOSITE_INDEXED) || csTypeIs(parser->types, aliased, COMPOSITE_MAPPED))) {
+      csTypeSetTypeParams(parser->types, aliased, params, paramCount);
+    }
     if (!csTypeDeclareAlias(parser->types, name, nameLength, aliased)) {
       csDiagnosticError(parser->diag, line, named.start, named.length, "a file may declare at most %d type aliases", CS_MAX_TYPE_ALIASES);
       return NULL;

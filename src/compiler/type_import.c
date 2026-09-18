@@ -62,6 +62,7 @@ static TypeId importType(TypeTable *dest, const TypeTable *src, TypeId type, int
      * it was waiting on a variable, and a variable does not cross. */
     case COMPOSITE_KEYOF:
     case COMPOSITE_INDEXED:
+    case COMPOSITE_CONDITIONAL:
     case COMPOSITE_MAPPED: return TYPE_DYNAMIC;
 
     case COMPOSITE_ARRAY: return csTypeArrayOf(dest, importType(dest, src, composite->inner, depth + 1));

@@ -1,0 +1,66 @@
+// `T extends U ? X : Y` — the one computed type whose answer is a *choice*.
+//
+// The other three transform a shape: `keyof` names its members, `T[K]` reads
+// one, a mapped type rebuilds it. A conditional picks between two types by
+// asking the assignability question the checker asks everywhere else, and it
+// is what makes `Exclude` and `NonNullable` expressible rather than built in.
+
+type IsString<T> = T extends string ? "yes" : "no";
+
+const one: IsString<string> = "yes";
+const two: IsString<number> = "no";
+console.log(one, two);
+
+// A literal is a string, so it takes the same arm.
+const three: IsString<"hello"> = "yes";
+console.log(three);
+
+// `never` is the bottom type: nothing is a value of it, so an arm that answers
+// one vanishes from the union it is built into. That is the whole of why the
+// next line filters rather than returning what it was given.
+type Drop<T, U> = T extends U ? never : T;
+
+const kept: Drop<"a" | "b" | "c", "b"> = "a";
+const alsoKept: Drop<"a" | "b" | "c", "b"> = "c";
+console.log(kept, alsoKept);
+
+// Distribution is a rule about what was *written*: a conditional over a bare
+// type parameter is applied to each member of the union separately. Asked of
+// the union as one thing, `"a" | "b"` is not assignable to `"b"`, and the
+// answer would be the whole union.
+type NoNull<T> = T extends null | undefined ? never : T;
+
+const sure: NoNull<string | null> = "here";
+console.log(sure.toUpperCase());
+
+// Chained, which reads to the right.
+type Kind<T> = T extends string ? "text" : T extends number ? "digits" : "other";
+
+const text: Kind<string> = "text";
+const digits: Kind<number> = "digits";
+const other: Kind<boolean> = "other";
+console.log(text, digits, other);
+
+// The three utility types built out of the same question.
+type Role = "admin" | "user" | "guest";
+
+const notGuest: Exclude<Role, "guest"> = "admin";
+const onlyGuest: Extract<Role, "guest"> = "guest";
+const present: NonNullable<string | null | undefined> = "value";
+console.log(notGuest, onlyGuest, present);
+
+// Excluding everything leaves `never`, and a union of nothing is one too.
+type Gone = Exclude<"a", "a" | "b">;
+function unreachable(x: Gone): string {
+  return "never called";
+}
+console.log(typeof unreachable);
+
+// A conditional over a shape, which is the case `keyof` feeds.
+interface Point {
+  x: number;
+  y: number;
+}
+type HasX<T> = keyof T extends never ? "empty" : "has members";
+const shaped: HasX<Point> = "has members";
+console.log(shaped);

@@ -1,0 +1,6 @@
+error_conditional_types.cx:8: error: cannot assign string to 'wrongArm', declared as "admin" | "user"
+error_conditional_types.cx:9: error: cannot assign string to 'wrongExtract', declared as "admin"
+error_conditional_types.cx:10: error: cannot assign null to 'stillNull', declared as string
+error_conditional_types.cx:13: error: cannot assign string to 'wrongChoice', declared as "other"
+error_conditional_types.cx:16: error: cannot assign number to 'nothing', declared as never
+error_conditional_types.cx:23: error: argument 1 of 'unreachable' is string but the parameter is never

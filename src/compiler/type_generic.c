@@ -78,6 +78,55 @@ static TypeId substitute(TypeTable *table, TypeId type, const TypeId *params, co
       return csTypeMapped(table, keys, variable, value, composite->optionalMode, composite->readonlyMode, composite->name, composite->nameLength, source);
     }
 
+    case COMPOSITE_CONDITIONAL: {
+      /* The checked side as it was *written* — a bare type variable, when this
+       * conditional distributes. Read before anything is substituted, because
+       * that is the only point the fact still exists. */
+      TypeId checkVar = composite->inner;
+      bool distributes = composite->distributes;
+      TypeId extendsAt = table->slots[composite->slotStart];
+      TypeId trueAt = table->slots[composite->slotStart + 1];
+      TypeId falseAt = table->slots[composite->slotStart + 2];
+
+      TypeId check = substitute(table, checkVar, params, args, count, depth + 1);
+
+      /* Distribution: the conditional is applied to each member of the union
+       * separately, and that means redoing the *whole* of it with the checked
+       * variable bound to that member — the arms mention the variable too, and
+       * `T extends U ? never : T` answers the union it was asked to filter if
+       * its `T` still stands for the whole of it.
+       *
+       * Only here, because only here is the binding to override. */
+      const CompositeType *asUnion = csTypeComposite(table, check);
+      int bound = -1;
+      for (int i = 0; i < count && bound < 0; i++) {
+        if (params[i] == checkVar) bound = i;
+      }
+
+      if (distributes && bound >= 0 && asUnion != NULL && asUnion->kind == COMPOSITE_UNION && depth < 6) {
+        TypeId members[16];
+        int memberCount = asUnion->slotCount;
+        if (memberCount > (int)(sizeof members / sizeof members[0])) return type;
+        for (int i = 0; i < memberCount; i++) members[i] = table->slots[asUnion->slotStart + i];
+
+        TypeId answers[16];
+        TypeId one[CS_MAX_TYPE_PARAMS];
+        for (int m = 0; m < memberCount; m++) {
+          for (int i = 0; i < count; i++) one[i] = i == bound ? members[m] : args[i];
+          TypeId narrowed = substitute(table, type, params, one, count, depth + 1);
+          answers[m] = narrowed;
+        }
+        /* A `never` arm drops out of the union, which is where `Exclude` gets
+         * its answer. */
+        return csTypeUnionOf(table, answers, memberCount);
+      }
+
+      TypeId extends = substitute(table, extendsAt, params, args, count, depth + 1);
+      TypeId whenTrue = substitute(table, trueAt, params, args, count, depth + 1);
+      TypeId whenFalse = substitute(table, falseAt, params, args, count, depth + 1);
+      return csTypeConditional(table, check, extends, whenTrue, whenFalse);
+    }
+
     case COMPOSITE_ARRAY: return csTypeArrayOf(table, substitute(table, composite->inner, params, args, count, depth + 1));
 
     case COMPOSITE_UNION: {

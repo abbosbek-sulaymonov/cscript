@@ -35,6 +35,7 @@ const char *csTypeName(TypeId type) {
     case TYPE_FUNCTION: return "Function";
     case TYPE_ARRAY: return "array";
     case TYPE_OBJECT: return "object";
+    case TYPE_NEVER: return "never";
     case TYPE_ERROR: return "<error>";
     default: break;
   }
@@ -65,6 +66,7 @@ bool csTypeFromName(const char *name, int length, TypeId *out) {
        * `T[]` where it is parsed, and a bare `Array` is a bare `array`. */
       {"Array", TYPE_ARRAY},
       {"object", TYPE_OBJECT},
+      {"never", TYPE_NEVER},
   };
 
   for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
@@ -121,6 +123,11 @@ bool csTypeAssignable(TypeId from, TypeId to) {
    * type", and storing it where a number is expected would be a claim nothing
    * has checked. */
   if (from == TYPE_UNKNOWN) return false;
+
+  /* The bottom type, which is `unknown` mirrored: there is no value of it, so
+   * a `never` may stand anywhere, and nothing may stand where one is wanted. */
+  if (from == TYPE_NEVER) return true;
+  if (to == TYPE_NEVER) return false;
 
   /* An array is an object, as in JavaScript. Not the other way round: an
    * object has no length and no push, and calling one an array is how a
@@ -197,6 +204,8 @@ static bool assignable(const TypeTable *table, TypeId from, TypeId to, int depth
   if (from == TYPE_DYNAMIC || to == TYPE_DYNAMIC) return true;
   if (to == TYPE_UNKNOWN) return true;
   if (from == TYPE_UNKNOWN) return false;
+  if (from == TYPE_NEVER) return true;
+  if (to == TYPE_NEVER) return false;
   if (depth > 8) return true;
 
   const CompositeType *source = csTypeComposite(table, from);

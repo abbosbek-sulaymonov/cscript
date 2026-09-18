@@ -460,9 +460,50 @@ generic here.
 `readonly` is enforced where it is written: reading such a member is
 unchanged, and assigning through one is refused.
 
+### Conditional types
+
+`T extends U ? X : Y` — one of two types, chosen by whether `T` is assignable
+to `U`. The other computed forms transform a shape; this one makes a **choice**,
+and it is what lets a program write `Exclude` rather than wait for it to be
+built in:
+
+```ts
+type IsString<T> = T extends string ? "yes" : "no";
+IsString<string>;     // "yes"
+IsString<number>;     // "no"
+
+type Kind<T> = T extends string ? "text" : T extends number ? "digits" : "other";
+```
+
+They chain to the right, and are kept unevaluated while the checked side is
+still a variable — the same way `keyof T` inside `Partial<T>` is.
+
+A conditional written over a **bare type parameter distributes**: it is applied
+to each member of a union separately and the answers joined. That is a rule
+about what was written, not about what the type turns out to be, and it is what
+makes filtering work:
+
+```ts
+type Drop<T, U> = T extends U ? never : T;
+Drop<"a" | "b" | "c", "b">;     // "a" | "c"
+```
+
+### `never`
+
+The bottom type: the one nothing is a value of, and `unknown` mirrored. A
+`never` may stand anywhere, nothing may stand where one is wanted, and it is
+the **identity of a union** — a `never` arm drops out of one. That last part is
+why `Drop` above filters rather than answering what it was given.
+
+```ts
+function fail(message: string): never { throw new Error(message); }
+let nothing: never = 1;    // error: cannot assign number to 'nothing'
+```
+
 ### The utility types
 
-The six TypeScript's library defines as mappings, here applied directly:
+The nine TypeScript's library defines as mappings and conditionals, here
+applied directly:
 
 | Written | Means |
 | --- | --- |
@@ -472,6 +513,9 @@ The six TypeScript's library defines as mappings, here applied directly:
 | `Pick<T, K>` | only the members named in K |
 | `Omit<T, K>` | every member except those |
 | `Record<K, V>` | one member per name in K, each holding V |
+| `Exclude<T, U>` | the members of T not assignable to U |
+| `Extract<T, U>` | the members of T that are |
+| `NonNullable<T>` | T without `null` and `undefined` |
 
 ```ts
 const draft: Partial<User> = { name: "ada" };
@@ -483,8 +527,18 @@ counts["a"] + 1;                     // a number, however it is reached
 `Record<string, V>` has no member names to make, so it takes an **index
 signature** instead: every key answers V, which is what a dictionary is.
 
-What is missing beside them: `Exclude`, `Extract`, `ReturnType` and the rest
-need conditional types, which this type system does not have.
+```ts
+type Role = "admin" | "user" | "guest";
+const staff: Exclude<Role, "guest"> = "admin";
+const sure: NonNullable<string | null> = "here";
+```
+
+The last three are what a program can now write for itself — `Exclude<T, U>` is
+`T extends U ? never : T` and answers the same thing — and they are here
+because they are asked for by name often enough to be worth the shorthand.
+
+What is missing beside them: `ReturnType` and `Parameters` need `infer`, which
+names a type found by matching rather than one written down.
 
 ### The built-in generics
 
@@ -728,11 +782,17 @@ checked where it lands.
 `return` statements — except for a generator or an async function, where what
 the call answers is not what the body returns.
 
-**The type system is deliberately shallow** — a fixed set of types, no
-structural or higher-order types, no generics and no unions. That shallowness
-is what keeps the checking cheap: a primitive needs one check at a boundary, or
-none, where a structural type would need a contract that follows the value
-around. Typed Racket measured 10–100× slowdowns from exactly that.
+**Everything is erased, and that is what keeps the checking free.** The system
+grew structural shapes, generics, unions and computed types, but none of them
+survives into the running program: a type is proved where it is written and
+then dropped, so nothing follows a value around at run time. The alternative is
+a contract per boundary, which is what Typed Racket measured 10–100×
+slowdowns from.
+
+What that costs is at the edges. A value arriving from somewhere the checker
+cannot see is `unknown`, and a program has to narrow it before use; there is no
+check waiting to catch a lie told across that boundary, which is why `unknown`
+refuses to be assigned anywhere without one.
 
 ## Variables
 

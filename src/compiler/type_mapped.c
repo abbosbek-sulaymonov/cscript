@@ -179,6 +179,39 @@ TypeId csTypeMapped(TypeTable *table, TypeId keys, TypeId variable, TypeId value
   return shape;
 }
 
+/* `T extends U ? X : Y`.
+ *
+ * Evaluated the moment the checked side stops being a variable, and kept until
+ * then. What it answers is a *choice*, which is what separates it from the
+ * three above: they transform a shape, this one picks between two types by
+ * asking the assignability question the checker asks everywhere else.
+ *
+ * A conditional written over a bare type parameter **distributes**: it is
+ * applied to each member of a union separately and the answers joined. That is
+ * the whole of why `Exclude<"a" | "b", "a">` is `"b"` — asked of the union as
+ * one thing, `"a" | "b"` is not assignable to `"a"` and the answer would be
+ * the entire union. */
+TypeId csTypeConditional(TypeTable *table, TypeId check, TypeId extends, TypeId whenTrue, TypeId whenFalse) {
+  const CompositeType *subject = csTypeComposite(table, check);
+  bool unresolved = subject != NULL && (subject->kind == COMPOSITE_TYPEVAR || subject->kind == COMPOSITE_MAPPED || subject->kind == COMPOSITE_KEYOF ||
+                                        subject->kind == COMPOSITE_INDEXED || subject->kind == COMPOSITE_CONDITIONAL);
+
+  if (unresolved) {
+    /* Nothing to decide yet. Kept whole, with the three other types in the
+     * slots, so substitution can finish it later — and remembering that the
+     * checked side was written as a variable, because after substitution
+     * there is no way back to that fact. */
+    TypeId slots[3] = {extends, whenTrue, whenFalse};
+    TypeId id = unevaluated(table, COMPOSITE_CONDITIONAL, check, slots, 3);
+    if (csTypeComposite(table, id) != NULL) {
+      table->composites[csTypeCompositeIndex(id)].distributes = subject->kind == COMPOSITE_TYPEVAR;
+    }
+    return id;
+  }
+
+  return csTypeAssignableIn(table, check, extends) ? whenTrue : whenFalse;
+}
+
 /* Finishes an unevaluated type once substitution has made its pieces concrete.
  * Answers the type unchanged when there is still nothing to work out. */
 TypeId csTypeEvaluate(TypeTable *table, TypeId type) {
@@ -188,6 +221,19 @@ TypeId csTypeEvaluate(TypeTable *table, TypeId type) {
   switch (composite->kind) {
     case COMPOSITE_KEYOF: return csTypeKeyOf(table, composite->inner);
     case COMPOSITE_INDEXED: return csTypeIndexedAccess(table, composite->inner, table->slots[composite->slotStart]);
+    case COMPOSITE_CONDITIONAL: {
+      /* Not distributing here, and that is not an omission. Distribution means
+       * binding the checked variable to each member of the union and redoing
+       * the *whole* conditional — the arms mention that variable too, and
+       * answering them with the union still in place is how `Exclude` comes
+       * back as everything it was asked to remove. Only substitution holds the
+       * binding, so only substitution can do it; see type_generic.c. */
+      TypeId extends = table->slots[composite->slotStart];
+      TypeId whenTrue = table->slots[composite->slotStart + 1];
+      TypeId whenFalse = table->slots[composite->slotStart + 2];
+      return csTypeConditional(table, composite->inner, extends, whenTrue, whenFalse);
+    }
+
     case COMPOSITE_MAPPED: {
       TypeId variable = table->slots[composite->slotStart];
       TypeId value = table->slots[composite->slotStart + 1];

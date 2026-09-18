@@ -331,7 +331,30 @@ static bool parseTypeUnion(Parser *parser, TypeId *out) {
   return true;
 }
 
-/* The entry point used by annotations and by the declarations below. */
+/* The entry point used by annotations and by the declarations below.
+ *
+ * A conditional binds loosest of all, and its arms are conditionals in turn —
+ * `A extends B ? X : C extends D ? Y : Z` reads to the right, which is how a
+ * chain of them is written. */
 bool parseTypeExpression(Parser *parser, TypeId *out) {
-  return parseTypeUnion(parser, out);
+  if (!parseTypeUnion(parser, out)) return false;
+  if (!matchToken(parser, TOKEN_EXTENDS)) return true;
+
+  TypeId extends;
+  if (!parseTypeUnion(parser, &extends)) return false;
+
+  consume(parser, TOKEN_QUESTION, "expected '?' and the two types a conditional chooses between");
+  if (parser->diag->panicMode) return false;
+
+  TypeId whenTrue;
+  if (!parseTypeExpression(parser, &whenTrue)) return false;
+
+  consume(parser, TOKEN_COLON, "expected ':' and what the conditional answers when it does not match");
+  if (parser->diag->panicMode) return false;
+
+  TypeId whenFalse;
+  if (!parseTypeExpression(parser, &whenFalse)) return false;
+
+  *out = csTypeConditional(parser->types, *out, extends, whenTrue, whenFalse);
+  return true;
 }

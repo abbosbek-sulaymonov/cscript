@@ -186,6 +186,11 @@ TypeId csTypeUnionOf(TypeTable *table, const TypeId *members, int count) {
     if (member == TYPE_UNKNOWN) return TYPE_UNKNOWN;
     if (member == TYPE_ERROR) return TYPE_ERROR;
 
+    /* And the identity: there is no value of `never`, so a `never` arm adds
+     * nothing to a union and drops out of it. That is what makes
+     * `Exclude<"a" | "b", "a">` answer `"b"` rather than `"b" | never`. */
+    if (member == TYPE_NEVER) continue;
+
     /* A union of unions is one union. */
     const CompositeType *nested = csTypeComposite(table, member);
     bool isUnion = nested != NULL && nested->kind == COMPOSITE_UNION;
@@ -206,6 +211,8 @@ TypeId csTypeUnionOf(TypeTable *table, const TypeId *members, int count) {
     }
   }
 
+  /* Every arm was `never`, so the union is too — nothing is a value of it. */
+  if (flatCount == 0) return TYPE_NEVER;
   if (flatCount == 1) return flat[0];
 
   for (int i = 0; i < table->compositeCount; i++) {
@@ -520,6 +527,18 @@ static void renderType(const TypeTable *table, TypeId type, NameBuffer *buffer, 
       append(buffer, "[");
       renderType(table, table->slots[composite->slotStart], buffer, depth + 1);
       append(buffer, "]");
+      return;
+
+    case COMPOSITE_CONDITIONAL:
+      /* Printed the way it was written, which is the only readable form: what
+       * it *is* has no answer yet, because it is waiting on a variable. */
+      renderType(table, composite->inner, buffer, depth + 1);
+      append(buffer, " extends ");
+      renderType(table, table->slots[composite->slotStart], buffer, depth + 1);
+      append(buffer, " ? ");
+      renderType(table, table->slots[composite->slotStart + 1], buffer, depth + 1);
+      append(buffer, " : ");
+      renderType(table, table->slots[composite->slotStart + 2], buffer, depth + 1);
       return;
 
     case COMPOSITE_MAPPED:

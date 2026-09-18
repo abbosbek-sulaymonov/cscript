@@ -86,6 +86,7 @@ already measured says it is the thing that pays.
 | **78 ✅** | Deoptimisation — an exit builds the frame it resumes in, and happens where it is forced rather than at the last empty stack |
 | **79 ✅** | Guards at the site — a shape checked where it is used, and every hot function in the corpus lowers |
 | **80 ✅** | `enum`, and type parameters on a class — with the constructor as what `new Box(3)` infers from |
+| **81 ✅** | Conditional types and `never` — and the three utility types that needed them |
 | next | Speculative guards: a type *guessed* rather than proved, so the arithmetic the checker could not settle still compiles |
 
 ---
@@ -405,3 +406,57 @@ the interned copy is what the type table keeps.
 against a subject of `"up" | "down"` is a match, and the check asked whether the
 two types were *equal*. It is an overlap question, and asking it that way had
 been right only as long as nothing produced a union of literals to switch on.
+
+---
+
+## Conditional types, and the bottom of the lattice
+
+`keyof T`, `T[K]` and a mapped type all *transform* a shape. A conditional
+answers a **choice**: `T extends U ? X : Y` is one of two types, picked by
+asking the assignability question the checker already asks everywhere else. It
+is the last of the four computed forms, and it fits the three that were there —
+kept unevaluated while the checked side is a variable, finished by
+substitution, evaluated through `csTypeEvaluate`.
+
+Two things had to come with it.
+
+**`never`, the bottom type.** Without it a conditional cannot filter. `Exclude`
+is `T extends U ? never : T`, and what makes that work is that a `never` arm
+**vanishes** from the union it is built into — it is the identity element,
+where `unknown` at the other end of the lattice is the absorbing one. So
+`never` is a primitive now: assignable to everything, nothing assignable to it,
+and skipped by `csTypeUnionOf`. A union of nothing but `never` is `never`.
+
+**Distribution, which is a rule about what was written.** A conditional over a
+bare type parameter is applied to each member of a union separately and the
+answers joined. Asked of the union as one thing, `"a" | "b" | "c"` is not
+assignable to `"b"`, so `Drop` would answer the whole union it was asked to
+filter. Whether a conditional distributes is therefore decided where it is
+*built*, because after substitution a bare `T` and a written-out union look the
+same.
+
+The subtle part is where distribution has to happen, and the first attempt had
+it in the wrong place. Applying the conditional to each member is not enough:
+the **arms mention the variable too**, so `T extends U ? never : T` with its
+`T` still standing for the whole union answers exactly what it was asked to
+remove. Distribution means redoing the whole conditional with the checked
+variable *bound* to each member — and only substitution holds that binding, so
+only substitution can do it.
+
+`Exclude`, `Extract` and `NonNullable` follow, written out beside the other six
+rather than parsed from a prelude, because they are asked for by name at the
+point both sides are known. A program can now write any of them for itself and
+get the same answer.
+
+One thing a generic alias could not do before this and can now: `type Drop<T, U>
+= …` records its type parameters on the computed form. It only ever recorded
+them for a mapped type or a shape, because those are built fresh per
+declaration — an ordinary type is interned on its shape, so tagging `number[]`
+with parameters would make every other `number[]` in the file generic. A
+computed form is interned on the pieces it is built from, and those include the
+declaration's own type variables, so it is that declaration's and no one
+else's.
+
+What is still missing beside them is `infer`, which `ReturnType` and
+`Parameters` need: a name for a type found by matching rather than written
+down.
