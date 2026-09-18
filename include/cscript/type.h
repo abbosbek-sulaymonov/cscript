@@ -203,6 +203,16 @@ typedef struct {
    * not work out rather than an error. What it declares is still checked, and
    * still has to be there for the instance to satisfy an interface. */
   bool open;
+
+  /* A class's constructor, as a function type, or TYPE_ERROR for a shape with
+   * none. Kept here rather than as a member because a member would take part
+   * in assignability, and no interface asks for a `constructor`.
+   *
+   * What it is for is `new Box(3)`: the parameters are written in terms of the
+   * class's own type variables, so matching the arguments against them is what
+   * says T is a number — the same inference a generic *function* call does,
+   * through the same csTypeInfer. */
+  TypeId construct;
 } CompositeType;
 
 /* Everything one file's types are made of. Built by the parser, read by the
@@ -408,6 +418,12 @@ int csTypeTypeParamCount(const TypeTable *table, TypeId type);
 /* `Box<number>` — substitutes the arguments for the declaration's own type
  * parameters, throughout. Answers `generic` unchanged when it takes none. */
 TypeId csTypeInstantiate(TypeTable *table, TypeId generic, const TypeId *args, int argCount);
+
+/* A class's constructor as a function type, or TYPE_ERROR when it has none. */
+TypeId csTypeConstructorOf(const TypeTable *table, TypeId type);
+
+/* Records one. Answers false for anything that is not a shape. */
+bool csTypeSetConstructor(TypeTable *table, TypeId type, TypeId signature);
 
 /* Substitutes `args` for `params` anywhere inside `type`. The engine under
  * instantiation, and under inference at a call site. */

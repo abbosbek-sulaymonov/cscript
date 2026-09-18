@@ -41,8 +41,14 @@ bool checkStatementNode(Checker *checker, AstNode *node, TypeId *out) {
       for (int i = 0; i < node->as.switchStmt.caseCount; i++) {
         TypeId test = checkNode(checker, node->as.switchStmt.cases[i].test);
         /* Arms are matched with ===, so an arm that can never match is the
-         * same mistake as writing that comparison out by hand. */
-        if (csTypeIsKnown(subject) && csTypeIsKnown(test) && subject != test) {
+         * same mistake as writing that comparison out by hand.
+         *
+         * "Can never match" is an overlap question, not an equality one. A
+         * subject that is a union of literals — which is what a string enum
+         * is — is matched by any one of them, and comparing the ids alone
+         * called every such arm unreachable. */
+        bool overlaps = csTypeAssignableIn(checker->types, test, subject) || csTypeAssignableIn(checker->types, subject, test);
+        if (csTypeIsKnown(subject) && csTypeIsKnown(test) && subject != test && !overlaps) {
           csTypeError(checker, node->as.switchStmt.cases[i].test->line, "this case is %s but the switch subject is %s, so it can never match",
                       csTypeNameIn(checker->types, test), csTypeNameIn(checker->types, subject));
         }

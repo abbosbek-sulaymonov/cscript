@@ -54,6 +54,8 @@ const counts: Map<string, number> = new Map();  // and the built-in ones
 type Role = "admin" | "user";                // a set of names is a type
 const corner: Partial<Point> = { x: 3 };     // and mapped types over a shape
 let found: string | null = null;             // unions, narrowed by typeof
+class Box<T> { … }                           // classes take parameters too
+enum Direction { Up = "up", Down = "down" }  // and enums, as TypeScript has
 
 let total: number = "text";   // error: cannot assign string to 'total'
 year = "twenty-six";          // error: a variable's type is fixed once taken

@@ -1,0 +1,3 @@
+error_generic_class_arity.cx:12: error: 'Pair' takes 2 type arguments and was given 3
+     12 | const tooMany = new Pair<number, string, boolean>(1, "one");
+        |                     ^^^^

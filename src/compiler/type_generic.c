@@ -127,6 +127,11 @@ static TypeId substitute(TypeTable *table, TypeId type, const TypeId *params, co
       CompositeType *made = &table->composites[csTypeCompositeIndex(copy)];
       made->genericOf = type;
       made->open = composite->open;
+      /* The constructor travels with the shape, substituted like a member:
+       * `Box<number>`'s takes a number. */
+      if (composite->construct != TYPE_ERROR) {
+        made->construct = substitute(table, composite->construct, params, args, count, depth + 1);
+      }
       if (csTypeTakeSlots(table, args, count, &start)) {
         made->slotStart = start;
         made->slotCount = count;
@@ -209,4 +214,15 @@ static void infer(const TypeTable *table, TypeId parameter, TypeId argument, con
 
 void csTypeInfer(const TypeTable *table, TypeId parameter, TypeId argument, const TypeId *params, TypeId *bindings, int count) {
   infer(table, parameter, argument, params, bindings, count, 0);
+}
+
+TypeId csTypeConstructorOf(const TypeTable *table, TypeId type) {
+  const CompositeType *composite = csTypeComposite(table, type);
+  return composite != NULL ? composite->construct : TYPE_ERROR;
+}
+
+bool csTypeSetConstructor(TypeTable *table, TypeId type, TypeId signature) {
+  if (csTypeComposite(table, type) == NULL) return false;
+  table->composites[csTypeCompositeIndex(type)].construct = signature;
+  return true;
 }

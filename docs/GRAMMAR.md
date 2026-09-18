@@ -21,7 +21,7 @@ Written in EBNF. `*` is zero or more, `?` is optional, `|` is alternation.
 program        = statement* EOF ;
 
 statement      = varDeclaration | destructuring
-               | functionDecl | classDecl
+               | functionDecl | classDecl | enumDecl
                | importDecl | exportDecl
                | block
                | ifStatement | whileStatement | doWhileStatement
@@ -52,7 +52,13 @@ functionDecl   = "async"? "function" "*"? IDENTIFIER
 parameters     = parameter ( "," parameter )* ;
 parameter      = "..."? ( IDENTIFIER typeAnnotation? | pattern ) ( "=" expression )? ;
 
-classDecl      = "class" IDENTIFIER ( "extends" IDENTIFIER )? "{" member* "}" ;
+classDecl      = "class" IDENTIFIER typeParams?
+                 ( "extends" IDENTIFIER typeArgs? )? "{" member* "}" ;
+typeParams     = "<" IDENTIFIER ( "," IDENTIFIER )* ">" ;
+typeArgs       = "<" TYPE ( "," TYPE )* ">" ;
+
+enumDecl       = "enum" IDENTIFIER "{" enumMember ( "," enumMember )* ","? "}" ;
+enumMember     = IDENTIFIER ( "=" ( "-"? NUMBER | STRING ) )? ;
 member         = "static" block                        (* static initialiser *)
                | "static"? ( method | field ) ;
 method         = ( "get" | "set" )? memberName "(" parameters? ")"
@@ -336,6 +342,62 @@ about a `T`, which is what lets the body be checked once for every
 instantiation at once. A declaration may take at most four of them, and a call
 that leaves one undetermined gets the type the checker could not work out.
 
+A **class** takes them the same way, and its constructor is what a `new`
+without written arguments works them out from:
+
+```ts
+class Box<T> {
+  value: T;
+  constructor(value: T) { this.value = value; }
+  get(): T { return this.value; }
+}
+
+new Box(3).get() + 1;             // a number — inferred from the argument
+new Box<string>("hi").get();      // a string — written at the site
+const held: Box<number> = new Box(10);
+
+class Counter extends Box<number> {   // the base is instantiated too
+  twice(): number { return this.get() * 2; }
+}
+```
+
+`new Box<number>(…)` reads as type arguments only where the name is a generic
+type. `new Point < limit` is still a comparison, because `Point` takes none.
+
+### `enum`
+
+The one declaration here that is a type *and* a value. Everything else the type
+grammar declares is erased — an `interface` compiles to nothing, an annotation
+is read and dropped — but `Color.Red` has to answer something at run time, so
+an enum compiles to the object TypeScript emits for one:
+
+```ts
+enum Color { Red, Green, Blue }        // 0, 1, 2 — and Color[1] is "Green"
+enum Level { Low = 1, Medium, High = 10, Higher }   // 1, 2, 10, 11
+enum Direction { Up = "up", Down = "down" }
+```
+
+The name means two things, the way it does in TypeScript. In a **type**
+position it is what the members *are*; the **binding** holds the object, so
+`Color.Rd` is an error and `Color.Red` is not.
+
+A numeric member also gets the reverse entry — `Color[0]` is `"Red"` — because
+that is how a program prints one. A string member does not: its value could
+collide with a name.
+
+What a member's type says depends on which kind it is. A string enum's is
+exact, because this lattice has literal string types: `Direction` is
+`"up" | "down"`, and passing anything else is caught. A numeric enum's is
+`number`, because there are no literal number types here — so `Level` says only
+that much, and a stray number passes.
+
+A member's value is written out, not computed: `A = 1 + 2` is an error, because
+the whole of what an enum is for is a name for a constant.
+
+This is the one construct in the language that **Node's type stripping
+refuses** — it is not erasable, so there is nothing for `--experimental-strip-types`
+to strip. The parity suite checks it against `tsc` instead.
+
 ### Literal types
 
 A string may be a type of its own, and a set of them is how a program says
@@ -529,6 +591,9 @@ function types), and a getter (as what it answers). A static member belongs to
 the class rather than to an instance, and a private `#field` is invisible from
 outside, so neither is part of the shape. `extends` carries the members down,
 as it does between interfaces.
+
+A class may take type parameters, and `extends` may instantiate them — see
+[Generics](#generics).
 
 A class satisfies an interface **structurally**, with nothing declaring that it
 does:

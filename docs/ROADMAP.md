@@ -85,6 +85,7 @@ already measured says it is the thing that pays.
 | **77 ✅** | Calling a CScript function from compiled code, for the callees inlining will not take — **5.0×** on `bench/jit/jit_calls_out` |
 | **78 ✅** | Deoptimisation — an exit builds the frame it resumes in, and happens where it is forced rather than at the last empty stack |
 | **79 ✅** | Guards at the site — a shape checked where it is used, and every hot function in the corpus lowers |
+| **80 ✅** | `enum`, and type parameters on a class — with the constructor as what `new Box(3)` infers from |
 | next | Speculative guards: a type *guessed* rather than proved, so the arithmetic the checker could not settle still compiles |
 
 ---
@@ -332,3 +333,75 @@ one in it allocates only from the callee-saved bank — the same restriction
 `IR_MOD` and the object builder already imposed. Inlining that check into arm64
 is the obvious next thing to try on it, and was left out here deliberately: the
 first version of a guard should be one whose correctness is readable.
+
+---
+
+## `enum` and generic classes
+
+Two gaps a program written in TypeScript syntax runs into early, and they went
+in together because one of them is answered almost entirely by machinery the
+other already needed.
+
+### A class takes type parameters the way an interface does
+
+`interface Box<T>` has worked since the type tree went in; `class Box<T>` did
+not parse. There was no second mechanism to build — the parameters are declared
+before the shape, registered on it with `csTypeSetTypeParams`, and closed when
+the body ends, which is what `interface` and `type` already do. A class's name
+is a type, so the rest followed: `Box<number>` in an annotation, `Pair<B, A>`
+as a return type, `extends Base<number>` for the members the base declares.
+
+What a class has that an interface does not is a **constructor**, and that is
+what makes `new Box(3)` say `Box<number>` rather than leaving T unknown. The
+constructor's parameters are written in terms of the class's own type
+variables, so matching the arguments against them is inference — the same
+`csTypeInfer` a generic function call uses. The signature is kept on the shape
+rather than as a member, because a member would take part in assignability and
+no interface asks for a `constructor`.
+
+`new Box<number>(…)` is read as type arguments only where the name is a generic
+type. That is what keeps `new Point < limit` a comparison, and it is the same
+way the ambiguity is settled everywhere else in the grammar.
+
+### `enum` is the one declaration that is not erased
+
+Everything else the type grammar declares compiles to nothing. An enum cannot:
+`Color.Red` has to answer something at run time. So it is the one construct
+here that is a type *and* a value, and the one **Node's type stripping
+refuses** — there is nothing for it to strip. The parity check for it is `tsc`,
+and the expectation in `tests/cases/types/enums.cx` is what TypeScript's own
+emit prints.
+
+It compiles to the object TypeScript emits, desugared in the parser:
+
+    enum Color { Red, Green }   ->   const Color = { Red: 0, Green: 1,
+                                                     "0": "Red", "1": "Green" };
+
+Doing it there rather than in the compiler is the point. An enum has no
+run-time behaviour an object literal does not already have, so an opcode, a
+value type and a collector case would be three new things answering a question
+the object literal answers.
+
+The name means two things, as it does in TypeScript: in a type position it is
+what the members *are*, and the binding holds the object. A numeric member gets
+the reverse entry — `Color[0]` is `"Red"` — because that is how a program
+prints one; a string member does not, since its value could collide with a name.
+
+What the type says depends on the kind. A string enum's is exact, because this
+lattice has literal string types: `Direction` is `"up" | "down"` and anything
+else is caught. A numeric enum's is `number`, because there are no literal
+number types here. That is the honest limit of it, and the thing that would
+close it is numeric literal types rather than anything about enums.
+
+### Two bugs found on the way, both older than this
+
+**A diagnostic's excerpt was cut from the wrong buffer.** `interface A` twice in
+one file printed its error against 3.9 MB of garbage: the name handed to the
+diagnostic was the *interned* copy, which lives in the arena, and the excerpt is
+cut by finding that pointer in the source. The token is what a diagnostic wants;
+the interned copy is what the type table keeps.
+
+**A switch arm was called unreachable by comparing type ids.** `case Direction.Up`
+against a subject of `"up" | "down"` is a match, and the check asked whether the
+two types were *equal*. It is an overlap question, and asking it that way had
+been right only as long as nothing produced a union of literals to switch on.

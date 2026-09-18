@@ -282,6 +282,17 @@
           }
         },
         {
+          "match": "\\b(enum)\\s+([A-Za-z_$][\\w$]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.enum.cscript"
+            },
+            "2": {
+              "name": "entity.name.type.enum.cscript"
+            }
+          }
+        },
+        {
           "match": "\\b(let|const)\\s+([A-Za-z_$][\\w$]*)",
           "captures": {
             "1": {

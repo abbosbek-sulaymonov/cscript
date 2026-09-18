@@ -15,18 +15,44 @@ AstNode *parseClass(Parser *parser) {
 
   consume(parser, TOKEN_IDENTIFIER, "expected a class name");
   if (parser->diag->panicMode) return NULL;
-  return parseClassBody(parser, line, parser->previous.start, parser->previous.length);
+  const char *name = parser->previous.start;
+  int nameLength = parser->previous.length;
+
+  /* `class Box<T>` — read before anything else in the declaration, because the
+   * shape is registered next and every member after it may say `T`. A class
+   * expression has no name to hang them off and takes none. */
+  TypeId params[CS_MAX_TYPE_PARAMS];
+  int paramCount = 0;
+  if (parser->types != NULL && !parseTypeParams(parser, params, &paramCount)) return NULL;
+
+  return parseGenericClassBody(parser, line, name, nameLength, params, paramCount);
 }
 
 /* Everything after the name, which a class expression has none of. */
 AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLength) {
+  return parseGenericClassBody(parser, line, name, nameLength, NULL, 0);
+}
+
+AstNode *parseGenericClassBody(Parser *parser, int line, const char *name, int nameLength, const TypeId *params, int paramCount) {
   const char *superName = NULL;
   int superLength = 0;
+  /* `class Derived extends Base<number>` — the arguments belong to the shape
+   * the members are copied from, and to nothing else: what the class extends
+   * at run time is the binding `Base`. TYPE_DYNAMIC when none were written,
+   * and the base is then looked up by name below. */
+  TypeId superType = TYPE_DYNAMIC;
   if (matchToken(parser, TOKEN_EXTENDS)) {
-    consume(parser, TOKEN_IDENTIFIER, "expected a superclass name after 'extends'");
-    if (parser->diag->panicMode) return NULL;
-    superName = parser->previous.start;
-    superLength = parser->previous.length;
+    if (startsGenericConstruction(parser)) {
+      Token named = parser->current;
+      if (!parseTypeExpression(parser, &superType)) return NULL;
+      superName = named.start;
+      superLength = named.length;
+    } else {
+      consume(parser, TOKEN_IDENTIFIER, "expected a superclass name after 'extends'");
+      if (parser->diag->panicMode) return NULL;
+      superName = parser->previous.start;
+      superLength = parser->previous.length;
+    }
     if (superLength == nameLength && memcmp(superName, name, (size_t)superLength) == 0) {
       errorAtCurrent(parser, "a class cannot extend itself");
       return NULL;
@@ -54,14 +80,18 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
     const char *owned = csAstInternName(parser->arena, name, nameLength, &ownedLength);
     if (owned != NULL) declared = csTypeDeclareClass(parser->types, owned, ownedLength);
     if (declared == TYPE_ERROR) declared = TYPE_DYNAMIC;
+    /* What `Box<number>` substitutes into. Recorded on the shape itself, which
+     * is what makes a class's name a generic in exactly the way an interface's
+     * is — there is no second kind. */
+    if (declared != TYPE_DYNAMIC && paramCount > 0) csTypeSetTypeParams(parser->types, declared, params, paramCount);
   }
 
   /* `class Dog extends Animal` — what the base declared is part of this
    * shape too, copied across for the same reason `interface … extends` copies
    * it: assignability is structural, so presence is all that is ever asked. */
   if (declared != TYPE_DYNAMIC && superName != NULL) {
-    TypeId base;
-    if (csTypeLookupName(parser->types, superName, superLength, &base)) {
+    TypeId base = superType;
+    if (base != TYPE_DYNAMIC || csTypeLookupName(parser->types, superName, superLength, &base)) {
       const CompositeType *shape = csTypeComposite(parser->types, base);
       if (shape != NULL && shape->kind == COMPOSITE_INTERFACE) {
         int start = shape->memberStart;
@@ -191,20 +221,20 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
           /* `get label(): string` is read as a string, not called. */
           member.type = method->as.function.returnType;
         } else {
-          TypeId params[CS_MAX_TYPE_PARAMS * 8];
-          int paramCount = method->as.function.paramCount;
-          if (paramCount > (int)(sizeof params / sizeof params[0])) paramCount = (int)(sizeof params / sizeof params[0]);
-          for (int i = 0; i < paramCount; i++) {
-            params[i] = method->as.function.params[i].hasAnnotation ? method->as.function.params[i].type : TYPE_DYNAMIC;
+          TypeId taken[CS_MAX_TYPE_PARAMS * 8];
+          int takenCount = method->as.function.paramCount;
+          if (takenCount > (int)(sizeof taken / sizeof taken[0])) takenCount = (int)(sizeof taken / sizeof taken[0]);
+          for (int i = 0; i < takenCount; i++) {
+            taken[i] = method->as.function.params[i].hasAnnotation ? method->as.function.params[i].type : TYPE_DYNAMIC;
           }
-          int required = paramCount;
-          for (int i = 0; i < paramCount; i++) {
+          int required = takenCount;
+          for (int i = 0; i < takenCount; i++) {
             if (method->as.function.params[i].defaultValue == NULL) continue;
             required = i;
             break;
           }
           if (method->as.function.hasRest && required > 0) required--;
-          member.type = csTypeFunctionOf(parser->types, params, paramCount, required, method->as.function.hasRest, method->as.function.returnType);
+          member.type = csTypeFunctionOf(parser->types, taken, takenCount, required, method->as.function.hasRest, method->as.function.returnType);
         }
         if (member.name != NULL) csTypeAddMember(parser->types, declared, &member);
       }
@@ -219,6 +249,28 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
           return NULL;
         }
         node->as.classDecl.constructor = method;
+
+        /* What the constructor takes, as a function type on the shape itself.
+         * It is what makes `new Box(3)` a `Box<number>`: the parameters are
+         * written in terms of the class's own type variables, so matching the
+         * arguments against them says what each one stands for — the same
+         * inference a generic function call does. */
+        if (declared != TYPE_DYNAMIC && parser->types != NULL) {
+          TypeId taken[CS_MAX_TYPE_PARAMS * 8];
+          int takenCount = method->as.function.paramCount;
+          if (takenCount > (int)(sizeof taken / sizeof taken[0])) takenCount = (int)(sizeof taken / sizeof taken[0]);
+          for (int i = 0; i < takenCount; i++) {
+            taken[i] = method->as.function.params[i].hasAnnotation ? method->as.function.params[i].type : TYPE_DYNAMIC;
+          }
+          int required = takenCount;
+          for (int i = 0; i < takenCount; i++) {
+            if (method->as.function.params[i].defaultValue == NULL) continue;
+            required = i;
+            break;
+          }
+          if (method->as.function.hasRest && required > 0) required--;
+          csTypeSetConstructor(parser->types, declared, csTypeFunctionOf(parser->types, taken, takenCount, required, method->as.function.hasRest, TYPE_UNDEFINED));
+        }
       } else {
         csAstClassAddMember(parser->arena, node, method, isStatic, memberKind);
         node->as.classDecl.members[node->as.classDecl.memberCount - 1].computedKey = computedKey;
@@ -255,6 +307,10 @@ AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLeng
   }
 
   consume(parser, TOKEN_RIGHT_BRACE, "expected '}' after the class body");
+  /* The parameters go out of scope with the declaration, so a later `T` means
+   * whatever it means there. Closed even on the error path, because a name
+   * left open would resolve in the rest of the file. */
+  if (paramCount > 0) closeTypeParams(parser, params, paramCount);
   if (parser->diag->panicMode) return NULL;
   return node;
 }

@@ -236,8 +236,12 @@ AstNode *parseExport(Parser *parser) {
   if (startsInterfaceDeclaration(parser)) return parseInterfaceDeclaration(parser);
   if (startsTypeAlias(parser)) return parseTypeAlias(parser);
 
+  /* An enum is not among them: it compiles to a `const`, so `export enum` has
+   * a binding to export and goes the ordinary way rather than being erased. */
+  bool exportsEnum = startsEnumDeclaration(parser);
   bool exportsAsyncFunction = checkWord(parser, "async") && nextStartsFunction(parser);
-  if (!exportsAsyncFunction && !check(parser, TOKEN_LET) && !check(parser, TOKEN_CONST) && !check(parser, TOKEN_FUNCTION) && !check(parser, TOKEN_CLASS)) {
+  if (!exportsEnum && !exportsAsyncFunction && !check(parser, TOKEN_LET) && !check(parser, TOKEN_CONST) && !check(parser, TOKEN_FUNCTION) &&
+      !check(parser, TOKEN_CLASS)) {
     errorAtCurrent(parser, "'export' must be followed by a declaration or '{'");
     return NULL;
   }

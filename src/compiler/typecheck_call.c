@@ -17,6 +17,40 @@
 
 #include "compiler/typecheck_internal.h"
 
+/* `new Box(3)` — what the class's type variables stand for here.
+ *
+ * The constructor's parameters are written in terms of them, so matching the
+ * arguments against those parameters is the whole of the inference, and it is
+ * the same csTypeInfer a generic function call uses.
+ *
+ * A class with no constructor, or one whose parameters say nothing about a
+ * variable, leaves that variable as what the checker could not work out —
+ * which is what `new Map()` has always answered. `const m: Map<string, number>
+ * = new Map()` is how a program says more, and the annotation carries it. */
+static TypeId csTypeInstantiateFromArguments(Checker *checker, AstNode *node, TypeId instance, const TypeId *argTypes) {
+  TypeId construct = csTypeConstructorOf(checker->types, instance);
+  const CompositeType *shape = csTypeComposite(checker->types, instance);
+  if (construct == TYPE_ERROR || shape == NULL || shape->typeParamCount == 0) {
+    return csTypeInstantiate(checker->types, instance, NULL, 0);
+  }
+
+  TypeId params[CS_MAX_TYPE_PARAMS];
+  TypeId bindings[CS_MAX_TYPE_PARAMS];
+  int count = shape->typeParamCount;
+  for (int i = 0; i < count; i++) {
+    params[i] = shape->typeParams[i];
+    bindings[i] = TYPE_DYNAMIC;
+  }
+
+  const CompositeType *signature = csTypeComposite(checker->types, construct);
+  if (signature != NULL && signature->kind == COMPOSITE_FUNCTION) {
+    for (int i = 0; i < node->as.call.argCount && i < signature->slotCount; i++) {
+      csTypeInfer(checker->types, checker->types->slots[signature->slotStart + i], argTypes[i], params, bindings, count);
+    }
+  }
+  return csTypeInstantiate(checker->types, instance, bindings, count);
+}
+
 /* Answers the call's type, having reported anything wrong with it. */
 TypeId csTypeCheckCall(Checker *checker, AstNode *node) {
   TypeId result = TYPE_DYNAMIC;
@@ -95,16 +129,18 @@ TypeId csTypeCheckCall(Checker *checker, AstNode *node) {
        * no shape to answer with. */
       if (node->as.call.isNew) {
         result = TYPE_DYNAMIC;
+        /* `new Box<number>(…)` — written down at the site, so there is nothing
+         * to work out. The parser resolved it, because that is where a name in
+         * a type position is resolved. */
+        if (node->as.call.newType != TYPE_DYNAMIC) {
+          result = node->as.call.newType;
+          break;
+        }
         if (node->as.call.callee->type == AST_IDENTIFIER) {
           TypeId instance;
           if (csTypeLookupName(checker->types, node->as.call.callee->as.identifier.name, node->as.call.callee->as.identifier.length, &instance)) {
-            /* `new Map()` with nothing said about what it holds is a Map of
-             * things the checker cannot see — the members are still known, so
-             * a misspelled one is still caught, and what they answer is not.
-             * `const m: Map<string, number> = new Map()` is how a program says
-             * more, and the annotation is what carries it. */
             if (csTypeTypeParamCount(checker->types, instance) > 0) {
-              result = csTypeInstantiate(checker->types, instance, NULL, 0);
+              result = csTypeInstantiateFromArguments(checker, node, instance, argTypes);
             } else if (csTypeIsOpen(checker->types, instance)) {
               result = instance;
             }

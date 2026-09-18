@@ -216,13 +216,18 @@ AstNode *parseInterfaceDeclaration(Parser *parser) {
   consume(parser, TOKEN_IDENTIFIER, "expected a name after 'interface'");
   if (parser->diag->panicMode) return NULL;
 
+  /* Two pointers to one name. The interned copy outlives the parse and is
+   * what the type table keeps; the token points into the source, which is
+   * where a diagnostic cuts its excerpt from — passing the interned one made
+   * the excerpt a slice of the arena. */
+  Token named = parser->previous;
   int nameLength;
   const char *name = csAstInternName(parser->arena, parser->previous.start, parser->previous.length, &nameLength);
   if (name == NULL) return NULL;
 
   TypeId existing;
   if (csTypeLookupName(parser->types, name, nameLength, &existing)) {
-    csDiagnosticError(parser->diag, line, name, nameLength, "'%.*s' already names a type", nameLength, name);
+    csDiagnosticError(parser->diag, line, named.start, named.length, "'%.*s' already names a type", nameLength, name);
     skipDeclarationBody(parser);
     return NULL;
   }
@@ -237,7 +242,7 @@ AstNode *parseInterfaceDeclaration(Parser *parser) {
    * list is `interface Node { next?: Node }` and nothing else. */
   TypeId declared = csTypeDeclareInterface(parser->types, name, nameLength);
   if (declared == TYPE_ERROR) {
-    csDiagnosticError(parser->diag, line, name, nameLength, "this file declares more types than the checker can hold");
+    csDiagnosticError(parser->diag, line, named.start, named.length, "this file declares more types than the checker can hold");
     return NULL;
   }
   csTypeSetTypeParams(parser->types, declared, params, paramCount);
@@ -256,7 +261,7 @@ AstNode *parseInterfaceDeclaration(Parser *parser) {
     for (int i = 0; i < count; i++) {
       TypeMember inherited = parser->types->members[start + i];
       if (csTypeAddMember(parser->types, declared, &inherited)) continue;
-      csDiagnosticError(parser->diag, line, name, nameLength, "'%.*s' inherits a member it already has, or more than the checker can hold", nameLength, name);
+      csDiagnosticError(parser->diag, line, named.start, named.length, "'%.*s' inherits a member it already has, or more than the checker can hold", nameLength, name);
       return NULL;
     }
   }
@@ -279,13 +284,18 @@ AstNode *parseTypeAlias(Parser *parser) {
   consume(parser, TOKEN_IDENTIFIER, "expected a name after 'type'");
   if (parser->diag->panicMode) return NULL;
 
+  /* Two pointers to one name. The interned copy outlives the parse and is
+   * what the type table keeps; the token points into the source, which is
+   * where a diagnostic cuts its excerpt from — passing the interned one made
+   * the excerpt a slice of the arena. */
+  Token named = parser->previous;
   int nameLength;
   const char *name = csAstInternName(parser->arena, parser->previous.start, parser->previous.length, &nameLength);
   if (name == NULL) return NULL;
 
   TypeId existing;
   if (csTypeLookupName(parser->types, name, nameLength, &existing)) {
-    csDiagnosticError(parser->diag, line, name, nameLength, "'%.*s' already names a type", nameLength, name);
+    csDiagnosticError(parser->diag, line, named.start, named.length, "'%.*s' already names a type", nameLength, name);
     skipDeclarationBody(parser);
     return NULL;
   }
@@ -306,7 +316,7 @@ AstNode *parseTypeAlias(Parser *parser) {
     if (!parseMappedType(parser, &aliased, name, nameLength)) return NULL;
     if (paramCount > 0) csTypeSetTypeParams(parser->types, aliased, params, paramCount);
     if (!csTypeDeclareAlias(parser->types, name, nameLength, aliased)) {
-      csDiagnosticError(parser->diag, line, name, nameLength, "a file may declare at most %d type aliases", CS_MAX_TYPE_ALIASES);
+      csDiagnosticError(parser->diag, line, named.start, named.length, "a file may declare at most %d type aliases", CS_MAX_TYPE_ALIASES);
       return NULL;
     }
     closeTypeParams(parser, params, paramCount);
@@ -318,7 +328,7 @@ AstNode *parseTypeAlias(Parser *parser) {
   if (check(parser, TOKEN_LEFT_BRACE)) {
     aliased = csTypeDeclareInterface(parser->types, name, nameLength);
     if (aliased == TYPE_ERROR) {
-      csDiagnosticError(parser->diag, line, name, nameLength, "this file declares more types than the checker can hold");
+      csDiagnosticError(parser->diag, line, named.start, named.length, "this file declares more types than the checker can hold");
       return NULL;
     }
     csTypeSetTypeParams(parser->types, aliased, params, paramCount);
@@ -326,7 +336,7 @@ AstNode *parseTypeAlias(Parser *parser) {
   } else {
     if (!parseTypeExpression(parser, &aliased)) return NULL;
     if (!csTypeDeclareAlias(parser->types, name, nameLength, aliased)) {
-      csDiagnosticError(parser->diag, line, name, nameLength, "a file may declare at most %d type aliases", CS_MAX_TYPE_ALIASES);
+      csDiagnosticError(parser->diag, line, named.start, named.length, "a file may declare at most %d type aliases", CS_MAX_TYPE_ALIASES);
       return NULL;
     }
   }

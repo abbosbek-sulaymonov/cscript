@@ -1,0 +1,12 @@
+// A class takes as many type arguments as it declares parameters, and the
+// count is checked where they are written.
+class Pair<A, B> {
+  left: A;
+  right: B;
+  constructor(left: A, right: B) {
+    this.left = left;
+    this.right = right;
+  }
+}
+
+const tooMany = new Pair<number, string, boolean>(1, "one");

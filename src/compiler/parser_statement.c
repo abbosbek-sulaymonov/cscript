@@ -433,6 +433,7 @@ AstNode *parseStatement(Parser *parser) {
    * program may still have a variable called `type`, which several do. */
   if (startsInterfaceDeclaration(parser)) return parseInterfaceDeclaration(parser);
   if (startsTypeAlias(parser)) return parseTypeAlias(parser);
+  if (startsEnumDeclaration(parser)) return parseEnumDeclaration(parser);
 
   if (matchToken(parser, TOKEN_DO)) return parseDoWhile(parser);
 
