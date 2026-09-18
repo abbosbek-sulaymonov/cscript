@@ -102,10 +102,19 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
     }
 
     AstNode *callee;
+    TypeId built = TYPE_DYNAMIC;
     if (matchToken(parser, TOKEN_LEFT_PAREN)) {
       callee = parseExpression(parser);
       consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the expression");
       if (callee == NULL || parser->diag->panicMode) return NULL;
+    } else if (startsGenericConstruction(parser)) {
+      /* `new Box<number>(…)` — the arguments belong to the construction and
+       * are read as a type, because that is what they are. Only where the name
+       * is a generic type: `new Box < 3` is then still a comparison, which is
+       * the same way the ambiguity is settled everywhere else. */
+      Token named = parser->current;
+      if (!parseTypeExpression(parser, &built)) return NULL;
+      callee = csAstIdentifier(parser->arena, line, named.start, named.length);
     } else {
       consume(parser, TOKEN_IDENTIFIER, "expected a class after 'new'");
       if (parser->diag->panicMode) return NULL;
@@ -133,6 +142,7 @@ AstNode *parseOperandPrimary(Parser *parser, int line) {
     }
 
     AstNode *node = csAstNew(parser->arena, line, callee);
+    if (node != NULL) node->as.call.newType = built;
     if (matchToken(parser, TOKEN_LEFT_PAREN)) {
       if (!check(parser, TOKEN_RIGHT_PAREN)) {
         do {

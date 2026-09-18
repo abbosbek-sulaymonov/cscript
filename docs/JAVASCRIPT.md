@@ -582,11 +582,20 @@ Each of these produces an error that names it, rather than failing obscurely.
 
 A class's name is a type, and a shape is described with `interface` or `type` —
 all checked structurally and then erased — the same two declarations TypeScript has, read the same way,
-and stripped by Node exactly as they are here. Types cross a module boundary with the values that
-carry them, though a type's *name* does not — a shape written in two files is
-one type, because everything is compared structurally. What is missing beside
-them: generics do not survive an import, and there is no way to say that a
-class *implements* an interface, since satisfying one needs no declaration.
+and stripped by Node exactly as they are here. A class takes type parameters of
+its own, and `new Box(3)` works them out from the constructor. Types cross a
+module boundary with the values that carry them, though a type's *name* does
+not — a shape written in two files is one type, because everything is compared
+structurally. What is missing beside them: generics do not survive an import,
+and there is no way to say that a class *implements* an interface, since
+satisfying one needs no declaration.
+
+`enum` is the exception to all of it, and the one construct here that **Node's
+type stripping refuses**: an enum is not erasable, because `Color.Red` has to
+answer something at run time. It compiles to the object TypeScript emits for
+one — the names to their values, and, for a numeric member, the value back to
+its name — so the semantics are TypeScript's, and the parity suite checks it
+against `tsc` rather than against Node.
 
 ---
 

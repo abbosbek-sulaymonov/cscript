@@ -1,0 +1,3 @@
+error_enum_computed.cx:4: error: expected ',' or '}' — an enum member's value is written out, not computed
+      4 |   A = 1 + 2,
+        |         ^

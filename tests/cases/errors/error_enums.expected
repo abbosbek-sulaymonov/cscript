@@ -1,0 +1,4 @@
+error_enums.cx:11: error: Direction has no member 'Sideways'
+error_enums.cx:16: error: argument 1 of 'go' is string but the parameter is "up" | "down"
+error_enums.cx:19: error: 'Up' is readonly on Direction
+error_enums.cx:30: error: argument 1 of 'at' is string but the parameter is number

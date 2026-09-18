@@ -62,6 +62,11 @@ bool matchContextual(Parser *parser, const char *word);
 
 /* parser_type.c — the type grammar, and the declarations that describe */
 bool parseTypeExpression(Parser *parser, TypeId *out);
+bool startsGenericConstruction(Parser *parser);
+
+/* parser_enum.c — the one declaration that is a type and a value at once. */
+bool startsEnumDeclaration(Parser *parser);
+AstNode *parseEnumDeclaration(Parser *parser);
 bool parseTypeParams(Parser *parser, TypeId *params, int *countOut);
 void closeTypeParams(Parser *parser, const TypeId *params, int count);
 bool parseTypeParameterList(Parser *parser, TypeId *params, int *paramCount, int *requiredCount, bool *hasRest, const char *what);
@@ -92,6 +97,11 @@ AstNode *parseClass(Parser *parser);
 /* The body of a class, after its name. `name` is NULL for `class { … }` used
  * as an expression, which binds nothing of its own. */
 AstNode *parseClassBody(Parser *parser, int line, const char *name, int nameLength);
+
+/* The same, for a declaration that took type parameters. They are already
+ * declared and in scope; this registers them on the shape and closes them when
+ * the body ends. */
+AstNode *parseGenericClassBody(Parser *parser, int line, const char *name, int nameLength, const TypeId *params, int paramCount);
 bool parseModuleNameList(Parser *parser, AstNode *node, bool isImport);
 bool parseModuleSpecifier(Parser *parser, const char **out, int *outLength);
 AstNode *parseImport(Parser *parser);

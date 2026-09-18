@@ -1,0 +1,5 @@
+// An enum member's value is settled where it is written: the whole of what an
+// enum is for is a name for a constant, so there is nothing to work out later.
+enum Bad {
+  A = 1 + 2,
+}

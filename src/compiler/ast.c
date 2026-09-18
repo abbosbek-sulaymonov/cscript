@@ -242,6 +242,7 @@ AstNode *csAstCall(AstArena *arena, int line, AstNode *callee) {
   node->as.call.arguments = NULL;
   node->as.call.argCount = 0;
   node->as.call.isNew = false;
+  node->as.call.newType = TYPE_DYNAMIC;
   return node;
 }
 

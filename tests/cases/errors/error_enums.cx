@@ -1,0 +1,30 @@
+// What an enum refuses.
+//
+// The name is a type — what its members *are* — and the binding holds the
+// object, so a misspelt member is caught reading it and a value that is not one
+// of them is caught passing it.
+enum Direction {
+  Up = "up",
+  Down = "down",
+}
+
+console.log(Direction.Sideways);
+
+function go(d: Direction): string {
+  return "going " + d;
+}
+go("sideways");
+
+// A member cannot be written: an enum names constants.
+Direction.Up = "elsewhere";
+
+// A numeric enum says less, because this lattice has literal string types and
+// no literal number ones — so its type is `number`, and a number is one.
+enum Level {
+  Low,
+  High,
+}
+function at(l: Level): number {
+  return l;
+}
+at("high");

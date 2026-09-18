@@ -76,7 +76,10 @@ AstNode *csAstFunction(AstArena *arena, int line, const char *name, int nameLeng
 
 AstNode *csAstNew(AstArena *arena, int line, AstNode *callee) {
   AstNode *node = csAstCall(arena, line, callee);
-  if (node != NULL) node->as.call.isNew = true;
+  if (node != NULL) {
+    node->as.call.isNew = true;
+    node->as.call.newType = TYPE_DYNAMIC;
+  }
   return node;
 }
 

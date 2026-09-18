@@ -1,0 +1,20 @@
+// What a generic class refuses.
+//
+// A class's type parameters are substituted the same way an interface's are,
+// so what `Box<number>` answers is a number and nothing else — and the
+// constructor's own parameters are what `new Box(3)` works that out from.
+class Box<T> {
+  value: T;
+  constructor(value: T) {
+    this.value = value;
+  }
+  get(): T {
+    return this.value;
+  }
+}
+
+const inferred = new Box(3);
+const wrong: string = inferred.get();
+
+const written = new Box<string>("x");
+const alsoWrong: Box<number> = written;

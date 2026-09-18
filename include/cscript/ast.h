@@ -304,6 +304,10 @@ struct AstNode {
       int argCount;
       bool isNew;    /*   construction rather than a call */
       bool optional; /*   written `?.(` */
+      /*   `new Box<number>(…)` — what the site said it is building, resolved
+       *   by the parser because that is where a name in a type position is
+       *   resolved. TYPE_DYNAMIC when nothing was written. */
+      TypeId newType;
     } call;
     struct {              /* AST_REGEX_LITERAL */
       const char *source; /*   the pattern, no slashes */

@@ -55,6 +55,21 @@ bool startsTypeAlias(Parser *parser) {
   return after == TOKEN_EQUAL || after == TOKEN_LESS;
 }
 
+/* `new Box<number>(…)` — an identifier naming a generic type, followed by `<`.
+ *
+ * Both halves are needed. A `<` alone could be a comparison, and a name that
+ * takes no type arguments could not have written any — so requiring the name
+ * to be a generic is what keeps `new Point < limit` a comparison. */
+bool startsGenericConstruction(Parser *parser) {
+  if (parser->types == NULL || !check(parser, TOKEN_IDENTIFIER)) return false;
+  Lexer probe = parser->lexer;
+  if (csLexerNext(&probe).type != TOKEN_LESS) return false;
+
+  TypeId named;
+  if (!csTypeLookupName(parser->types, parser->current.start, parser->current.length, &named)) return false;
+  return csTypeTypeParamCount(parser->types, named) > 0;
+}
+
 /* `<T>` and `<T, U>` on a declaration. Each name becomes a type variable that
  * is in scope until the declaration ends — see closeTypeParams. */
 bool parseTypeParams(Parser *parser, TypeId *params, int *countOut) {

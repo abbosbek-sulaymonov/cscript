@@ -1,0 +1,2 @@
+error_generic_classes.cx:17: error: cannot assign number to 'wrong', declared as string
+error_generic_classes.cx:20: error: cannot assign Box<string> to 'alsoWrong', declared as Box<number>

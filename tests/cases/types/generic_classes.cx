@@ -1,0 +1,112 @@
+// A class with type parameters of its own.
+//
+// The same machinery an `interface Box<T>` uses: the parameters are declared
+// before the shape, so every member may say `T`, and `Box<number>` substitutes
+// through the lot. What a class adds is the constructor — its parameters are
+// written in terms of those variables too, which is what lets `new Box(3)` work
+// out that T is a number without anything being written at the site.
+
+class Box<T> {
+  value: T;
+
+  constructor(value: T) {
+    this.value = value;
+  }
+
+  get(): T {
+    return this.value;
+  }
+
+  set(next: T): Box<T> {
+    this.value = next;
+    return this;
+  }
+}
+
+// Inferred from the argument.
+const counted = new Box(3);
+console.log(counted.get() + 1);
+
+// Written at the site, which is what a class with no constructor argument to
+// infer from needs.
+const named = new Box<string>("hi");
+console.log(named.get() + "!");
+
+// Carried by the annotation, the way `Map<string, number>` already was.
+const held: Box<number> = new Box(10);
+console.log(held.set(11).get() + 1);
+
+// Two parameters, and a method that answers the class with them swapped.
+class Pair<A, B> {
+  left: A;
+  right: B;
+
+  constructor(left: A, right: B) {
+    this.left = left;
+    this.right = right;
+  }
+
+  swap(): Pair<B, A> {
+    return new Pair<B, A>(this.right, this.left);
+  }
+}
+
+const pair = new Pair(1, "one");
+console.log(pair.left + 1, pair.right + "!");
+const swapped = pair.swap();
+console.log(swapped.left + "?", swapped.right + 2);
+
+// A parameter used through a method's own parameter rather than the
+// constructor's, and a default that leaves the variable to the annotation.
+class Stack<T> {
+  items: T[];
+
+  constructor() {
+    this.items = [];
+  }
+
+  push(item: T): number {
+    this.items.push(item);
+    return this.items.length;
+  }
+
+  top(): T {
+    return this.items[this.items.length - 1];
+  }
+}
+
+const stack: Stack<number> = new Stack();
+stack.push(4);
+stack.push(9);
+console.log(stack.top() + 1, stack.items.length);
+
+// Inheritance: what the base declared is part of the shape, as it is for any
+// other class.
+class Base<T> {
+  seed: T;
+  constructor(seed: T) {
+    this.seed = seed;
+  }
+}
+
+class Derived extends Base<number> {
+  doubled(): number {
+    return this.seed * 2;
+  }
+}
+
+const derived = new Derived(21);
+console.log(derived.doubled(), derived.seed);
+
+// A generic class still parses where a comparison could have been: `Point`
+// takes no type arguments, so `<` there is what it has always been.
+class Point {
+  x: number;
+  constructor(x: number) {
+    this.x = x;
+  }
+}
+
+const limit = 5;
+const point = new Point(3);
+console.log(point.x < limit);

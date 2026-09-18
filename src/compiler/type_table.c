@@ -76,6 +76,7 @@ CompositeType *csTypeNewComposite(TypeTable *table, CompositeKind kind, TypeId *
   composite->inner = TYPE_DYNAMIC;
   composite->genericOf = TYPE_DYNAMIC;
   composite->indexValue = TYPE_ERROR;
+  composite->construct = TYPE_ERROR;
   *idOut = csTypeCompositeAt(table->compositeCount++);
   return composite;
 }
