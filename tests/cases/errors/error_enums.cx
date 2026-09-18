@@ -18,8 +18,9 @@ go("sideways");
 // A member cannot be written: an enum names constants.
 Direction.Up = "elsewhere";
 
-// A numeric enum says less, because this lattice has literal string types and
-// no literal number ones — so its type is `number`, and a number is one.
+// A numeric enum is exact too: its type is the union of its members' values,
+// so a number that is not one of them is refused the same way a string that is
+// not one of a string enum's is.
 enum Level {
   Low,
   High,
@@ -27,4 +28,4 @@ enum Level {
 function at(l: Level): number {
   return l;
 }
-at("high");
+at(7);

@@ -1,0 +1,5 @@
+error_literal_numbers.cx:8: error: cannot assign number to 'outside', declared as 0 | 1
+error_literal_numbers.cx:13: error: cannot assign number to 'fromVariable', declared as 0 | 1
+error_literal_numbers.cx:24: error: argument 1 of 'at' is number but the parameter is 0 | 1
+error_literal_numbers.cx:29: error: cannot assign number to 'wrong', declared as string
+error_literal_numbers.cx:32: error: cannot assign string to 'nothing', declared as never

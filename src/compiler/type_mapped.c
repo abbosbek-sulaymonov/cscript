@@ -191,25 +191,49 @@ TypeId csTypeMapped(TypeTable *table, TypeId keys, TypeId variable, TypeId value
  * the whole of why `Exclude<"a" | "b", "a">` is `"b"` — asked of the union as
  * one thing, `"a" | "b"` is not assignable to `"a"` and the answer would be
  * the entire union. */
-TypeId csTypeConditional(TypeTable *table, TypeId check, TypeId extends, TypeId whenTrue, TypeId whenFalse) {
+TypeId csTypeConditional(TypeTable *table, TypeId check, TypeId extends, TypeId whenTrue, TypeId whenFalse, const TypeId *infers, int inferCount) {
   const CompositeType *subject = csTypeComposite(table, check);
   bool unresolved = subject != NULL && (subject->kind == COMPOSITE_TYPEVAR || subject->kind == COMPOSITE_MAPPED || subject->kind == COMPOSITE_KEYOF ||
                                         subject->kind == COMPOSITE_INDEXED || subject->kind == COMPOSITE_CONDITIONAL);
 
   if (unresolved) {
     /* Nothing to decide yet. Kept whole, with the three other types in the
-     * slots, so substitution can finish it later — and remembering that the
-     * checked side was written as a variable, because after substitution
-     * there is no way back to that fact. */
-    TypeId slots[3] = {extends, whenTrue, whenFalse};
-    TypeId id = unevaluated(table, COMPOSITE_CONDITIONAL, check, slots, 3);
+     * slots and any `infer` names after them, so substitution can finish it
+     * later — and remembering that the checked side was written as a variable,
+     * because after substitution there is no way back to that fact. */
+    TypeId slots[3 + CS_MAX_TYPE_PARAMS];
+    slots[0] = extends;
+    slots[1] = whenTrue;
+    slots[2] = whenFalse;
+    int slotCount = 3;
+    for (int i = 0; i < inferCount && slotCount < (int)(sizeof slots / sizeof slots[0]); i++) slots[slotCount++] = infers[i];
+
+    TypeId id = unevaluated(table, COMPOSITE_CONDITIONAL, check, slots, slotCount);
     if (csTypeComposite(table, id) != NULL) {
       table->composites[csTypeCompositeIndex(id)].distributes = subject->kind == COMPOSITE_TYPEVAR;
     }
     return id;
   }
 
-  return csTypeAssignableIn(table, check, extends) ? whenTrue : whenFalse;
+  /* No `infer`: the question is exactly assignability, which is what the
+   * checker asks everywhere else. */
+  if (inferCount <= 0) return csTypeAssignableIn(table, check, extends) ? whenTrue : whenFalse;
+
+  /* With one, the checked type is *matched* against the pattern and each name
+   * catches whatever stood where it did — the same structural walk a generic
+   * call uses to work out what T was. Matching alone is not a proof, though:
+   * it fills what it can and says nothing about the rest. So the pattern is
+   * rebuilt with what was caught, and the ordinary assignability question is
+   * asked of that. */
+  TypeId caught[CS_MAX_TYPE_PARAMS];
+  int count = inferCount > CS_MAX_TYPE_PARAMS ? CS_MAX_TYPE_PARAMS : inferCount;
+  for (int i = 0; i < count; i++) caught[i] = TYPE_DYNAMIC;
+
+  csTypeInfer(table, extends, check, infers, caught, count);
+
+  TypeId filled = csTypeSubstitute(table, extends, infers, caught, count);
+  if (!csTypeAssignableIn(table, check, filled)) return whenFalse;
+  return csTypeSubstitute(table, whenTrue, infers, caught, count);
 }
 
 /* Finishes an unevaluated type once substitution has made its pieces concrete.
@@ -231,7 +255,7 @@ TypeId csTypeEvaluate(TypeTable *table, TypeId type) {
       TypeId extends = table->slots[composite->slotStart];
       TypeId whenTrue = table->slots[composite->slotStart + 1];
       TypeId whenFalse = table->slots[composite->slotStart + 2];
-      return csTypeConditional(table, composite->inner, extends, whenTrue, whenFalse);
+      return csTypeConditional(table, composite->inner, extends, whenTrue, whenFalse, &table->slots[composite->slotStart + 3], composite->slotCount - 3);
     }
 
     case COMPOSITE_MAPPED: {

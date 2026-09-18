@@ -52,7 +52,8 @@ static TypeId substitute(TypeTable *table, TypeId type, const TypeId *params, co
   switch (composite->kind) {
     case COMPOSITE_TYPEVAR:
     /* A literal holds text and nothing that could mention a variable. */
-    case COMPOSITE_LITERAL: return type;
+    case COMPOSITE_LITERAL:
+    case COMPOSITE_NUMBER_LITERAL: return type;
 
     /* The computed forms: their pieces are substituted, and then the result is
      * *evaluated* — which is where `Partial<T>` becomes a shape, because this
@@ -121,10 +122,12 @@ static TypeId substitute(TypeTable *table, TypeId type, const TypeId *params, co
         return csTypeUnionOf(table, answers, memberCount);
       }
 
+      /* The `infer` names are not substituted: they are this conditional's own
+       * variables, bound by matching rather than by the caller. */
       TypeId extends = substitute(table, extendsAt, params, args, count, depth + 1);
       TypeId whenTrue = substitute(table, trueAt, params, args, count, depth + 1);
       TypeId whenFalse = substitute(table, falseAt, params, args, count, depth + 1);
-      return csTypeConditional(table, check, extends, whenTrue, whenFalse);
+      return csTypeConditional(table, check, extends, whenTrue, whenFalse, &table->slots[composite->slotStart + 3], composite->slotCount - 3);
     }
 
     case COMPOSITE_ARRAY: return csTypeArrayOf(table, substitute(table, composite->inner, params, args, count, depth + 1));

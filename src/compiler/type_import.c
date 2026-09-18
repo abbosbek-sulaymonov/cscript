@@ -13,6 +13,7 @@
  * alike. A type variable is erased: a generic is instantiated at its call
  * site, and an imported binding has no call site here for the checker to read.
  */
+#include <stdlib.h>
 #include <string.h>
 
 #include "compiler/type_internal.h"
@@ -57,6 +58,7 @@ static TypeId importType(TypeTable *dest, const TypeTable *src, TypeId type, int
 
     /* A literal is its text, and the text is all that has to cross. */
     case COMPOSITE_LITERAL: return csTypeLiteral(dest, composite->name, composite->nameLength);
+    case COMPOSITE_NUMBER_LITERAL: return csTypeNumberLiteral(dest, strtod(composite->name, NULL));
 
     /* An unevaluated form crossing a boundary is one that never became a type:
      * it was waiting on a variable, and a variable does not cross. */

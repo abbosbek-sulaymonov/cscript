@@ -309,6 +309,7 @@ AstNode *csParse(const char *source, AstArena *arena, Diagnostics *diag) {
   parser.diag = diag;
   parser.types = NULL;
   parser.pendingAsync = false;
+  parser.inferCount = 0;
   /* One, not zero: the top level of a file may await, and a plain function
    * nested inside it may not — which is already the rule, because every
    * non-async function body resets this to zero on the way in. */
