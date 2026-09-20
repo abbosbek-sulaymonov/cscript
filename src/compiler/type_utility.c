@@ -16,6 +16,7 @@
  *     Extract<T, U>   the members of T that are
  *     NonNullable<T>  T without null and undefined
  *     ReturnType<T>   what the function type T answers
+ *     Parameters<T>   what it takes, as a tuple
  *
  * Each answers a shape named after itself, so a message says `Partial` rather
  * than describing what it produced. What each refuses is what its argument
@@ -138,7 +139,8 @@ TypeId csTypeUtility(TypeTable *table, const char *name, int length, const TypeI
     const char *name;
     int arity;
   } known[] = {
-      {"Partial", 1}, {"Required", 1}, {"Readonly", 1}, {"Pick", 2}, {"Omit", 2}, {"Record", 2}, {"Exclude", 2}, {"NonNullable", 1}, {"ReturnType", 1}, {"Extract", 2},
+      {"Partial", 1}, {"Required", 1},    {"Readonly", 1},   {"Pick", 2},    {"Omit", 2},       {"Record", 2},
+      {"Exclude", 2}, {"NonNullable", 1}, {"ReturnType", 1}, {"Extract", 2}, {"Parameters", 1},
   };
 
   *wanted = 0;
@@ -167,6 +169,18 @@ TypeId csTypeUtility(TypeTable *table, const char *name, int length, const TypeI
   }
   if (csTypeNameMatches(name, length, "Exclude")) return filterUnion(table, args[0], args[1], false);
   if (csTypeNameMatches(name, length, "Extract")) return filterUnion(table, args[0], args[1], true);
+  if (csTypeNameMatches(name, length, "Parameters")) {
+    /* What the function type takes, as a tuple — which is the only shape that
+     * can hold "these types, in this order, and this many of them". */
+    const CompositeType *signature = csTypeComposite(table, args[0]);
+    if (signature == NULL || signature->kind != COMPOSITE_FUNCTION) return TYPE_NEVER;
+
+    TypeId taken[CS_MAX_TYPE_PARAMS * 4];
+    int count = signature->slotCount;
+    if (count > (int)(sizeof taken / sizeof taken[0])) return TYPE_DYNAMIC;
+    for (int i = 0; i < count; i++) taken[i] = table->slots[signature->slotStart + i];
+    return csTypeTupleOf(table, taken, count);
+  }
   if (csTypeNameMatches(name, length, "ReturnType")) {
     /* `T extends (...args) => infer R ? R : never`, asked directly: the
      * argument is known here, so there is nothing to match — a function type

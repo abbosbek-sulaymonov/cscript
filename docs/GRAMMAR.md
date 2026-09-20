@@ -56,6 +56,7 @@ classDecl      = "class" IDENTIFIER typeParams?
                  ( "extends" IDENTIFIER typeArgs? )? "{" member* "}" ;
 typeParams     = "<" IDENTIFIER ( "," IDENTIFIER )* ">" ;
 typeArgs       = "<" TYPE ( "," TYPE )* ">" ;
+tupleType      = "[" ( TYPE ( "," TYPE )* )? "]" ;
 
 enumDecl       = "enum" IDENTIFIER "{" enumMember ( "," enumMember )* ","? "}" ;
 enumMember     = IDENTIFIER ( "=" ( "-"? NUMBER | STRING ) )? ;
@@ -279,6 +280,32 @@ const names = ["ada", "alan"];   // string[], and just as checked
 xs[0] + 1;                       // a number, so this is arithmetic
 names[0].toUpperCase();          // a string, so this is a string's method
 ```
+
+A **tuple** knows what *each* element holds, where an array knows what every
+element holds. That is the difference a pair returned from a function needs:
+
+```ts
+type Pair = [number, string];
+const p: Pair = [1, "one"];
+p[0] + 1;                        // a number — the position is written out
+p[1].toUpperCase();              // a string
+
+const loose: (number | string)[] = p;   // a tuple is an array of its elements
+const strict: number[] = p;             // error — "one" is not a number
+const short: Pair = [1];                // error — a tuple says how many
+```
+
+**Destructuring is where it pays.** Each binding takes what stands at its
+position, and an object pattern asks the same question of a shape by name:
+
+```ts
+function divide(a: number, b: number): [number, number] { … }
+const [whole, rest] = divide(17, 5);    // both numbers
+
+const { name, age, email } = user;      // string, number, string | undefined
+```
+
+Both were untyped before there was a tuple to read positions out of.
 
 A function type is what makes a callback checkable. Before it, everything
 passed as `Function` was the runtime's problem:
@@ -537,7 +564,7 @@ let nothing: never = 1;    // error: cannot assign number to 'nothing'
 
 ### The utility types
 
-The ten TypeScript's library defines as mappings and conditionals, here
+The eleven TypeScript's library defines as mappings and conditionals, here
 applied directly:
 
 | Written | Means |
@@ -552,6 +579,7 @@ applied directly:
 | `Extract<T, U>` | the members of T that are |
 | `NonNullable<T>` | T without `null` and `undefined` |
 | `ReturnType<T>` | what the function type T answers |
+| `Parameters<T>` | what it takes, as a tuple |
 
 ```ts
 const draft: Partial<User> = { name: "ada" };
@@ -573,8 +601,8 @@ The last four are what a program can now write for itself — `Exclude<T, U>` is
 `T extends U ? never : T` and answers the same thing — and they are here
 because they are asked for by name often enough to be worth the shorthand.
 
-What is missing beside them: `Parameters<T>`, which needs tuple types to have
-somewhere to put the answer.
+`Parameters<T>` is why tuple types came before it: a tuple is the only shape
+that can hold "these types, in this order, and this many of them".
 
 ### The built-in generics
 

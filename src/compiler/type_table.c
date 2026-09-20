@@ -277,14 +277,59 @@ TypeId csTypeUnionWith(TypeTable *table, TypeId left, TypeId right) {
   return csTypeUnionOf(table, both, 2);
 }
 
-TypeId csTypeElementOf(const TypeTable *table, TypeId array) {
+TypeId csTypeTupleOf(TypeTable *table, const TypeId *elements, int count) {
+  if (table == NULL || count < 0) return TYPE_ARRAY;
+  if (count > CS_MAX_TYPE_PARAMS * 4) return TYPE_ARRAY;
+
+  for (int i = 0; i < table->compositeCount; i++) {
+    const CompositeType *composite = &table->composites[i];
+    if (composite->kind != COMPOSITE_TUPLE || composite->slotCount != count) continue;
+    if (!sameSlots(table, composite, elements, count)) continue;
+    return csTypeCompositeAt(i);
+  }
+
+  int start = 0;
+  if (count > 0 && !csTypeTakeSlots(table, elements, count, &start)) return TYPE_ARRAY;
+
+  TypeId id;
+  CompositeType *composite = csTypeNewComposite(table, COMPOSITE_TUPLE, &id);
+  if (composite == NULL) return TYPE_ARRAY;
+  composite->slotStart = start;
+  composite->slotCount = count;
+  return id;
+}
+
+int csTypeTupleLength(const TypeTable *table, TypeId type) {
+  const CompositeType *composite = csTypeComposite(table, type);
+  return composite != NULL && composite->kind == COMPOSITE_TUPLE ? composite->slotCount : -1;
+}
+
+TypeId csTypeTupleElement(const TypeTable *table, TypeId type, int index) {
+  const CompositeType *composite = csTypeComposite(table, type);
+  if (composite == NULL || composite->kind != COMPOSITE_TUPLE) return TYPE_ERROR;
+  if (index < 0 || index >= composite->slotCount) return TYPE_ERROR;
+  return table->slots[composite->slotStart + index];
+}
+
+TypeId csTypeElementOf(TypeTable *table, TypeId array) {
   const CompositeType *composite = csTypeComposite(table, array);
   if (composite != NULL && composite->kind == COMPOSITE_ARRAY) return composite->inner;
+
+  /* A tuple read at a position the checker cannot see is any of its elements,
+   * which is the union of them — the same answer `T[number]` gives. */
+  if (composite != NULL && composite->kind == COMPOSITE_TUPLE) {
+    if (composite->slotCount == 0) return TYPE_NEVER;
+    TypeId members[CS_MAX_TYPE_PARAMS * 4];
+    int count = composite->slotCount;
+    if (count > (int)(sizeof members / sizeof members[0])) return TYPE_DYNAMIC;
+    for (int i = 0; i < count; i++) members[i] = table->slots[composite->slotStart + i];
+    return csTypeUnionOf(table, members, count);
+  }
   return TYPE_DYNAMIC;
 }
 
 bool csTypeIsArrayLike(const TypeTable *table, TypeId type) {
-  return type == TYPE_ARRAY || csTypeIs(table, type, COMPOSITE_ARRAY);
+  return type == TYPE_ARRAY || csTypeIs(table, type, COMPOSITE_ARRAY) || csTypeIs(table, type, COMPOSITE_TUPLE);
 }
 
 bool csTypeIsCallable(const TypeTable *table, TypeId type) {
@@ -523,6 +568,15 @@ static void renderType(const TypeTable *table, TypeId type, NameBuffer *buffer, 
         renderType(table, table->slots[composite->slotStart + i], buffer, depth + 1);
       }
       append(buffer, ">");
+      return;
+
+    case COMPOSITE_TUPLE:
+      append(buffer, "[");
+      for (int i = 0; i < composite->slotCount; i++) {
+        if (i > 0) append(buffer, ", ");
+        renderType(table, table->slots[composite->slotStart + i], buffer, depth + 1);
+      }
+      append(buffer, "]");
       return;
 
     case COMPOSITE_ARRAY: {

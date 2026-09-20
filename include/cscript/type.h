@@ -108,6 +108,11 @@ typedef enum {
   COMPOSITE_INTERFACE,
   /* `T[]` — an array that knows what it holds. */
   COMPOSITE_ARRAY,
+  /* `[number, string]` — a fixed number of elements, each with its own type.
+   * An array knows what every element holds; a tuple knows what *each* one
+   * does, which is what a pair returned from a function needs to be typed at
+   * all. Its elements are a run of the slot pool, like a union's. */
+  COMPOSITE_TUPLE,
   /* `(a: number) => string`. */
   COMPOSITE_FUNCTION,
   /* `A | B` — including the two that make the rest of the system honest,
@@ -363,6 +368,15 @@ TypeId csTypeMapped(TypeTable *table, TypeId keys, TypeId variable, TypeId value
  * written. TYPE_DYNAMIC when the table is full — which degrades to "the
  * checker cannot see this" rather than to a wrong answer. */
 TypeId csTypeArrayOf(TypeTable *table, TypeId element);
+
+/* `[A, B]`. Interned on its elements, so one written twice is one type. */
+TypeId csTypeTupleOf(TypeTable *table, const TypeId *elements, int count);
+
+/* How many elements a tuple has, or -1 for anything that is not one. */
+int csTypeTupleLength(const TypeTable *table, TypeId type);
+
+/* The type of element `index`, or TYPE_ERROR when there is no such element. */
+TypeId csTypeTupleElement(const TypeTable *table, TypeId type, int index);
 TypeId csTypeFunctionOf(TypeTable *table, const TypeId *params, int paramCount, int requiredCount, bool hasRest, TypeId result);
 TypeId csTypeUnionOf(TypeTable *table, const TypeId *members, int count);
 
@@ -370,7 +384,11 @@ TypeId csTypeUnionOf(TypeTable *table, const TypeId *members, int count);
 TypeId csTypeUnionWith(TypeTable *table, TypeId left, TypeId right);
 
 /* What an array holds, or TYPE_DYNAMIC for a bare `array`. */
-TypeId csTypeElementOf(const TypeTable *table, TypeId array);
+/* What one element of an array holds. A *tuple* read at a position the checker
+ * cannot see is any of its elements, so this answers the union of them — which
+ * is why the table is writable: that union may be a type the file has not
+ * built yet. */
+TypeId csTypeElementOf(TypeTable *table, TypeId array);
 
 /* True when `type` is an array of any kind, bare or knowing. */
 bool csTypeIsArrayLike(const TypeTable *table, TypeId type);

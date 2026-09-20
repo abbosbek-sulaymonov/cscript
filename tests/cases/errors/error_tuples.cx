@@ -1,0 +1,26 @@
+// What a tuple refuses.
+//
+// A tuple is the claim that there are exactly this many elements, each of this
+// type — so every part of that claim is checked.
+type Pair = [number, string];
+
+const wrongType: Pair = [1, 2];
+const tooMany: Pair = [1, "a", 3];
+const tooFew: Pair = [1];
+
+const ok: Pair = [1, "a"];
+
+// There is no element there.
+console.log(ok[2]);
+
+// Nothing shapeless is a tuple: an array says nothing about how many elements
+// it has.
+const xs: number[] = [1, 2];
+const fromArray: Pair = xs;
+
+// And a tuple only fits an array whose element admits all of its own.
+const narrowed: number[] = ok;
+
+// Destructuring takes what the tuple says stands at that position.
+const [first, second] = ok;
+const swapped: string = first;

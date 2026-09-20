@@ -88,6 +88,7 @@ already measured says it is the thing that pays.
 | **80 ✅** | `enum`, and type parameters on a class — with the constructor as what `new Box(3)` infers from |
 | **81 ✅** | Conditional types and `never` — and the three utility types that needed them |
 | **82 ✅** | Number literal types and `infer` — a numeric enum is exact, and a conditional can take a type apart |
+| **83 ✅** | Tuple types — and the destructuring that was untyped for want of them |
 | next | Speculative guards: a type *guessed* rather than proved, so the arithmetic the checker could not settle still compiles |
 
 ---
@@ -516,3 +517,45 @@ four.
 `ReturnType<T>` follows, asked directly rather than through a conditional: a
 function type already carries what it answers. `Parameters<T>` does not follow,
 and will not until there are tuple types to put the answer in.
+
+---
+
+## Tuple types, and what they were really for
+
+An array knows what *every* element holds. A tuple knows what *each* one does,
+and that is the difference a pair returned from a function needs to be typed at
+all.
+
+`COMPOSITE_TUPLE` keeps its elements in the slot pool the way a union keeps its
+members, and the rules follow from what a tuple claims. A tuple is an array and
+an object, as an array is — but only where the array's element admits every one
+of its own, so `[number, string]` is a `(number | string)[]` and not a
+`number[]`. Nothing shapeless is a tuple, because an array says nothing about
+how many elements it has and a tuple is exactly that claim. Against another
+tuple: the same count, each element fitting, covariant as an array's is.
+
+A written-out position is read exactly — `p[0]` on a `[number, string]` is a
+number — and a position past the end is an error rather than `undefined`, which
+is the one place this is stricter than an array. An index the checker cannot
+read answers any of them, which is the union.
+
+### The part that was worth doing
+
+Destructuring. `const [whole, rest] = divide(17, 5)` bound two variables that
+were both **dynamic**, and so did `const { name, age } = user` — the checker
+declared every binding as what it could not work out, with a comment saying
+element and property types were not modelled.
+
+Both are modelled now. An array pattern over a tuple takes position by
+position; an object pattern over a shape takes member by member, and an
+optional member gives its binding `T | undefined`, because the member may not
+be there and the binding holds undefined when it is not.
+
+That second half is not about tuples at all — object destructuring from an
+interface was untyped for the same reason, and the same twenty lines fixed it.
+
+### And `Parameters<T>`
+
+Which is why tuples came first: a tuple is the only shape that can hold "these
+types, in this order, and this many of them". `ReturnType` needed nothing but
+the function type's result; `Parameters` needed somewhere to put the answer.

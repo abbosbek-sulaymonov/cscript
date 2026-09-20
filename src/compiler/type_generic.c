@@ -132,6 +132,16 @@ static TypeId substitute(TypeTable *table, TypeId type, const TypeId *params, co
 
     case COMPOSITE_ARRAY: return csTypeArrayOf(table, substitute(table, composite->inner, params, args, count, depth + 1));
 
+    case COMPOSITE_TUPLE: {
+      TypeId elements[CS_MAX_TYPE_PARAMS * 4];
+      int elementCount = composite->slotCount;
+      if (elementCount > (int)(sizeof elements / sizeof elements[0])) return type;
+      for (int i = 0; i < elementCount; i++) {
+        elements[i] = substitute(table, table->slots[composite->slotStart + i], params, args, count, depth + 1);
+      }
+      return csTypeTupleOf(table, elements, elementCount);
+    }
+
     case COMPOSITE_UNION: {
       TypeId members[16];
       int memberCount = composite->slotCount;

@@ -15,6 +15,7 @@
  * TypeScript's utility types are built from these three and nothing else, and
  * so are the ones in type_utility.c.
  */
+#include <stdlib.h>
 #include <string.h>
 
 #include "compiler/type_internal.h"
@@ -75,6 +76,15 @@ TypeId csTypeIndexedAccess(TypeTable *table, TypeId subject, TypeId key) {
     if (shape != NULL && (shape->kind == COMPOSITE_TYPEVAR || shape->kind == COMPOSITE_MAPPED)) {
       return unevaluated(table, COMPOSITE_INDEXED, subject, slots, 1);
     }
+    /* A tuple indexed by a written-out position is that element; by `number`
+     * it is any of them, which is the union csTypeElementOf answers. */
+    const CompositeType *at = csTypeComposite(table, key);
+    if (at != NULL && at->kind == COMPOSITE_NUMBER_LITERAL && csTypeTupleLength(table, subject) >= 0) {
+      TypeId element = csTypeTupleElement(table, subject, (int)strtod(at->name, NULL));
+      if (element != TYPE_ERROR) return element;
+      return TYPE_DYNAMIC;
+    }
+
     /* An array indexed by a number is its element, which is the one indexed
      * access that needs no shape. */
     if (csTypeIsArrayLike(table, subject)) return csTypeElementOf(table, subject);
