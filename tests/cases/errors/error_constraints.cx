@@ -1,0 +1,25 @@
+// What a generic constraint refuses at a call.
+//
+// Without one nothing is known about a type variable, and that is the point: a
+// body that needs more has to say so, and then a call has to satisfy it.
+interface Named {
+  name: string;
+}
+
+function label<T extends Named>(x: T): string {
+  return x.name;
+}
+
+label({ age: 1 });
+label(7);
+
+function longest<T extends string>(a: T, b: T): T {
+  return a.length >= b.length ? a : b;
+}
+longest(1, 2);
+
+// An unconstrained variable still knows nothing, which is what makes writing
+// a constraint worth anything.
+function bare<T>(x: T): number {
+  return x.length;
+}

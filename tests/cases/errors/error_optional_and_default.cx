@@ -1,0 +1,5 @@
+// A parameter is optional or has a default, not both: they are the same
+// promise to a caller, with and without a value attached.
+function both(a?: number = 1): number {
+  return a;
+}

@@ -1,0 +1,87 @@
+// Three things a TypeScript programmer reaches for in the first hour.
+
+// 1. An optional parameter. The `?` was already understood on an interface
+// member and not on a parameter, which is a gap in the grammar rather than in
+// the idea: what it means is the same both times.
+function greet(name: string, title?: string): string {
+  if (title === undefined) return "hello " + name;
+  return "hello " + title + " " + name;
+}
+console.log(greet("ada"), greet("ada", "dr"));
+
+// What it holds when the argument was left out is said in its type, because
+// there is no default to fill it in with.
+function len(text?: string): number {
+  return text === undefined ? 0 : text.length;
+}
+console.log(len(), len("four"));
+
+class Meter {
+  base: number;
+  constructor(base?: number) {
+    this.base = base === undefined ? 0 : base;
+  }
+  read(extra?: number): number {
+    return this.base + (extra === undefined ? 0 : extra);
+  }
+}
+const m = new Meter();
+console.log(m.read(), m.read(5), new Meter(10).read(1));
+
+// 2. A generic constraint. Without one nothing is known about a type variable,
+// which is the point — so a body that needs more has to say so.
+function longest<T extends string>(a: T, b: T): T {
+  return a.length >= b.length ? a : b;
+}
+console.log(longest("ada", "alan"));
+
+interface Named {
+  name: string;
+}
+
+function label<T extends Named>(x: T): string {
+  return x.name.toUpperCase();
+}
+console.log(label({ name: "ada" }));
+
+// A constraint travels with the declaration, so an interface takes one too.
+interface Keyed<K extends string> {
+  key: K;
+}
+const keyed: Keyed<"id"> = { key: "id" };
+console.log(keyed.key);
+
+// 3. A type predicate. The program writing down the same kind of contract
+// `Array.isArray` has built in, and trusted the same way.
+function isText(x: unknown): x is string {
+  return typeof x === "string";
+}
+
+function shout(value: unknown): string {
+  if (isText(value)) return value.toUpperCase();
+  return "not text";
+}
+console.log(shout("ada"), shout(7));
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+function isPoint(v: unknown): v is Point {
+  return typeof v === "object" && v !== null;
+}
+
+// The guard shape a program actually writes — which needed `!` to be
+// understood by the narrowing, and it was not, for `typeof` either.
+function describe(v: unknown): string {
+  if (!isPoint(v)) return "unknown";
+  return String(v.x) + "," + String(v.y);
+}
+console.log(describe({ x: 1, y: 2 }), describe(3));
+
+function shoutElse(value: unknown): string {
+  if (!(typeof value === "string")) return "no";
+  return value.toUpperCase();
+}
+console.log(shoutElse("ada"), shoutElse(1));

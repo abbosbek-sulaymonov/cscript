@@ -2016,8 +2016,8 @@ genuinely new stage, which only runs on code that has earned it.
 | Cross-block liveness | Real dataflow, rather than the block-local approximation the allocator uses | Values crossing a block boundary keep a memory home today |
 | An x86-64 backend | A second encoder behind the same IR | The IR and everything above it are already architecture-neutral |
 
-The typing work has its own next step, unrelated to any of this: a user-defined
-type guard — `x is T` — which is what narrowing an `unknown` from a boundary
-needs to be worth writing once rather than inline every time. Conditional
-types, `never`, number literal types, `infer` and tuples are in, and the eleven
-utility types with them.
+The typing work has its own next step, unrelated to any of this: `implements`,
+`readonly T[]`, and an index signature written out — `{ [k: string]: number }`,
+which today only `Record<string, V>` reaches. Conditional types, `never`,
+number literal types, `infer`, tuples, optional parameters, generic constraints
+and type predicates are in, and the eleven utility types with them.

@@ -175,6 +175,13 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeId *out) {
     case AST_PROPERTY: {
       TypeId object = checkNode(checker, node->as.property.object);
 
+      /* `<T extends Named>` — inside the declaration a `T` is whatever it was
+       * constrained to, as far as reading a member goes. That is the whole of
+       * what a constraint buys a body: without one nothing is known about a
+       * type variable, which is why an unconstrained `T.name` is still a
+       * mistake. */
+      object = csTypeThroughConstraint(checker->types, object);
+
       /* Reading a property off a `value` is the commonest way a program would
        * use one without knowing what it is. */
       if (csTypeRefuseUnnarrowed(checker, object, node->line, "reading a property", node->as.property.object)) {
@@ -296,6 +303,7 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeId *out) {
 
     case AST_INDEX: {
       TypeId target = checkNode(checker, node->as.index.target);
+      target = csTypeThroughConstraint(checker->types, target);
       checkNode(checker, node->as.index.index);
       /* `?.[` says the target may be absent; that is the case being handled. */
       if (node->as.index.optional && (target == TYPE_NULL || target == TYPE_UNDEFINED)) {

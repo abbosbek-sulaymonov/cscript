@@ -1,0 +1,18 @@
+// What an optional parameter refuses.
+//
+// It may be left out, and everything from the first one on may be too — but
+// the ones before it may not.
+function greet(name: string, title?: string): string {
+  return name;
+}
+greet();
+
+// What it holds when it was left out is part of its type, so a body that
+// promises more has to handle it.
+function len(text?: string): number {
+  return text.length;
+}
+
+function back(n?: number): number {
+  return n;
+}

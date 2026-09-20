@@ -48,6 +48,10 @@ int csTypeNarrowAll(Checker *checker, AstNode *condition, bool whenTrue, Variabl
     return csTypeNarrowAll(checker, condition->as.grouping, whenTrue, narrowed, saved, limit);
   }
 
+  if (condition->type == AST_UNARY && condition->as.unary.op == UNARY_NOT) {
+    return csTypeNarrowAll(checker, condition->as.unary.operand, !whenTrue, narrowed, saved, limit);
+  }
+
   if (condition->type == AST_LOGICAL) {
     bool carries = condition->as.logical.op == LOGICAL_AND ? whenTrue : !whenTrue;
     if (!carries) return 0;
@@ -110,6 +114,14 @@ Variable *csTypeNarrow(Checker *checker, AstNode *condition, bool whenTrue, Type
     return csTypeNarrow(checker, condition->as.grouping, whenTrue, saved);
   }
 
+  /* `!test` proves about its operand exactly what `test` proves about the
+   * other branch. Which is what `if (!isPoint(v)) return;` rests on — the
+   * guard shape a program actually writes — and it was not understood for
+   * `typeof` either. */
+  if (condition->type == AST_UNARY && condition->as.unary.op == UNARY_NOT) {
+    return csTypeNarrow(checker, condition->as.unary.operand, !whenTrue, saved);
+  }
+
   /* A guard is usually more than one test: `typeof x !== "number" || x < 0`.
    * The first operand of an `||` is proved false when the whole thing is, and
    * the first operand of an `&&` is proved true when the whole thing is — so
@@ -140,6 +152,30 @@ Variable *csTypeNarrow(Checker *checker, AstNode *condition, bool whenTrue, Type
       if (variable == NULL) return NULL;
       *saved = variable->type;
       variable->type = TYPE_ARRAY;
+      return variable;
+    }
+
+    /* `isText(value)` where `isText` was declared `(x: unknown): x is string`.
+     * A predicate is the program writing down the same kind of contract
+     * `Array.isArray` has built in — so it is trusted the same way, and that
+     * is the whole of why one is worth writing.
+     *
+     * Only the true branch says anything. A false answer means the value is
+     * not that type, which this lattice cannot subtract in general: what is
+     * left of `unknown` after removing `string` has no name here. */
+    if (callee != NULL && callee->type == AST_IDENTIFIER) {
+      Variable *named = csTypeFindVariable(checker, callee->as.identifier.name, callee->as.identifier.length);
+      const Signature *signature = named != NULL ? named->signature : NULL;
+      if (signature == NULL || signature->predicateParam < 0) return NULL;
+      if (signature->predicateParam >= condition->as.call.argCount) return NULL;
+
+      AstNode *subject = condition->as.call.arguments[signature->predicateParam];
+      if (subject == NULL || subject->type != AST_IDENTIFIER) return NULL;
+
+      Variable *variable = csTypeFindVariable(checker, subject->as.identifier.name, subject->as.identifier.length);
+      if (variable == NULL || variable->awaiting) return NULL;
+      *saved = variable->type;
+      variable->type = signature->predicateType;
       return variable;
     }
     return NULL;

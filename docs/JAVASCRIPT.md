@@ -584,7 +584,9 @@ A class's name is a type, and a shape is described with `interface` or `type` �
 all checked structurally and then erased — the same two declarations TypeScript has, read the same way,
 and stripped by Node exactly as they are here. A class takes type parameters of
 its own, and `new Box(3)` works them out from the constructor; a conditional
-type chooses between two, and `infer` names what it found. Types cross a
+type chooses between two, and `infer` names what it found; a type variable may
+be constrained, a parameter may be optional, and a function may say what a
+`true` answer proves. Types cross a
 module boundary with the values that carry them, though a type's *name* does
 not — a shape written in two files is one type, because everything is compared
 structurally. What is missing beside them: generics do not survive an import,

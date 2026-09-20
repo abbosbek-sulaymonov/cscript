@@ -33,6 +33,11 @@ typedef struct {
   /* The declaration's own type parameters, if it is generic. */
   TypeId typeParams[CS_MAX_TYPE_PARAMS];
   int typeParamCount;
+
+  /* `function isText(x: unknown): x is string` — which parameter the promise
+   * is about, and what it proves. -1 for every function that makes none. */
+  int predicateParam;
+  TypeId predicateType;
   /* Which parameters have a default. Writing `undefined` for one of those is
    * how a caller asks for the default, so such an argument is accepted
    * whatever the parameter's type says. */

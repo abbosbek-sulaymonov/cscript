@@ -198,8 +198,36 @@ TypeId csTypeCheckCall(Checker *checker, AstNode *node) {
         for (int i = 0; i < signature->typeParamCount; i++) bindings[i] = TYPE_DYNAMIC;
 
         for (int i = 0; i < node->as.call.argCount && i < signature->paramCount; i++) {
+          /* `label({ name: "ada" })` against `<T extends Named>` — an object
+           * literal is an `object` until it is proved against something, and
+           * the constraint is that something. Without this the literal was
+           * matched as a shapeless object and the constraint it plainly
+           * satisfies was reported as broken.
+           *
+           * Only a literal *shape*. A written-out string proved against a
+           * `string` constraint would come back as its own literal type, and
+           * then `longest("ada", "alan")` would want the second argument to
+           * be `"ada"`. */
+          AstNode *argument = node->as.call.arguments[i];
+          bool isLiteralShape = argument != NULL && (argument->type == AST_OBJECT_LITERAL || argument->type == AST_ARRAY_LITERAL);
+          TypeId constraint = csTypeConstraintOf(checker->types, signature->paramTypes[i]);
+          if (isLiteralShape && constraint != TYPE_DYNAMIC) {
+            argTypes[i] = csTypeCheckShape(checker, argument, constraint);
+          }
           csTypeInfer(checker->types, signature->paramTypes[i], argTypes[i], signature->typeParams, bindings, signature->typeParamCount);
         }
+        /* What each variable was constrained to, asked of what it turned out
+         * to stand for here. A call writes no type arguments, so this is the
+         * only place the question can be put. */
+        for (int i = 0; i < signature->typeParamCount; i++) {
+          TypeId constraint = csTypeConstraintOf(checker->types, signature->typeParams[i]);
+          if (constraint == TYPE_DYNAMIC || bindings[i] == TYPE_DYNAMIC) continue;
+          if (csTypeAssignableIn(checker->types, bindings[i], constraint)) continue;
+          csTypeError(checker, node->line, "'%.*s' is constrained to %s, and here it would be %s", node->as.call.callee->as.identifier.length,
+                      node->as.call.callee->as.identifier.name, csTypeNameIn(checker->types, constraint), csTypeNameIn(checker->types, bindings[i]));
+          break;
+        }
+
         for (int i = 0; i < signature->paramCount && i < UINT8_MAX; i++) {
           paramTypes[i] = csTypeSubstitute(checker->types, paramTypes[i], signature->typeParams, bindings, signature->typeParamCount);
         }

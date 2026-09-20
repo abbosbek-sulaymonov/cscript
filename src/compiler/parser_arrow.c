@@ -249,6 +249,48 @@ AstNode *finishArrow(Parser *parser, AstNode *function, int line) {
 /* Everything after the name: the parameter list, the return annotation and the
  * body. Shared by function declarations and class methods, which differ only
  * in how their name is introduced. */
+/* `: name is Type` after a parameter list.
+ *
+ * Answers false when what follows is not one, having consumed nothing — the
+ * caller then reads an ordinary annotation. Three tokens of lookahead, because
+ * `: x` alone is a type called x and `: x is T` is a promise about the
+ * parameter called x. */
+static bool parsePredicateAnnotation(Parser *parser, AstNode *function) {
+  if (!check(parser, TOKEN_COLON)) return false;
+
+  Lexer probe = parser->lexer;
+  if (csLexerNext(&probe).type != TOKEN_IDENTIFIER) return false;
+  Token after = csLexerNext(&probe);
+  if (after.type != TOKEN_IDENTIFIER || !nameIs(after.start, after.length, "is")) return false;
+
+  advanceToken(parser); /* `:` */
+  advanceToken(parser); /* the parameter's name */
+  Token named = parser->previous;
+  advanceToken(parser); /* `is` */
+
+  int at = -1;
+  for (int i = 0; i < function->as.function.paramCount; i++) {
+    const AstParam *param = &function->as.function.params[i];
+    if (param->length != named.length || memcmp(param->name, named.start, (size_t)named.length) != 0) continue;
+    at = i;
+    break;
+  }
+  if (at < 0) {
+    csDiagnosticError(parser->diag, named.line, named.start, named.length, "'%.*s' is not one of this function's parameters", named.length, named.start);
+    return true;
+  }
+
+  TypeId proves;
+  if (!parseTypeExpression(parser, &proves)) return true;
+
+  function->as.function.predicateParam = at;
+  function->as.function.predicateType = proves;
+  /* What it *answers* is a boolean; the promise is what it says on top. */
+  function->as.function.returnType = TYPE_BOOLEAN;
+  function->as.function.hasReturnAnnotation = true;
+  return true;
+}
+
 AstNode *parseFunctionRest(Parser *parser, int line, const char *name, int nameLength, bool isMethod) {
   AstNode *function = csAstFunction(parser->arena, line, name, nameLength);
   function->as.function.isAsync = parser->pendingAsync;
@@ -297,11 +339,26 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name, int nameL
       const char *paramName = parser->previous.start;
       int paramLength = parser->previous.length;
 
+      /* `a?: number` — the same `?` an interface member takes, read in the
+       * same place: after the name and before the annotation. */
+      bool optional = matchToken(parser, TOKEN_QUESTION);
+
       TypeId paramType;
       bool annotated;
       if (!parseTypeAnnotation(parser, &paramType, &annotated)) return NULL;
 
+      if (optional) {
+        if (isRest) {
+          errorAtCurrent(parser, "a rest parameter is already optional and cannot be written '?'");
+          return NULL;
+        }
+        /* What it holds when the argument was left out, said in its type —
+         * there is no default to fill it in with. */
+        if (annotated) paramType = csTypeUnionWith(parser->types, paramType, TYPE_UNDEFINED);
+      }
+
       csAstFunctionAddParam(parser->arena, function, paramName, paramLength, paramType, annotated);
+      function->as.function.params[function->as.function.paramCount - 1].optional = optional;
       if (isRest) {
         function->as.function.hasRest = true;
         if (check(parser, TOKEN_COMMA)) {
@@ -314,6 +371,10 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name, int nameL
        * at the top of the body, so it can refer to the parameters before it —
        * which is what `function f(a, b = a * 2)` means. */
       if (matchToken(parser, TOKEN_EQUAL)) {
+        if (optional) {
+          errorAtCurrent(parser, "a parameter is optional or has a default, not both");
+          return NULL;
+        }
         AstNode *fallback = parsePrecedence(parser, PREC_ASSIGNMENT);
         if (fallback == NULL) return NULL;
         function->as.function.params[function->as.function.paramCount - 1].defaultValue = fallback;
@@ -323,11 +384,19 @@ AstNode *parseFunctionRest(Parser *parser, int line, const char *name, int nameL
   consume(parser, TOKEN_RIGHT_PAREN, "expected ')' after the parameters");
   if (parser->diag->panicMode) return NULL;
 
-  TypeId returnType;
-  bool hasReturnAnnotation;
-  if (!parseTypeAnnotation(parser, &returnType, &hasReturnAnnotation)) return NULL;
-  function->as.function.returnType = returnType;
-  function->as.function.hasReturnAnnotation = hasReturnAnnotation;
+  /* `: x is string` — a type predicate, which is a boolean with a promise
+   * attached: when the answer is true the caller may read the named argument
+   * as that type. Read before the ordinary annotation, because both begin
+   * with the same colon and only one of them has a parameter's name in it. */
+  if (parsePredicateAnnotation(parser, function)) {
+    if (parser->diag->panicMode) return NULL;
+  } else {
+    TypeId returnType;
+    bool hasReturnAnnotation;
+    if (!parseTypeAnnotation(parser, &returnType, &hasReturnAnnotation)) return NULL;
+    function->as.function.returnType = returnType;
+    function->as.function.hasReturnAnnotation = hasReturnAnnotation;
+  }
 
   consume(parser, TOKEN_LEFT_BRACE, "expected '{' to open the function body");
   if (parser->diag->panicMode) return NULL;

@@ -397,7 +397,25 @@ TypeId csTypeDeclareTypeVar(TypeTable *table, const char *name, int length) {
   composite->name = owned;
   composite->nameLength = length;
   composite->active = true;
+  /* Constrained to nothing until something says otherwise. */
+  composite->inner = TYPE_DYNAMIC;
   return id;
+}
+
+void csTypeConstrainTypeVar(TypeTable *table, TypeId variable, TypeId constraint) {
+  if (!csTypeIs(table, variable, COMPOSITE_TYPEVAR)) return;
+  table->composites[csTypeCompositeIndex(variable)].inner = constraint;
+}
+
+TypeId csTypeConstraintOf(const TypeTable *table, TypeId variable) {
+  const CompositeType *composite = csTypeComposite(table, variable);
+  if (composite == NULL || composite->kind != COMPOSITE_TYPEVAR) return TYPE_DYNAMIC;
+  return composite->inner;
+}
+
+TypeId csTypeThroughConstraint(const TypeTable *table, TypeId type) {
+  TypeId constraint = csTypeConstraintOf(table, type);
+  return constraint != TYPE_DYNAMIC ? constraint : type;
 }
 
 void csTypeCloseTypeVar(TypeTable *table, TypeId typeVar) {

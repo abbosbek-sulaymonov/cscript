@@ -89,6 +89,7 @@ already measured says it is the thing that pays.
 | **81 ✅** | Conditional types and `never` — and the three utility types that needed them |
 | **82 ✅** | Number literal types and `infer` — a numeric enum is exact, and a conditional can take a type apart |
 | **83 ✅** | Tuple types — and the destructuring that was untyped for want of them |
+| **84 ✅** | Optional parameters, generic constraints and type predicates — the three a TypeScript programmer reaches for first |
 | next | Speculative guards: a type *guessed* rather than proved, so the arithmetic the checker could not settle still compiles |
 
 ---
@@ -559,3 +560,65 @@ interface was untyped for the same reason, and the same twenty lines fixed it.
 Which is why tuples came first: a tuple is the only shape that can hold "these
 types, in this order, and this many of them". `ReturnType` needed nothing but
 the function type's result; `Parameters` needed somewhere to put the answer.
+
+---
+
+## Three a TypeScript programmer reaches for first
+
+Found by probing the grammar rather than by reading the roadmap, which is how
+two of them had stayed missing: neither was on any list.
+
+**Optional parameters.** `b?: string` was understood on an *interface member*
+and not on a parameter. The same `?`, in the same place, read by one of the two
+parameter lists and not the other — a gap in the grammar rather than in the
+idea. What it means is what a default already meant to everything that counts
+how many arguments a call must supply, so the two share that path; what an
+optional one has instead is `| undefined` in its type, because nothing fills it
+in. A parameter takes one or the other, and saying both is an error.
+
+**Generic constraints.** `<T extends string>` did not parse, so a type variable
+was always unconstrained — and an unconstrained one knows nothing, which meant
+a generic body could do nothing with its own argument. The constraint lives on
+the variable's composite, and buys two things: a `T` may stand wherever its
+constraint may, and a member may be read through it. It is checked wherever the
+argument is settled — at a call against what was inferred, and at a written-out
+`Box<number>` against what was written.
+
+One wrinkle. An object literal is `object` until it is proved against
+something, and inference ran before any of that — so `label({ name: "ada" })`
+against `<T extends Named>` reported the constraint broken by a literal that
+plainly satisfies it. The literal is proved against the constraint first now,
+and only a literal *shape* is: proving a written-out string against a `string`
+constraint gives back its own literal type, and then `longest("ada", "alan")`
+wants the second argument to be `"ada"`.
+
+**Type predicates.** `function isText(x: unknown): x is string` — the program
+writing down the same kind of contract `Array.isArray` has built in, and
+trusted the same way. Without it there was no way to write a guard once: a
+language that pushes `unknown` as hard as this one has to let a program say
+what it has proved.
+
+Only a true answer says anything. What is left of `unknown` after removing
+`string` has no name in this lattice, so the other branch narrows nothing.
+
+### And a `!` that was never understood
+
+`if (!isPoint(v)) return;` is the guard shape a program actually writes, and
+the narrowing did not recognise `!` at all — not for a predicate and not for
+`typeof` either. `!test` proves about its operand exactly what `test` proves
+about the other branch, which is two lines, and it had been missing since
+narrowing existed.
+
+### Three stale passages in the grammar document
+
+All three claimed things that had stopped being true, and a reader would have
+believed them.
+
+- "Not supported… private `#fields`, static blocks, computed member names,
+  `new.target`… Class names are not usable as type annotations. The type
+  lattice is a fixed set of primitives" — every clause false; all of it works.
+- "without union types there is no way to write 'a string, or null'" — unions
+  went in with the type tree.
+- "Not supported… **object rest** (`const { a, ...rest } = o`)" — it works. The
+  other half of that sentence, spreading into a built-in method call, is still
+  true and stayed.
