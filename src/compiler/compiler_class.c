@@ -121,8 +121,10 @@ void compileConstructor(const AstNode *classNode) {
   compiler.function->hasRest = fn->as.function.hasRest;
   compiler.function->arity = fn->as.function.paramCount;
   if (fn->as.function.hasRest) compiler.function->arity--;
+  /* Optional and defaulted are the same promise to a caller: everything from
+   * the first one of either may be left out. */
   for (int i = 0; i < fn->as.function.paramCount; i++) {
-    if (fn->as.function.params[i].defaultValue != NULL) {
+    if (fn->as.function.params[i].defaultValue != NULL || fn->as.function.params[i].optional) {
       compiler.function->arity = i;
       break;
     }

@@ -50,11 +50,13 @@ objectEntry    = IDENTIFIER ( ":" ( IDENTIFIER | pattern ) )? ( "=" expression )
 functionDecl   = "async"? "function" "*"? IDENTIFIER
                  "(" parameters? ")" typeAnnotation? block ;
 parameters     = parameter ( "," parameter )* ;
-parameter      = "..."? ( IDENTIFIER typeAnnotation? | pattern ) ( "=" expression )? ;
+parameter      = "..."? ( IDENTIFIER "?"? typeAnnotation? | pattern ) ( "=" expression )? ;
 
 classDecl      = "class" IDENTIFIER typeParams?
                  ( "extends" IDENTIFIER typeArgs? )? "{" member* "}" ;
-typeParams     = "<" IDENTIFIER ( "," IDENTIFIER )* ">" ;
+typeParams     = "<" typeParam ( "," typeParam )* ">" ;
+typeParam      = IDENTIFIER ( "extends" TYPE )? ;
+predicate      = ":" IDENTIFIER "is" TYPE ;        (* a function's result *)
 typeArgs       = "<" TYPE ( "," TYPE )* ">" ;
 tupleType      = "[" ( TYPE ( "," TYPE )* )? "]" ;
 
@@ -242,6 +244,37 @@ because `function` is a keyword, and a keyword cannot appear in a type. There
 is exactly one top type and it is `unknown`; `any` and `value` are refused by
 name, with a message saying so.
 
+### Type predicates
+
+A function may say what a `true` answer *proves*, and the checker trusts it the
+way it trusts `typeof` and `Array.isArray`:
+
+```ts
+function isText(x: unknown): x is string {
+  return typeof x === "string";
+}
+
+function shout(value: unknown): string {
+  if (isText(value)) return value.toUpperCase();   // a string here
+  return "not text";
+}
+```
+
+The parameter named before `is` is the one the promise is about, and what such
+a function *answers* is a boolean. Only a true answer says anything: what is
+left of `unknown` after removing `string` has no name in this lattice, so the
+other branch narrows nothing.
+
+`!` is understood in a condition, so the guard shape a program actually writes
+works:
+
+```ts
+function describe(v: unknown): string {
+  if (!isPoint(v)) return "unknown";
+  return String(v.x);            // a Point here
+}
+```
+
 ### `unknown`, and narrowing
 
 `unknown` is the type for what genuinely is not known until run time — a JSON
@@ -345,6 +378,25 @@ function widen(x: number | string): string {
 }
 ```
 
+### Optional parameters
+
+A parameter may be left out, and everything from the first optional one on may
+be too:
+
+```ts
+function greet(name: string, title?: string): string {
+  if (title === undefined) return "hello " + name;
+  return "hello " + title + " " + name;
+}
+greet("ada");           // fine
+greet();                // error: expected between 1 and 2 arguments
+```
+
+What it holds when the argument was left out is part of its type — `title` is
+`string | undefined` inside the body — because nothing fills it in. A default
+does fill it in, so `a = 1` and `a?: number` are the same promise to a caller
+and a parameter takes one or the other, not both.
+
 ### Generics
 
 A declaration may be written once for every type it works on. Type arguments
@@ -364,9 +416,27 @@ const boxed: Box<number> = { value: 41 };
 type Pair<A, B> = { left: A; right: B };
 ```
 
-Inside the declaration a type variable is only itself: nothing else is known
-about a `T`, which is what lets the body be checked once for every
-instantiation at once. A declaration may take at most four of them, and a call
+A type variable may be **constrained**, and then it is also whatever it was
+constrained to:
+
+```ts
+function longest<T extends string>(a: T, b: T): T {
+  return a.length >= b.length ? a : b;   // a `T` is a string here
+}
+
+interface Named { name: string; }
+function label<T extends Named>(x: T): string { return x.name; }
+label({ age: 1 });     // error: 'label' is constrained to Named
+```
+
+The constraint is checked wherever the argument is settled: at a call, against
+what the variable was worked out to stand for, and at a written-out
+`Box<number>`, against what was written.
+
+Inside the declaration a type variable is only itself — or only its constraint.
+Nothing else is known about an unconstrained `T`, which is what lets the body
+be checked once for every instantiation at once, and what makes a constraint
+worth writing. A declaration may take at most four of them, and a call
 that leaves one undetermined gets the type the checker could not work out.
 
 A **class** takes them the same way, and its constructor is what a `new`
@@ -829,9 +899,9 @@ function f(a) {}              // parameter 'a' needs a type
 ### Deliberate gaps
 
 **Comparing against `null` or `undefined` is always allowed**, even when the
-other side has a known, different type. Those checks are idiomatic, and without
-union types there is no way to write "a string, or null" — so rejecting them
-would punish correct code for a hole in the type system.
+other side has a known, different type. Those checks are idiomatic, and a
+program that has narrowed a union already should not have to prove it again to
+ask the question that narrowed it.
 
 **An object's properties are dynamic unless a shape names them.**
 `Math.PI` and a plain `point.x` are not modelled; reading one answers a type
@@ -1154,9 +1224,9 @@ points.map(({ x, y }) => x * y);
 
 Spread works in array literals and call arguments, and over strings.
 
-Not supported, each with an error that says so: **object rest**
-(`const { a, ...rest } = o`) and spreading into a built-in method call such as
-`xs.push(...ys)` — packing the arguments loses the receiver those need.
+**Object rest** — `const { a, ...rest } = o` — works. What does not is
+spreading into a built-in method call such as `xs.push(...ys)`: packing the
+arguments loses the receiver those need, and the error says so.
 
 ## Classes
 
@@ -1244,13 +1314,14 @@ rather than a write that silently does nothing.
 **Static fields** work too — `static count = 0;` — and are set on the class
 where it is declared.
 
-Not supported, each with an error that says so: **private `#fields`**,
-**static blocks**, **computed member names**, **`new.target`**, and
-**subclassing built-ins**.
+**Private `#fields`**, **static blocks**, **computed member names** and
+**`new.target`** all work. The one class feature that does not is
+**subclassing a built-in** — `class MyArray extends Array` — because `extends`
+takes a class and the built-ins are native constructors; the error says so.
 
-Class names are not usable as type annotations. The type lattice is a fixed set
-of primitives, so an instance is `object` and a class is dynamic; nominal types
-are the next typing milestone rather than part of this one.
+A class's name **is** a type, and takes type parameters of its own — see
+[A class's name is a type](#a-classs-name-is-a-type) and
+[Generics](#generics).
 
 ## Modules
 

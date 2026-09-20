@@ -189,7 +189,9 @@ typedef struct {
   int memberCount;
 
   /* COMPOSITE_ARRAY: what it holds.
-   * COMPOSITE_FUNCTION: what it answers. */
+   * COMPOSITE_FUNCTION: what it answers.
+   * COMPOSITE_TYPEVAR: what it is constrained to — `<T extends string>` —
+   *   or TYPE_DYNAMIC when it is constrained to nothing. */
   TypeId inner;
 
   /* COMPOSITE_FUNCTION: a run of the slot pool holding parameter types.
@@ -468,6 +470,19 @@ bool csTypeIsPromise(const TypeTable *table, TypeId type, TypeId *resolves);
 /* Declares `T` inside the declaration that introduced it. In scope until the
  * parser closes it with csTypeCloseTypeVar. */
 TypeId csTypeDeclareTypeVar(TypeTable *table, const char *name, int length);
+
+/* `<T extends string>` — what the variable is constrained to. Inside the
+ * declaration a `T` may then be used wherever its constraint may be, and a
+ * call that passes something else is a mistake the checker can name. */
+void csTypeConstrainTypeVar(TypeTable *table, TypeId variable, TypeId constraint);
+
+/* What it was constrained to, or TYPE_DYNAMIC. */
+TypeId csTypeConstraintOf(const TypeTable *table, TypeId variable);
+
+/* The type to *read* through: a constrained variable answers its constraint,
+ * and everything else answers itself. What a constraint buys a body is exactly
+ * this — an unconstrained variable still knows nothing. */
+TypeId csTypeThroughConstraint(const TypeTable *table, TypeId type);
 void csTypeCloseTypeVar(TypeTable *table, TypeId typeVar);
 
 /* Records the type parameters a declaration introduced, so a call or a type

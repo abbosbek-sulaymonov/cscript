@@ -1,0 +1,3 @@
+error_constraint_argument.cx:7: error: type argument 1 of 'Keyed' is number but it is constrained to string
+      7 | const wrong: Keyed<number> = { key: 1 };
+        |              ^^^^^

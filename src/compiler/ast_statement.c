@@ -71,6 +71,8 @@ AstNode *csAstFunction(AstArena *arena, int line, const char *name, int nameLeng
   node->as.function.isGenerator = false;
   node->as.function.isArrow = false;
   node->as.function.typeParamCount = 0;
+  node->as.function.predicateParam = -1;
+  node->as.function.predicateType = TYPE_DYNAMIC;
   return node;
 }
 
@@ -240,6 +242,7 @@ void csAstFunctionAddParam(AstArena *arena, AstNode *function, const char *name,
   grown[count].hasAnnotation = hasAnnotation;
   grown[count].pattern = NULL;
   grown[count].defaultValue = NULL;
+  grown[count].optional = false;
 
   function->as.function.params = grown;
   function->as.function.paramCount = count + 1;

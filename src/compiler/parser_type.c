@@ -93,6 +93,15 @@ bool parseTypeParams(Parser *parser, TypeId *params, int *countOut) {
       errorAtCurrent(parser, "this file declares more types than the checker can hold");
       return false;
     }
+
+    /* `<T extends string>` — read after the variable is declared, so a
+     * constraint may name the variables before it. */
+    if (matchToken(parser, TOKEN_EXTENDS)) {
+      TypeId constraint;
+      if (!parseTypeUnion(parser, &constraint)) return false;
+      csTypeConstrainTypeVar(parser->types, declared, constraint);
+    }
+
     params[(*countOut)++] = declared;
   } while (matchToken(parser, TOKEN_COMMA));
 
@@ -329,6 +338,21 @@ static bool parseTypePrimary(Parser *parser, TypeId *out) {
                         argCount);
       return false;
     }
+    /* `<T extends string>` — what the declaration asked of each argument, and
+     * the point of having asked. Checked here because this is where the
+     * argument is written; a call site that never writes one is checked where
+     * the inference happens instead. */
+    if (!isArraySpelling && utilityArity == 0) {
+      const CompositeType *generic = csTypeComposite(parser->types, *out);
+      for (int i = 0; generic != NULL && i < argCount && i < generic->typeParamCount; i++) {
+        TypeId constraint = csTypeConstraintOf(parser->types, generic->typeParams[i]);
+        if (constraint == TYPE_DYNAMIC || csTypeAssignableIn(parser->types, args[i], constraint)) continue;
+        csDiagnosticError(parser->diag, line, name, length, "type argument %d of '%.*s' is %s but it is constrained to %s", i + 1, length, name,
+                          csTypeNameIn(parser->types, args[i]), csTypeNameIn(parser->types, constraint));
+        return false;
+      }
+    }
+
     if (isArraySpelling) {
       *out = csTypeArrayOf(parser->types, args[0]);
     } else if (utilityArity > 0) {

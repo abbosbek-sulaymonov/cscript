@@ -229,7 +229,7 @@ AstNode *parseGenericClassBody(Parser *parser, int line, const char *name, int n
           }
           int required = takenCount;
           for (int i = 0; i < takenCount; i++) {
-            if (method->as.function.params[i].defaultValue == NULL) continue;
+            if (method->as.function.params[i].defaultValue == NULL && !method->as.function.params[i].optional) continue;
             required = i;
             break;
           }
@@ -264,7 +264,7 @@ AstNode *parseGenericClassBody(Parser *parser, int line, const char *name, int n
           }
           int required = takenCount;
           for (int i = 0; i < takenCount; i++) {
-            if (method->as.function.params[i].defaultValue == NULL) continue;
+            if (method->as.function.params[i].defaultValue == NULL && !method->as.function.params[i].optional) continue;
             required = i;
             break;
           }

@@ -228,6 +228,13 @@ typedef struct AstParam {
   /* `function f(a = 1)`. Run at the top of the body when the argument was not
    * given, which is also what an explicit `undefined` counts as. */
   AstNode *defaultValue;
+
+  /* `function f(a?: number)` — the argument may be left out, and the parameter
+   * then holds undefined. Which is what a default already means, so the two
+   * are the same thing to everything that counts how many a call must supply;
+   * what an optional one has instead of a default is `| undefined` in its
+   * type, because nothing fills it in. */
+  bool optional;
 } AstParam;
 
 struct AstNode {
@@ -432,6 +439,15 @@ struct AstNode {
       AstNode *body; /*   an AST_BLOCK */
       TypeId returnType;
       bool hasReturnAnnotation;
+
+      /* `function isText(x: unknown): x is string` — a *type predicate*. What
+       * such a function answers is a boolean; what it says on top of that is
+       * that its caller may treat the named argument as `predicateType` when
+       * the answer was true.
+       *
+       * -1 when there is none, which is every other function. */
+      int predicateParam;
+      TypeId predicateType;
       bool isAsync; /*   returns a promise, may await */
       /* `function f(a, ...rest)`. The last parameter collects every argument
        * past the ones before it, as an array — so the call's arity stops

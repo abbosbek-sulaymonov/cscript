@@ -1,0 +1,5 @@
+error_constraints.cx:13: error: Named has no member 'age'
+error_constraints.cx:13: error: Named needs a member 'name' and this has none
+error_constraints.cx:14: error: 'label' is constrained to Named, and here it would be number
+error_constraints.cx:19: error: 'longest' is constrained to string, and here it would be number
+error_constraints.cx:24: error: cannot read property 'length' of T

@@ -1,0 +1,6 @@
+error_optional_and_default.cx:3: error: a parameter is optional or has a default, not both
+      3 | function both(a?: number = 1): number {
+        |                            ^
+error_optional_and_default.cx:5: error: expected an expression
+      5 | }
+        | ^

@@ -173,10 +173,15 @@ Signature *csTypeDeclareFunction(Checker *checker, AstNode *node) {
   signature->hasReturnAnnotation = node->as.function.hasReturnAnnotation;
   signature->paramCount = node->as.function.paramCount;
   signature->hasRest = node->as.function.hasRest;
+  signature->predicateParam = node->as.function.predicateParam;
+  signature->predicateType = node->as.function.predicateType;
   signature->requiredCount = node->as.function.paramCount;
   if (node->as.function.hasRest) signature->requiredCount--;
+  /* An optional parameter and one with a default are the same thing here:
+   * both may be left out, and everything from the first such one on may be
+   * too. */
   for (int i = 0; i < node->as.function.paramCount; i++) {
-    if (node->as.function.params[i].defaultValue != NULL) {
+    if (node->as.function.params[i].defaultValue != NULL || node->as.function.params[i].optional) {
       signature->requiredCount = i;
       break;
     }
@@ -184,7 +189,7 @@ Signature *csTypeDeclareFunction(Checker *checker, AstNode *node) {
   for (int i = 0; i < node->as.function.paramCount && i < UINT8_MAX; i++) {
     const AstParam *param = &node->as.function.params[i];
     signature->paramTypes[i] = param->hasAnnotation ? param->type : TYPE_DYNAMIC;
-    signature->paramHasDefault[i] = param->defaultValue != NULL;
+    signature->paramHasDefault[i] = param->defaultValue != NULL || param->optional;
 
     /* A declaration takes its type from what it is given; a parameter has
      * nothing to take one from, so it has to say. Without this rule every

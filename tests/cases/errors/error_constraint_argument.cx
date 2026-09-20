@@ -1,0 +1,7 @@
+// A constraint is checked where a type argument is written out, too — not
+// only where one is worked out from a call.
+interface Keyed<K extends string> {
+  key: K;
+}
+
+const wrong: Keyed<number> = { key: 1 };

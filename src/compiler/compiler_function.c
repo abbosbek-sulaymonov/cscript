@@ -147,8 +147,11 @@ void compileFunctionAs(const AstNode *node, FunctionKind kind) {
   /* A rest parameter is never required: it is an empty array when nothing is
    * left over. */
   if (node->as.function.hasRest) compiler.function->arity--;
+  /* An optional parameter is one the caller may leave out, which is what an
+   * arity is: the count below which a call is a mistake. A default is the
+   * same promise with a value attached. */
   for (int i = 0; i < node->as.function.paramCount; i++) {
-    if (node->as.function.params[i].defaultValue != NULL) {
+    if (node->as.function.params[i].defaultValue != NULL || node->as.function.params[i].optional) {
       compiler.function->arity = i;
       break;
     }

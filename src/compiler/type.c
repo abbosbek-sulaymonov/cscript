@@ -312,10 +312,17 @@ static bool assignable(const TypeTable *table, TypeId from, TypeId to, int depth
     return from == TYPE_FUNCTION;
   }
 
-  /* A type variable is only itself. Inside the declaration that introduced it
-   * nothing else is known about it, and that is the point: a generic body is
-   * checked once, for every instantiation at once. */
-  if ((source != NULL && source->kind == COMPOSITE_TYPEVAR) || (target != NULL && target->kind == COMPOSITE_TYPEVAR)) return false;
+  /* A type variable is only itself — unless it was constrained, and then it is
+   * also whatever it was constrained to. Inside the declaration nothing else
+   * is known about it, and that is the point: a generic body is checked once,
+   * for every instantiation at once. `<T extends string>` is how a body says
+   * it needs more than nothing, and the constraint is what the call site then
+   * has to satisfy. */
+  if (source != NULL && source->kind == COMPOSITE_TYPEVAR) {
+    if (source->inner == TYPE_DYNAMIC) return false;
+    return assignable(table, source->inner, to, depth + 1);
+  }
+  if (target != NULL && target->kind == COMPOSITE_TYPEVAR) return false;
 
   if (source != NULL && source->kind == COMPOSITE_INTERFACE) {
     if (to == TYPE_OBJECT) return true;
