@@ -69,6 +69,16 @@ static TypeId importType(TypeTable *dest, const TypeTable *src, TypeId type, int
 
     case COMPOSITE_ARRAY: return csTypeArrayOf(dest, importType(dest, src, composite->inner, depth + 1));
 
+    case COMPOSITE_TUPLE: {
+      TypeId elements[CS_MAX_TYPE_PARAMS * 4];
+      int count = composite->slotCount;
+      if (count > (int)(sizeof elements / sizeof elements[0])) return TYPE_ARRAY;
+      for (int i = 0; i < count; i++) {
+        elements[i] = importType(dest, src, src->slots[composite->slotStart + i], depth + 1);
+      }
+      return csTypeTupleOf(dest, elements, count);
+    }
+
     case COMPOSITE_UNION: {
       TypeId members[16];
       int count = composite->slotCount;

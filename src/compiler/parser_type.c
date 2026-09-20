@@ -203,6 +203,27 @@ static bool parseTypePrimary(Parser *parser, TypeId *out) {
     return true;
   }
 
+  /* `[number, string]` — a fixed number of elements, each with its own type.
+   * Told apart from `T[]` by position: a `[` that *opens* a type is a tuple,
+   * where one that follows a type is the array suffix. */
+  if (matchToken(parser, TOKEN_LEFT_BRACKET)) {
+    TypeId elements[CS_MAX_TYPE_PARAMS * 4];
+    int count = 0;
+    if (!check(parser, TOKEN_RIGHT_BRACKET)) {
+      do {
+        if (count >= (int)(sizeof elements / sizeof elements[0])) {
+          errorAtCurrent(parser, "a tuple may hold at most sixteen elements");
+          return false;
+        }
+        if (!parseTypeUnion(parser, &elements[count++])) return false;
+      } while (matchToken(parser, TOKEN_COMMA));
+    }
+    consume(parser, TOKEN_RIGHT_BRACKET, "expected ']' after the tuple's elements");
+    if (parser->diag->panicMode) return false;
+    *out = csTypeTupleOf(parser->types, elements, count);
+    return true;
+  }
+
   /* `infer R` — a name for whatever stands here in the type being matched.
    * Only meaningful inside the pattern of a conditional, and it is the parse
    * of that pattern which collects it; anywhere else it is a variable nothing

@@ -1,0 +1,7 @@
+error_tuples.cx:7: error: cannot assign number[] to 'wrongType', declared as [number, string]
+error_tuples.cx:8: error: cannot assign (number | string)[] to 'tooMany', declared as [number, string]
+error_tuples.cx:9: error: cannot assign number[] to 'tooFew', declared as [number, string]
+error_tuples.cx:14: error: [number, string] has no element 2
+error_tuples.cx:19: error: cannot assign number[] to 'fromArray', declared as [number, string]
+error_tuples.cx:22: error: cannot assign [number, string] to 'narrowed', declared as number[]
+error_tuples.cx:26: error: cannot assign number to 'swapped', declared as string

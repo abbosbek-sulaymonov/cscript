@@ -244,6 +244,32 @@ static bool assignable(const TypeTable *table, TypeId from, TypeId to, int depth
   if (source != NULL && source->kind == COMPOSITE_NUMBER_LITERAL) return to == TYPE_NUMBER;
   if (target != NULL && target->kind == COMPOSITE_NUMBER_LITERAL) return false;
 
+  if (source != NULL && source->kind == COMPOSITE_TUPLE) {
+    /* A tuple is an array, and an object, as an array is. Given where an
+     * array is wanted, every element has to fit what that array holds —
+     * `[number, string]` is a `(number | string)[]` and not a `number[]`. */
+    if (to == TYPE_ARRAY || to == TYPE_OBJECT) return true;
+    if (target != NULL && target->kind == COMPOSITE_ARRAY) {
+      for (int i = 0; i < source->slotCount; i++) {
+        if (!assignable(table, table->slots[source->slotStart + i], target->inner, depth + 1)) return false;
+      }
+      return true;
+    }
+    /* Against another tuple: the same number of elements, each one fitting.
+     * Covariant, as an array's element is, and for the same reason. */
+    if (target == NULL || target->kind != COMPOSITE_TUPLE) return false;
+    if (source->slotCount != target->slotCount) return false;
+    for (int i = 0; i < source->slotCount; i++) {
+      if (!assignable(table, table->slots[source->slotStart + i], table->slots[target->slotStart + i], depth + 1)) return false;
+    }
+    return true;
+  }
+  if (target != NULL && target->kind == COMPOSITE_TUPLE) {
+    /* Nothing shapeless is a tuple: an array says nothing about how many
+     * elements it has, and a tuple is exactly that claim. */
+    return false;
+  }
+
   if (source != NULL && source->kind == COMPOSITE_ARRAY) {
     /* `number[]` is an array and an object, as a bare `array` is. */
     if (to == TYPE_ARRAY || to == TYPE_OBJECT) return true;

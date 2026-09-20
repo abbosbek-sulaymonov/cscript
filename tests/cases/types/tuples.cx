@@ -1,0 +1,66 @@
+// Tuple types — a fixed number of elements, each with its own type.
+//
+// An array knows what *every* element holds; a tuple knows what *each* one
+// does. That is the difference a pair returned from a function needs, and
+// without it a destructured return was untyped.
+
+type Pair = [number, string];
+
+const p: Pair = [1, "one"];
+console.log(p[0] + 1, p[1] + "!");
+
+// Read at a position written out, which is the whole of what a tuple is for.
+type Triple = [number, string, boolean];
+const t: Triple = [7, "seven", true];
+console.log(t[0], t[1], t[2]);
+
+// A tuple is an array, and an object, as an array is — but only where what the
+// array holds admits every element.
+const loose: (number | string)[] = p;
+console.log(loose.length, loose.join("/"));
+
+// Destructuring is where it pays. Each binding takes what the tuple says
+// stands at its position.
+function divide(a: number, b: number): [number, number] {
+  return [(a - (a % b)) / b, a % b];
+}
+
+const [whole, rest] = divide(17, 5);
+console.log(whole + 1, rest + 1);
+
+// An object pattern over a shape is the same question asked by name, and was
+// untyped for the same reason.
+interface User {
+  name: string;
+  age: number;
+  email?: string;
+}
+
+const user: User = { name: "ada", age: 36 };
+const { name, age, email } = user;
+console.log(name.toUpperCase(), age + 1, email === undefined);
+
+// An optional member may not be there, so what the binding holds says so.
+const missing: string | undefined = email;
+console.log(missing === undefined);
+
+// Nested and empty ones.
+type Nested = [number, [string, boolean]];
+const n: Nested = [1, ["two", true]];
+console.log(n[0], n[1][0], n[1][1]);
+
+type Empty = [];
+const empty: Empty = [];
+console.log(empty.length);
+
+// `Parameters<T>` needed a tuple to put its answer in, which is why it waited.
+type Handler = (a: number, b: string) => boolean;
+type Args = Parameters<Handler>;
+
+const given: Args = [3, "three"];
+console.log(given[0] + 1, given[1] + "!");
+
+// And a tuple read in a type position, by a position written out.
+type Second = Args[1];
+const second: Second = "text";
+console.log(second.toUpperCase());

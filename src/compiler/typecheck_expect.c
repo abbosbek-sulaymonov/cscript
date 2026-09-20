@@ -33,6 +33,26 @@ TypeId csTypeCheckShape(Checker *checker, AstNode *value, TypeId expected) {
   /* `[{ x: 1, y: 2 }]` given to a `Point[]` — the elements are literals too,
    * and each is proved against what the array holds. Without this the array
    * would be an `object[]`, which satisfies nothing shaped. */
+  /* `const p: [number, string] = [1, "one"]` — positionally, because that is
+   * what a tuple is. The count has to match: a tuple is the claim that there
+   * are exactly this many, and a literal of the wrong length is not one. */
+  if (value->type == AST_ARRAY_LITERAL && csTypeIs(checker->types, expected, COMPOSITE_TUPLE)) {
+    int wanted = csTypeTupleLength(checker->types, expected);
+    if (wanted != value->as.arrayLiteral.count) return value->resolvedType;
+
+    TypeId elements[CS_MAX_TYPE_PARAMS * 4];
+    if (wanted > (int)(sizeof elements / sizeof elements[0])) return value->resolvedType;
+    for (int i = 0; i < wanted; i++) {
+      AstNode *item = value->as.arrayLiteral.elements[i];
+      if (item->type == AST_SPREAD) return value->resolvedType;
+      TypeId want = csTypeTupleElement(checker->types, expected, i);
+      TypeId given = csTypeCheckShape(checker, item, want);
+      if (!csTypeAssignableIn(checker->types, given, want)) return value->resolvedType;
+      elements[i] = want;
+    }
+    return csTypeTupleOf(checker->types, elements, wanted);
+  }
+
   if (value->type == AST_ARRAY_LITERAL && csTypeIs(checker->types, expected, COMPOSITE_ARRAY)) {
     TypeId element = csTypeElementOf(checker->types, expected);
     bool ok = true;

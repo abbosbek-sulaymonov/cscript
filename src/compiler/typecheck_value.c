@@ -330,6 +330,23 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeId *out) {
         result = indexed;
         break;
       }
+
+      /* `p[0]` on a tuple is that element, exactly — which is the whole of
+       * what a tuple is for. Only where the position is written out: an index
+       * the checker cannot read answers any of them, which is what
+       * csTypeElementOf gives below. */
+      if (csTypeIs(checker->types, target, COMPOSITE_TUPLE) && node->as.index.index->type == AST_NUMBER_LITERAL) {
+        double at = node->as.index.index->as.number;
+        TypeId element = at == (double)(int)at ? csTypeTupleElement(checker->types, target, (int)at) : TYPE_ERROR;
+        if (element != TYPE_ERROR) {
+          result = element;
+          break;
+        }
+        csTypeError(checker, node->line, "%s has no element %g", csTypeNameIn(checker->types, target), at);
+        result = TYPE_ERROR;
+        break;
+      }
+
       result = csTypeElementOf(checker->types, target);
       break;
     }
@@ -387,16 +404,40 @@ bool checkValueNode(Checker *checker, AstNode *node, TypeId *out) {
       result = TYPE_DYNAMIC;
       break;
 
-    case AST_DESTRUCTURE:
-      checkNode(checker, node->as.destructure.initializer);
+    case AST_DESTRUCTURE: {
+      TypeId source = checkNode(checker, node->as.destructure.initializer);
+
+      /* What each binding takes from what it was given.
+       *
+       * An array pattern over a *tuple* is the case this can answer exactly:
+       * position 0 holds what the tuple says position 0 holds. An object
+       * pattern over a shape is the other, by name. Anything else is a read
+       * the checker cannot follow, and stays what it has always been. */
+      bool fromTuple = !node->as.destructure.isObject && csTypeIs(checker->types, source, COMPOSITE_TUPLE);
+      bool fromShape = node->as.destructure.isObject && csTypeIs(checker->types, source, COMPOSITE_INTERFACE);
+
       for (int i = 0; i < node->as.destructure.count; i++) {
-        checkNode(checker, node->as.destructure.bindings[i].defaultValue);
-        /* Element and property types are not modelled, so each binding is
-         * dynamic. */
-        csTypeDeclareVariable(checker, node->as.destructure.bindings[i].name, node->as.destructure.bindings[i].nameLength, TYPE_DYNAMIC);
+        const AstBinding *binding = &node->as.destructure.bindings[i];
+        checkNode(checker, binding->defaultValue);
+
+        TypeId held = TYPE_DYNAMIC;
+        if (fromTuple && !binding->isRest && binding->pattern == NULL) {
+          TypeId element = csTypeTupleElement(checker->types, source, i);
+          if (element != TYPE_ERROR) held = element;
+        } else if (fromShape && !binding->isRest && binding->pattern == NULL) {
+          const char *key = binding->key != NULL ? binding->key : binding->name;
+          int keyLength = binding->key != NULL ? binding->keyLength : binding->nameLength;
+          const TypeMember *member = csTypeFindMember(checker->types, source, key, keyLength);
+          /* An optional member may not be there, and the binding holds
+           * undefined when it is not — which is what its type has to say. */
+          if (member != NULL) held = member->optional ? csTypeUnionWith(checker->types, member->type, TYPE_UNDEFINED) : member->type;
+        }
+
+        csTypeDeclareVariable(checker, binding->name, binding->nameLength, held);
       }
       result = TYPE_UNDEFINED;
       break;
+    }
 
     case AST_REGEX_LITERAL: result = TYPE_OBJECT; break;
 
